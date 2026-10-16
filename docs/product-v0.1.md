@@ -422,7 +422,7 @@ queued → running → succeeded
 
 | 层 | 选择与理由 |
 | --- | --- |
-| Go | v0.1 采用 Go 1.26+，M0 从当前 1.22 升级并验证兼容；CI 覆盖最低版与当前 stable |
+| Go | v0.1 采用 Go 1.25，使用该分支最新补丁；CI 覆盖 1.25 与当前 stable |
 | HTTP | 标准库 `net/http`；REST + SSE；请求与执行分别管理 context |
 | Agent | 自建有限工具循环；执行器接口隔离模型 API 和未来 CLI 接入 |
 | 模型 API | 首版 Anthropic Messages API；模型 ID 显式配置，工具 schema/停止条件按官方协议实现 |
@@ -588,7 +588,7 @@ X-CSRF-Token: 浏览器会话的CSRF值
 
 ### 13.1 仓库与协作
 
-- M0 初始化正式 Git 仓库并确定公开仓库地址，再设置真实 Go module 路径；本文件创建时当前目录尚无 `.git`。
+- 正式仓库为 `github.com/AcSunday/cocogem`，Go module 使用同一路径；已初始化本地 Git，按功能测试通过后提交独立 commit。
 - 项目代码计划采用 MIT；采用自身名称与视觉资产。引用或移植上游代码时核对文件许可、保留要求的版权和许可说明，并记录来源版本；依赖许可另行核对。
 - 首次公开前补齐 `LICENSE`、`README.md`、`CONTRIBUTING.md`、`SECURITY.md`、`CODE_OF_CONDUCT.md`、变更记录和 PR 模板。
 - README 区分当前已实现功能与计划，包含离线演示、真实运行、环境变量、数据位置、限制和截图；不放未验证的 CI 徽章。

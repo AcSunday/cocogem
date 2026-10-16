@@ -1,2 +1,15 @@
 .cocogem/
 /cocogem
+node_modules/
+web/dist/
+dist/
+.tools/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+coverage.out
+web/playwright-report/
+web/test-results/
+.DS_Store
