@@ -190,7 +190,7 @@ func (s *Server) system(rw http.ResponseWriter, r *http.Request) {
 		verified[k] = v
 	}
 	s.mu.Unlock()
-	writeJSON(rw, 200, map[string]any{"demo": s.config.Demo, "models": s.config.Models, "roots": s.config.Roots, "model_status": state(s.config.ModelConfigured), "search_status": state(s.config.SearchConfigured), "verified": verified, "csrf_token": csrf, "limits": map[string]int{"members": 4, "queued_runs": 20, "tool_turns": 12}})
+	writeJSON(rw, 200, SystemInfo{Demo: s.config.Demo, Models: append([]string{}, s.config.Models...), Roots: append([]string{}, s.config.Roots...), ModelStatus: state(s.config.ModelConfigured), SearchStatus: state(s.config.SearchConfigured), Verified: verified, CSRFToken: csrf, Limits: map[string]int{"members": 4, "queued_runs": 20, "tool_turns": 12}})
 }
 func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
 	if s.config.Model == nil {
@@ -531,6 +531,13 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		thread, err = tx.Thread(r.PathValue("id"))
 		if err != nil {
 			return err
+		}
+		ws, err := tx.Workspace(thread.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if !s.config.Demo && ws.ConsentVersion < 1 {
+			return errors.New("请先在工作空间设置确认资料外发范围")
 		}
 		agents, err = tx.Agents(thread.WorkspaceID)
 		return err

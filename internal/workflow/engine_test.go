@@ -7,6 +7,7 @@ import (
 	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,6 +53,102 @@ func seedRun(t *testing.T, s *store.Store) w.Run {
 	return run
 }
 
+func TestQueuedCancellationSettlesPlan(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	r := seedRun(t, s)
+	e := Engine{Store: s}
+	if _, err := e.Cancel(context.Background(), r.ID); err != nil {
+		t.Fatal(err)
+	}
+	s.Read(context.Background(), func(tx *store.Tx) error {
+		steps, err := tx.Steps(r.ID)
+		for _, step := range steps {
+			if step.Status != "skipped" {
+				t.Fatal("unsettled step", step.Status)
+			}
+		}
+		return err
+	})
+}
+
+func TestDispatchRevalidatesPolicyAndBoundsHistoricalSources(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		revoke bool
+		large  bool
+	}{{"revoked model", true, false}, {"large old sources", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			run := seedRun(t, s)
+			if tc.large {
+				if err := s.Write(context.Background(), func(tx *store.Tx) error {
+					for i := 0; i < 5; i++ {
+						if err := tx.SaveSource(w.Source{ID: w.NewID(), WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, RunID: run.ID, Kind: "web", Title: "old", Content: strings.Repeat("x", 32768)}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			models := []string{"demo"}
+			if tc.revoke {
+				models = []string{"other"}
+			}
+			e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: models, Demo: true}
+			ctx, cancel := context.WithCancel(context.Background())
+			if err := e.Start(ctx); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { cancel(); e.Wait() }()
+			got := awaitRun(t, s, run.ID)
+			want := "succeeded"
+			if tc.revoke {
+				want = "failed"
+			}
+			if got.Status != want {
+				t.Fatal(got.Status, got.Error)
+			}
+			if tc.revoke {
+				s.Read(ctx, func(tx *store.Tx) error {
+					steps, err := tx.Steps(run.ID)
+					for _, step := range steps {
+						if step.Status != "skipped" {
+							t.Fatal("pending after dispatch failure")
+						}
+					}
+					return err
+				})
+			}
+		})
+	}
+}
+
+func TestTerminalPersistenceFailureIsReported(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := seedRun(t, s)
+	s.Close()
+	e := Engine{Store: s, Errors: make(chan error, 1)}
+	e.finish(context.Background(), r, "failed", nil)
+	select {
+	case <-e.Errors:
+	default:
+		t.Fatal("terminal persistence error hidden")
+	}
+}
+
 func awaitRun(t *testing.T, s *store.Store, id string) w.Run {
 	t.Helper()
 	deadline := time.NewTimer(5 * time.Second)
@@ -83,7 +180,7 @@ func TestResearchExecutionAndCancellation(t *testing.T) {
 			defer s.Close()
 			run := seedRun(t, s)
 			ctx, cancel := context.WithCancel(context.Background())
-			e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), Demo: true}
+			e := Engine{Store: s, AllowedModels: []string{"demo"}, Model: model.Demo{}, Web: tools.NewWeb("", true), Demo: true}
 			if err := e.Start(ctx); err != nil {
 				t.Fatal(err)
 			}

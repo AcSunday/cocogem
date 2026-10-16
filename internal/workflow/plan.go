@@ -24,6 +24,9 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		if !ok {
 			return errors.New("selected member is unavailable")
 		}
+		if (role == "coordinator" || role == "reviewer") && !slices.Contains(a.Tools, "publish_artifact") {
+			return errors.New("this role requires explicit publish_artifact permission")
+		}
 		out = append(out, w.Step{ID: w.NewID(), RunID: runID, AgentID: id, AgentName: a.DisplayName, Role: role, Instruction: instruction, DependsOn: deps, Status: "pending"})
 		return nil
 	}
@@ -144,10 +147,22 @@ func ValidateArtifact(a w.Artifact, required string, sources []w.Source) error {
 		if a.Type == "code_analysis" && !slices.Contains([]string{"high", "medium", "low"}, f.Severity) {
 			return errors.New("code finding requires severity")
 		}
+		if a.Type == "research_report" && !slices.Contains([]string{"supported", "disputed", "insufficient_evidence"}, f.Status) {
+			return errors.New("invalid research finding status")
+		}
+		if a.Type == "code_analysis" && !slices.Contains([]string{"confirmed", "disputed", "insufficient_evidence"}, f.Status) {
+			return errors.New("invalid code finding status")
+		}
+		if a.Type == "code_analysis" && len(f.SourceIDs) == 0 {
+			return errors.New("every code finding requires file evidence")
+		}
 		if len(f.SourceIDs) == 0 && f.Status != "insufficient_evidence" {
 			return errors.New("supported finding requires captured evidence")
 		}
 		for _, id := range f.SourceIDs {
+			if !slices.Contains(a.SourceIDs, id) {
+				return errors.New("artifact source_ids must include finding references")
+			}
 			s, ok := byID[id]
 			if !ok {
 				return errors.New("finding cites an unavailable source")

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	}
 	defer db.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	engine := &workflow.Engine{Store: db, Model: model.Demo{}, Web: tools.NewWeb("", true), Demo: true}
+	engine := &workflow.Engine{Store: db, AllowedModels: []string{"demo"}, Model: model.Demo{}, Web: tools.NewWeb("", true), Demo: true}
 	if err := engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +100,16 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 		t.Fatal(rw.Body.String())
 	}
 	json.Unmarshal(rw.Body.Bytes(), &th)
+	s.config.Demo = false
+	spy := &countModel{}
+	previousModel := s.config.Model
+	s.config.Model = spy
+	denied := call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", w.RunInput{Message: "布布帮我研究一下"}, nil)
+	if denied.Code != 400 || spy.calls.Load() != 0 || !strings.Contains(denied.Body.String(), "确认") {
+		t.Fatal("routing bypassed data consent", denied.Body.String(), spy.calls.Load())
+	}
+	s.config.Demo = true
+	s.config.Model = previousModel
 	in := w.RunInput{Message: "比较协作方法", Workflow: "research", Assignments: map[string]string{"researcher": a[0].ID, "critic": a[1].ID, "coordinator": a[2].ID}}
 	rw = call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", in, nil)
 	var preview struct {
@@ -153,4 +164,11 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	if !strings.Contains(string(b), "离线演示") {
 		t.Fatal("demo export not labeled")
 	}
+}
+
+type countModel struct{ calls atomic.Int32 }
+
+func (m *countModel) Complete(context.Context, model.Request, func(string) error) (model.Response, error) {
+	m.calls.Add(1)
+	return model.Response{StopReason: "end_turn"}, nil
 }

@@ -59,7 +59,7 @@ func (d Demo) Complete(ctx context.Context, r Request, emit func(string) error) 
 	if !code && allowed("fetch_url") && !used["fetch_url"] {
 		return tool("fetch_url", map[string]any{"url": "https://example.org/cocogem/research"}), nil
 	}
-	if allowed("publish_artifact") && !used["publish_artifact"] {
+	if allowed("publish_artifact") && !used["publish_artifact"] && (strings.Contains(r.System, "role=coordinator") || strings.Contains(r.System, "role=reviewer")) {
 		kind := "note"
 		if strings.Contains(r.System, "workflow=research") {
 			kind = "research_report"

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 
 	w "github.com/AcSunday/cocogem/internal/workspace"
@@ -68,7 +69,11 @@ func ReadFile(ctx context.Context, root, path string, start, end int) (w.Source,
 		return w.Source{}, err
 	}
 	defer r.Close()
-	f, err := r.Open(local)
+	pre, err := r.Lstat(local)
+	if err != nil || !pre.Mode().IsRegular() {
+		return w.Source{}, errors.New("only regular text files are readable")
+	}
+	f, err := r.OpenFile(local, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return w.Source{}, err
 	}
@@ -133,7 +138,11 @@ func ListFiles(ctx context.Context, root, path string) ([]map[string]string, boo
 		return nil, false, err
 	}
 	defer r.Close()
-	f, err := r.Open(local)
+	pre, err := r.Lstat(local)
+	if err != nil || !pre.IsDir() {
+		return nil, false, errors.New("source is not a directory")
+	}
+	f, err := r.OpenFile(local, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, false, err
 	}
@@ -192,12 +201,15 @@ func SearchContent(ctx context.Context, root, path, query string) ([]map[string]
 		if e.IsDir() {
 			return nil
 		}
+		if !e.Type().IsRegular() {
+			return nil
+		}
 		files++
 		if files > 1000 || bytesRead >= 8*1024*1024 || len(out) >= 50 {
 			truncated = true
 			return fs.SkipAll
 		}
-		f, err := r.Open(path)
+		f, err := r.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 		if err != nil {
 			return err
 		}

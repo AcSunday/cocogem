@@ -124,7 +124,7 @@ func run() error {
 	defer db.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	engine := &workflow.Engine{Store: db, Model: provider, Web: tools.NewWeb(searchKey, *demo), Demo: *demo}
+	engine := &workflow.Engine{Store: db, AllowedRoots: roots, AllowedModels: models, Model: provider, Web: tools.NewWeb(searchKey, *demo), Demo: *demo}
 	server, err := httpapi.New(httpapi.Config{Host: *listen, WebDir: *webDir, Models: models, Roots: roots, Demo: *demo, ModelConfigured: configured, SearchConfigured: searchKey != "", Model: provider}, db, engine)
 	if err != nil {
 		return err
@@ -133,12 +133,16 @@ func run() error {
 		return err
 	}
 	defer func() { stop(); engine.Wait() }()
-	httpServer := &http.Server{Addr: *listen, Handler: server.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	httpServer := &http.Server{Addr: *listen, Handler: server.Handler(), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	fmt.Printf("Cocogem: http://%s/#bootstrap=%s\n", *listen, server.BootstrapToken())
 	fmt.Printf("Data: %s\n", dataDir)
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
 	select {
+	case err := <-engine.Errors:
+		stop()
+		_ = httpServer.Close()
+		return fmt.Errorf("scheduler failed: %w", err)
 	case err := <-errCh:
 		if !errors.Is(err, http.ErrServerClosed) {
 			return err
@@ -146,7 +150,11 @@ func run() error {
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdown)
+		if err := httpServer.Shutdown(shutdown); err != nil {
+			_ = httpServer.Close()
+			return err
+		}
+		return nil
 	}
 	return nil
 }

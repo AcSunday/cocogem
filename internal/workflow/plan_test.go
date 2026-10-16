@@ -6,7 +6,7 @@ import (
 )
 
 func TestFinitePlansAndIndependentReview(t *testing.T) {
-	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫"}, {ID: "b", DisplayName: "缅因猫"}, {ID: "c", DisplayName: "橘猫"}}
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Tools: []string{"publish_artifact"}}, {ID: "b", DisplayName: "缅因猫", Tools: []string{"publish_artifact"}}, {ID: "c", DisplayName: "橘猫", Tools: []string{"publish_artifact"}}}
 	for _, tc := range []struct {
 		name string
 		in   w.RunInput

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -14,11 +15,14 @@ func TestFilesEnforceScopeAndCapture(t *testing.T) {
 	os.WriteFile(filepath.Join(root, ".env"), []byte("secret"), 0600)
 	os.WriteFile(filepath.Join(root, "binary"), []byte{0, 1}, 0600)
 	os.Symlink("hello.txt", filepath.Join(root, "link"))
+	if err := syscall.Mkfifo(filepath.Join(root, "pipe"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	s, err := ReadFile(context.Background(), root, "hello.txt", 2, 2)
 	if err != nil || s.Content != "2: target\n" || len(s.SHA256) != 64 {
 		t.Fatal(s, err)
 	}
-	for _, p := range []string{"../outside", "/etc/passwd", ".env", "link", "binary"} {
+	for _, p := range []string{"../outside", "/etc/passwd", ".env", "link", "binary", "pipe"} {
 		t.Run(p, func(t *testing.T) {
 			if _, err := ReadFile(context.Background(), root, p, 0, 0); err == nil {
 				t.Fatal("unsafe path accepted")
