@@ -100,8 +100,9 @@ export function App() {
   currentThread.current = threadID;
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const [inspectedRunID, setInspectedRunID] = useState("");
-  const currentRun=view?.runs.at(-1);
-  const inspectedRun=view?.runs.find(run=>run.id===inspectedRunID)??currentRun;
+  const currentRun = view?.runs.at(-1);
+  const inspectedRun =
+    view?.runs.find((run) => run.id === inspectedRunID) ?? currentRun;
   const active = view?.runs.some((run) => !terminal(run.status));
   const available = agents.filter((agent) => !agent.disabled);
   const draftKey = threadID || `new:${workspaceID}`;
@@ -504,6 +505,7 @@ export function App() {
             .map((thread) => (
               <button
                 key={thread.id}
+                aria-label={thread.title}
                 className={cx(
                   thread.id === threadID ? "thread selected" : "thread",
                 )}
@@ -947,6 +949,26 @@ export function App() {
                 <button
                   key={key}
                   role="tab"
+                  id={`tab-${key}`}
+                  aria-controls="context-panel"
+                  tabIndex={tab === key ? 0 : -1}
+                  onKeyDown={(event) => {
+                    const keys = [
+                      "members",
+                      "sources",
+                      "artifacts",
+                      "tools",
+                    ] as const;
+                    let index = keys.indexOf(tab);
+                    if (event.key === "ArrowRight") index = (index + 1) % 4;
+                    else if (event.key === "ArrowLeft") index = (index + 3) % 4;
+                    else if (event.key === "Home") index = 0;
+                    else if (event.key === "End") index = 3;
+                    else return;
+                    event.preventDefault();
+                    setTab(keys[index]);
+                    document.getElementById(`tab-${keys[index]}`)?.focus();
+                  }}
                   aria-selected={tab === key}
                   onClick={() => setTab(key)}
                 >
@@ -954,7 +976,12 @@ export function App() {
                 </button>
               ))}
             </div>
-            <div className={cx("panel-body")}>
+            <div
+              className={cx("panel-body")}
+              id="context-panel"
+              role="tabpanel"
+              aria-labelledby={`tab-${tab}`}
+            >
               {tab === "members" && (
                 <>
                   <div className={cx("eyebrow")}>THE TEAM</div>

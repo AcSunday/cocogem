@@ -10,7 +10,7 @@
   background: #f7f8f4;
   font-synthesis: none;
   --green: #355944;
-  --muted: #7c8279;
+  --muted: #5f6959;
   --border: #e3e6de;
   --cream: #f4f3ed;
 }
@@ -160,7 +160,7 @@ small,
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #899181;
+  color: #60675b;
 }
 .search input {
   border: 0;
@@ -213,7 +213,7 @@ small,
 }
 .sidebar-footer p {
   font-size: 10px;
-  color: #7b8873;
+  color: #5e6958;
   margin: 9px 0 0;
 }
 .workspace-main {
@@ -259,7 +259,7 @@ small,
   border: 1px solid #d9d4b3;
   border-radius: 5px;
   background: #f5f1df;
-  color: #817444;
+  color: #6c6139;
   padding: 4px 7px;
 }
 .workspace-columns {
@@ -296,7 +296,7 @@ small,
 }
 .intro {
   font-size: 14px;
-  color: #72786e;
+  color: #5f655c;
   line-height: 1.9;
   margin: 6px 0 30px;
 }
@@ -318,7 +318,7 @@ small,
 }
 .scenario > span {
   font-size: 22px;
-  color: #6f8961;
+  color: #55694a;
   margin-bottom: 21px;
 }
 .scenario strong {
@@ -327,17 +327,17 @@ small,
 .scenario p {
   font-size: 11px;
   line-height: 1.8;
-  color: #7c8276;
+  color: #5f645b;
   margin-top: 10px;
   flex: 1;
 }
 .scenario small {
   font-size: 10px;
-  color: #56754f;
+  color: #4f6b48;
 }
 .welcome-note {
   font-size: 11px;
-  color: #818879;
+  color: #63695d;
   padding: 14px 0;
   border-top: 1px solid #eceee7;
 }
@@ -366,7 +366,7 @@ small,
   border-radius: 0;
   padding: 10px 2px;
   font-size: 12px;
-  color: #848b7d;
+  color: #666a60;
 }
 .panel-tabs button[aria-selected="true"] {
   border-bottom-color: #59734f;
@@ -395,15 +395,15 @@ small,
 }
 .cat-0 {
   background: #e6e9df;
-  color: #6e7d5e;
+  color: #5c694f;
 }
 .cat-1 {
   background: #e7e5ee;
-  color: #7e7192;
+  color: #695e7b;
 }
 .cat-2 {
   background: #f3e5cf;
-  color: #b18a47;
+  color: #7e6031;
 }
 .member-card strong {
   font-size: 13px;
@@ -417,12 +417,12 @@ small,
 .member-card p {
   font-size: 11px;
   line-height: 1.8;
-  color: #7c8276;
+  color: #5f645b;
   margin: 9px 0;
 }
 .model-label {
   font-size: 9px;
-  color: #8b9382;
+  color: #61685c;
   border: 1px solid #dfe5d7;
   border-radius: 4px;
   padding: 3px 5px;
@@ -437,7 +437,7 @@ small,
 }
 .panel-note {
   font-size: 11px;
-  color: #92998a;
+  color: #5e6258;
   line-height: 1.9;
   margin-top: 25px;
 }
@@ -464,7 +464,7 @@ small,
   display: flex;
   gap: 6px;
   align-items: center;
-  color: #818976;
+  color: #63695b;
 }
 .composer-toolbar select {
   border: 0;
@@ -503,7 +503,7 @@ small,
 }
 .stop {
   background: #f4eee7;
-  color: #88664a;
+  color: #7d5d44;
   font-size: 11px;
 }
 .recipient-list {
@@ -551,7 +551,7 @@ small,
 .source-input {
   font-size: 10px;
   margin: 7px 0;
-  color: #818a79;
+  color: #63695d;
 }
 .source-input summary {
   cursor: pointer;
@@ -588,11 +588,11 @@ small,
 .message-meta time,
 .message-meta small {
   font-size: 9px;
-  color: #9ba191;
+  color: #64695e;
 }
 .user-avatar {
   background: #eeeae0;
-  color: #928672;
+  color: #716757;
   font-size: 11px;
 }
 .user-message .message-content {
@@ -642,7 +642,7 @@ small,
 .status {
   font-size: 10px;
   background: #eaf0e1;
-  color: #5b754d;
+  color: #536b46;
   padding: 5px 8px;
   border-radius: 20px;
   white-space: nowrap;
@@ -650,16 +650,16 @@ small,
 .status.failed,
 .status.interrupted {
   background: #f5e7df;
-  color: #996950;
+  color: #805843;
 }
 .status.running,
 .status.canceling {
   background: #f3efd9;
-  color: #8d7b38;
+  color: #76672e;
 }
 .execution-summary {
   font-size: 11px;
-  color: #7d8774;
+  color: #606859;
   border-top: 1px solid var(--border);
   padding: 15px 0;
 }
@@ -675,7 +675,7 @@ small,
 .execution-summary p {
   width: 100%;
   margin: 0;
-  color: #a3634c;
+  color: #89533f;
 }
 .retry {
   font-size: 11px;
@@ -688,7 +688,7 @@ small,
 }
 .error-banner {
   background: #faeee8;
-  color: #a0543c;
+  color: #934d37;
   padding: 10px 32px;
   display: flex;
   align-items: center;
@@ -701,7 +701,7 @@ small,
 }
 .routing-preview {
   font-size: 11px;
-  color: #6f795f;
+  color: #5d6650;
   background: #f5f7ed;
   padding: 8px;
   border-radius: 5px;
@@ -742,7 +742,7 @@ small,
 .source-card span,
 .artifact-card span {
   font-size: 9px;
-  color: #89937e;
+  color: #606858;
 }
 .source-card strong,
 .artifact-card strong {
@@ -810,7 +810,7 @@ small,
 }
 .bootstrap p {
   font-size: 13px;
-  color: #78816e;
+  color: #5c6354;
 }
 .bootstrap .brand-mark {
   width: 50px;
@@ -904,7 +904,7 @@ dialog dt {
 dialog dd {
   margin: 3px 0 15px;
   overflow-wrap: anywhere;
-  color: #77806d;
+  color: #646b5c;
 }
 .mobile-panel {
   display: none;

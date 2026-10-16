@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 test.use({ baseURL: process.env.COCOGEM_TEST_BASE });
 
@@ -134,6 +135,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     "下一条草稿，不能被清除",
   );
   await page.unroute("**/runs");
+  const accessibility = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+    .analyze();
+  expect(accessibility.violations).toEqual([]);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "导航", exact: true }).click();
