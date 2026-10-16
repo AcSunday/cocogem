@@ -2,7 +2,53 @@
 
 Cocogem 的目标是一个由 Go 驱动、带交互式 Web 前端的多 Agent 协作工作空间，支持协作讨论、Research 和代码分析。
 
-[v0.1 产品与实现规格](docs/product-v0.1.md)定义了第一版的功能范围、页面交互、工程规范与分阶段验收。当前代码已经实现下方 CLI 原型；Web 工作空间按文档逐步实现。
+[v0.1 产品与实现规格](docs/product-v0.1.md)定义功能、交互和验收依据；[实现与验证进度](docs/development-progress.md)记录实际状态。
+
+## Web 工作空间
+
+已实现本地工作空间、可命名的 Agent 成员、共享会话、自然语言指派、有限协作流程、只读工具、来源捕获和版本化报告。页面支持实时记录、取消、历史重放、报告导出和人工标记。支持协作讨论、Research 和代码分析。
+
+开发需要 Go 1.25、Node.js 22.12+（建议 24 LTS）与 npm。发布包运行无需 Node.js。
+
+```sh
+make setup
+make demo
+```
+
+打开终端打印的本地链接，建立浏览器会话。演示模式无需密钥，使用确定性模型与随包公开资料，不能证明真实模型效果。创建空间时绑定列表中的演示目录即可尝试代码分析。
+
+```sh
+make test
+make build
+make e2e
+```
+
+`make e2e` 首次需要在 `web/` 下运行 `npx playwright install chromium`。已有 Chrome 时可以使用 `PLAYWRIGHT_CHANNEL=chrome make e2e`。`make dev` 启动 Vite 与 Go 服务；开发页面位于 `http://127.0.0.1:5173`，先用服务端启动链接建立同主机的本地会话。
+
+真实模型和在线搜索配置：
+
+```sh
+export ANTHROPIC_API_KEY='在本机设置，勿提交'
+export COCOGEM_MODELS='你有权使用的模型ID'
+# 可选：BRAVE_SEARCH_API_KEY，用于在线发现资料
+./dist/cocogem-server --allow-root /absolute/path/to/public-sources
+```
+
+`.env.example` 只提供变量说明，程序不自动加载 `.env`。不要把真实凭证写入命令示例、截图或版本库。真实模式发送问题和读取片段到模型服务；搜索发送查询词。首次使用需确认该工作空间的数据处理范围。
+
+默认监听 `127.0.0.1:8741`，首版拒绝公网监听；需要浏览器本地会话和 CSRF 校验。启动 token 一次使用、十五分钟过期，通过地址片段交换后移除。服务重启需重新打开新的启动链接。
+
+数据默认位于 `os.UserConfigDir()/cocogem`，可通过 `COCOGEM_DATA_DIR` 指定；演示数据独立放在其 `demo/` 子目录。停止服务后整体备份该目录，恢复时停止服务再复制回原位置；不要只复制正在使用的 SQLite 主文件而遗漏 WAL。历史捕获可能包含资料正文，应按敏感本地数据管理。
+
+模型和工具执行有时间、轮数、来源大小和队列限制。未配置搜索时可以研究给定 URL 或本地文本；不能访问登录网页、执行 shell、修改文件或上传 Office/PDF。自然语言路由仍可能误判；页面提供解释与明确选人入口，歧义时不会执行。
+
+当前真实 Anthropic/Brave smoke、Linux 运行证据和发布安全门禁仍见[验证进度](docs/development-progress.md)。Go 1.25 的当前标准库漏洞扫描未通过，详见[安全扫描记录](docs/security-scan.md)；不要把本地功能测试通过视为公开发布验收通过。
+
+## 开源开发
+
+仓库：[AcSunday/cocogem](https://github.com/AcSunday/cocogem)。代码采用 [MIT](LICENSE)，贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全边界见 [SECURITY.md](SECURITY.md)。
+
+运行 `make contract` 生成 OpenAPI 与前端类型，`make check-contract` 检查漂移；`make security` 执行漏洞扫描，`make release` 只生成本地候选包和 SHA-256，不推送、不发布。参考 Clowder 的架构思路，未复制其品牌资产。
 
 ## 当前可运行的 CLI 原型
 
@@ -10,7 +56,7 @@ Cocogem 的目标是一个由 Go 驱动、带交互式 Web 前端的多 Agent �
 
 ## 运行
 
-需要 Go 1.22+，以及你要使用的、已经安装并登录的 CLI：Claude Code（`claude --version`）、Codex（`codex --version`）或 Gemini（`gemini --version`）。Claude 未登录时运行 `claude`；Codex 未登录时运行 `codex login`；Gemini 未登录时运行 `gemini` 完成认证。
+需要 Go 1.25，以及你要使用的、已经安装并登录的 CLI：Claude Code（`claude --version`）、Codex（`codex --version`）或 Gemini（`gemini --version`）。Claude 未登录时运行 `claude`；Codex 未登录时运行 `codex login`；Gemini 未登录时运行 `gemini` 完成认证。
 
 默认使用 Claude：
 
