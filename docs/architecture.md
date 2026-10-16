@@ -26,6 +26,12 @@ The first provider uses Anthropic Messages API. The Go host executes only
 validated, bounded tools. Provider SSE names stop inside the adapter. Native
 CLI execution is retained as the existing command, not exposed as a Web tool.
 
+Use `golang.org/x/net/html` v0.56.0 (BSD-3-Clause, Go 1.25 compatible)
+for HTML parsing. The standard library does not provide an HTML parser.
+The transport validates public addresses at connection time, does not inherit
+proxies, and revalidates redirects. Search credentials never follow redirects.
+File reads use `os.Root`, explicit symlink rejection and bounded captures.
+
 ## UI transport
 
 REST handles commands and snapshots; SSE carries persisted per-run events.
