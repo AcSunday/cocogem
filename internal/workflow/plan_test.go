@@ -45,3 +45,11 @@ func TestArtifactSourceCustody(t *testing.T) {
 		t.Fatal("snippet counted as code evidence")
 	}
 }
+
+func TestRequiredPublicationCannotGrantRevokedPermission(t *testing.T) {
+	agents := []w.Agent{{ID: "a", Tools: []string{"read_file"}}, {ID: "b", Tools: []string{"read_file"}}}
+	_, err := Plan("run", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}}, agents)
+	if err == nil {
+		t.Fatal("workflow silently granted publication")
+	}
+}

@@ -462,8 +462,34 @@ func (e *Engine) executeStep(ctx context.Context, run w.Run, step w.Step, histor
 		return source, err
 	}
 	execute := func(callCtx context.Context, name string, input json.RawMessage) (string, error) {
+		if name == "read_source" {
+			var in struct {
+				SourceID string `json:"source_id"`
+			}
+			if err := tools.Decode(input, &in); err != nil {
+				return "", err
+			}
+			for _, source := range sources {
+				if source.ID == in.SourceID {
+					b, err := json.Marshal(source)
+					return string(b), err
+				}
+			}
+			return "", errors.New("captured source is outside this step's input scope")
+		}
 		if name == "web_search" && run.Input.ResearchScope != "web_discovery" {
 			return "", errors.New("web discovery is outside this run scope")
+		}
+		if name == "fetch_url" && run.Input.ResearchScope != "web_discovery" && !e.Demo {
+			var in struct {
+				URL string `json:"url"`
+			}
+			if err := tools.Decode(input, &in); err != nil {
+				return "", err
+			}
+			if !slices.Contains(run.Input.SourceURLs, in.URL) && !slices.ContainsFunc(sources, func(s w.Source) bool { return s.URL == in.URL }) {
+				return "", errors.New("URL is outside the selected given-source research scope")
+			}
 		}
 		if name != "publish_artifact" {
 			return tools.Execute(callCtx, name, input, tools.Scope{Root: run.Workspace.Root, Web: e.Web, Capture: capture})

@@ -13,7 +13,7 @@ import (
 )
 
 // Names is the finite v0.1 tool vocabulary, including the workflow-owned publisher.
-var Names = []string{"list_files", "read_file", "search_content", "web_search", "fetch_url", "publish_artifact"}
+var Names = []string{"list_files", "read_file", "search_content", "web_search", "fetch_url", "read_source", "publish_artifact"}
 
 func object(properties map[string]any, required ...string) map[string]any {
 	return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
@@ -25,6 +25,7 @@ func text(description string) map[string]any {
 // Definitions returns schemas only for explicitly allowed capabilities.
 func Definitions(names []string) []model.Tool {
 	defs := map[string]model.Tool{
+		"read_source":    {Name: "read_source", Description: "Read an exact captured source visible in this step's input snapshot. Does not refresh the original.", Schema: object(map[string]any{"source_id": text("Captured source UUID")}, "source_id")},
 		"list_files":     {Name: "list_files", Description: "List files in the bound source directory; symbolic links and secrets are excluded.", Schema: object(map[string]any{"path": text("Relative directory; defaults to .")})},
 		"read_file":      {Name: "read_file", Description: "Read a bounded text excerpt and obtain a captured source ID.", Schema: object(map[string]any{"path": text("Relative file path"), "start_line": map[string]any{"type": "integer", "minimum": 1}, "end_line": map[string]any{"type": "integer", "minimum": 1}}, "path")},
 		"search_content": {Name: "search_content", Description: "Search literal text in allowed source files; results are navigation hints, not read-file evidence.", Schema: object(map[string]any{"path": text("Relative directory"), "query": text("Literal search text")}, "query")},
