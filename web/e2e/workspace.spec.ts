@@ -135,6 +135,32 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     "下一条草稿，不能被清除",
   );
   await page.unroute("**/runs");
+
+  const threadPath = new URL(page.url()).pathname.split("/t/")[1];
+  const before = (
+    await (await page.request.get(`/api/v1/threads/${threadPath}`)).json()
+  ).runs.length;
+  let postCount = 0;
+  await page.route("**/runs", async (route) => {
+    postCount++;
+    if (postCount === 1) {
+      await route.fetch();
+      await route.abort("connectionfailed");
+    } else await route.continue();
+  });
+  await page.getByLabel("输入问题").fill("布布帮我研究一下幂等重试");
+  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "重试原请求", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "重试原请求", exact: true }).click();
+  await expect(page.getByTestId("run-status")).toHaveText("已完成");
+  const after = (
+    await (await page.request.get(`/api/v1/threads/${threadPath}`)).json()
+  ).runs.length;
+  expect(after).toBe(before + 1);
+  expect(postCount).toBe(2);
+  await page.unroute("**/runs");
   const accessibility = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();

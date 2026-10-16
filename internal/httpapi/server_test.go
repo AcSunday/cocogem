@@ -119,7 +119,7 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	previousModel := s.config.Model
 	s.config.Model = spy
 	denied := call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", w.RunInput{Message: "布布帮我研究一下"}, nil)
-	if denied.Code != 400 || spy.calls.Load() != 0 || !strings.Contains(denied.Body.String(), "确认") {
+	if denied.Code != 403 || spy.calls.Load() != 0 || !strings.Contains(denied.Body.String(), "确认") {
 		t.Fatal("routing bypassed data consent", denied.Body.String(), spy.calls.Load())
 	}
 	s.config.Demo = true

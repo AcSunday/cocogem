@@ -556,7 +556,7 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if !s.config.Demo && ws.ConsentVersion < 1 {
-			return errors.New("请先在工作空间设置确认资料外发范围")
+			return &RequestError{403, "consent_required", "请先在工作空间设置确认资料外发范围"}
 		}
 		agents, err = tx.Agents(thread.WorkspaceID)
 		return err
@@ -899,6 +899,12 @@ func (s *Server) export(rw http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(rw, "> 离线演示：未验证真实模型效果。\n\n")
 	}
 	fmt.Fprintf(rw, "## 原始问题\n%s\n\n%s\n\n## 成员\n", run.Input.Message, a.Body)
+	if len(a.Findings) > 0 {
+		fmt.Fprint(rw, "\n## 结构化发现\n")
+		for _, finding := range a.Findings {
+			fmt.Fprintf(rw, "\n### %s\n状态：%s · 严重度：%s\n\n%s\n\n来源：%s\n", finding.Title, finding.Status, finding.Severity, finding.Detail, strings.Join(finding.SourceIDs, ", "))
+		}
+	}
 	for _, agent := range run.Agents {
 		fmt.Fprintf(rw, "- %s (@%s), model: %s\n", agent.DisplayName, agent.Handle, agent.Model)
 	}

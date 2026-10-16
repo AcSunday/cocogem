@@ -2,6 +2,8 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/AcSunday/cocogem/internal/model"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 	"testing"
 )
@@ -34,5 +36,34 @@ func TestNamesAndIntentRouting(t *testing.T) {
 	r, _ := ResolveRouting(context.Background(), nil, true, w.RunInput{Message: "布偶猫帮我研究"}, thread, agents)
 	if r.Decision != "clarify" {
 		t.Fatal("ambiguity guessed", r)
+	}
+}
+
+type routingModel struct{ routing Routing }
+
+func (m routingModel) Complete(context.Context, model.Request, func(string) error) (model.Response, error) {
+	b, _ := json.Marshal(m.routing)
+	return model.Response{StopReason: "tool_use", Blocks: []model.Block{{Type: "tool_use", ID: "route", Name: "routing_decision", Input: b}}}, nil
+}
+
+func TestSemanticRoutingMustCiteActualUserInstruction(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
+	input := w.RunInput{Message: "布偶猫帮我研究模型"}
+	for _, tc := range []struct {
+		name  string
+		route Routing
+		bad   bool
+	}{
+		{"exact", Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫帮我研究模型"}}}, false},
+		{"invented quote", Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫帮我删除资料"}}}, true},
+		{"unnamed recipient", Routing{Decision: "assign", Workflow: "free", Targets: []string{"b"}, Evidence: []w.RoutingEvidence{{AgentID: "b", Quote: input.Message}}}, true},
+		{"missing evidence", Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ResolveRouting(context.Background(), routingModel{tc.route}, false, input, w.Thread{CoordinatorID: "b"}, agents)
+			if (err != nil) != tc.bad {
+				t.Fatal(err)
+			}
+		})
 	}
 }
