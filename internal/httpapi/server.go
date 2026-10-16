@@ -300,7 +300,7 @@ func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
 		if err := s.validateRoot(in.Root); err != nil {
 			return err
 		}
-		if ws.Root != in.Root {
+		if ws.Root != in.Root || ws.ConsentVersion != in.ConsentVersion {
 			active, err := tx.Active()
 			if err != nil {
 				return err

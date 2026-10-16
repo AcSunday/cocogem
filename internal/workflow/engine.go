@@ -201,12 +201,18 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		if e.Model == nil {
 			return errors.New("model is unavailable at dispatch")
 		}
+		if run.Input.Workflow == "research" && run.Input.ResearchScope == "web_discovery" && !e.Web.SearchEnabled() {
+			return errors.New("online search is unavailable at dispatch")
+		}
 		if run.Workspace.Root != "" && !slices.Contains(e.AllowedRoots, run.Workspace.Root) {
 			return errors.New("source directory authorization was revoked")
 		}
 		ws, err := tx.Workspace(run.WorkspaceID)
 		if err != nil {
 			return err
+		}
+		if !e.Demo && ws.ConsentVersion < 1 {
+			return errors.New("workspace data-sharing consent was withdrawn")
 		}
 		if ws.Root != run.Workspace.Root {
 			return errors.New("source binding changed before dispatch")
@@ -345,6 +351,43 @@ func (e *Engine) finish(parent context.Context, run w.Run, status string, cause 
 		if err := settlePending(tx, run.ID, "run ended before step started"); err != nil {
 			return err
 		}
+		unfinished, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		for _, step := range unfinished {
+			if step.Status == "running" {
+				step.Status = "failed"
+				if status == "canceled" || status == "interrupted" {
+					step.Status = status
+				}
+				step.Error = "step ended without a committed completion"
+				if err := tx.SaveStep(step); err != nil {
+					return err
+				}
+				if err := tx.AppendEvent(run.ID, step.ID, step.AgentID, "step_finished", step); err != nil {
+					return err
+				}
+			}
+		}
+		messages, err := tx.Messages(run.ThreadID)
+		if err != nil {
+			return err
+		}
+		for _, message := range messages {
+			if message.RunID == run.ID && message.Status == "processing" {
+				message.Status = "failed"
+				if status == "canceled" || status == "interrupted" {
+					message.Status = status
+				}
+				if err := tx.SaveMessage(message); err != nil {
+					return err
+				}
+				if err := tx.AppendEvent(run.ID, message.StepID, message.AgentID, "message_finished", message); err != nil {
+					return err
+				}
+			}
+		}
 		current.Status = status
 		current.FinishedAt = w.Now()
 		if cause != nil {
@@ -438,8 +481,14 @@ func (e *Engine) executeStep(ctx context.Context, run w.Run, step w.Step, histor
 		}
 		return nil
 	})
+	pointerBytes := 0
 	for _, s := range sources[max(0, len(sources)-30):] {
-		fmt.Fprintf(&contextText, "\nCaptured source pointer %s (%s): %s %s %s. Re-read relevant originals.\n", s.ID, s.Kind, s.Title, s.Path, s.URL)
+		pointer := fmt.Sprintf("\nCaptured source pointer %s (%s): %s %s %s. Re-read exact capture with read_source.\n", s.ID, s.Kind, shortPointer(s.Title), shortPointer(s.Path), shortPointer(s.URL))
+		if pointerBytes+len(pointer) > 8192 {
+			continue
+		}
+		pointerBytes += len(pointer)
+		contextText.WriteString(pointer)
 	}
 	for _, artifact := range referenced {
 		fmt.Fprintf(&contextText, "\nReferenced artifact %s v%d:\n%s\n", artifact.ID, artifact.Version, artifact.Body)
@@ -600,8 +649,17 @@ func (e *Engine) executeStep(ctx context.Context, run w.Run, step w.Step, histor
 	if saveErr != nil {
 		step.Status = "failed"
 		step.Error = saveErr.Error()
+		e.report(saveErr)
 	}
 	return step
+}
+
+func shortPointer(value string) string {
+	r := []rune(value)
+	if len(r) > 180 {
+		return string(r[:180]) + "…"
+	}
+	return value
 }
 
 func (e *Engine) report(err error) {

@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"database/sql"
 	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
@@ -91,7 +92,7 @@ func TestDispatchRevalidatesPolicyAndBoundsHistoricalSources(t *testing.T) {
 			if tc.large {
 				if err := s.Write(context.Background(), func(tx *store.Tx) error {
 					for i := 0; i < 5; i++ {
-						if err := tx.SaveSource(w.Source{ID: w.NewID(), WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, RunID: run.ID, Kind: "web", Title: "old", Content: strings.Repeat("x", 32768)}); err != nil {
+						if err := tx.SaveSource(w.Source{ID: w.NewID(), WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, RunID: run.ID, Kind: "web", Title: strings.Repeat("x", 120000), URL: "https://example.com/" + strings.Repeat("x", 3900), Content: strings.Repeat("x", 32768)}); err != nil {
 							return err
 						}
 					}
@@ -271,6 +272,115 @@ func TestArtifactRevisionAndFIFORecovery(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestStepCommitFailureCannotLeaveProcessingBubble(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.sqlite")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	fault, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fault.Close()
+	if _, err := fault.Exec(`CREATE TRIGGER fail_step_completion BEFORE UPDATE ON steps WHEN NEW.status='succeeded' BEGIN SELECT RAISE(FAIL,'test completion failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}, Demo: true}
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cancel(); e.Wait() }()
+	result := awaitRun(t, s, run.ID)
+	if result.Status != "failed" {
+		t.Fatal(result.Status)
+	}
+	if err := s.Read(ctx, func(tx *store.Tx) error {
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		for _, step := range steps {
+			if step.Status == "pending" || step.Status == "running" {
+				t.Fatal("unsettled step", step)
+			}
+		}
+		messages, err := tx.Messages(run.ThreadID)
+		for _, m := range messages {
+			if m.Status == "processing" {
+				t.Fatal("processing message after terminal")
+			}
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-e.Errors:
+	default:
+		t.Fatal("commit failure was hidden")
+	}
+}
+
+func TestSearchRevokedBeforeQueuedDispatch(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	if err := s.Write(context.Background(), func(tx *store.Tx) error { run.Input.ResearchScope = "web_discovery"; return tx.SaveRun(run) }); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", false), AllowedModels: []string{"demo"}}
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cancel(); e.Wait() }()
+	if result := awaitRun(t, s, run.ID); result.Status != "failed" || !strings.Contains(result.Error, "search") {
+		t.Fatal(result)
+	}
+	s.Read(ctx, func(tx *store.Tx) error {
+		steps, err := tx.Steps(run.ID)
+		for _, step := range steps {
+			if step.Status != "skipped" {
+				t.Fatal("model step launched")
+			}
+		}
+		return err
+	})
+}
+
+func TestConsentWithdrawalPreventsQueuedModelDispatch(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	ctx, cancel := context.WithCancel(context.Background())
+	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}}
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cancel(); e.Wait() }()
+	got := awaitRun(t, s, run.ID)
+	if got.Status != "failed" || !strings.Contains(got.Error, "consent") {
+		t.Fatal(got)
+	}
+	s.Read(ctx, func(tx *store.Tx) error {
+		messages, err := tx.Messages(run.ThreadID)
+		if len(messages) != 0 {
+			t.Fatal("model started after consent withdrawal")
+		}
+		return err
+	})
 }
 
 func awaitRun(t *testing.T, s *store.Store, id string) w.Run {

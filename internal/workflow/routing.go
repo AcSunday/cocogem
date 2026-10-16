@@ -59,27 +59,7 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 		}
 		return r, nil
 	}
-	candidates := []w.Agent{}
-	ambiguous := false
-	nameOwners := map[string][]string{}
-	for _, a := range agents {
-		if a.Disabled {
-			continue
-		}
-		for _, name := range append([]string{a.DisplayName, a.Handle}, a.Aliases...) {
-			if strings.Contains(strings.ToLower(clean), strings.ToLower(name)) {
-				nameOwners[name] = append(nameOwners[name], a.ID)
-				if !slices.ContainsFunc(candidates, func(p w.Agent) bool { return p.ID == a.ID }) {
-					candidates = append(candidates, a)
-				}
-			}
-		}
-	}
-	for _, ids := range nameOwners {
-		if len(slices.Compact(ids)) > 1 {
-			ambiguous = true
-		}
-	}
+	candidates, ambiguous := namedCandidates(clean, agents)
 	if ambiguous {
 		return Routing{Decision: "clarify", Clarification: "称呼对应多个成员，请选择确切的成员。"}, nil
 	}
@@ -190,4 +170,58 @@ func demoRouting(text string, thread w.Thread, candidates []w.Agent) Routing {
 		r.Assignments = map[string]string{"researcher": candidates[0].ID, "critic": candidates[1].ID, "coordinator": candidates[2].ID}
 	}
 	return r
+}
+
+// namedCandidates matches normalized names at the longest non-overlapping span.
+func namedCandidates(input string, agents []w.Agent) ([]w.Agent, bool) {
+	text := strings.ToLower(input)
+	owners := map[string][]w.Agent{}
+	for _, agent := range agents {
+		if agent.Disabled {
+			continue
+		}
+		for _, name := range append([]string{agent.DisplayName, agent.Handle}, agent.Aliases...) {
+			key := strings.ToLower(strings.TrimSpace(name))
+			if key == "" {
+				continue
+			}
+			if !slices.ContainsFunc(owners[key], func(a w.Agent) bool { return a.ID == agent.ID }) {
+				owners[key] = append(owners[key], agent)
+			}
+		}
+	}
+	candidates := []w.Agent{}
+	ambiguous := false
+	asciiWord := func(b byte) bool { return b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '_' || b == '-' }
+	for offset := 0; offset < len(text); {
+		longest := ""
+		for name := range owners {
+			if len(name) <= len(longest) || !strings.HasPrefix(text[offset:], name) {
+				continue
+			}
+			end := offset + len(name)
+			if asciiWord(name[0]) && offset > 0 && asciiWord(text[offset-1]) {
+				continue
+			}
+			if asciiWord(name[len(name)-1]) && end < len(text) && asciiWord(text[end]) {
+				continue
+			}
+			longest = name
+		}
+		if longest == "" {
+			offset++
+			continue
+		}
+		matches := owners[longest]
+		if len(matches) > 1 {
+			ambiguous = true
+		}
+		for _, agent := range matches {
+			if !slices.ContainsFunc(candidates, func(a w.Agent) bool { return a.ID == agent.ID }) {
+				candidates = append(candidates, agent)
+			}
+		}
+		offset += len(longest)
+	}
+	return candidates, ambiguous
 }

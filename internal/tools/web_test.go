@@ -90,3 +90,14 @@ func TestHTMLAndDemoIsolation(t *testing.T) {
 		t.Fatal("missing key hidden")
 	}
 }
+
+func TestExternalSourceMetadataIsBounded(t *testing.T) {
+	web := NewWeb("", false)
+	web.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/html"}}, Body: io.NopCloser(strings.NewReader("<title>" + strings.Repeat("X", 120000) + "</title><p>body</p>")), Request: r}, nil
+	})
+	source, err := web.Fetch(context.Background(), "https://example.com")
+	if err != nil || len(source.Title) > 300 || source.Content != "body" {
+		t.Fatal(len(source.Title), err)
+	}
+}

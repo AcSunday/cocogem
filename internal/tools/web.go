@@ -149,7 +149,7 @@ func (wb *Web) Fetch(ctx context.Context, raw string) (w.Source, error) {
 	if truncated {
 		text = string([]rune(text)[:min(len([]rune(text)), 10000)])
 	}
-	return w.Source{Kind: "web", Title: title, URL: resp.Request.URL.String(), Content: text, CapturedAt: w.Now(), Truncated: truncated}, nil
+	return w.Source{Kind: "web", Title: boundedText(title, 300), URL: resp.Request.URL.String(), Content: text, CapturedAt: w.Now(), Truncated: truncated}, nil
 }
 
 func extractHTML(input string) (string, string, error) {
@@ -225,7 +225,15 @@ func (wb *Web) Search(ctx context.Context, query string) ([]w.Source, error) {
 		if _, err := ValidateURL(r.URL); err != nil {
 			continue
 		}
-		out = append(out, w.Source{Kind: "search_snippet", Title: r.Title, URL: r.URL, Content: r.Description, CapturedAt: w.Now()})
+		out = append(out, w.Source{Kind: "search_snippet", Title: boundedText(r.Title, 300), URL: r.URL, Content: boundedText(r.Description, 1500), CapturedAt: w.Now()})
 	}
 	return out, nil
+}
+
+func boundedText(value string, characters int) string {
+	runes := []rune(value)
+	if len(runes) > characters {
+		return string(runes[:characters])
+	}
+	return value
 }

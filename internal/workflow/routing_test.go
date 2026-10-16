@@ -67,3 +67,20 @@ func TestSemanticRoutingMustCiteActualUserInstruction(t *testing.T) {
 		})
 	}
 }
+
+func TestNamesUseLongestMatchAndNormalizedAmbiguity(t *testing.T) {
+	agents := []w.Agent{{ID: "short", DisplayName: "布偶", Handle: "short"}, {ID: "long", DisplayName: "布偶猫", Handle: "long"}}
+	got, ambiguous := namedCandidates("布偶猫帮我研究", agents)
+	if ambiguous || len(got) != 1 || got[0].ID != "long" {
+		t.Fatal(got, ambiguous)
+	}
+	agents = []w.Agent{{ID: "a", DisplayName: "Alice", Handle: "one"}, {ID: "b", DisplayName: "alice", Handle: "two"}}
+	_, ambiguous = namedCandidates("Alice please investigate", agents)
+	if !ambiguous {
+		t.Fatal("case-insensitive name collision guessed")
+	}
+	got, _ = namedCandidates("malice is not a recipient", agents)
+	if len(got) != 0 {
+		t.Fatal("substring matched a name")
+	}
+}
