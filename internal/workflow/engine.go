@@ -187,6 +187,9 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		if current.Status != "queued" {
 			return w.ErrConflict
 		}
+		if e.Model == nil {
+			return errors.New("model is unavailable at dispatch")
+		}
 		ws, err := tx.Workspace(run.WorkspaceID)
 		if err != nil {
 			return err
