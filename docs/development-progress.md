@@ -6,7 +6,8 @@ The product specification remains the acceptance source of truth.
 | Feature | Status | Validation |
 | --- | --- | --- |
 | Existing CLI baseline | Preserved | `go test ./...` on original Go 1.22 |
-| M0 engineering and contracts | In progress | Go 1.25, local Git, public module and policies |
+| M0 engineering and contracts | In progress | Go 1.25.14, local Git, public module and policies |
+| Persistent domain and records | Implemented | Naming negative cases; SQLite rollback, active-run uniqueness, terminal immutability, reopen and permissions; race tests and vet |
 | M1 single-agent vertical flow | Pending | |
 | M2 names, routing and collaboration | Pending | |
 | M3 research, code analysis and artifacts | Pending | |

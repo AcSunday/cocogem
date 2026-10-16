@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision > 0), body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE TABLE IF NOT EXISTS agent_profiles(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), handle TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), body TEXT NOT NULL CHECK(json_valid(body)), UNIQUE(workspace_id,handle));
+CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), updated_at TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), thread_id TEXT NOT NULL REFERENCES threads(id), status TEXT NOT NULL CHECK(status IN ('queued','running','canceling','succeeded','failed','canceled','interrupted')), idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)), UNIQUE(thread_id,idempotency_key));
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_run_per_thread ON runs(thread_id) WHERE status IN ('queued','running','canceling');
+CREATE INDEX IF NOT EXISTS queue_order ON runs(status,created_at,id);
+CREATE TABLE IF NOT EXISTS steps(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','failed','canceled','skipped','interrupted')), position INTEGER NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), run_id TEXT NOT NULL REFERENCES runs(id), position INTEGER NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE INDEX IF NOT EXISTS message_order ON messages(thread_id,position);
+CREATE TABLE IF NOT EXISTS events(run_id TEXT NOT NULL REFERENCES runs(id), seq INTEGER NOT NULL CHECK(seq>0), type TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(run_id,seq));
+CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), thread_id TEXT NOT NULL REFERENCES threads(id), run_id TEXT NOT NULL REFERENCES runs(id), body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE TABLE IF NOT EXISTS artifacts(id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>0), thread_id TEXT NOT NULL REFERENCES threads(id), run_id TEXT NOT NULL REFERENCES runs(id), revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(id,version));
+INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
