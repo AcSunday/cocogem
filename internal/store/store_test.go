@@ -66,6 +66,21 @@ func TestPersistenceRollbackAndConstraints(t *testing.T) {
 	if err := s.Write(ctx, func(tx *Tx) error { return tx.SaveRun(run) }); !errors.Is(err, w.ErrConflict) {
 		t.Fatal("terminal state rewritten", err)
 	}
+	artifact := w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: th.ID, RunID: run.ID, Body: "original", Feedback: "unreviewed"}
+	if err := s.Write(ctx, func(tx *Tx) error { return tx.SaveArtifact(artifact) }); err != nil {
+		t.Fatal(err)
+	}
+	changed := artifact
+	changed.Revision = 2
+	changed.Body = "silently changed"
+	if err := s.Write(ctx, func(tx *Tx) error { return tx.SaveArtifact(changed) }); err == nil {
+		t.Fatal("immutable report content overwritten")
+	}
+	artifact.Revision = 2
+	artifact.Feedback = "accepted"
+	if err := s.Write(ctx, func(tx *Tx) error { return tx.SaveArtifact(artifact) }); err != nil {
+		t.Fatal("feedback update rejected", err)
+	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}

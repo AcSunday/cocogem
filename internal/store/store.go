@@ -311,5 +311,19 @@ func (t *Tx) Artifact(id string, version int) (w.Artifact, error) {
 
 // SaveArtifact creates a version or updates its separate feedback metadata.
 func (t *Tx) SaveArtifact(v w.Artifact) error {
+	old, err := t.Artifact(v.ID, v.Version)
+	if err == nil {
+		if v.Revision != old.Revision+1 {
+			return w.ErrConflict
+		}
+		old.Revision = v.Revision
+		old.Feedback = v.Feedback
+		old.FeedbackAt = v.FeedbackAt
+		if body(old) != body(v) {
+			return errors.New("artifact content versions are immutable")
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		return err
+	}
 	return t.exec("INSERT INTO artifacts(id,version,thread_id,run_id,revision,body) VALUES(?,?,?,?,?,?) ON CONFLICT(id,version) DO UPDATE SET revision=excluded.revision,body=excluded.body", v.ID, v.Version, v.ThreadID, v.RunID, v.Revision, body(v))
 }
