@@ -32,6 +32,9 @@ func release() error {
 	for _, target := range []struct{ os, arch string }{{"darwin", "arm64"}, {"linux", "amd64"}} {
 		name := "cocogem-0.1.0-" + target.os + "-" + target.arch
 		dir := filepath.Join("dist", name)
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}

@@ -19,6 +19,7 @@ test:
 
 build:
 	cd web && npm run build
+	rm -rf dist/web
 	mkdir -p dist/web
 	go build -trimpath -o dist/cocogem-server ./cmd/cocogem-server
 	cp -R web/dist/. dist/web/
