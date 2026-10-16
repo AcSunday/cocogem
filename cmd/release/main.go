@@ -3,6 +3,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -24,6 +25,9 @@ func main() {
 	}
 }
 func release() error {
+	if err := requireCleanCheckout("."); err != nil {
+		return err
+	}
 	var sums strings.Builder
 	for _, target := range []struct{ os, arch string }{{"darwin", "arm64"}, {"linux", "amd64"}} {
 		name := "cocogem-0.1.0-" + target.os + "-" + target.arch
@@ -73,9 +77,19 @@ func release() error {
 			return closeErr
 		}
 		fmt.Fprintf(&sums, "%s  %s\n", hex.EncodeToString(hash.Sum(nil)), filepath.Base(archive))
-		fmt.Printf("Built %s (execution verified only on %s/%s)\n", archive, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("Built %s on %s/%s; platform smoke is a separate check\n", archive, runtime.GOOS, runtime.GOARCH)
 	}
 	return os.WriteFile("dist/SHA256SUMS", []byte(sums.String()), 0644)
+}
+func requireCleanCheckout(dir string) error {
+	out, err := exec.Command("git", "-C", dir, "status", "--porcelain").Output()
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(out)) != 0 {
+		return errors.New("release requires a clean Git checkout")
+	}
+	return nil
 }
 func copyTree(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {

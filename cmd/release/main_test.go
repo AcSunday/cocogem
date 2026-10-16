@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -36,5 +37,21 @@ func TestArchiveContainsOnlyRelativeAssets(t *testing.T) {
 	b, _ := io.ReadAll(r)
 	if string(b) != "hello" {
 		t.Fatal(string(b))
+	}
+}
+
+func TestReleaseRefusesUncommittedSource(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s %v", out, err)
+	}
+	if err := requireCleanCheckout(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "uncommitted.txt"), []byte("changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireCleanCheckout(dir); err == nil {
+		t.Fatal("dirty release accepted")
 	}
 }
