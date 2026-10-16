@@ -68,6 +68,9 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	var auth map[string]string
 	json.Unmarshal(rw.Body.Bytes(), &auth)
 	csrf = auth["csrf_token"]
+	validateResponse(t, "/bootstrap", "post", 200, rw.Body.Bytes())
+	systemResponse := call("GET", "/api/v1/system", nil, nil)
+	validateResponse(t, "/api/v1/system", "get", 200, systemResponse.Body.Bytes())
 	if got := call("POST", "/api/v1/workspaces", map[string]string{"name": "x"}, map[string]string{"Origin": "https://evil.example"}).Code; got != 403 {
 		t.Fatal("origin bypass", got)
 	}
@@ -77,6 +80,7 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	}
 	var ws w.Workspace
 	json.Unmarshal(rw.Body.Bytes(), &ws)
+	validateResponse(t, "/api/v1/workspaces", "post", 200, rw.Body.Bytes())
 	rw = call("GET", "/api/v1/workspaces/"+ws.ID+"/agents", nil, nil)
 	var members struct {
 		Items []w.Agent `json:"items"`
@@ -123,6 +127,7 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	}
 	var run w.Run
 	json.Unmarshal(rw.Body.Bytes(), &run)
+	validateResponse(t, "/api/v1/threads/{id}/runs", "post", 202, rw.Body.Bytes())
 	replay := call("POST", "/api/v1/threads/"+th.ID+"/runs", in, map[string]string{"Idempotency-Key": "test-idempotency-key"})
 	var duplicate w.Run
 	json.Unmarshal(replay.Body.Bytes(), &duplicate)

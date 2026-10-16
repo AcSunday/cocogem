@@ -20,13 +20,18 @@ payloads use validated JSON. All state and corresponding events commit in the
 same transaction. The process notification channel only wakes replay readers;
 it is never the source of truth.
 
+Contract tests use `github.com/santhosh-tekuri/jsonschema/v6` v6.0.3
+(Apache-2.0) to validate real handler responses against generated OpenAPI
+schemas. A maintained JSON Schema implementation avoids a partial custom
+validator. The standard library supplies JSON parsing, not schema validation.
+
 ## Provider and event boundaries
 
 The first provider uses Anthropic Messages API. The Go host executes only
 validated, bounded tools. Provider SSE names stop inside the adapter. Native
 CLI execution is retained as the existing command, not exposed as a Web tool.
 
-Use `golang.org/x/net/html` v0.56.0 (BSD-3-Clause, Go 1.25 compatible)
+Use `golang.org/x/net/html` v0.58.0 (BSD-3-Clause, Go 1.25 compatible)
 for HTML parsing. The standard library does not provide an HTML parser.
 The transport validates public addresses at connection time, does not inherit
 proxies, and revalidates redirects. Search credentials never follow redirects.
