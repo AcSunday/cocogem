@@ -73,7 +73,7 @@ func ReadFile(ctx context.Context, root, path string, start, end int) (w.Source,
 	if err != nil || !pre.Mode().IsRegular() {
 		return w.Source{}, errors.New("only regular text files are readable")
 	}
-	f, err := r.OpenFile(local, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	f, err := r.OpenFile(local, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return w.Source{}, err
 	}
@@ -142,7 +142,7 @@ func ListFiles(ctx context.Context, root, path string) ([]map[string]string, boo
 	if err != nil || !pre.IsDir() {
 		return nil, false, errors.New("source is not a directory")
 	}
-	f, err := r.OpenFile(local, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	f, err := r.OpenFile(local, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, false, err
 	}
@@ -209,7 +209,7 @@ func SearchContent(ctx context.Context, root, path, query string) ([]map[string]
 			truncated = true
 			return fs.SkipAll
 		}
-		f, err := r.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		f, err := r.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
 		if err != nil {
 			return err
 		}

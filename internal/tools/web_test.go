@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/netip"
 	"strings"
 	"testing"
@@ -25,6 +27,53 @@ func TestURLAndAddressPolicy(t *testing.T) {
 	}
 	if !PublicIP(netip.MustParseAddr("8.8.8.8")) {
 		t.Fatal("public IP rejected")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestPublicCaptureBudgetsAndPrivateRedirect(t *testing.T) {
+	for _, tc := range []struct {
+		name, content, contentType string
+		code                       int
+		bad                        bool
+	}{{"html", "<title>Evidence</title><p>Original text</p><script>ignore()</script>", "text/html", 200, false}, {"unsupported", "binary", "application/pdf", 200, true}, {"oversized", strings.Repeat("x", 2*1024*1024+1), "text/plain", 200, true}, {"HTTP failure", "not found", "text/plain", 404, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			web := NewWeb("", false)
+			web.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: tc.code, Header: http.Header{"Content-Type": []string{tc.contentType}}, Body: io.NopCloser(strings.NewReader(tc.content)), Request: r}, nil
+			})
+			source, err := web.Fetch(context.Background(), "https://example.com/article")
+			if (err != nil) != tc.bad {
+				t.Fatal(err)
+			}
+			if !tc.bad && (source.Title != "Evidence" || strings.Contains(source.Content, "ignore()")) {
+				t.Fatal(source)
+			}
+		})
+	}
+	web := NewWeb("test-key", false)
+	calls := 0
+	web.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 302, Header: http.Header{"Location": []string{"http://127.0.0.1/private"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+	})
+	if _, err := web.Fetch(context.Background(), "https://example.com"); err == nil || calls != 1 {
+		t.Fatal("private redirect followed", calls, err)
+	}
+	calls = 0
+	if _, err := web.Search(context.Background(), "q"); err == nil || calls != 1 {
+		t.Fatal("search credentials followed redirect", calls, err)
+	}
+	production := NewWeb("", false)
+	transport := production.client.Transport.(*http.Transport)
+	if transport.Proxy != nil {
+		t.Fatal("inherited proxy")
+	}
+	if _, err := transport.DialContext(context.Background(), "tcp", "127.0.0.1:80"); err == nil {
+		t.Fatal("dialed private address")
 	}
 }
 
