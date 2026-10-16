@@ -8,6 +8,8 @@ Cocogem 的目标是一个由 Go 驱动、带交互式 Web 前端的多 Agent �
 
 已实现本地工作空间、可命名的 Agent 成员、共享会话、自然语言指派、有限协作流程、只读工具、来源捕获和版本化报告。页面支持实时记录、取消、历史重放、报告导出和人工标记。支持协作讨论、Research 和代码分析。
 
+![Cocogem 离线演示工作空间](docs/screenshots/workspace-demo.jpg)
+
 开发需要 Go 1.25、Node.js 22.12+（建议 24 LTS）与 npm。发布包运行无需 Node.js。
 
 ```sh

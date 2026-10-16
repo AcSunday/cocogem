@@ -6,14 +6,31 @@ The product specification remains the acceptance source of truth.
 | Feature | Status | Validation |
 | --- | --- | --- |
 | Existing CLI baseline | Preserved | `go test ./...` on original Go 1.22 |
-| M0 engineering and contracts | In progress | Go 1.25.14, local Git, public module and policies |
+| M0 engineering and contracts | Implemented | Go 1.25.14, public module, policies, generated OpenAPI/types, actual response conformance and drift checks |
 | Persistent domain and records | Implemented | Naming negative cases; SQLite rollback, active-run uniqueness, terminal immutability, reopen and permissions; race tests and vet |
-| M1 single-agent vertical flow | Pending | |
-| M2 names, routing and collaboration | Pending | |
-| M3 research, code analysis and artifacts | Pending | |
-| M4 recovery, security and interaction | Pending | |
-| M5 release candidate | Pending | |
+| M1 single-agent vertical flow | Implemented; live provider gate pending | Bounded Anthropic SSE, schema-validated host tools, persistent HTTP/SSE, authentication and demo |
+| M2 names, routing and collaboration | Implemented | Renaming preserves identity; longest normalized names; semantic quote validation; finite parallel/serial workflows |
+| M3 research, code analysis and artifacts | Implemented; live service gate pending | All three browser flows, real file tools, HTTP fixtures, captured sources, immutable versions, feedback and Markdown export |
+| M4 recovery, security and interaction | Implemented | Cancellation, lost-response idempotency, long history, replay, restart, queue policy revalidation, commit-failure injection, backup/restore; WCAG automatic checks |
+| M5 release candidate | Built; publication blocked | Clean checkout reproduced; macOS arm64 and Linux amd64 candidate smoke; notices/checksums; Go 1.25 security scan blocks release |
 
-External verification gates: Anthropic/Brave credentials are not configured in
-this session; real-provider smoke tests and Linux platform execution need
-separate evidence. Implementations and deterministic tests can proceed.
+## Verified locally on 2026-10-16
+
+- `make test`: Go vet/race/shuffle and frontend lint/types/tests, plus development-process ownership and license tests.
+- `make check-contract`: generated OpenAPI/frontend types do not drift.
+- `PLAYWRIGHT_CHANNEL=chrome make e2e`: real Go service, SQLite and native browser; all scenarios, sources, artifacts, retry/cancel, refresh, mobile navigation and axe WCAG checks.
+- `go run ./cmd/smoke`: real process lifecycle, Research, captured evidence, export and stopped-database backup/restore.
+- A separate clean local clone repeated setup, checks and browser tests without untracked project files.
+- macOS arm64 archive executed with the same smoke. Linux amd64 archive executed inside an isolated, read-only, network-disabled Docker container on the local Linux arm64 engine; this is emulated amd64 execution, not a performance result.
+- Linux container additionally passed `go test -race ./...` using the locally available Go 1.25.13 image. Application binaries were built with Go 1.25.14.
+- Frontend production dependency audit: zero findings. Common-secret scan: passed.
+
+## Remaining release gates
+
+1. Anthropic and Brave credentials are absent in this session. Protocol/fixture tests pass, but paid live calls, actual account/model availability and quality are not verified.
+2. The current Go 1.25.14 vulnerability scan fails on standard-library findings. The requested Go 1.25 baseline has not been silently changed; see [the scan record](security-scan.md). CI retains this gate.
+3. GitHub-hosted CI has not run because commits have not been pushed. No tag, GitHub Release or remote publication was created.
+
+All feature changes were committed separately after their relevant tests. Local
+build artifacts are in ignored `dist/`; do not treat their existence as release
+approval or publish while the security gate remains unresolved.
