@@ -72,12 +72,30 @@ type ArtifactRef struct {
 	Version int    `json:"version"`
 }
 
+// RoutingEvidence binds a semantic assignment to a quote in the current user input.
+type RoutingEvidence struct {
+	AgentID string `json:"agent_id"`
+	Quote   string `json:"quote"`
+}
+
+// Routing records the accepted recipient decision independently of provider wire data.
+type Routing struct {
+	Decision      string            `json:"decision"`
+	Targets       []string          `json:"targets"`
+	Workflow      string            `json:"workflow"`
+	Assignments   map[string]string `json:"assignments"`
+	Explanation   string            `json:"explanation"`
+	Clarification string            `json:"clarification"`
+	Evidence      []RoutingEvidence `json:"evidence"`
+}
+
 // Run snapshots a bounded workflow and owns its single terminal status.
 type Run struct {
 	ID          string    `json:"id"`
 	WorkspaceID string    `json:"workspace_id"`
 	ThreadID    string    `json:"thread_id"`
 	Input       RunInput  `json:"input"`
+	Routing     Routing   `json:"routing"`
 	Agents      []Agent   `json:"agents"`
 	Workspace   Workspace `json:"workspace"`
 	Status      string    `json:"status"`

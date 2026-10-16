@@ -15,6 +15,8 @@ func TestNamesAndIntentRouting(t *testing.T) {
 		{"conditional", "如果让布偶猫研究，会有什么问题", "discuss", "b"},
 		{"negation", "不要让布偶猫处理这个", "discuss", "b"},
 		{"quote", "```布偶猫帮我研究```", "discuss", "b"},
+		{"quoted mention", "引用：“ @ragdoll 帮我研究”", "discuss", "b"},
+		{"negated mention", "不要让 @ragdoll 做这个", "clarify", ""},
 		{"explicit", "@ragdoll 研究", "assign", "a"},
 		{"unknown", "@missing 做一下", "clarify", ""},
 	} {

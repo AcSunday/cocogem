@@ -500,6 +500,28 @@
           "decision": {
             "type": "string"
           },
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "agent_id": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent_id",
+                "quote"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "explanation": {
             "type": "string"
           },
@@ -522,7 +544,8 @@
           "workflow",
           "assignments",
           "explanation",
-          "clarification"
+          "clarification",
+          "evidence"
         ],
         "type": "object"
       },
@@ -553,6 +576,28 @@
               "decision": {
                 "type": "string"
               },
+              "evidence": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "quote": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "agent_id",
+                    "quote"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "explanation": {
                 "type": "string"
               },
@@ -575,7 +620,8 @@
               "workflow",
               "assignments",
               "explanation",
-              "clarification"
+              "clarification",
+              "evidence"
             ],
             "type": "object"
           }
@@ -750,6 +796,73 @@
             ],
             "type": "object"
           },
+          "routing": {
+            "additionalProperties": false,
+            "properties": {
+              "assignments": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "clarification": {
+                "type": "string"
+              },
+              "decision": {
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "quote": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "agent_id",
+                    "quote"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "explanation": {
+                "type": "string"
+              },
+              "targets": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "workflow": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "decision",
+              "targets",
+              "workflow",
+              "assignments",
+              "explanation",
+              "clarification",
+              "evidence"
+            ],
+            "type": "object"
+          },
           "status": {
             "type": "string"
           },
@@ -801,6 +914,7 @@
           "workspace_id",
           "thread_id",
           "input",
+          "routing",
           "agents",
           "workspace",
           "status",
@@ -1136,6 +1250,73 @@
                 ],
                 "type": "object"
               },
+              "routing": {
+                "additionalProperties": false,
+                "properties": {
+                  "assignments": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "clarification": {
+                    "type": "string"
+                  },
+                  "decision": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "agent_id": {
+                          "type": "string"
+                        },
+                        "quote": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "agent_id",
+                        "quote"
+                      ],
+                      "type": "object"
+                    },
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  },
+                  "explanation": {
+                    "type": "string"
+                  },
+                  "targets": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  },
+                  "workflow": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "decision",
+                  "targets",
+                  "workflow",
+                  "assignments",
+                  "explanation",
+                  "clarification",
+                  "evidence"
+                ],
+                "type": "object"
+              },
               "status": {
                 "type": "string"
               },
@@ -1187,6 +1368,7 @@
               "workspace_id",
               "thread_id",
               "input",
+              "routing",
               "agents",
               "workspace",
               "status",
@@ -1768,6 +1950,73 @@
                   ],
                   "type": "object"
                 },
+                "routing": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "assignments": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "clarification": {
+                      "type": "string"
+                    },
+                    "decision": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "agent_id": {
+                            "type": "string"
+                          },
+                          "quote": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "agent_id",
+                          "quote"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "explanation": {
+                      "type": "string"
+                    },
+                    "targets": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "workflow": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "decision",
+                    "targets",
+                    "workflow",
+                    "assignments",
+                    "explanation",
+                    "clarification",
+                    "evidence"
+                  ],
+                  "type": "object"
+                },
                 "status": {
                   "type": "string"
                 },
@@ -1819,6 +2068,7 @@
                 "workspace_id",
                 "thread_id",
                 "input",
+                "routing",
                 "agents",
                 "workspace",
                 "status",

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,15 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	var auth map[string]string
 	json.Unmarshal(rw.Body.Bytes(), &auth)
 	csrf = auth["csrf_token"]
+	if reused := call("POST", "/bootstrap", map[string]string{"token": "used"}, nil); reused.Code != 401 {
+		t.Fatal("bootstrap token reuse accepted")
+	}
+	oldCSRF := csrf
+	csrf = "incorrect"
+	if denied := call("POST", "/api/v1/workspaces", map[string]string{"name": "bad"}, nil); denied.Code != 403 {
+		t.Fatal("CSRF bypass")
+	}
+	csrf = oldCSRF
 	validateResponse(t, "/bootstrap", "post", 200, rw.Body.Bytes())
 	systemResponse := call("GET", "/api/v1/system", nil, nil)
 	validateResponse(t, "/api/v1/system", "get", 200, systemResponse.Body.Bytes())
@@ -155,6 +165,30 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	if !strings.Contains(rw.Body.String(), "run_finished") {
 		t.Fatal("SSE terminal missing")
 	}
+	var eventBodies []string
+	lastID := ""
+	for _, line := range strings.Split(rw.Body.String(), "\n") {
+		if strings.HasPrefix(line, "id: ") {
+			lastID = strings.TrimPrefix(line, "id: ")
+		}
+		if strings.HasPrefix(line, "data: ") {
+			eventBodies = append(eventBodies, strings.TrimPrefix(line, "data: "))
+		}
+	}
+	if len(eventBodies) == 0 {
+		t.Fatal("no persisted event")
+	}
+	var eventDoc map[string]any
+	if err := json.Unmarshal([]byte(eventBodies[len(eventBodies)-1]), &eventDoc); err != nil {
+		t.Fatal(err)
+	}
+	if eventDoc["type"] != "run_finished" || eventDoc["schema_version"] != float64(1) {
+		t.Fatal(eventDoc)
+	}
+	afterTerminal := call("GET", "/api/v1/runs/"+run.ID+"/events", nil, map[string]string{"Last-Event-ID": lastID})
+	if afterTerminal.Body.Len() != 0 {
+		t.Fatal("terminal event replay ignored cursor")
+	}
 	rw = call("GET", "/api/v1/threads/"+th.ID+"/artifacts", nil, nil)
 	var artifacts struct {
 		Items []w.Artifact `json:"items"`
@@ -176,4 +210,25 @@ type countModel struct{ calls atomic.Int32 }
 func (m *countModel) Complete(context.Context, model.Request, func(string) error) (model.Response, error) {
 	m.calls.Add(1)
 	return model.Response{StopReason: "end_turn"}, nil
+}
+
+func TestPaginationUsesOpaqueBoundedCursor(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://local.test/?limit=2", nil)
+	page, err := paginate(r, []int{1, 2, 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := page["next_cursor"].(string)
+	if cursor == "2" || cursor == "" {
+		t.Fatal("cursor not opaque")
+	}
+	r.URL.RawQuery = "limit=2&cursor=" + url.QueryEscape(cursor)
+	next, err := paginate(r, []int{1, 2, 3})
+	if err != nil || len(next["items"].([]int)) != 1 || next["next_cursor"] != "" {
+		t.Fatal(next, err)
+	}
+	r.URL.RawQuery = "limit=999"
+	if _, err := paginate(r, []int{}); err == nil {
+		t.Fatal("unbounded limit accepted")
+	}
 }

@@ -13,18 +13,11 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-var fenced = regexp.MustCompile("(?s)```.*?```|`[^`]*`|(?m)^\\s*>.*$")
+var fenced = regexp.MustCompile("(?s)```.*?```|`[^`]*`|“[^”\\n]*”|「[^」\\n]*」|\"[^\"\\n]*\"|(?m)^\\s*>.*$")
 var mention = regexp.MustCompile(`(?:^|[\s，。,:：])@([a-z][a-z0-9-]{1,31})\b`)
 
 // Routing is a proposed exact dispatch, not authority to execute host tools.
-type Routing struct {
-	Decision      string            `json:"decision"`
-	Targets       []string          `json:"targets"`
-	Workflow      string            `json:"workflow"`
-	Assignments   map[string]string `json:"assignments"`
-	Explanation   string            `json:"explanation"`
-	Clarification string            `json:"clarification"`
-}
+type Routing = w.Routing
 
 // ResolveRouting uses deterministic explicit recipients before optional semantic parsing.
 func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunInput, thread w.Thread, agents []w.Agent) (Routing, error) {
@@ -45,6 +38,11 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 		}
 	}
 	if len(explicit) > 0 {
+		for _, constraint := range []string{"不要", "别让", "如果", "假如", "假设", "是否让", "don't", "do not", "what if"} {
+			if strings.Contains(strings.ToLower(clean), constraint) {
+				return Routing{Decision: "clarify", Clarification: "正文包含否定或条件，同时存在明确提及。请直接选择实际收件人，或说明现在需要执行的任务。"}, nil
+			}
+		}
 		if len(input.Targets) > 0 && !sameIDs(explicit, input.Targets) {
 			return r, errors.New("explicit mentions conflict with selected recipients")
 		}
@@ -98,7 +96,9 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 	defer cancel()
 	catalog, _ := json.Marshal(candidates)
 	schema := map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"assign", "discuss", "clarify"}}, "targets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workflow": map[string]any{"type": "string", "enum": []string{"free", "research", "code_analysis"}}, "assignments": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "explanation": map[string]any{"type": "string"}, "clarification": map[string]any{"type": "string"}}, "required": []string{"decision", "targets", "workflow", "explanation"}, "additionalProperties": false}
+	schema["properties"].(map[string]any)["evidence"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"agent_id": map[string]any{"type": "string"}, "quote": map[string]any{"type": "string"}}, "required": []string{"agent_id", "quote"}, "additionalProperties": false}}
 	request := model.Request{Model: candidates[0].Model, System: "Resolve only the current user's routing intent. Mentioning, quoting, negating, or hypothesizing about a member is not assigning work. Choose discuss for ordinary discussion, clarify for uncertainty. Never invent IDs or participants. An assignment may target only named candidates. Explicit research roles may map to researcher/critic/coordinator; code roles to analyst/reviewer. Output exactly one routing_decision tool call; do not execute any task. Explanation and clarification must be Chinese.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Candidate members: " + string(catalog) + "\nCurrent user input:\n" + clean}}}}, MaxTokens: 1500, Tools: []model.Tool{{Name: "routing_decision", Description: "Propose routing only", Schema: schema}}}
+	request.System += " Every assigned member requires evidence with its agent_id and an exact quote from the current input containing its name and task. Do not use paraphrases as quotes."
 	resp, err := m.Complete(ctx, request, func(string) error { return nil })
 	if err != nil {
 		return Routing{}, err
@@ -128,6 +128,21 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 	for _, id := range ids {
 		if !slices.ContainsFunc(candidates, func(a w.Agent) bool { return a.ID == id }) {
 			return Routing{}, errors.New("routing proposed an unnamed member")
+		}
+		matched := false
+		for _, evidence := range r.Evidence {
+			if evidence.AgentID != id || evidence.Quote == "" || !strings.Contains(clean, evidence.Quote) {
+				continue
+			}
+			a := candidates[slices.IndexFunc(candidates, func(a w.Agent) bool { return a.ID == id })]
+			for _, name := range append([]string{a.DisplayName, a.Handle}, a.Aliases...) {
+				if strings.Contains(strings.ToLower(evidence.Quote), strings.ToLower(name)) {
+					matched = true
+				}
+			}
+		}
+		if !matched {
+			return Routing{}, errors.New("routing assignment lacks an exact user instruction quote")
 		}
 	}
 	if _, err := Plan("preview", w.RunInput{Workflow: r.Workflow, Targets: r.Targets, Assignments: r.Assignments}, agents); err != nil {

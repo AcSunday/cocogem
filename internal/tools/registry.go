@@ -16,6 +16,9 @@ import (
 var Names = []string{"list_files", "read_file", "search_content", "web_search", "fetch_url", "read_source", "publish_artifact"}
 
 func object(properties map[string]any, required ...string) map[string]any {
+	if required == nil {
+		required = []string{}
+	}
 	return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 }
 func text(description string) map[string]any {
@@ -46,6 +49,10 @@ func Definitions(names []string) []model.Tool {
 
 // Decode rejects unknown fields, trailing JSON and oversized tool input.
 func Decode(raw json.RawMessage, out any) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return errors.New("tool input must be a JSON object")
+	}
 	if len(raw) > 65536 {
 		return errors.New("tool input exceeds 64 KiB")
 	}

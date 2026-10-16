@@ -62,6 +62,7 @@ func parseStream(reader io.Reader, emit func(string) error) (Response, error) {
 	closed := map[int]bool{}
 	partials := map[int]string{}
 	finished := false
+	started := false
 	total := 0
 	scanner := bufio.NewScanner(io.LimitReader(reader, 16*1024*1024+1))
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
@@ -103,9 +104,16 @@ func parseStream(reader io.Reader, emit func(string) error) (Response, error) {
 		case "error":
 			return errors.New("model stream returned an error")
 		case "message_start":
+			if started {
+				return errors.New("duplicate message start")
+			}
+			started = true
 			result.InputTokens = e.Message.Usage.Input
 			result.UsageKnown = true
 		case "content_block_start":
+			if !started {
+				return errors.New("content before message start")
+			}
 			if _, exists := blocks[e.Index]; exists {
 				return errors.New("duplicate content block")
 			}
@@ -128,7 +136,7 @@ func parseStream(reader io.Reader, emit func(string) error) (Response, error) {
 			}
 		case "content_block_stop":
 			block := blocks[e.Index]
-			if block == nil {
+			if block == nil || closed[e.Index] {
 				return errors.New("unknown block stop")
 			}
 			closed[e.Index] = true
@@ -139,7 +147,7 @@ func parseStream(reader io.Reader, emit func(string) error) (Response, error) {
 				if len(block.Input) == 0 {
 					block.Input = json.RawMessage(`{}`)
 				}
-				if !json.Valid(block.Input) || block.ID == "" || block.Name == "" {
+				if !json.Valid(block.Input) || len(bytes.TrimSpace(block.Input)) == 0 || bytes.TrimSpace(block.Input)[0] != '{' || block.ID == "" || block.Name == "" {
 					return errors.New("invalid tool request")
 				}
 			}

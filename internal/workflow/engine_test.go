@@ -149,6 +149,130 @@ func TestTerminalPersistenceFailureIsReported(t *testing.T) {
 	}
 }
 
+func TestStartupRecoveryPreservesPartialEvidence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.sqlite")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := seedRun(t, s)
+	var stepID string
+	if err := s.Write(context.Background(), func(tx *store.Tx) error {
+		run.Status = "running"
+		if err := tx.SaveRun(run); err != nil {
+			return err
+		}
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		steps[0].Status = "running"
+		stepID = steps[0].ID
+		if err := tx.SaveStep(steps[0]); err != nil {
+			return err
+		}
+		return tx.SaveMessage(w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: stepID, Content: "partial result", Status: "processing"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}, Demo: true}
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cancel(); e.Wait() }()
+	got := awaitRun(t, s, run.ID)
+	if got.Status != "interrupted" {
+		t.Fatal(got)
+	}
+	if err := s.Read(ctx, func(tx *store.Tx) error {
+		messages, err := tx.Messages(run.ThreadID)
+		if len(messages) != 1 || messages[0].Content != "partial result" || messages[0].Status != "interrupted" {
+			t.Fatal(messages)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestArtifactRevisionAndFIFORecovery(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	first := seedRun(t, s)
+	second := seedRun(t, s)
+	ctx, cancel := context.WithCancel(context.Background())
+	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}, Demo: true}
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cancel(); e.Wait() }()
+	one := awaitRun(t, s, first.ID)
+	two := awaitRun(t, s, second.ID)
+	if one.Status != "succeeded" || two.Status != "succeeded" || one.FinishedAt > two.FinishedAt {
+		t.Fatal("FIFO was not preserved")
+	}
+	var original w.Artifact
+	var next w.Run
+	if err := s.Write(ctx, func(tx *store.Tx) error {
+		artifacts, err := tx.Artifacts(first.ThreadID)
+		if err != nil {
+			return err
+		}
+		original = artifacts[0]
+		next = first
+		next.ID = w.NewID()
+		next.Status = "queued"
+		next.Error = ""
+		next.CreatedAt = w.Now()
+		next.FinishedAt = ""
+		next.Input.ArtifactRefs = []w.ArtifactRef{{ID: original.ID, Version: 1}}
+		if err := tx.InsertRun(next, w.NewID(), "next"); err != nil {
+			return err
+		}
+		steps, err := Plan(next.ID, next.Input, next.Agents)
+		if err != nil {
+			return err
+		}
+		for _, step := range steps {
+			if err := tx.SaveStep(step); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := awaitRun(t, s, next.ID); got.Status != "succeeded" {
+		t.Fatal(got.Error)
+	}
+	if err := s.Read(ctx, func(tx *store.Tx) error {
+		v1, err := tx.Artifact(original.ID, 1)
+		if err != nil {
+			return err
+		}
+		v2, err := tx.Artifact(original.ID, 2)
+		if err != nil {
+			return err
+		}
+		if v1.RunID == v2.RunID || v1.Body != original.Body {
+			t.Fatal("version overwritten")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func awaitRun(t *testing.T, s *store.Store, id string) w.Run {
 	t.Helper()
 	deadline := time.NewTimer(5 * time.Second)

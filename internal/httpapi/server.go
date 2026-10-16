@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -144,6 +145,11 @@ func respond(rw http.ResponseWriter, r *http.Request, value any, err error) {
 		return
 	}
 	status, code := 400, "invalid_request"
+	var requestError *RequestError
+	if errors.As(err, &requestError) {
+		writeError(rw, r, requestError.Status, requestError.Code, requestError.Message)
+		return
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		status, code = 404, "not_found"
 	}
@@ -157,6 +163,15 @@ func respond(rw http.ResponseWriter, r *http.Request, value any, err error) {
 }
 
 var errRevision = errors.New("配置已更新，请刷新后重新编辑")
+
+// RequestError keeps actionable API status independent of internal error strings.
+type RequestError struct {
+	Status  int
+	Code    string
+	Message string
+}
+
+func (e *RequestError) Error() string { return e.Message }
 
 func revision(r *http.Request, expected int) error {
 	if r.Header.Get("If-Match") != strconv.Itoa(expected) {
@@ -377,7 +392,11 @@ func paginate[T any](r *http.Request, values []T) (map[string]any, error) {
 	}
 	offset := 0
 	if text := r.URL.Query().Get("cursor"); text != "" {
-		v, err := strconv.Atoi(text)
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(text)
+		if decodeErr != nil {
+			return nil, errors.New("invalid cursor")
+		}
+		v, err := strconv.Atoi(string(decoded))
 		if err != nil || v < 0 || v > len(values) {
 			return nil, errors.New("invalid cursor")
 		}
@@ -386,7 +405,7 @@ func paginate[T any](r *http.Request, values []T) (map[string]any, error) {
 	end := min(len(values), offset+limit)
 	next := ""
 	if end < len(values) {
-		next = strconv.Itoa(end)
+		next = base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(end)))
 	}
 	return map[string]any{"items": values[offset:end], "next_cursor": next}, nil
 }
@@ -615,13 +634,16 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		original := in
 		original.ProposalID = ""
 		if !ok || p.ThreadID != th.ID || time.Now().After(p.Expires) || p.Digest != digest(original) || p.Catalog != digest(agents) {
-			return errors.New("routing_proposal_stale: 请重新解析收件人")
+			return &RequestError{409, "routing_proposal_stale", "路由建议已失效，请重新解析收件人"}
 		}
-		if !s.config.Demo && (!s.config.ModelConfigured || ws.ConsentVersion < 1) {
-			return errors.New("真实模型未配置，或工作空间尚未确认资料外发范围")
+		if !s.config.Demo && !s.config.ModelConfigured {
+			return &RequestError{503, "model_unavailable", "真实模型尚未配置"}
+		}
+		if !s.config.Demo && ws.ConsentVersion < 1 {
+			return &RequestError{403, "consent_required", "工作空间尚未确认资料外发范围"}
 		}
 		if p.Routing.Workflow == "research" && in.ResearchScope == "web_discovery" && !s.engine.Web.SearchEnabled() {
-			return errors.New("在线搜索尚未配置")
+			return &RequestError{503, "search_unavailable", "在线搜索尚未配置"}
 		}
 		if p.Routing.Workflow == "code_analysis" && ws.Root == "" {
 			return errors.New("代码分析需要绑定允许的资料目录")
@@ -645,7 +667,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if len(active) >= 21 {
-			return errors.New("执行队列已满")
+			return &RequestError{429, "queue_full", "执行队列已满"}
 		}
 		if slices.ContainsFunc(active, func(r w.Run) bool { return r.ThreadID == th.ID }) {
 			return w.ErrConflict
@@ -653,7 +675,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		in.Workflow = p.Routing.Workflow
 		in.Targets = p.Routing.Targets
 		in.Assignments = p.Routing.Assignments
-		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Status: "queued", CreatedAt: w.Now(), Demo: s.config.Demo}
+		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: p.Routing, Status: "queued", CreatedAt: w.Now(), Demo: s.config.Demo}
 		steps, err := workflow.Plan(run.ID, in, agents)
 		if err != nil {
 			return err

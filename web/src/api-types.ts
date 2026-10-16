@@ -4,299 +4,447 @@
  */
 
 export interface paths {
-    "/api/v1/agents/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: operations["updateAgent"];
-        trace?: never;
+  "/api/v1/agents/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/artifacts/{id}/versions/{version}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["artifact"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: operations["feedback"];
-        trace?: never;
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["updateAgent"];
+    trace?: never;
+  };
+  "/api/v1/artifacts/{id}/versions/{version}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/artifacts/{id}/versions/{version}/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["exportArtifact"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["artifact"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["feedback"];
+    trace?: never;
+  };
+  "/api/v1/artifacts/{id}/versions/{version}/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/runs/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["run"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["exportArtifact"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/runs/{id}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["cancelRun"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["run"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{id}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/runs/{id}/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["runEvents"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations["cancelRun"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{id}/events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/sources/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["source"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["runEvents"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/sources/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/system": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["system"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["source"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/system": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/system/verify": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["verify"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["system"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/system/verify": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/threads/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["thread"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: operations["updateThread"];
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations["verify"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/threads/{id}/artifacts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["artifacts"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["thread"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["updateThread"];
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/artifacts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/threads/{id}/routing-preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["routingPreview"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["artifacts"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/routing-preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/threads/{id}/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["submitRun"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations["routingPreview"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/runs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/workspaces": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["workspaces"];
-        put?: never;
-        post: operations["createWorkspace"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post: operations["submitRun"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workspaces": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/workspaces/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: operations["updateWorkspace"];
-        trace?: never;
+    get: operations["workspaces"];
+    put?: never;
+    post: operations["createWorkspace"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/workspaces/{id}/agents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["agents"];
-        put?: never;
-        post: operations["createAgent"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["updateWorkspace"];
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/agents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/api/v1/workspaces/{id}/threads": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["threads"];
-        put?: never;
-        post: operations["createThread"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["agents"];
+    put?: never;
+    post: operations["createAgent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/threads": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    "/bootstrap": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["bootstrap"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
+    get: operations["threads"];
+    put?: never;
+    post: operations["createThread"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/bootstrap": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    get?: never;
+    put?: never;
+    post: operations["bootstrap"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: {
-        Agent: {
+  schemas: {
+    Agent: {
+      aliases: string[] | null;
+      disabled: boolean;
+      display_name: string;
+      handle: string;
+      id: string;
+      model: string;
+      revision: number;
+      role_description: string;
+      tools: string[] | null;
+      workspace_id: string;
+    };
+    AgentInput: {
+      aliases?: string[] | null;
+      disabled?: boolean;
+      display_name: string;
+      handle: string;
+      id?: string;
+      model: string;
+      revision?: number;
+      role_description?: string;
+      tools: string[] | null;
+      workspace_id?: string;
+    };
+    AgentList: {
+      items: components["schemas"]["Agent"][] | null;
+      next_cursor?: string;
+    };
+    Artifact: {
+      body: string;
+      created_at: string;
+      demo: boolean;
+      feedback: string;
+      feedback_at: string;
+      findings:
+        | {
+            detail: string;
+            severity?: string;
+            source_ids: string[] | null;
+            status: string;
+            title: string;
+          }[]
+        | null;
+      id: string;
+      limitations: string[] | null;
+      revision: number;
+      run_id: string;
+      source_ids: string[] | null;
+      step_id: string;
+      thread_id: string;
+      title: string;
+      type: string;
+      version: number;
+    };
+    ArtifactList: {
+      items: components["schemas"]["Artifact"][] | null;
+      next_cursor?: string;
+    };
+    ArtifactRef: {
+      id: string;
+      version: number;
+    };
+    BootstrapInput: {
+      token: string;
+    };
+    BootstrapReply: {
+      csrf_token: string;
+    };
+    EmptyInput: Record<string, never>;
+    Error: {
+      error: {
+        code: string;
+        details: Record<string, never>;
+        message: string;
+        request_id: string;
+      };
+    };
+    /** @description Persisted per-run event. seq is strictly increasing; clients deduplicate (run_id,seq). */
+    Event: {
+      agent_id?: string;
+      data: unknown;
+      occurred_at: string;
+      run_id: string;
+      schema_version: number;
+      seq: number;
+      step_id?: string;
+      type: string;
+    };
+    FeedbackInput: {
+      feedback: string;
+    };
+    Finding: {
+      detail: string;
+      severity?: string;
+      source_ids: string[] | null;
+      status: string;
+      title: string;
+    };
+    Message: {
+      agent_id: string;
+      agent_name: string;
+      content: string;
+      created_at: string;
+      id: string;
+      role: string;
+      run_id: string;
+      status: string;
+      step_id: string;
+      thread_id: string;
+    };
+    Routing: {
+      assignments: {
+        [key: string]: string;
+      } | null;
+      clarification: string;
+      decision: string;
+      evidence:
+        | {
+            agent_id: string;
+            quote: string;
+          }[]
+        | null;
+      explanation: string;
+      targets: string[] | null;
+      workflow: string;
+    };
+    RoutingPreview: {
+      expires_in?: number;
+      proposal_id?: string;
+      routing: {
+        assignments: {
+          [key: string]: string;
+        } | null;
+        clarification: string;
+        decision: string;
+        evidence:
+          | {
+              agent_id: string;
+              quote: string;
+            }[]
+          | null;
+        explanation: string;
+        targets: string[] | null;
+        workflow: string;
+      };
+    };
+    Run: {
+      agents:
+        | {
             aliases: string[] | null;
             disabled: boolean;
             display_name: string;
@@ -307,284 +455,167 @@ export interface components {
             role_description: string;
             tools: string[] | null;
             workspace_id: string;
-        };
-        AgentInput: {
-            aliases?: string[] | null;
-            disabled?: boolean;
-            display_name: string;
-            handle: string;
-            id?: string;
-            model: string;
-            revision?: number;
-            role_description?: string;
-            tools: string[] | null;
-            workspace_id?: string;
-        };
-        AgentList: {
-            items: components["schemas"]["Agent"][] | null;
-            next_cursor?: string;
-        };
-        Artifact: {
-            body: string;
-            created_at: string;
-            demo: boolean;
-            feedback: string;
-            feedback_at: string;
-            findings: {
-                detail: string;
-                severity?: string;
-                source_ids: string[] | null;
-                status: string;
-                title: string;
-            }[] | null;
+          }[]
+        | null;
+      created_at: string;
+      demo: boolean;
+      error: string;
+      finished_at: string;
+      id: string;
+      input: {
+        artifact_refs:
+          | {
+              id: string;
+              version: number;
+            }[]
+          | null;
+        assignments: {
+          [key: string]: string;
+        } | null;
+        message: string;
+        proposal_id: string;
+        research_scope: string;
+        retry_of_run_id: string;
+        source_urls: string[] | null;
+        targets: string[] | null;
+        workflow: string;
+      };
+      routing: {
+        assignments: {
+          [key: string]: string;
+        } | null;
+        clarification: string;
+        decision: string;
+        evidence:
+          | {
+              agent_id: string;
+              quote: string;
+            }[]
+          | null;
+        explanation: string;
+        targets: string[] | null;
+        workflow: string;
+      };
+      status: string;
+      thread_id: string;
+      workspace: {
+        consent_version: number;
+        created_at: string;
+        description: string;
+        id: string;
+        name: string;
+        revision: number;
+        root: string;
+      };
+      workspace_id: string;
+    };
+    RunInput: {
+      artifact_refs:
+        | {
             id: string;
-            limitations: string[] | null;
-            revision: number;
-            run_id: string;
-            source_ids: string[] | null;
-            step_id: string;
-            thread_id: string;
-            title: string;
-            type: string;
             version: number;
-        };
-        ArtifactList: {
-            items: components["schemas"]["Artifact"][] | null;
-            next_cursor?: string;
-        };
-        ArtifactRef: {
+          }[]
+        | null;
+      assignments: {
+        [key: string]: string;
+      } | null;
+      message: string;
+      proposal_id: string;
+      research_scope: string;
+      retry_of_run_id: string;
+      source_urls: string[] | null;
+      targets: string[] | null;
+      workflow: string;
+    };
+    RunRequest: {
+      artifact_refs?:
+        | {
             id: string;
             version: number;
-        };
-        BootstrapInput: {
-            token: string;
-        };
-        BootstrapReply: {
-            csrf_token: string;
-        };
-        EmptyInput: Record<string, never>;
-        Error: {
-            error: {
-                code: string;
-                details: Record<string, never>;
-                message: string;
-                request_id: string;
-            };
-        };
-        /** @description Persisted per-run event. seq is strictly increasing; clients deduplicate (run_id,seq). */
-        Event: {
-            agent_id?: string;
-            data: unknown;
-            occurred_at: string;
-            run_id: string;
-            schema_version: number;
-            seq: number;
-            step_id?: string;
-            type: string;
-        };
-        FeedbackInput: {
-            feedback: string;
-        };
-        Finding: {
-            detail: string;
-            severity?: string;
-            source_ids: string[] | null;
-            status: string;
-            title: string;
-        };
-        Message: {
-            agent_id: string;
-            agent_name: string;
-            content: string;
-            created_at: string;
-            id: string;
-            role: string;
-            run_id: string;
-            status: string;
-            step_id: string;
-            thread_id: string;
-        };
-        Routing: {
-            assignments: {
-                [key: string]: string;
-            } | null;
-            clarification: string;
-            decision: string;
-            explanation: string;
-            targets: string[] | null;
-            workflow: string;
-        };
-        RoutingPreview: {
-            expires_in?: number;
-            proposal_id?: string;
-            routing: {
-                assignments: {
-                    [key: string]: string;
-                } | null;
-                clarification: string;
-                decision: string;
-                explanation: string;
-                targets: string[] | null;
-                workflow: string;
-            };
-        };
-        Run: {
-            agents: {
-                aliases: string[] | null;
-                disabled: boolean;
-                display_name: string;
-                handle: string;
-                id: string;
-                model: string;
-                revision: number;
-                role_description: string;
-                tools: string[] | null;
-                workspace_id: string;
-            }[] | null;
-            created_at: string;
-            demo: boolean;
-            error: string;
-            finished_at: string;
-            id: string;
-            input: {
-                artifact_refs: {
-                    id: string;
-                    version: number;
-                }[] | null;
-                assignments: {
-                    [key: string]: string;
-                } | null;
-                message: string;
-                proposal_id: string;
-                research_scope: string;
-                retry_of_run_id: string;
-                source_urls: string[] | null;
-                targets: string[] | null;
-                workflow: string;
-            };
-            status: string;
-            thread_id: string;
-            workspace: {
-                consent_version: number;
-                created_at: string;
-                description: string;
-                id: string;
-                name: string;
-                revision: number;
-                root: string;
-            };
-            workspace_id: string;
-        };
-        RunInput: {
-            artifact_refs: {
+          }[]
+        | null;
+      assignments?: {
+        [key: string]: string;
+      } | null;
+      message: string;
+      proposal_id?: string;
+      research_scope?: string;
+      retry_of_run_id?: string;
+      source_urls?: string[] | null;
+      targets?: string[] | null;
+      workflow?: string;
+    };
+    RunView: {
+      cursor: number;
+      run: {
+        agents:
+          | {
+              aliases: string[] | null;
+              disabled: boolean;
+              display_name: string;
+              handle: string;
+              id: string;
+              model: string;
+              revision: number;
+              role_description: string;
+              tools: string[] | null;
+              workspace_id: string;
+            }[]
+          | null;
+        created_at: string;
+        demo: boolean;
+        error: string;
+        finished_at: string;
+        id: string;
+        input: {
+          artifact_refs:
+            | {
                 id: string;
                 version: number;
-            }[] | null;
-            assignments: {
-                [key: string]: string;
-            } | null;
-            message: string;
-            proposal_id: string;
-            research_scope: string;
-            retry_of_run_id: string;
-            source_urls: string[] | null;
-            targets: string[] | null;
-            workflow: string;
+              }[]
+            | null;
+          assignments: {
+            [key: string]: string;
+          } | null;
+          message: string;
+          proposal_id: string;
+          research_scope: string;
+          retry_of_run_id: string;
+          source_urls: string[] | null;
+          targets: string[] | null;
+          workflow: string;
         };
-        RunRequest: {
-            artifact_refs?: {
-                id: string;
-                version: number;
-            }[] | null;
-            assignments?: {
-                [key: string]: string;
-            } | null;
-            message: string;
-            proposal_id?: string;
-            research_scope?: string;
-            retry_of_run_id?: string;
-            source_urls?: string[] | null;
-            targets?: string[] | null;
-            workflow?: string;
-        };
-        RunView: {
-            cursor: number;
-            run: {
-                agents: {
-                    aliases: string[] | null;
-                    disabled: boolean;
-                    display_name: string;
-                    handle: string;
-                    id: string;
-                    model: string;
-                    revision: number;
-                    role_description: string;
-                    tools: string[] | null;
-                    workspace_id: string;
-                }[] | null;
-                created_at: string;
-                demo: boolean;
-                error: string;
-                finished_at: string;
-                id: string;
-                input: {
-                    artifact_refs: {
-                        id: string;
-                        version: number;
-                    }[] | null;
-                    assignments: {
-                        [key: string]: string;
-                    } | null;
-                    message: string;
-                    proposal_id: string;
-                    research_scope: string;
-                    retry_of_run_id: string;
-                    source_urls: string[] | null;
-                    targets: string[] | null;
-                    workflow: string;
-                };
-                status: string;
-                thread_id: string;
-                workspace: {
-                    consent_version: number;
-                    created_at: string;
-                    description: string;
-                    id: string;
-                    name: string;
-                    revision: number;
-                    root: string;
-                };
-                workspace_id: string;
-            };
-            steps: {
+        routing: {
+          assignments: {
+            [key: string]: string;
+          } | null;
+          clarification: string;
+          decision: string;
+          evidence:
+            | {
                 agent_id: string;
-                agent_name: string;
-                depends_on: string[] | null;
-                error: string;
-                id: string;
-                instruction: string;
-                role: string;
-                run_id: string;
-                status: string;
-            }[] | null;
+                quote: string;
+              }[]
+            | null;
+          explanation: string;
+          targets: string[] | null;
+          workflow: string;
         };
-        Source: {
-            captured_at: string;
-            content: string;
-            end_line: number;
-            id: string;
-            kind: string;
-            path: string;
-            run_id: string;
-            sha256: string;
-            start_line: number;
-            thread_id: string;
-            title: string;
-            truncated: boolean;
-            url: string;
-            workspace_id: string;
+        status: string;
+        thread_id: string;
+        workspace: {
+          consent_version: number;
+          created_at: string;
+          description: string;
+          id: string;
+          name: string;
+          revision: number;
+          root: string;
         };
-        Step: {
+        workspace_id: string;
+      };
+      steps:
+        | {
             agent_id: string;
             agent_name: string;
             depends_on: string[] | null;
@@ -594,956 +625,1005 @@ export interface components {
             role: string;
             run_id: string;
             status: string;
-        };
-        SystemInfo: {
-            csrf_token: string;
-            demo: boolean;
-            limits: {
-                [key: string]: number;
-            };
-            model_status: string;
-            models: string[];
-            roots: string[];
-            search_status: string;
-            verified: {
-                [key: string]: string;
-            };
-        };
-        Thread: {
-            agent_ids: string[] | null;
-            coordinator_id: string;
-            id: string;
-            revision: number;
-            title: string;
-            updated_at: string;
-            workflow: string;
-            workspace_id: string;
-        };
-        ThreadInput: {
-            agent_ids: string[] | null;
-            coordinator_id: string;
-            id?: string;
-            revision?: number;
-            title: string;
-            updated_at?: string;
-            workflow?: string;
-            workspace_id?: string;
-        };
-        ThreadList: {
-            items: components["schemas"]["Thread"][] | null;
-            next_cursor?: string;
-        };
-        ThreadView: {
-            messages: {
-                items: {
-                    agent_id: string;
-                    agent_name: string;
-                    content: string;
-                    created_at: string;
-                    id: string;
-                    role: string;
-                    run_id: string;
-                    status: string;
-                    step_id: string;
-                    thread_id: string;
-                }[];
-                next_cursor: string;
-            };
-            runs: {
-                agents: {
-                    aliases: string[] | null;
-                    disabled: boolean;
-                    display_name: string;
-                    handle: string;
-                    id: string;
-                    model: string;
-                    revision: number;
-                    role_description: string;
-                    tools: string[] | null;
-                    workspace_id: string;
-                }[] | null;
-                created_at: string;
-                demo: boolean;
-                error: string;
-                finished_at: string;
-                id: string;
-                input: {
-                    artifact_refs: {
-                        id: string;
-                        version: number;
-                    }[] | null;
-                    assignments: {
-                        [key: string]: string;
-                    } | null;
-                    message: string;
-                    proposal_id: string;
-                    research_scope: string;
-                    retry_of_run_id: string;
-                    source_urls: string[] | null;
-                    targets: string[] | null;
-                    workflow: string;
-                };
-                status: string;
-                thread_id: string;
-                workspace: {
-                    consent_version: number;
-                    created_at: string;
-                    description: string;
-                    id: string;
-                    name: string;
-                    revision: number;
-                    root: string;
-                };
-                workspace_id: string;
-            }[];
-            sources: {
-                captured_at: string;
-                content: string;
-                end_line: number;
-                id: string;
-                kind: string;
-                path: string;
-                run_id: string;
-                sha256: string;
-                start_line: number;
-                thread_id: string;
-                title: string;
-                truncated: boolean;
-                url: string;
-                workspace_id: string;
-            }[];
-            thread: {
-                agent_ids: string[] | null;
-                coordinator_id: string;
-                id: string;
-                revision: number;
-                title: string;
-                updated_at: string;
-                workflow: string;
-                workspace_id: string;
-            };
-        };
-        VerifyReply: {
-            model: string;
-            verified_at: string;
-        };
-        Workspace: {
-            consent_version: number;
-            created_at: string;
-            description: string;
-            id: string;
-            name: string;
-            revision: number;
-            root: string;
-        };
-        WorkspaceInput: {
-            consent_version?: number;
-            description?: string;
-            name: string;
-            root?: string;
-        };
-        WorkspaceList: {
-            items: components["schemas"]["Workspace"][] | null;
-            next_cursor?: string;
-        };
+          }[]
+        | null;
     };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+    Source: {
+      captured_at: string;
+      content: string;
+      end_line: number;
+      id: string;
+      kind: string;
+      path: string;
+      run_id: string;
+      sha256: string;
+      start_line: number;
+      thread_id: string;
+      title: string;
+      truncated: boolean;
+      url: string;
+      workspace_id: string;
+    };
+    Step: {
+      agent_id: string;
+      agent_name: string;
+      depends_on: string[] | null;
+      error: string;
+      id: string;
+      instruction: string;
+      role: string;
+      run_id: string;
+      status: string;
+    };
+    SystemInfo: {
+      csrf_token: string;
+      demo: boolean;
+      limits: {
+        [key: string]: number;
+      };
+      model_status: string;
+      models: string[];
+      roots: string[];
+      search_status: string;
+      verified: {
+        [key: string]: string;
+      };
+    };
+    Thread: {
+      agent_ids: string[] | null;
+      coordinator_id: string;
+      id: string;
+      revision: number;
+      title: string;
+      updated_at: string;
+      workflow: string;
+      workspace_id: string;
+    };
+    ThreadInput: {
+      agent_ids: string[] | null;
+      coordinator_id: string;
+      id?: string;
+      revision?: number;
+      title: string;
+      updated_at?: string;
+      workflow?: string;
+      workspace_id?: string;
+    };
+    ThreadList: {
+      items: components["schemas"]["Thread"][] | null;
+      next_cursor?: string;
+    };
+    ThreadView: {
+      messages: {
+        items: {
+          agent_id: string;
+          agent_name: string;
+          content: string;
+          created_at: string;
+          id: string;
+          role: string;
+          run_id: string;
+          status: string;
+          step_id: string;
+          thread_id: string;
+        }[];
+        next_cursor: string;
+      };
+      runs: {
+        agents:
+          | {
+              aliases: string[] | null;
+              disabled: boolean;
+              display_name: string;
+              handle: string;
+              id: string;
+              model: string;
+              revision: number;
+              role_description: string;
+              tools: string[] | null;
+              workspace_id: string;
+            }[]
+          | null;
+        created_at: string;
+        demo: boolean;
+        error: string;
+        finished_at: string;
+        id: string;
+        input: {
+          artifact_refs:
+            | {
+                id: string;
+                version: number;
+              }[]
+            | null;
+          assignments: {
+            [key: string]: string;
+          } | null;
+          message: string;
+          proposal_id: string;
+          research_scope: string;
+          retry_of_run_id: string;
+          source_urls: string[] | null;
+          targets: string[] | null;
+          workflow: string;
+        };
+        routing: {
+          assignments: {
+            [key: string]: string;
+          } | null;
+          clarification: string;
+          decision: string;
+          evidence:
+            | {
+                agent_id: string;
+                quote: string;
+              }[]
+            | null;
+          explanation: string;
+          targets: string[] | null;
+          workflow: string;
+        };
+        status: string;
+        thread_id: string;
+        workspace: {
+          consent_version: number;
+          created_at: string;
+          description: string;
+          id: string;
+          name: string;
+          revision: number;
+          root: string;
+        };
+        workspace_id: string;
+      }[];
+      sources: {
+        captured_at: string;
+        content: string;
+        end_line: number;
+        id: string;
+        kind: string;
+        path: string;
+        run_id: string;
+        sha256: string;
+        start_line: number;
+        thread_id: string;
+        title: string;
+        truncated: boolean;
+        url: string;
+        workspace_id: string;
+      }[];
+      thread: {
+        agent_ids: string[] | null;
+        coordinator_id: string;
+        id: string;
+        revision: number;
+        title: string;
+        updated_at: string;
+        workflow: string;
+        workspace_id: string;
+      };
+    };
+    VerifyReply: {
+      model: string;
+      verified_at: string;
+    };
+    Workspace: {
+      consent_version: number;
+      created_at: string;
+      description: string;
+      id: string;
+      name: string;
+      revision: number;
+      root: string;
+    };
+    WorkspaceInput: {
+      consent_version?: number;
+      description?: string;
+      name: string;
+      root?: string;
+    };
+    WorkspaceList: {
+      items: components["schemas"]["Workspace"][] | null;
+      next_cursor?: string;
+    };
+  };
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    updateAgent: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-                "If-Match": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AgentInput"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Agent"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  updateAgent: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
     };
-    artifact: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                version: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Artifact"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentInput"];
+      };
     };
-    feedback: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-                "If-Match": string;
-            };
-            path: {
-                id: string;
-                version: string;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FeedbackInput"];
-            };
+        content: {
+          "application/json": components["schemas"]["Agent"];
         };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Artifact"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    exportArtifact: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                version: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Markdown download */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/markdown": string;
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  artifact: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+        version: string;
+      };
+      cookie?: never;
     };
-    run: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunView"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["Artifact"];
         };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    cancelRun: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EmptyInput"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Run"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  feedback: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+        version: string;
+      };
+      cookie?: never;
     };
-    runEvents: {
-        parameters: {
-            query?: {
-                after?: number;
-            };
-            header?: {
-                "Last-Event-ID"?: string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description SSE: each data field is an Event JSON object; id is seq. Heartbeats carry no business sequence. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/event-stream": components["schemas"]["Event"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["FeedbackInput"];
+      };
     };
-    source: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Source"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["Artifact"];
         };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    system: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SystemInfo"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  exportArtifact: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+        version: string;
+      };
+      cookie?: never;
     };
-    verify: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-            };
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Markdown download */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EmptyInput"];
-            };
+        content: {
+          "text/markdown": string;
         };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VerifyReply"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    thread: {
-        parameters: {
-            query?: {
-                cursor?: string;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ThreadView"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  run: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
     };
-    updateThread: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-                "If-Match": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ThreadInput"];
-            };
+        content: {
+          "application/json": components["schemas"]["RunView"];
         };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Thread"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    artifacts: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactList"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  cancelRun: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
     };
-    routingPreview: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RunRequest"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RoutingPreview"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
     };
-    submitRun: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-                "Idempotency-Key": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RunRequest"];
-            };
+        content: {
+          "application/json": components["schemas"]["Run"];
         };
-        responses: {
-            /** @description Success */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Run"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    workspaces: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceList"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  runEvents: {
+    parameters: {
+      query?: {
+        after?: number;
+      };
+      header?: {
+        "Last-Event-ID"?: string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
     };
-    createWorkspace: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-            };
-            path?: never;
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description SSE: each data field is an Event JSON object; id is seq. Heartbeats carry no business sequence. */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WorkspaceInput"];
-            };
+        content: {
+          "text/event-stream": components["schemas"]["Event"];
         };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
         };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    updateWorkspace: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-                "If-Match": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WorkspaceInput"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  source: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
     };
-    agents: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentList"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["Source"];
         };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    createAgent: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AgentInput"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Agent"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  system: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
-    threads: {
-        parameters: {
-            query?: {
-                cursor?: string;
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
         };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ThreadList"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+        content: {
+          "application/json": components["schemas"]["SystemInfo"];
         };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
-    createThread: {
-        parameters: {
-            query?: never;
-            header: {
-                "X-CSRF-Token": string;
-            };
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ThreadInput"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Thread"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+  };
+  verify: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path?: never;
+      cookie?: never;
     };
-    bootstrap: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BootstrapInput"];
-            };
-        };
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BootstrapReply"];
-                };
-            };
-            /** @description Structured error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
     };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VerifyReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  thread: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ThreadView"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  updateThread: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ThreadInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Thread"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  artifacts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ArtifactList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  routingPreview: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RunRequest"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RoutingPreview"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  submitRun: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "Idempotency-Key": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RunRequest"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  workspaces: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkspaceList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  createWorkspace: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WorkspaceInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Workspace"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  updateWorkspace: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WorkspaceInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Workspace"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  agents: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  createAgent: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Agent"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  threads: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ThreadList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  createThread: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ThreadInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Thread"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  bootstrap: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BootstrapInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BootstrapReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
 }
