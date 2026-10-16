@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { mergeEvents, terminal, type Event } from "./api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadAllThreadPages, mergeEvents, terminal, type Event } from "./api";
+afterEach(() => vi.unstubAllGlobals());
 describe("event delivery", () => {
   it("deduplicates replayed events and preserves sequence order", () => {
     const event: Event = {
@@ -19,4 +20,37 @@ describe("event delivery", () => {
     expect(terminal("canceling")).toBe(false);
     expect(terminal("canceled")).toBe(true);
   });
+});
+
+it("reads later message pages so long conversations include their newest output", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          thread: { id: "thread" },
+          messages: {
+            items: Array.from({ length: 100 }, (_, i) => ({ id: String(i) })),
+            next_cursor: "next",
+          },
+          runs: [],
+          sources: [],
+        }),
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          thread: { id: "thread" },
+          messages: { items: [{ id: "latest" }], next_cursor: "" },
+          runs: [],
+          sources: [],
+        }),
+      ),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  const result = await loadAllThreadPages("thread");
+  expect(result.messages.items).toHaveLength(101);
+  expect(result.messages.items.at(-1)?.id).toBe("latest");
+  expect(fetcher.mock.calls[1][0]).toContain("cursor=next");
 });

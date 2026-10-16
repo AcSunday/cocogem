@@ -14,6 +14,7 @@ import {
   terminal,
   statusText,
   mergeEvents,
+  loadAllThreadPages,
   type Agent,
   type Artifact,
   type Event,
@@ -99,8 +100,8 @@ export function App() {
   currentThread.current = threadID;
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const [inspectedRunID, setInspectedRunID] = useState("");
-  const currentRun =
-    view?.runs.find((run) => run.id === inspectedRunID) ?? view?.runs.at(-1);
+  const currentRun=view?.runs.at(-1);
+  const inspectedRun=view?.runs.find(run=>run.id===inspectedRunID)??currentRun;
   const active = view?.runs.some((run) => !terminal(run.status));
   const available = agents.filter((agent) => !agent.disabled);
   const draftKey = threadID || `new:${workspaceID}`;
@@ -152,15 +153,7 @@ export function App() {
   }, []);
   const refreshThread = useCallback(async (id: string) => {
     const generation = ++refreshGeneration.current;
-    const result = await api<ThreadView>(`/api/v1/threads/${id}?limit=100`);
-    let cursor = result.messages.next_cursor;
-    while (cursor) {
-      const page = await api<ThreadView>(
-        `/api/v1/threads/${id}?limit=100&cursor=${cursor}`,
-      );
-      result.messages.items.push(...page.messages.items);
-      cursor = page.messages.next_cursor;
-    }
+    const result = await loadAllThreadPages(id);
     const deliverables = await api<{ items: Artifact[] }>(
       `/api/v1/threads/${id}/artifacts`,
     );
@@ -240,8 +233,8 @@ export function App() {
     });
   }, [agents]);
   useEffect(() => {
-    if (!currentRun) return;
-    const id = currentRun.id;
+    if (!inspectedRun) return;
+    const id = inspectedRun.id;
     const thread = threadID;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stream = new EventSource(`/api/v1/runs/${id}/events`);
@@ -250,7 +243,7 @@ export function App() {
     stream.onmessage = (message) => {
       const event = JSON.parse(message.data) as Event;
       setEvents((current) => mergeEvents(current, event));
-      if (!terminal(currentRun.status) && !timer)
+      if (!terminal(inspectedRun.status) && !timer)
         timer = setTimeout(() => {
           timer = undefined;
           void refreshThread(thread).catch((error) =>
@@ -270,8 +263,8 @@ export function App() {
       if (timer) clearTimeout(timer);
     };
   }, [
-    currentRun?.id,
-    currentRun?.status,
+    inspectedRun?.id,
+    inspectedRun?.status,
     threadID,
     workspaceID,
     refreshThread,
@@ -1158,7 +1151,7 @@ export function App() {
                   <label>
                     历史协作
                     <select
-                      value={currentRun?.id ?? ""}
+                      value={inspectedRun?.id ?? ""}
                       onChange={(event) => {
                         setEvents([]);
                         setInspectedRunID(event.target.value);

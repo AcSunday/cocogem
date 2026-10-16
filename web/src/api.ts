@@ -79,3 +79,17 @@ export function mergeEvents(current: Event[], incoming: Event): Event[] {
     return current;
   return [...current, incoming].sort((a, b) => a.seq - b.seq);
 }
+
+// Read every page so a long conversation does not hide its latest messages.
+export async function loadAllThreadPages(id: string): Promise<ThreadView> {
+  const first = await api<ThreadView>(`/api/v1/threads/${id}?limit=100`);
+  let cursor = first.messages.next_cursor;
+  while (cursor) {
+    const page = await api<ThreadView>(
+      `/api/v1/threads/${id}?limit=100&cursor=${cursor}`,
+    );
+    first.messages.items.push(...page.messages.items);
+    cursor = page.messages.next_cursor;
+  }
+  return first;
+}
