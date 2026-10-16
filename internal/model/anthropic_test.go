@@ -42,6 +42,7 @@ data: {"type":"message_stop"}
 	}
 	for _, tc := range []struct{ name, input string }{
 		{"missing stop", strings.ReplaceAll(stream, `data: {"type":"message_stop"}`, "")},
+		{"missing start", strings.ReplaceAll(stream, `data: {"type":"message_start","message":{"usage":{"input_tokens":12}}}`, "")},
 		{"unclosed tool", strings.ReplaceAll(stream, `data: {"type":"content_block_stop","index":1}`, "")},
 		{"truncation", strings.ReplaceAll(stream, `"tool_use"},"usage"`, `"max_tokens"},"usage"`)},
 		{"invalid event", "data: broken\n\n"},

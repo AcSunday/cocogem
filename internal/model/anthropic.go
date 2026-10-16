@@ -181,7 +181,7 @@ func parseStream(reader io.Reader, emit func(string) error) (Response, error) {
 	if err := process(); err != nil {
 		return result, err
 	}
-	if !finished || !slices.Contains([]string{"end_turn", "tool_use", "stop_sequence"}, result.StopReason) {
+	if !started || !finished || !slices.Contains([]string{"end_turn", "tool_use", "stop_sequence"}, result.StopReason) {
 		return result, errors.New("model response did not confirm successful completion")
 	}
 	indexes := []int{}
