@@ -109,6 +109,10 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 	if err := json.Unmarshal(resp.Blocks[0].Input, &r); err != nil {
 		return Routing{}, errors.New("invalid routing payload")
 	}
+	r.ModelCall = true
+	r.UsageKnown = resp.UsageKnown
+	r.InputTokens = resp.InputTokens
+	r.OutputTokens = resp.OutputTokens
 	if r.Decision == "discuss" {
 		r.Targets = []string{thread.CoordinatorID}
 		r.Workflow = "free"

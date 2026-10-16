@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
+    strictPort: true,
     proxy: Object.fromEntries(
       ["/api", "/bootstrap"].map((path) => [
         path,

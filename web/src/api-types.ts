@@ -419,7 +419,11 @@ export interface components {
           }[]
         | null;
       explanation: string;
+      input_tokens: number;
+      model_call: boolean;
+      output_tokens: number;
       targets: string[] | null;
+      usage_known: boolean;
       workflow: string;
     };
     RoutingPreview: {
@@ -438,7 +442,11 @@ export interface components {
             }[]
           | null;
         explanation: string;
+        input_tokens: number;
+        model_call: boolean;
+        output_tokens: number;
         targets: string[] | null;
+        usage_known: boolean;
         workflow: string;
       };
     };
@@ -493,7 +501,11 @@ export interface components {
             }[]
           | null;
         explanation: string;
+        input_tokens: number;
+        model_call: boolean;
+        output_tokens: number;
         targets: string[] | null;
+        usage_known: boolean;
         workflow: string;
       };
       status: string;
@@ -598,7 +610,11 @@ export interface components {
               }[]
             | null;
           explanation: string;
+          input_tokens: number;
+          model_call: boolean;
+          output_tokens: number;
           targets: string[] | null;
+          usage_known: boolean;
           workflow: string;
         };
         status: string;
@@ -760,7 +776,11 @@ export interface components {
               }[]
             | null;
           explanation: string;
+          input_tokens: number;
+          model_call: boolean;
+          output_tokens: number;
           targets: string[] | null;
+          usage_known: boolean;
           workflow: string;
         };
         status: string;

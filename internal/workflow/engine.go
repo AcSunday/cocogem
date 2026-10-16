@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -240,6 +241,7 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		e.finish(parent, run, "failed", err)
 		return
 	}
+	slog.Info("run started", "workspace_id", run.WorkspaceID, "thread_id", run.ThreadID, "run_id", run.ID)
 	for {
 		ready := []int{}
 		pending := false
@@ -355,6 +357,9 @@ func (e *Engine) finish(parent context.Context, run w.Run, status string, cause 
 	})
 	if err != nil {
 		e.report(err)
+	}
+	if err == nil {
+		slog.Info("run settled", "run_id", run.ID, "status", status)
 	}
 }
 func (e *Engine) saveStep(ctx context.Context, s w.Step, kind string) error {
@@ -517,6 +522,9 @@ func (e *Engine) executeStep(ctx context.Context, run w.Run, step w.Step, histor
 		return `{"accepted":true,"publication":"after_step_success"}`, nil
 	}
 	observe := func(kind string, data map[string]any) error {
+		if kind == "tool_started" || kind == "tool_finished" {
+			slog.Info(kind, "run_id", run.ID, "step_id", step.ID, "agent_id", a.ID, "tool_call_id", data["tool_call_id"], "tool", data["name"], "status", data["status"])
+		}
 		if kind == "text" {
 			message.Content += data["text"].(string)
 			return e.Store.Write(ctx, func(tx *store.Tx) error {

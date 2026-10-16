@@ -87,6 +87,10 @@ type Routing struct {
 	Explanation   string            `json:"explanation"`
 	Clarification string            `json:"clarification"`
 	Evidence      []RoutingEvidence `json:"evidence"`
+	ModelCall     bool              `json:"model_call"`
+	UsageKnown    bool              `json:"usage_known"`
+	InputTokens   int               `json:"input_tokens"`
+	OutputTokens  int               `json:"output_tokens"`
 }
 
 // Run snapshots a bounded workflow and owns its single terminal status.

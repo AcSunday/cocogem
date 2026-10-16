@@ -525,6 +525,15 @@
           "explanation": {
             "type": "string"
           },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "model_call": {
+            "type": "boolean"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
           "targets": {
             "items": {
               "type": "string"
@@ -533,6 +542,9 @@
               "array",
               "null"
             ]
+          },
+          "usage_known": {
+            "type": "boolean"
           },
           "workflow": {
             "type": "string"
@@ -545,7 +557,11 @@
           "assignments",
           "explanation",
           "clarification",
-          "evidence"
+          "evidence",
+          "model_call",
+          "usage_known",
+          "input_tokens",
+          "output_tokens"
         ],
         "type": "object"
       },
@@ -601,6 +617,15 @@
               "explanation": {
                 "type": "string"
               },
+              "input_tokens": {
+                "type": "integer"
+              },
+              "model_call": {
+                "type": "boolean"
+              },
+              "output_tokens": {
+                "type": "integer"
+              },
               "targets": {
                 "items": {
                   "type": "string"
@@ -609,6 +634,9 @@
                   "array",
                   "null"
                 ]
+              },
+              "usage_known": {
+                "type": "boolean"
               },
               "workflow": {
                 "type": "string"
@@ -621,7 +649,11 @@
               "assignments",
               "explanation",
               "clarification",
-              "evidence"
+              "evidence",
+              "model_call",
+              "usage_known",
+              "input_tokens",
+              "output_tokens"
             ],
             "type": "object"
           }
@@ -839,6 +871,15 @@
               "explanation": {
                 "type": "string"
               },
+              "input_tokens": {
+                "type": "integer"
+              },
+              "model_call": {
+                "type": "boolean"
+              },
+              "output_tokens": {
+                "type": "integer"
+              },
               "targets": {
                 "items": {
                   "type": "string"
@@ -847,6 +888,9 @@
                   "array",
                   "null"
                 ]
+              },
+              "usage_known": {
+                "type": "boolean"
               },
               "workflow": {
                 "type": "string"
@@ -859,7 +903,11 @@
               "assignments",
               "explanation",
               "clarification",
-              "evidence"
+              "evidence",
+              "model_call",
+              "usage_known",
+              "input_tokens",
+              "output_tokens"
             ],
             "type": "object"
           },
@@ -1293,6 +1341,15 @@
                   "explanation": {
                     "type": "string"
                   },
+                  "input_tokens": {
+                    "type": "integer"
+                  },
+                  "model_call": {
+                    "type": "boolean"
+                  },
+                  "output_tokens": {
+                    "type": "integer"
+                  },
                   "targets": {
                     "items": {
                       "type": "string"
@@ -1301,6 +1358,9 @@
                       "array",
                       "null"
                     ]
+                  },
+                  "usage_known": {
+                    "type": "boolean"
                   },
                   "workflow": {
                     "type": "string"
@@ -1313,7 +1373,11 @@
                   "assignments",
                   "explanation",
                   "clarification",
-                  "evidence"
+                  "evidence",
+                  "model_call",
+                  "usage_known",
+                  "input_tokens",
+                  "output_tokens"
                 ],
                 "type": "object"
               },
@@ -1993,6 +2057,15 @@
                     "explanation": {
                       "type": "string"
                     },
+                    "input_tokens": {
+                      "type": "integer"
+                    },
+                    "model_call": {
+                      "type": "boolean"
+                    },
+                    "output_tokens": {
+                      "type": "integer"
+                    },
                     "targets": {
                       "items": {
                         "type": "string"
@@ -2001,6 +2074,9 @@
                         "array",
                         "null"
                       ]
+                    },
+                    "usage_known": {
+                      "type": "boolean"
                     },
                     "workflow": {
                       "type": "string"
@@ -2013,7 +2089,11 @@
                     "assignments",
                     "explanation",
                     "clarification",
-                    "evidence"
+                    "evidence",
+                    "model_call",
+                    "usage_known",
+                    "input_tokens",
+                    "output_tokens"
                   ],
                   "type": "object"
                 },

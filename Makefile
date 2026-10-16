@@ -30,6 +30,7 @@ dev: build
 	node scripts/dev.mjs
 
 e2e: build
+	node --test scripts/dev.test.mjs
 	go run ./cmd/smoke
 	cd web && npm run test:e2e
 
