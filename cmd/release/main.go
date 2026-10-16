@@ -40,7 +40,7 @@ func release() error {
 		if err := copyTree("web/dist", filepath.Join(dir, "web")); err != nil {
 			return err
 		}
-		for _, file := range []string{"LICENSE", "README.md", "SECURITY.md"} {
+		for _, file := range []string{"LICENSE", "README.md", "SECURITY.md", "THIRD_PARTY_NOTICES.txt"} {
 			b, err := os.ReadFile(file)
 			if err != nil {
 				return err

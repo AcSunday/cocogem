@@ -1,4 +1,4 @@
-.PHONY: setup dev test build demo contract check-contract e2e security release
+.PHONY: setup dev test build demo contract check-contract e2e security release notices
 
 setup:
 	cd web && npm ci
@@ -11,6 +11,7 @@ check-contract: contract
 	git diff --exit-code -- api/openapi.yaml web/src/api-types.ts
 
 test:
+	node --test scripts/*.test.mjs
 	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
 	go vet ./...
 	go test -race -shuffle=on ./...
@@ -29,11 +30,16 @@ dev: build
 	node scripts/dev.mjs
 
 e2e: build
+	go run ./cmd/smoke
 	cd web && npm run test:e2e
 
 security:
+	go run ./cmd/checksecrets
 	go tool govulncheck ./...
 	cd web && npm audit --omit=dev
 
-release: build
+notices:
+	node scripts/licenses.mjs
+
+release: build notices
 	go run ./cmd/release
