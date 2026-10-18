@@ -1,6 +1,6 @@
 # Contributing
 
-Use Go 1.25 and Node.js 22.12+ (Node.js 24 LTS is recommended).
+Use Go 1.26.9+ and Node.js 22.12+ (Node.js 24 LTS is recommended).
 Read [the product specification](docs/product-v0.1.md) before changing behavior.
 
 Each pull request should implement one reviewable feature or fix, include tests,

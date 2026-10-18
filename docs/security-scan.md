@@ -1,6 +1,25 @@
-# Go 1.25 security scan — 2026-10-16
+# Security scan — 2026-10-18
 
-Go remains at the user-requested 1.25 baseline, pinned to 1.25.14. The current
+The project now requires Go 1.26.9, the current 1.26 patch listed by
+[the official downloads API](https://go.dev/dl/?mode=json). The user approved
+the move from Go 1.25 on 2026-10-18. Both Go modules and CI use the new baseline.
+
+`make security` passed locally with Go 1.26.9:
+
+- Common-secret scan: passed.
+- `govulncheck`: 0 reachable vulnerabilities and 0 affected imported packages.
+  It also reports 5 findings in required modules whose vulnerable symbols are
+  not called by this build. This is not a claim that every dependency is
+  vulnerability-free.
+- Frontend production dependency audit: 0 findings.
+
+Re-run `make security` against the current vulnerability database before each
+release. CI retains the scanner without allowlisting IDs or ignoring failures.
+Real-provider checks and GitHub-hosted CI remain separate release gates.
+
+## Historical Go 1.25 scan — 2026-10-16
+
+At this scan the project used Go 1.25.14. The then-current
 Go vulnerability database reports reachable standard-library findings whose
 listed fixes are Go 1.26.9 / 1.27.2, with no Go 1.25 fix listed at this scan.
 `golang.org/x/net` also reports affected HTTP/2 code; only its HTML parser is
@@ -17,9 +36,8 @@ The scanner's reachability report needs to be assessed against each actual
 transport path. CI keeps `govulncheck` as a failing release gate on affected
 toolchains. Do not publish a clean-security claim or silently allowlist IDs.
 
-Reproduce with `make security`. Re-run against the current vulnerability
-database before release. A toolchain upgrade is a separate project decision;
-the implementation does not override the user's Go 1.25 requirement.
+This historical result explains the upgrade; current results are recorded
+above. The Go 1.25 baseline is no longer supported by this project.
 
 Frontend production dependency audit: zero findings in the local 2026-10-16
 scan. This is point-in-time evidence and must be refreshed in CI.

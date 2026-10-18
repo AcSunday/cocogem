@@ -10,7 +10,7 @@ Cocogem 的目标是一个由 Go 驱动、带交互式 Web 前端的多 Agent �
 
 ![Cocogem 离线演示工作空间](docs/screenshots/workspace-demo.jpg)
 
-开发需要 Go 1.25、Node.js 22.12+（建议 24 LTS）与 npm。发布包运行无需 Node.js。
+开发需要 Go 1.26.9+、Node.js 22.12+（建议 24 LTS）与 npm。发布包运行无需 Node.js。
 
 ```sh
 make setup
@@ -44,7 +44,7 @@ export COCOGEM_MODELS='你有权使用的模型ID'
 
 模型和工具执行有时间、轮数、来源大小和队列限制。未配置搜索时可以研究给定 URL 或本地文本；不能访问登录网页、执行 shell、修改文件或上传 Office/PDF。自然语言路由仍可能误判；页面提供解释与明确选人入口，歧义时不会执行。
 
-当前真实 Anthropic/Brave smoke、Linux 运行证据和发布安全门禁仍见[验证进度](docs/development-progress.md)。Go 1.25 的当前标准库漏洞扫描未通过，详见[安全扫描记录](docs/security-scan.md)；不要把本地功能测试通过视为公开发布验收通过。
+真实 Anthropic/Brave smoke、平台证据及远端 CI 状态见[验证进度](docs/development-progress.md)，工具链升级与扫描结果见[安全扫描记录](docs/security-scan.md)。本地功能测试通过不等于公开发布验收完成。
 
 ## 开源开发
 
@@ -58,7 +58,7 @@ export COCOGEM_MODELS='你有权使用的模型ID'
 
 ## 运行
 
-需要 Go 1.25，以及你要使用的、已经安装并登录的 CLI：Claude Code（`claude --version`）、Codex（`codex --version`）或 Gemini（`gemini --version`）。Claude 未登录时运行 `claude`；Codex 未登录时运行 `codex login`；Gemini 未登录时运行 `gemini` 完成认证。
+需要 Go 1.26.9+，以及你要使用的、已经安装并登录的 CLI：Claude Code（`claude --version`）、Codex（`codex --version`）或 Gemini（`gemini --version`）。Claude 未登录时运行 `claude`；Codex 未登录时运行 `codex login`；Gemini 未登录时运行 `gemini` 完成认证。
 
 默认使用 Claude：
 

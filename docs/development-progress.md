@@ -6,13 +6,20 @@ The product specification remains the acceptance source of truth.
 | Feature | Status | Validation |
 | --- | --- | --- |
 | Existing CLI baseline | Preserved | `go test ./...` on original Go 1.22 |
-| M0 engineering and contracts | Implemented | Go 1.25.14, public module, policies, generated OpenAPI/types, actual response conformance and drift checks |
+| M0 engineering and contracts | Implemented | Go 1.26.9, public module, policies, generated OpenAPI/types, actual response conformance and drift checks |
 | Persistent domain and records | Implemented | Naming negative cases; SQLite rollback, active-run uniqueness, terminal immutability, reopen and permissions; race tests and vet |
 | M1 single-agent vertical flow | Implemented; live provider gate pending | Bounded Anthropic SSE, schema-validated host tools, persistent HTTP/SSE, authentication and demo |
 | M2 names, routing and collaboration | Implemented | Renaming preserves identity; longest normalized names; semantic quote validation; finite parallel/serial workflows |
 | M3 research, code analysis and artifacts | Implemented; live service gate pending | All three browser flows, real file tools, HTTP fixtures, captured sources, immutable versions, feedback and Markdown export |
 | M4 recovery, security and interaction | Implemented | Cancellation, lost-response idempotency, long history, replay, restart, queue policy revalidation, commit-failure injection, backup/restore; WCAG automatic checks |
-| M5 release candidate | Built; publication blocked | Clean checkout reproduced; macOS arm64 and Linux amd64 candidate smoke; notices/checksums; Go 1.25 security scan blocks release |
+| M5 release candidate | Built; publication blocked | Clean checkout reproduced; macOS arm64 and Linux amd64 candidate smoke; notices/checksums; Go 1.26.9 security gate passed locally; live provider and remote CI still pending |
+
+## Toolchain update on 2026-10-18
+
+- Upgraded both Go modules to require Go 1.26.9; CI covers 1.26 and stable.
+- `go mod verify`, `make test` and `make security` passed on the new toolchain.
+- The scanner reports no reachable vulnerabilities; required-module-only
+  findings remain documented in [the scan record](security-scan.md).
 
 ## Verified locally on 2026-10-16
 
@@ -28,9 +35,8 @@ The product specification remains the acceptance source of truth.
 ## Remaining release gates
 
 1. Anthropic and Brave credentials are absent in this session. Protocol/fixture tests pass, but paid live calls, actual account/model availability and quality are not verified.
-2. The current Go 1.25.14 vulnerability scan fails on standard-library findings. The requested Go 1.25 baseline has not been silently changed; see [the scan record](security-scan.md). CI retains this gate.
-3. GitHub-hosted CI has not run because commits have not been pushed. No tag, GitHub Release or remote publication was created.
+2. GitHub-hosted CI has not run because commits have not been pushed. No tag, GitHub Release or remote publication was created.
 
 All feature changes were committed separately after their relevant tests. Local
 build artifacts are in ignored `dist/`; do not treat their existence as release
-approval or publish while the security gate remains unresolved.
+approval; live-provider validation and GitHub-hosted CI remain incomplete.
