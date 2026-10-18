@@ -2,7 +2,8 @@
 
 ## Local service and explicit ownership
 
-The existing root CLI stays compatible. The Web server is a separate command,
+The native CLI lives in `cmd/cocogem` and `internal/cli`, keeping its
+arguments, output and session format compatible. The Web server is a separate command,
 using `net/http`, constructor injection and `internal` packages. Workspace
 identity and the current workflow role are separate. Runs snapshot member
 configuration so edits do not rewrite history.

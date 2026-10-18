@@ -1,14 +1,13 @@
-package main
+package cli
 
 import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 )
 
-const usage = `用法：go run . [claude|codex|gemini] [--resume latest|会话ID] "你的问题"`
+const usage = `用法：cocogem [claude|codex|gemini] [--resume latest|会话ID] "你的问题"`
 
 type options struct {
 	CLI    string
@@ -16,16 +15,18 @@ type options struct {
 	Resume string
 }
 
-func main() {
-	opt, err := parseArgs(os.Args[1:])
+// Run invokes the selected native CLI and returns the command's exit status.
+func Run(args []string, output, diagnostics io.Writer) int {
+	opt, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		fmt.Fprintln(diagnostics, err)
+		return 2
 	}
-	if err := run(opt, os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	if err := run(opt, output, diagnostics); err != nil {
+		fmt.Fprintln(diagnostics, err)
+		return 1
 	}
+	return 0
 }
 
 func parseArgs(args []string) (options, error) {

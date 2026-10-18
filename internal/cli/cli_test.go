@@ -1,8 +1,21 @@
-package main
+package cli
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 )
+
+func TestRunInvalidArguments(t *testing.T) {
+	t.Parallel()
+	var output, diagnostics bytes.Buffer
+	if code := Run(nil, &output, &diagnostics); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if output.Len() != 0 || !strings.Contains(diagnostics.String(), "用法：cocogem") {
+		t.Fatalf("stdout=%q stderr=%q", output.String(), diagnostics.String())
+	}
+}
 
 func TestParseArgs(t *testing.T) {
 	t.Parallel()

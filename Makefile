@@ -15,12 +15,14 @@ test:
 	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
 	go vet ./...
 	go test -race -shuffle=on ./...
+	go test -race -shuffle=on -tags=integration ./cmd/cocogem
 	cd web && npm run lint && npm run typecheck && npm test
 
 build:
 	cd web && npm run build
 	rm -rf dist/web
 	mkdir -p dist/web
+	go build -trimpath -o dist/cocogem ./cmd/cocogem
 	go build -trimpath -o dist/cocogem-server ./cmd/cocogem-server
 	cp -R web/dist/. dist/web/
 

@@ -3,7 +3,8 @@
 - Product scope and acceptance criteria: `docs/product-v0.1.md`.
 - Use `cc-skills-golang:golang-how-to` for Go work and load applicable skills.
 - Go 1.26.9 or newer in the 1.26 line; standard library HTTP and explicit constructor injection.
-- Preserve the existing root CLI behavior and its tests.
+- Keep command entry points in `cmd/` and implementation in `internal/`.
+- Preserve native CLI behavior and tests in `internal/cli/`; run it with `go run ./cmd/cocogem`.
 - Implement each feature with behavioral tests; commit only after its checks pass.
 - Commit messages follow Conventional Commits (`feat: ...`, `fix: ...`, `test: ...`).
 - Keep API/OpenAPI, frontend generated types, fixtures and tests in sync.

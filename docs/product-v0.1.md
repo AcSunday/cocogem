@@ -687,7 +687,7 @@ M0 的基础契约按版本演进，M1 起开始落地安全边界和取消，�
 
 ## 17. 实现依据与当前起点
 
-当前可复用代码：`invoke.go` 的统一请求/结果与校验，`runner.go` 的子进程和 NDJSON 读取，三个 CLI 的解析器，`session.go` 的本地记录，以及对应测试。它们是 CLI 学习原型；Web 的事件、身份隔离、权限与持久运行还需实现。
+当前可复用代码：`internal/cli/invoke.go` 的统一请求/结果与校验，`internal/cli/runner.go` 的子进程和 NDJSON 读取，三个 CLI 的解析器，`internal/cli/session.go` 的本地记录，以及对应测试。它们是 CLI 学习原型；Web 的事件、身份隔离、权限与持久运行还需实现。
 
 参考项目：[Clowder AI，固定版本 466d454](https://github.com/zts212653/clowder-ai/tree/466d4549fe2d75c9cc5c96b9497f47e464d13cf2)。借鉴统一执行事件、Agent Loop、上下文和团队协作思路，采用本项目自己的领域模型与界面。参考文档和实际代码不一致时，以固定版本实现及当前项目测试证据核对。
 

@@ -63,15 +63,15 @@ export COCOGEM_MODELS='你有权使用的模型ID'
 默认使用 Claude：
 
 ```sh
-go run . "你好，请用一句话介绍自己"
+go run ./cmd/cocogem "你好，请用一句话介绍自己"
 ```
 
 也可以显式选择 CLI（选择参数放在提示词前）：
 
 ```sh
-go run . claude "你好，请用一句话介绍自己"
-go run . codex "你好，请用一句话介绍自己"
-go run . gemini "你好，请用一句话介绍自己"
+go run ./cmd/cocogem claude "你好，请用一句话介绍自己"
+go run ./cmd/cocogem codex "你好，请用一句话介绍自己"
+go run ./cmd/cocogem gemini "你好，请用一句话介绍自己"
 ```
 
 ## 恢复会话
@@ -79,20 +79,20 @@ go run . gemini "你好，请用一句话介绍自己"
 每次成功调用后，程序会把会话 ID 打印到 stderr，并在当前目录的 `.cocogem/<cli>.json` 保存该 CLI 最近一次成功会话。默认仍然新建会话。
 
 ```sh
-go run . codex "记住我的项目叫 cocogem"
-go run . codex --resume latest "我的项目叫什么？"
+go run ./cmd/cocogem codex "记住我的项目叫 cocogem"
+go run ./cmd/cocogem codex --resume latest "我的项目叫什么？"
 
-go run . claude "记住数字 42"
-go run . claude --resume latest "刚才的数字是多少？"
+go run ./cmd/cocogem claude "记住数字 42"
+go run ./cmd/cocogem claude --resume latest "刚才的数字是多少？"
 
-go run . gemini "记住口令 blue-cat"
-go run . gemini --resume latest "刚才的口令是什么？"
+go run ./cmd/cocogem gemini "记住口令 blue-cat"
+go run ./cmd/cocogem gemini --resume latest "刚才的口令是什么？"
 ```
 
 也可以指定原生 CLI 会话 UUID：
 
 ```sh
-go run . codex --resume 12345678-1234-1234-1234-123456789abc "继续这个会话"
+go run ./cmd/cocogem codex --resume 12345678-1234-1234-1234-123456789abc "继续这个会话"
 ```
 
 `--resume` 放在提示词之前。`latest` 只读取本目录、本 CLI 的记录；没有记录或记录损坏时会报错。恢复失败也会报错，不自动新建会话。Claude、Codex、Gemini 的会话不能互换，恢复时返回的会话 ID 必须与请求一致。
@@ -107,14 +107,14 @@ go run . codex --resume 12345678-1234-1234-1234-123456789abc "继续这个会话
 func Invoke(cli string, request Request, output io.Writer) (Result, error)
 ```
 
-在当前 `main` 包内可以这样调用；流式回复写入 `output`，返回值提供真实会话 ID：
+仓库内的 Go 代码可以导入 `github.com/AcSunday/cocogem/internal/cli`；流式回复写入 `output`，返回值提供真实会话 ID：
 
 ```go
-first, err := Invoke("codex", Request{Prompt: "记住项目名 cocogem"}, os.Stdout)
+first, err := cli.Invoke("codex", cli.Request{Prompt: "记住项目名 cocogem"}, os.Stdout)
 if err != nil {
     return err
 }
-_, err = Invoke("codex", Request{
+_, err = cli.Invoke("codex", cli.Request{
     Prompt:    "我的项目叫什么？",
     SessionID: first.SessionID,
 }, os.Stdout)
@@ -128,23 +128,17 @@ return err
 也可以编译为可执行文件：
 
 ```sh
-go build -o /tmp/cocogem .
+go build -o /tmp/cocogem ./cmd/cocogem
 /tmp/cocogem "你好，请用一句话介绍自己"
 /tmp/cocogem codex "你好，请用一句话介绍自己"
 /tmp/cocogem gemini "你好，请用一句话介绍自己"
 ```
 
-文件按职责分开：
+CLI 入口位于 `cmd/cocogem/main.go`，调用逻辑、事件解析及会话记录位于
+`internal/cli/`，测试与对应实现放在同一目录。目录职责见[项目结构](docs/project-layout.md)。
 
-- `main.go`：参数解析和 CLI 选择。
-- `invoke.go`：统一请求、结果、参数校验和调用接口。
-- `session.go`：会话 ID 校验和本地会话记录。
-- `runner.go`：子进程生命周期和通用 NDJSON 逐行读取。
-- `claude.go`：Claude 命令和事件解析。
-- `codex.go`：Codex 命令和事件解析。
-- `gemini.go`：Gemini 命令和事件解析。
-
-拆分后需要用 `go run .` 编译整个包，不能再只运行一个 `.go` 文件。
+目录调整后，原来的 `go run .` 改为 `go run ./cmd/cocogem`；编译后的
+`cocogem` 参数、输出、退出码和 `.cocogem/` 会话记录格式保持兼容。
 
 ## 对应关系
 
