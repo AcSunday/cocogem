@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Group frontend code into app, API, components, forms, styles and test directories.
+
 - Require Go 1.26.9 or newer; CI covers the 1.26 line and current stable.
 - Move the native CLI to `cmd/cocogem` and `internal/cli`; use
   `go run ./cmd/cocogem` instead of `go run .`.

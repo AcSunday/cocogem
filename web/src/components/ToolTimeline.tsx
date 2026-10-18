@@ -1,5 +1,5 @@
-import type { Agent, Event } from "./api";
-import { cx } from "./styles";
+import type { Agent, Event } from "../api/client";
+import { cx } from "../styles/classes";
 
 function data(event: Event): Record<string, unknown> {
   return event.data && typeof event.data === "object"

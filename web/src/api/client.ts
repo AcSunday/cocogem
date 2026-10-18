@@ -1,4 +1,4 @@
-import type { components } from "./api-types";
+import type { components } from "./schema";
 
 export type Workspace = components["schemas"]["Workspace"];
 export type Agent = components["schemas"]["Agent"];

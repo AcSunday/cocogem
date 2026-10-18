@@ -8,7 +8,7 @@ contract:
 	cd web && npm run generate
 
 check-contract: contract
-	git diff --exit-code -- api/openapi.yaml web/src/api-types.ts
+	git diff --exit-code -- api/openapi.yaml web/src/api/schema.ts
 
 test:
 	node --test scripts/*.test.mjs

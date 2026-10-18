@@ -1,4 +1,4 @@
-import { cx } from "./styles";
+import { cx } from "../styles/classes";
 import { useEffect, useRef, type ReactNode } from "react";
 
 export function Modal({

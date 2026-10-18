@@ -7,6 +7,7 @@
 - Preserve native CLI behavior and tests in `internal/cli/`; run it with `go run ./cmd/cocogem`.
 - Implement each feature with behavioral tests; commit only after its checks pass.
 - Commit messages follow Conventional Commits (`feat: ...`, `fix: ...`, `test: ...`).
+- Follow `docs/project-layout.md` and co-locate tests with their implementations.
 - Keep API/OpenAPI, frontend generated types, fixtures and tests in sync.
 - Never commit credentials, captured user data, databases or build output.
 - Do not mark real-provider/platform verification complete based on fake tests.

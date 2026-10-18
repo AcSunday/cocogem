@@ -1,5 +1,9 @@
-import { MessageCard, WorkspaceForm, MembersForm, ThreadForm } from "./forms";
-import { cx } from "./styles";
+import { MessageCard } from "../components/MessageCard";
+import { WorkspaceForm } from "../components/forms/WorkspaceForm";
+import { MembersForm } from "../components/forms/MembersForm";
+import { ThreadForm } from "../components/forms/ThreadForm";
+import { workflows, errorText, catIcon } from "../lib/presentation";
+import { cx } from "../styles/classes";
 import {
   useCallback,
   useEffect,
@@ -27,24 +31,15 @@ import {
   type Thread,
   type ThreadView,
   type Workspace,
-} from "./api";
-import { Modal } from "./Modal";
-import { Markdown } from "./Markdown";
-import { ToolTimeline } from "./ToolTimeline";
+} from "../api/client";
+import { Modal } from "../components/Modal";
+import { Markdown } from "../components/Markdown";
+import { ToolTimeline } from "../components/ToolTimeline";
 
-const workflows = {
-  free: "自由协作",
-  discussion: "协作讨论",
-  research: "Research",
-  code_analysis: "代码分析",
-};
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : "操作失败";
 const pathSelection = () => {
   const match = location.pathname.match(/^\/w\/([^/]+)(?:\/t\/([^/]+))?/);
   return { workspace: match?.[1] ?? "", thread: match?.[2] ?? "" };
 };
-const catIcon = (index: number) => ["◈", "✦", "●", "◐"][index % 4];
 
 export function App() {
   const [system, setSystem] = useState<System>();

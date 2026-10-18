@@ -21,6 +21,21 @@ The product specification remains the acceptance source of truth.
 - The scanner reports no reachable vulnerabilities; required-module-only
   findings remain documented in [the scan record](security-scan.md).
 
+## Directory cleanup on 2026-10-18
+
+- Moved the native CLI into `cmd/cocogem` and `internal/cli`, preserving its
+  arguments, output, exit codes and saved-session format. Added process tests
+  for Claude/Codex/Gemini invocation, resume and failure without overwriting
+  the last successful session. `make build` now builds both commands.
+- Grouped frontend entry, API, generated schema, components/forms, styles and
+  test setup. Updated generation, lint, test and documentation paths together.
+- `make test`, `make check-contract`, `make security` and
+  `PLAYWRIGHT_CHANNEL=chrome make e2e` passed after the move.
+- A token comparison confirmed that the moved React function bodies were
+  unchanged; generated schema and stylesheet contents also remain unchanged.
+- The new CLI source command is `go run ./cmd/cocogem`; `go run .` no longer
+  refers to a package. See [the directory guide](project-layout.md).
+
 ## Verified locally on 2026-10-16
 
 - `make test`: Go vet/race/shuffle and frontend lint/types/tests, plus development-process ownership and license tests.

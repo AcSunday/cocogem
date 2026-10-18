@@ -164,7 +164,7 @@ Codex 调用相当于：
 printf '%s' "你的问题" | codex exec --json --skip-git-repo-check --sandbox read-only -
 ```
 
-Go 通过 `cmd.Stdin` 直接传入提示词，不执行上面的 shell 管道。这样即使提示词是 `-` 或包含特殊字符，也能按原文传入。`--skip-git-repo-check` 使这个示例能在当前这样的非 Git 目录运行；Codex 使用只读沙箱。
+Go 通过 `cmd.Stdin` 直接传入提示词，不执行上面的 shell 管道。这样即使提示词是 `-` 或包含特殊字符，也能按原文传入。`--skip-git-repo-check` 允许 CLI 在非 Git 资料目录运行；Codex 使用只读沙箱。
 
 Gemini 调用相当于：
 

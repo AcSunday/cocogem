@@ -1,4 +1,4 @@
-import styles from "./App.module.css";
+import styles from "./workspace.module.css";
 
 // Resolve the shared workspace design vocabulary to locally scoped CSS classes.
 export function cx(value: string): string {

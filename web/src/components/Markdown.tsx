@@ -1,4 +1,4 @@
-import { cx } from "./styles";
+import { cx } from "../styles/classes";
 import ReactMarkdown from "react-markdown";
 export function Markdown({ text }: { text: string }) {
   return (

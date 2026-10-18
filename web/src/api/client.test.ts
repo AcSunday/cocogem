@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadAllThreadPages, mergeEvents, terminal, type Event } from "./api";
+import { loadAllThreadPages, mergeEvents, terminal, type Event } from "./client";
 afterEach(() => vi.unstubAllGlobals());
 describe("event delivery", () => {
   it("deduplicates replayed events and preserves sequence order", () => {

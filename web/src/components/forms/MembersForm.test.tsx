@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import { MembersForm } from "./forms";
-import type { Agent, System } from "./api";
+import { MembersForm } from "./MembersForm";
+import type { Agent, System } from "../../api/client";
 
 HTMLDialogElement.prototype.showModal = function () {
   this.setAttribute("open", "");

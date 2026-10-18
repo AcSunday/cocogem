@@ -685,9 +685,9 @@ M0 的基础契约按版本演进，M1 起开始落地安全边界和取消，�
 
 验收中已勾选项的自动化/平台证据见实现进度。上述真实服务与远端 CI 尚未完成，安全扫描已在 Go 1.26.9 上通过本地验证，不能宣布公开发布完成。
 
-## 17. 实现依据与当前起点
+## 17. 实现依据与原型来源
 
-当前可复用代码：`internal/cli/invoke.go` 的统一请求/结果与校验，`internal/cli/runner.go` 的子进程和 NDJSON 读取，三个 CLI 的解析器，`internal/cli/session.go` 的本地记录，以及对应测试。它们是 CLI 学习原型；Web 的事件、身份隔离、权限与持久运行还需实现。
+当前可复用代码：`internal/cli/invoke.go` 的统一请求/结果与校验，`internal/cli/runner.go` 的子进程和 NDJSON 读取，三个 CLI 的解析器，`internal/cli/session.go` 的本地记录，以及对应测试。它们保留原生 CLI 学习路径；Web 的事件、身份隔离、权限与持久运行由独立的 `internal/httpapi`、`internal/agent`、`internal/workflow` 和 `internal/store` 模块提供。
 
 参考项目：[Clowder AI，固定版本 466d454](https://github.com/zts212653/clowder-ai/tree/466d4549fe2d75c9cc5c96b9497f47e464d13cf2)。借鉴统一执行事件、Agent Loop、上下文和团队协作思路，采用本项目自己的领域模型与界面。参考文档和实际代码不一致时，以固定版本实现及当前项目测试证据核对。
 

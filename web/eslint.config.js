@@ -9,5 +9,5 @@ export default ts.config(
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     rules: { "@typescript-eslint/no-explicit-any": "error" },
   },
-  { ignores: ["src/api-types.ts"] },
+  { ignores: ["src/api/schema.ts"] },
 );
