@@ -3,9 +3,11 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"slices"
+	"testing"
+
 	"github.com/AcSunday/cocogem/internal/model"
 	w "github.com/AcSunday/cocogem/internal/workspace"
-	"testing"
 )
 
 func TestNamesAndIntentRouting(t *testing.T) {
@@ -36,6 +38,81 @@ func TestNamesAndIntentRouting(t *testing.T) {
 	r, _ := ResolveRouting(context.Background(), nil, true, w.RunInput{Message: "布偶猫帮我研究"}, thread, agents)
 	if r.Decision != "clarify" {
 		t.Fatal("ambiguity guessed", r)
+	}
+}
+
+type recordingRouter struct {
+	routing Routing
+	request model.Request
+	calls   int
+}
+
+func (m *recordingRouter) Complete(ctx context.Context, request model.Request, emit func(string) error) (model.Response, error) {
+	m.request = request
+	m.calls++
+	return (routingModel{m.routing}).Complete(ctx, request, emit)
+}
+
+func TestWorkflowDoesNotBypassNamedInstructions(t *testing.T) {
+	agents := []w.Agent{
+		{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test", Executor: "codex", Tools: []string{"publish_artifact"}},
+		{ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test", Executor: "claude", Tools: []string{"publish_artifact"}},
+	}
+	thread := w.Thread{CoordinatorID: "b", AgentIDs: []string{"a", "b"}}
+	assignments := map[string]string{"researcher": "a", "critic": "b", "coordinator": "b"}
+	for _, tc := range []struct {
+		name     string
+		input    w.RunInput
+		route    Routing
+		decision string
+		calls    int
+	}{
+		{"named single task conflicts with research", w.RunInput{Message: "布偶猫帮我调查模型", Workflow: "research", Assignments: assignments}, Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫帮我调查模型"}}}, "clarify", 1},
+		{"ordinary mention retains selected research", w.RunInput{Message: "我觉得布偶猫的观点值得讨论", Workflow: "research", Assignments: assignments}, Routing{Decision: "discuss"}, "discuss", 1},
+		{"unnamed task retains selected research", w.RunInput{Message: "比较三种方法", Workflow: "research", Assignments: assignments}, Routing{}, "assign", 0},
+		{"selected recipient remains authoritative", w.RunInput{Message: "布偶猫帮我调查模型", Targets: []string{"b"}}, Routing{}, "assign", 0},
+		{"same research roles are accepted", w.RunInput{Message: "布偶猫查资料，缅因猫复核并汇总", Workflow: "research", Assignments: assignments}, Routing{Decision: "assign", Workflow: "research", Assignments: assignments, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫查资料"}, {AgentID: "b", Quote: "缅因猫复核并汇总"}}}, "assign", 1},
+		{"different research roles require clarification", w.RunInput{Message: "布偶猫复核并汇总，缅因猫查资料", Workflow: "research", Assignments: assignments}, Routing{Decision: "assign", Workflow: "research", Assignments: map[string]string{"researcher": "b", "critic": "a", "coordinator": "a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫复核并汇总"}, {AgentID: "b", Quote: "缅因猫查资料"}}}, "clarify", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &recordingRouter{routing: tc.route}
+			got, err := ResolveRouting(context.Background(), m, false, tc.input, thread, agents)
+			if err != nil || got.Decision != tc.decision || m.calls != tc.calls {
+				t.Fatalf("route=%+v calls=%d err=%v", got, m.calls, err)
+			}
+			if tc.calls > 0 && m.request.Executor != "codex" {
+				t.Fatalf("semantic routing ignored member executor: %s", m.request.Executor)
+			}
+			if tc.decision == "clarify" && len(got.Targets)+len(got.Assignments) != 0 {
+				t.Fatalf("clarification retained dispatch: %+v", got)
+			}
+			if tc.name == "ordinary mention retains selected research" && (got.Workflow != "research" || got.Assignments["critic"] != "b" || !got.ModelCall) {
+				t.Fatalf("lost selected workflow or routing usage: %+v", got)
+			}
+			if tc.name == "selected recipient remains authoritative" && !slices.Equal(got.Targets, []string{"b"}) {
+				t.Fatalf("replaced explicit recipient: %+v", got)
+			}
+		})
+	}
+}
+
+func TestNegationNeverFallsBackToExcludedCoordinator(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Aliases: []string{"布布"}, Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
+	for _, demo := range []bool{false, true} {
+		for _, text := range []string{"不要让布偶猫处理这个", "别让布布参与", "do not ask ragdoll to research"} {
+			for _, coordinator := range []string{"a", "b"} {
+				got, err := ResolveRouting(context.Background(), routingModel{Routing{Decision: "discuss"}}, demo, w.RunInput{Message: text}, w.Thread{CoordinatorID: coordinator}, agents)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if coordinator == "a" && (got.Decision != "clarify" || len(got.Targets) != 0) {
+					t.Fatalf("dispatched negated coordinator demo=%v: %+v", demo, got)
+				}
+				if coordinator == "b" && (got.Decision != "discuss" || !slices.Equal(got.Targets, []string{"b"})) {
+					t.Fatalf("lost permitted default coordinator demo=%v: %+v", demo, got)
+				}
+			}
+		}
 	}
 }
 
@@ -82,5 +159,14 @@ func TestNamesUseLongestMatchAndNormalizedAmbiguity(t *testing.T) {
 	got, _ = namedCandidates("malice is not a recipient", agents)
 	if len(got) != 0 {
 		t.Fatal("substring matched a name")
+	}
+}
+
+func TestDiscussionDefaultsUseOnlyThreadMembers(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine"}, {ID: "c", DisplayName: "橘猫", Handle: "orange"}}
+	thread := w.Thread{AgentIDs: []string{"a", "b"}, CoordinatorID: "b"}
+	got, err := ResolveRouting(context.Background(), nil, true, w.RunInput{Message: "比较两个方案", Workflow: "discussion", Assignments: map[string]string{"coordinator": "b"}}, thread, agents)
+	if err != nil || !sameIDs(got.Targets, thread.AgentIDs) {
+		t.Fatalf("routing=%+v error=%v", got, err)
 	}
 }

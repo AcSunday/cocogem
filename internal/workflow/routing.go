@@ -53,7 +53,7 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 		r.Workflow = "free"
 		return r, nil
 	}
-	if len(input.Targets) > 0 || input.Workflow != "" && input.Workflow != "free" {
+	if len(input.Targets) > 0 {
 		if r.Workflow == "" {
 			r.Workflow = "free"
 		}
@@ -64,10 +64,16 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 		return Routing{Decision: "clarify", Clarification: "称呼对应多个成员，请选择确切的成员。"}, nil
 	}
 	if len(candidates) == 0 {
+		if input.Workflow != "" && input.Workflow != "free" {
+			if input.Workflow == "discussion" {
+				r.Targets = slices.Clone(thread.AgentIDs)
+			}
+			return r, nil
+		}
 		return Routing{Decision: "discuss", Workflow: "free", Targets: []string{thread.CoordinatorID}, Explanation: "没有明确收件人，交给会话协调者"}, nil
 	}
 	if demo {
-		return demoRouting(clean, thread, candidates), nil
+		return reconcileRouting(demoRouting(clean, thread, candidates), input, thread, candidates, clean), nil
 	}
 	if m == nil {
 		return Routing{}, errors.New("semantic routing requires a configured model")
@@ -75,9 +81,9 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	catalog, _ := json.Marshal(candidates)
-	schema := map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"assign", "discuss", "clarify"}}, "targets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workflow": map[string]any{"type": "string", "enum": []string{"free", "research", "code_analysis"}}, "assignments": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "explanation": map[string]any{"type": "string"}, "clarification": map[string]any{"type": "string"}}, "required": []string{"decision", "targets", "workflow", "explanation"}, "additionalProperties": false}
+	schema := map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"assign", "discuss", "clarify"}}, "targets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workflow": map[string]any{"type": "string", "enum": []string{"free", "discussion", "research", "code_analysis"}}, "assignments": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "explanation": map[string]any{"type": "string"}, "clarification": map[string]any{"type": "string"}}, "required": []string{"decision", "targets", "workflow", "explanation"}, "additionalProperties": false}
 	schema["properties"].(map[string]any)["evidence"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"agent_id": map[string]any{"type": "string"}, "quote": map[string]any{"type": "string"}}, "required": []string{"agent_id", "quote"}, "additionalProperties": false}}
-	request := model.Request{Model: candidates[0].Model, System: "Resolve only the current user's routing intent. Mentioning, quoting, negating, or hypothesizing about a member is not assigning work. Choose discuss for ordinary discussion, clarify for uncertainty. Never invent IDs or participants. An assignment may target only named candidates. Explicit research roles may map to researcher/critic/coordinator; code roles to analyst/reviewer. Output exactly one routing_decision tool call; do not execute any task. Explanation and clarification must be Chinese.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Candidate members: " + string(catalog) + "\nCurrent user input:\n" + clean}}}}, MaxTokens: 1500, Tools: []model.Tool{{Name: "routing_decision", Description: "Propose routing only", Schema: schema}}}
+	request := model.Request{Model: candidates[0].Model, Executor: candidates[0].Executor, System: "Resolve only the current user's routing intent. Mentioning, quoting, negating, or hypothesizing about a member is not assigning work. Choose discuss for ordinary discussion, clarify for uncertainty. Never invent IDs or participants. An assignment may target only named candidates. Explicit research roles may map to researcher/critic/coordinator; code roles to analyst/reviewer; Use free for named independent opinions without a requested summary. Use discussion only for explicitly requested independent views followed by a named coordinator summary. Output exactly one routing_decision tool call; do not execute any task. Explanation and clarification must be Chinese.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Candidate members: " + string(catalog) + "\nCurrent user input:\n" + clean}}}}, MaxTokens: 1500, Tools: []model.Tool{{Name: "routing_decision", Description: "Propose routing only", Schema: schema}}}
 	request.System += " Every assigned member requires evidence with its agent_id and an exact quote from the current input containing its name and task. Do not use paraphrases as quotes."
 	resp, err := m.Complete(ctx, request, func(string) error { return nil })
 	if err != nil {
@@ -86,6 +92,7 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 	if len(resp.Blocks) != 1 || resp.Blocks[0].Type != "tool_use" || resp.Blocks[0].Name != "routing_decision" {
 		return Routing{}, errors.New("invalid routing response")
 	}
+	r = Routing{}
 	if err := json.Unmarshal(resp.Blocks[0].Input, &r); err != nil {
 		return Routing{}, errors.New("invalid routing payload")
 	}
@@ -94,10 +101,7 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 	r.InputTokens = resp.InputTokens
 	r.OutputTokens = resp.OutputTokens
 	if r.Decision == "discuss" {
-		r.Targets = []string{thread.CoordinatorID}
-		r.Workflow = "free"
-		r.Assignments = nil
-		return r, nil
+		return reconcileRouting(r, input, thread, candidates, clean), nil
 	}
 	if r.Decision == "clarify" {
 		return r, nil
@@ -132,7 +136,73 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 	if _, err := Plan("preview", w.RunInput{Workflow: r.Workflow, Targets: r.Targets, Assignments: r.Assignments}, agents); err != nil {
 		return Routing{}, err
 	}
-	return r, nil
+	return reconcileRouting(r, input, thread, candidates, clean), nil
+}
+
+func reconcileRouting(r Routing, input w.RunInput, thread w.Thread, candidates []w.Agent, text string) Routing {
+	clarify := func(message string) Routing {
+		r.Decision, r.Clarification = "clarify", message
+		r.Targets, r.Assignments = nil, nil
+		return r
+	}
+	chosenWorkflow := input.Workflow != "" && input.Workflow != "free"
+	roles := map[string][]string{"research": {"researcher", "critic", "coordinator"}, "code_analysis": {"analyst", "reviewer"}, "discussion": {"coordinator"}}
+	if r.Decision == "discuss" {
+		targets := []string{thread.CoordinatorID}
+		if chosenWorkflow {
+			targets = slices.Clone(input.Targets)
+			if input.Workflow == "discussion" && len(targets) == 0 {
+				targets = slices.Clone(thread.AgentIDs)
+			}
+			for _, role := range roles[input.Workflow] {
+				targets = append(targets, input.Assignments[role])
+			}
+		}
+		// A negated named default recipient needs clarification, even if intent is ordinary discussion.
+		if hasNegation(text) && slices.ContainsFunc(candidates, func(a w.Agent) bool { return slices.Contains(targets, a.ID) }) {
+			return clarify("正文否定了默认参与成员，请明确选择本次实际执行的成员。")
+		}
+		if chosenWorkflow {
+			r.Workflow, r.Targets, r.Assignments = input.Workflow, input.Targets, input.Assignments
+			if input.Workflow == "discussion" && len(r.Targets) == 0 {
+				r.Targets = slices.Clone(thread.AgentIDs)
+			}
+			r.Explanation = "正文没有新的指派，使用已选流程与分工"
+			return r
+		}
+		r.Targets, r.Workflow, r.Assignments = targets, "free", nil
+		return r
+	}
+	if r.Decision != "assign" || !chosenWorkflow {
+		return r
+	}
+	if r.Workflow != input.Workflow {
+		return clarify("正文明确指派与已选流程冲突，请调整流程或成员分工。")
+	}
+	for _, role := range roles[input.Workflow] {
+		if r.Assignments[role] != input.Assignments[role] {
+			return clarify("正文明确指派与已选角色分工冲突，请选择实际分工。")
+		}
+	}
+	if input.Workflow == "discussion" {
+		targets := input.Targets
+		if len(targets) == 0 {
+			targets = thread.AgentIDs
+		}
+		if !sameIDs(r.Targets, targets) {
+			return clarify("正文明确指派与已选讨论成员冲突，请选择实际成员。")
+		}
+	}
+	return r
+}
+
+func hasNegation(text string) bool {
+	for _, word := range []string{"不要", "别让", "不用", "不让", "不需要", "don't", "do not", "must not"} {
+		if strings.Contains(strings.ToLower(text), word) {
+			return true
+		}
+	}
+	return false
 }
 
 func sameIDs(a, b []string) bool {
@@ -144,6 +214,9 @@ func sameIDs(a, b []string) bool {
 }
 func demoRouting(text string, thread w.Thread, candidates []w.Agent) Routing {
 	r := Routing{Decision: "discuss", Workflow: "free", Targets: []string{thread.CoordinatorID}, Explanation: "离线示例路由：普通讨论交给协调者"}
+	if hasNegation(text) {
+		return r
+	}
 	for _, word := range []string{"不要", "如果", "假如", "我觉得", "怎么样", "会有什么"} {
 		if strings.Contains(text, word) {
 			return r

@@ -3,6 +3,9 @@ package workflow
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
@@ -458,5 +461,125 @@ func TestResearchExecutionAndCancellation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type nativeRunnerFunc func(context.Context, model.Request, agent.Execute, agent.Observe) error
+
+func (f nativeRunnerFunc) Run(ctx context.Context, r model.Request, execute agent.Execute, observe agent.Observe) error {
+	return f(ctx, r, execute, observe)
+}
+
+func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		for i := range run.Agents {
+			run.Agents[i].Executor = "claude"
+			run.Agents[i].Model = "default"
+			if err := tx.SaveAgent(run.Agents[i]); err != nil {
+				return err
+			}
+		}
+		return tx.SaveRun(run)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	criticSawArtifact := false
+	runner := nativeRunnerFunc(func(ctx context.Context, r model.Request, execute agent.Execute, observe agent.Observe) error {
+		if r.Executor != "claude" {
+			return fmt.Errorf("wrong executor %s", r.Executor)
+		}
+		if strings.Contains(r.System, "role=critic") {
+			if !strings.Contains(r.Messages[0].Content[0].Text, "upstream-only-structured-finding") {
+				return fmt.Errorf("critic did not receive the structured upstream artifact")
+			}
+			criticSawArtifact = true
+			return observe("text", map[string]any{"text": "Independent critique preserves insufficient evidence."})
+		}
+		kind := "note"
+		if strings.Contains(r.System, "role=coordinator") {
+			kind = "research_report"
+		}
+		payload := map[string]any{"type": kind, "title": "Structured result", "body": "upstream-only-structured-finding", "source_ids": []string{}, "limitations": []string{"fixture only"}, "findings": []any{map[string]any{"title": "Uncertain claim", "detail": "upstream-only-structured-finding", "status": "insufficient_evidence", "source_ids": []string{}}}}
+		raw, _ := json.Marshal(payload)
+		_, err := execute(ctx, "publish_artifact", raw)
+		return err
+	})
+	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: tools.NewWeb("", true), Demo: true}
+	ctx, cancel := context.WithCancel(t.Context())
+	if err := e.Start(ctx); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	got := awaitRun(t, s, run.ID)
+	cancel()
+	e.Wait()
+	if got.Status != "succeeded" || !criticSawArtifact {
+		t.Fatalf("status=%s err=%s criticSaw=%v", got.Status, got.Error, criticSawArtifact)
+	}
+	if err := s.Read(t.Context(), func(tx *store.Tx) error {
+		events, err := tx.Events(run.ID, 0)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
+			if event.Type == "handoff_prepared" {
+				var h Handoff
+				if err := json.Unmarshal(event.Data, &h); err != nil {
+					return err
+				}
+				if len(h.Artifacts) == 0 || h.Artifacts[0].Version != 1 {
+					return fmt.Errorf("handoff lacks exact published artifact")
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRevokedMemberToolStopsQueuedDispatch(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		a := run.Agents[0]
+		a.Tools = []string{"publish_artifact"}
+		a.Revision++
+		return tx.SaveAgent(a)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}, Demo: true}
+	if err := e.Start(ctx); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	got := awaitRun(t, s, run.ID)
+	cancel()
+	e.Wait()
+	if got.Status != "failed" || !strings.Contains(got.Error, "tool permission was revoked") {
+		t.Fatalf("run=%+v", got)
+	}
+	if err := s.Read(t.Context(), func(tx *store.Tx) error {
+		steps, err := tx.Steps(run.ID)
+		for _, step := range steps {
+			if step.Status != "skipped" {
+				return fmt.Errorf("step launched after revocation: %s", step.Status)
+			}
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
