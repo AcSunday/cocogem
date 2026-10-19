@@ -226,7 +226,7 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	if !handlePattern.MatchString(a.Handle) {
 		return errors.New("handle must match [a-z][a-z0-9-]{1,31}")
 	}
-	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "gemini", "anthropic"}, a.Executor) {
+	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "gemini"}, a.Executor) {
 		return errors.New("executor is not supported")
 	}
 	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "gemini" {

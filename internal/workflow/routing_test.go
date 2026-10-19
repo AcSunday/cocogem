@@ -170,3 +170,16 @@ func TestDiscussionDefaultsUseOnlyThreadMembers(t *testing.T) {
 		t.Fatalf("routing=%+v error=%v", got, err)
 	}
 }
+
+func TestSemanticSuggestionCannotTurnNegationOrConditionsIntoAssignment(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
+	for _, text := range []string{"不要让布偶猫处理这个", "如果让布偶猫来研究，会有什么问题？"} {
+		t.Run(text, func(t *testing.T) {
+			route := Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: text}}}
+			got, err := ResolveRouting(t.Context(), routingModel{route}, false, w.RunInput{Message: text}, w.Thread{CoordinatorID: "b"}, agents)
+			if err != nil || got.Decision != "clarify" || len(got.Targets) != 0 {
+				t.Fatalf("routing=%+v error=%v", got, err)
+			}
+		})
+	}
+}

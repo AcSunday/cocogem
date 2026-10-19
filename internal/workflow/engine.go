@@ -219,7 +219,7 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 			return errors.New("source binding changed before dispatch")
 		}
 		for _, snapshot := range run.Agents {
-			if snapshot.Executor != "" && snapshot.Executor != "anthropic" {
+			if snapshot.Executor != "" {
 				if e.Runners[snapshot.Executor] == nil {
 					return errors.New("selected CLI executor is unavailable")
 				}
@@ -600,7 +600,7 @@ func (e *Engine) executeStep(ctx context.Context, run w.Run, step w.Step, histor
 		return e.Store.Write(ctx, func(tx *store.Tx) error { return tx.AppendEvent(run.ID, step.ID, a.ID, kind, data) })
 	}
 	if err == nil {
-		if a.Executor != "" && a.Executor != "anthropic" {
+		if a.Executor != "" {
 			err = e.Runners[a.Executor].Run(ctx, request, execute, observe)
 		} else {
 			err = (agent.Loop{Model: e.Model}).Run(ctx, request, execute, observe)

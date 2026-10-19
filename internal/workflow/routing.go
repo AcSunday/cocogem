@@ -78,7 +78,11 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 	if m == nil {
 		return Routing{}, errors.New("semantic routing requires a configured model")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	timeout := 15 * time.Second
+	if candidates[0].Executor != "" {
+		timeout = 90 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	catalog, _ := json.Marshal(candidates)
 	schema := map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"assign", "discuss", "clarify"}}, "targets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workflow": map[string]any{"type": "string", "enum": []string{"free", "discussion", "research", "code_analysis"}}, "assignments": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "explanation": map[string]any{"type": "string"}, "clarification": map[string]any{"type": "string"}}, "required": []string{"decision", "targets", "workflow", "explanation"}, "additionalProperties": false}
@@ -146,6 +150,13 @@ func reconcileRouting(r Routing, input w.RunInput, thread w.Thread, candidates [
 		return r
 	}
 	chosenWorkflow := input.Workflow != "" && input.Workflow != "free"
+	if r.Decision == "assign" {
+		for _, constraint := range []string{"不要", "别让", "如果", "假如", "假设", "是否让", "don't", "do not", "what if"} {
+			if strings.Contains(strings.ToLower(text), constraint) {
+				return clarify("正文含否定或条件，不能仅凭模型建议派发。请明确选择本次实际执行的成员。")
+			}
+		}
+	}
 	roles := map[string][]string{"research": {"researcher", "critic", "coordinator"}, "code_analysis": {"analyst", "reviewer"}, "discussion": {"coordinator"}}
 	if r.Decision == "discuss" {
 		targets := []string{thread.CoordinatorID}
