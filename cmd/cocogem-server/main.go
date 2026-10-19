@@ -11,13 +11,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/httpapi"
 	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/nativecli"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
 	"github.com/AcSunday/cocogem/internal/workflow"
@@ -90,17 +91,21 @@ func run() error {
 	if err := os.Chmod(dataDir, 0700); err != nil {
 		return err
 	}
-	models := strings.FieldsFunc(os.Getenv("COCOGEM_MODELS"), func(r rune) bool { return r == ',' })
-	for i := range models {
-		models[i] = strings.TrimSpace(models[i])
-	}
-	models = slices.DeleteFunc(models, func(s string) bool { return s == "" })
-	key := os.Getenv("ANTHROPIC_API_KEY")
+	models := []string{"default"}
 	searchKey := os.Getenv("BRAVE_SEARCH_API_KEY")
-	configured := key != "" && len(models) > 0
-	var provider model.Model
-	if configured {
-		provider = &model.Anthropic{APIKey: key}
+	configured := false
+	native := nativecli.Provider{}
+	var provider model.Model = native
+	runners := map[string]agent.Runner{}
+	executors := []httpapi.ExecutorInfo{}
+	if !*demo {
+		for _, item := range nativecli.Discover(context.Background()) {
+			executors = append(executors, httpapi.ExecutorInfo{ID: item.ID, Installed: item.Installed, Version: item.Version, Supported: item.Supported, Reason: item.Reason})
+			if item.Installed && item.Supported {
+				configured = true
+				runners[item.ID] = native
+			}
+		}
 	}
 	if *demo {
 		models = []string{"demo"}
@@ -124,8 +129,8 @@ func run() error {
 	defer db.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	engine := &workflow.Engine{Store: db, AllowedRoots: roots, AllowedModels: models, Model: provider, Web: tools.NewWeb(searchKey, *demo), Demo: *demo}
-	server, err := httpapi.New(httpapi.Config{Host: *listen, WebDir: *webDir, Models: models, Roots: roots, Demo: *demo, ModelConfigured: configured, SearchConfigured: searchKey != "", Model: provider}, db, engine)
+	engine := &workflow.Engine{Store: db, AllowedRoots: roots, AllowedModels: models, Model: provider, Runners: runners, Web: tools.NewWeb(searchKey, *demo), Demo: *demo}
+	server, err := httpapi.New(httpapi.Config{Host: *listen, WebDir: *webDir, Models: models, Roots: roots, Demo: *demo, ModelConfigured: configured, SearchConfigured: searchKey != "", Model: provider, Executors: executors}, db, engine)
 	if err != nil {
 		return err
 	}

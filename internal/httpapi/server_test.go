@@ -232,3 +232,28 @@ func TestPaginationUsesOpaqueBoundedCursor(t *testing.T) {
 		t.Fatal("unbounded limit accepted")
 	}
 }
+
+func TestExecutorCapabilitiesFailClosed(t *testing.T) {
+	s := &Server{config: Config{Executors: []ExecutorInfo{
+		{ID: "claude", Installed: true, Supported: true},
+		{ID: "codex", Installed: true, Supported: false, Reason: "restricted adapter unavailable"},
+		{ID: "gemini", Installed: false},
+	}}}
+	for _, tc := range []struct {
+		name     string
+		executor string
+		wantErr  bool
+	}{
+		{"supported", "claude", false},
+		{"missing explicit migration", "", true},
+		{"unknown", "invented", true},
+		{"unsupported", "codex", true},
+		{"not installed", "gemini", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := s.validateExecutor(tc.executor); (err != nil) != tc.wantErr {
+				t.Fatalf("error=%v wantErr=%v", err, tc.wantErr)
+			}
+		})
+	}
+}

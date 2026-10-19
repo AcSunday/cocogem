@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Thread, Agent } from "../../api/client";
 import { cx } from "../../styles/classes";
-import { errorText, workflows } from "../../lib/presentation";
+import { errorText, memberLabel, workflows } from "../../lib/presentation";
 import { Modal } from "../Modal";
 
 export function ThreadForm({
@@ -15,18 +15,30 @@ export function ThreadForm({
   close: () => void;
   save: (value: Thread) => Promise<void>;
 }) {
-  const [value, setValue] = useState<Thread>(
-    current ?? {
+  const [value, setValue] = useState<Thread>(() => {
+    const ids = current
+      ? (current.agent_ids?.filter((id) =>
+          agents.some((agent) => agent.id === id && !agent.disabled),
+        ) ?? [])
+      : agents
+          .filter((agent) => !agent.disabled)
+          .slice(0, 4)
+          .map((agent) => agent.id);
+    return {
       id: "",
       workspace_id: "",
       title: "新会话",
-      agent_ids: agents.slice(0, 4).map((a) => a.id),
-      coordinator_id: agents[Math.min(2, agents.length - 1)]?.id ?? "",
       workflow: "free",
       revision: 1,
       updated_at: "",
-    },
-  );
+      ...current,
+      agent_ids: ids,
+      coordinator_id:
+        current && ids.includes(current.coordinator_id)
+          ? current.coordinator_id
+          : (ids[Math.min(2, ids.length - 1)] ?? ""),
+    };
+  });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   return (
@@ -57,17 +69,20 @@ export function ThreadForm({
               <input
                 type="checkbox"
                 checked={value.agent_ids?.includes(agent.id) ?? false}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const ids = event.target.checked
+                    ? [...(value.agent_ids ?? []), agent.id]
+                    : (value.agent_ids?.filter((id) => id !== agent.id) ?? []);
                   setValue({
                     ...value,
-                    agent_ids: event.target.checked
-                      ? [...(value.agent_ids ?? []), agent.id]
-                      : (value.agent_ids?.filter((id) => id !== agent.id) ??
-                        []),
-                  })
-                }
+                    agent_ids: ids,
+                    coordinator_id: ids.includes(value.coordinator_id)
+                      ? value.coordinator_id
+                      : (ids[0] ?? ""),
+                  });
+                }}
               />
-              {agent.display_name}
+              {memberLabel(agent)}
             </label>
           ))}
         </fieldset>
@@ -83,7 +98,7 @@ export function ThreadForm({
               .filter((agent) => value.agent_ids?.includes(agent.id))
               .map((agent) => (
                 <option key={agent.id} value={agent.id}>
-                  {agent.display_name}
+                  {memberLabel(agent)}
                 </option>
               ))}
           </select>

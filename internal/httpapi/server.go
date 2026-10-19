@@ -35,6 +35,7 @@ type Config struct {
 	ModelConfigured  bool
 	SearchConfigured bool
 	Model            model.Model
+	Executors        []ExecutorInfo
 }
 type proposal struct {
 	ThreadID string
@@ -205,24 +206,60 @@ func (s *Server) system(rw http.ResponseWriter, r *http.Request) {
 		verified[k] = v
 	}
 	s.mu.Unlock()
-	writeJSON(rw, 200, SystemInfo{Demo: s.config.Demo, Models: append([]string{}, s.config.Models...), Roots: append([]string{}, s.config.Roots...), ModelStatus: state(s.config.ModelConfigured), SearchStatus: state(s.config.SearchConfigured), Verified: verified, CSRFToken: csrf, Limits: map[string]int{"members": 4, "queued_runs": 20, "tool_turns": 12}})
+	writeJSON(rw, 200, SystemInfo{Demo: s.config.Demo, Models: append([]string{}, s.config.Models...), Roots: append([]string{}, s.config.Roots...), ModelStatus: state(s.config.ModelConfigured), SearchStatus: state(s.config.SearchConfigured), Verified: verified, CSRFToken: csrf, Limits: map[string]int{"members": 4, "queued_runs": 20, "tool_calls": 30, "step_seconds": 300}, Executors: s.config.Executors})
 }
 func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
+	var in VerifyInput
+	if !decode(rw, r, &in) {
+		return
+	}
 	if s.config.Model == nil {
-		writeError(rw, r, 503, "model_unavailable", "模型尚未配置")
+		writeError(rw, r, 503, "model_unavailable", "执行器尚不可用")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	if in.Model == "" {
+		in.Model = "default"
+	}
+	if len(s.config.Executors) > 0 {
+		if err := s.validateExecutor(in.Executor); err != nil {
+			respond(rw, r, nil, err)
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
-	_, err := s.config.Model.Complete(ctx, model.Request{Model: s.config.Models[0], System: "Reply with OK only.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Connection test using public text only."}}}}, MaxTokens: 16}, func(string) error { return nil })
+	_, err := s.config.Model.Complete(ctx, model.Request{Executor: in.Executor, Model: in.Model, System: "Reply with OK only. Do not call tools.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Connection test using public text only."}}}}, MaxTokens: 16}, func(string) error { return nil })
 	if err != nil {
-		respond(rw, r, nil, errors.New("模型连接验证失败，请检查服务端配置"))
+		respond(rw, r, nil, fmt.Errorf("CLI 验证失败：%w", err))
 		return
 	}
+	key := in.Executor + ":" + in.Model
+	if in.Executor == "" {
+		key = "model"
+	}
+	at := w.Now()
 	s.mu.Lock()
-	s.verified["model"] = w.Now()
+	s.verified[key] = at
 	s.mu.Unlock()
-	writeJSON(rw, 200, map[string]any{"model": "verified", "verified_at": w.Now()})
+	writeJSON(rw, 200, VerifyReply{Executor: in.Executor, Model: in.Model, VerifiedAt: at})
+}
+
+func (s *Server) validateExecutor(id string) error {
+	if len(s.config.Executors) == 0 {
+		return nil
+	}
+	for _, executor := range s.config.Executors {
+		if executor.ID == id {
+			if !executor.Installed {
+				return &RequestError{503, "executor_unavailable", "所选 CLI 尚未安装"}
+			}
+			if !executor.Supported {
+				return &RequestError{503, "executor_unsupported", executor.Reason}
+			}
+			return nil
+		}
+	}
+	return &RequestError{400, "executor_required", "请选择本机 CLI；历史 API 配置需要在成员设置中明确切换"}
 }
 
 func (s *Server) workspaces(rw http.ResponseWriter, r *http.Request) {
@@ -266,6 +303,21 @@ func (s *Server) createWorkspace(rw http.ResponseWriter, r *http.Request) {
 			handles := []string{"ragdoll", "maine", "orange"}
 			roles := []string{"研究资料，整理证据与不确定性。", "独立质疑结论，核对依据与遗漏。", "组织讨论，汇总观点并保留分歧。"}
 			a := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: name, Handle: handles[i], Aliases: []string{}, RoleDescription: roles[i], Model: s.config.Models[0], Tools: tools.Names, Revision: 1}
+			available := []string{}
+			for _, executor := range s.config.Executors {
+				if executor.Installed && executor.Supported {
+					available = append(available, executor.ID)
+				}
+			}
+			if len(available) > 0 {
+				a.Executor = available[0]
+				a.Model = "default"
+			}
+			if len(s.config.Executors) > 0 && len(available) == 0 {
+				a.Executor = "claude"
+				a.Model = "default"
+			}
+
 			if err := tx.SaveAgent(a); err != nil {
 				return err
 			}
@@ -346,6 +398,9 @@ func (s *Server) createAgent(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		if err := s.validateExecutor(a.Executor); err != nil {
+			return err
+		}
 		if err := w.ValidateAgent(a, peers, s.config.Models, tools.Names); err != nil {
 			return err
 		}
@@ -371,6 +426,9 @@ func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 		a.Revision = old.Revision + 1
 		peers, err := tx.Agents(old.WorkspaceID)
 		if err != nil {
+			return err
+		}
+		if err := s.validateExecutor(a.Executor); err != nil {
 			return err
 		}
 		if err := w.ValidateAgent(a, peers, s.config.Models, tools.Names); err != nil {
@@ -637,7 +695,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 			return &RequestError{409, "routing_proposal_stale", "路由建议已失效，请重新解析收件人"}
 		}
 		if !s.config.Demo && !s.config.ModelConfigured {
-			return &RequestError{503, "model_unavailable", "真实模型尚未配置"}
+			return &RequestError{503, "model_unavailable", "没有可用的本机 CLI，请先安装并登录受支持的 CLI"}
 		}
 		if !s.config.Demo && ws.ConsentVersion < 1 {
 			return &RequestError{403, "consent_required", "工作空间尚未确认资料外发范围"}
@@ -682,6 +740,9 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		}
 		for _, step := range steps {
 			a := agents[slices.IndexFunc(agents, func(a w.Agent) bool { return a.ID == step.AgentID })]
+			if err := s.validateExecutor(a.Executor); err != nil {
+				return err
+			}
 			if !slices.ContainsFunc(run.Agents, func(x w.Agent) bool { return x.ID == a.ID }) {
 				run.Agents = append(run.Agents, a)
 			}

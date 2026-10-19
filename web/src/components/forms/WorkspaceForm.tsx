@@ -87,7 +87,8 @@ export function WorkspaceForm({
               })
             }
           />
-          我理解真实模式会将问题和资料片段发送至配置的模型/搜索服务。
+          我理解真实模式会通过所选本机 CLI
+          将问题和资料片段发送至其模型服务；搜索会发送查询词。
         </label>
         {error && (
           <p className={cx("error")} role="alert">

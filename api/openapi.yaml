@@ -19,6 +19,9 @@
           "display_name": {
             "type": "string"
           },
+          "executor": {
+            "type": "string"
+          },
           "handle": {
             "type": "string"
           },
@@ -77,6 +80,9 @@
             "type": "boolean"
           },
           "display_name": {
+            "type": "string"
+          },
+          "executor": {
             "type": "string"
           },
           "handle": {
@@ -389,6 +395,34 @@
         ],
         "type": "object"
       },
+      "ExecutorInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "installed",
+          "version",
+          "supported",
+          "reason"
+        ],
+        "type": "object"
+      },
       "FeedbackInput": {
         "additionalProperties": false,
         "properties": {
@@ -683,6 +717,9 @@
                   "type": "boolean"
                 },
                 "display_name": {
+                  "type": "string"
+                },
+                "executor": {
                   "type": "string"
                 },
                 "handle": {
@@ -1153,6 +1190,9 @@
                       "type": "boolean"
                     },
                     "display_name": {
+                      "type": "string"
+                    },
+                    "executor": {
                       "type": "string"
                     },
                     "handle": {
@@ -1630,6 +1670,40 @@
           "demo": {
             "type": "boolean"
           },
+          "executors": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "installed": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "supported": {
+                  "type": "boolean"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "installed",
+                "version",
+                "supported",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "limits": {
             "additionalProperties": {
               "type": "integer"
@@ -1869,6 +1943,9 @@
                         "type": "boolean"
                       },
                       "display_name": {
+                        "type": "string"
+                      },
+                      "executor": {
                         "type": "string"
                       },
                       "handle": {
@@ -2283,9 +2360,25 @@
         ],
         "type": "object"
       },
+      "VerifyInput": {
+        "additionalProperties": false,
+        "properties": {
+          "executor": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "VerifyReply": {
         "additionalProperties": false,
         "properties": {
+          "executor": {
+            "type": "string"
+          },
           "model": {
             "type": "string"
           },
@@ -2839,7 +2932,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EmptyInput"
+                "$ref": "#/components/schemas/VerifyInput"
               }
             }
           },

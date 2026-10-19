@@ -300,6 +300,7 @@ export interface components {
       aliases: string[] | null;
       disabled: boolean;
       display_name: string;
+      executor?: string;
       handle: string;
       id: string;
       model: string;
@@ -312,6 +313,7 @@ export interface components {
       aliases?: string[] | null;
       disabled?: boolean;
       display_name: string;
+      executor?: string;
       handle: string;
       id?: string;
       model: string;
@@ -383,6 +385,13 @@ export interface components {
       seq: number;
       step_id?: string;
       type: string;
+    };
+    ExecutorInfo: {
+      id: string;
+      installed: boolean;
+      reason: string;
+      supported: boolean;
+      version: string;
     };
     FeedbackInput: {
       feedback: string;
@@ -456,6 +465,7 @@ export interface components {
             aliases: string[] | null;
             disabled: boolean;
             display_name: string;
+            executor?: string;
             handle: string;
             id: string;
             model: string;
@@ -565,6 +575,7 @@ export interface components {
               aliases: string[] | null;
               disabled: boolean;
               display_name: string;
+              executor?: string;
               handle: string;
               id: string;
               model: string;
@@ -674,6 +685,15 @@ export interface components {
     SystemInfo: {
       csrf_token: string;
       demo: boolean;
+      executors?:
+        | {
+            id: string;
+            installed: boolean;
+            reason: string;
+            supported: boolean;
+            version: string;
+          }[]
+        | null;
       limits: {
         [key: string]: number;
       };
@@ -731,6 +751,7 @@ export interface components {
               aliases: string[] | null;
               disabled: boolean;
               display_name: string;
+              executor?: string;
               handle: string;
               id: string;
               model: string;
@@ -823,7 +844,12 @@ export interface components {
         workspace_id: string;
       };
     };
+    VerifyInput: {
+      executor?: string;
+      model?: string;
+    };
     VerifyReply: {
+      executor?: string;
       model: string;
       verified_at: string;
     };
@@ -1170,7 +1196,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        "application/json": components["schemas"]["EmptyInput"];
+        "application/json": components["schemas"]["VerifyInput"];
       };
     };
     responses: {

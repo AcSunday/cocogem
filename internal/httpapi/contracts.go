@@ -15,6 +15,22 @@ type SystemInfo struct {
 	Verified     map[string]string `json:"verified"`
 	CSRFToken    string            `json:"csrf_token"`
 	Limits       map[string]int    `json:"limits"`
+	Executors    []ExecutorInfo    `json:"executors,omitempty"`
+}
+
+// ExecutorInfo distinguishes a CLI installation from a verified invocation.
+type ExecutorInfo struct {
+	ID        string `json:"id"`
+	Installed bool   `json:"installed"`
+	Version   string `json:"version"`
+	Supported bool   `json:"supported"`
+	Reason    string `json:"reason"`
+}
+
+// VerifyInput names the precise CLI and model to verify using a public prompt.
+type VerifyInput struct {
+	Executor string `json:"executor,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // Page carries a stable list contract and the next opaque cursor.
@@ -70,6 +86,7 @@ type FeedbackInput struct {
 
 // VerifyReply records explicit provider verification time.
 type VerifyReply struct {
+	Executor   string `json:"executor,omitempty"`
 	Model      string `json:"model"`
 	VerifiedAt string `json:"verified_at"`
 }

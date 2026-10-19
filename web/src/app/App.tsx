@@ -2,7 +2,13 @@ import { MessageCard } from "../components/MessageCard";
 import { WorkspaceForm } from "../components/forms/WorkspaceForm";
 import { MembersForm } from "../components/forms/MembersForm";
 import { ThreadForm } from "../components/forms/ThreadForm";
-import { workflows, errorText, catIcon } from "../lib/presentation";
+import {
+  workflows,
+  errorText,
+  catIcon,
+  memberLabel,
+  defaultAssignments,
+} from "../lib/presentation";
 import { cx } from "../styles/classes";
 import {
   useCallback,
@@ -66,9 +72,13 @@ export function App() {
     | null
   >(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [workflow, setWorkflow] = useState<keyof typeof workflows>("free");
+  const [workflowChoices, setWorkflowChoices] = useState<
+    Record<string, keyof typeof workflows>
+  >({});
   const [selected, setSelected] = useState<string[]>([]);
-  const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const [assignmentChoices, setAssignmentChoices] = useState<
+    Record<string, Record<string, string>>
+  >({});
   const [urls, setURLs] = useState("");
   const [scope, setScope] = useState("given_sources");
   const [routing, setRouting] = useState<Routing>();
@@ -83,6 +93,10 @@ export function App() {
   const [newMessages, setNewMessages] = useState(false);
   const [pendingRequest, setPendingRequest] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const [verifyExecutor, setVerifyExecutor] = useState("claude");
+  const [verifyModel, setVerifyModel] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
   const timeline = useRef<HTMLDivElement>(null);
   const follows = useRef(true);
   const currentThread = useRef(threadID);
@@ -102,6 +116,25 @@ export function App() {
   const available = agents.filter((agent) => !agent.disabled);
   const draftKey = threadID || `new:${workspaceID}`;
   const draft = drafts[draftKey] ?? "";
+  const threadMembers = view
+    ? available.filter((agent) => view.thread.agent_ids?.includes(agent.id))
+    : threadID
+      ? []
+      : available.slice(0, 4);
+  const workflow =
+    workflowChoices[draftKey] ??
+    (view?.thread.workflow as keyof typeof workflows | undefined) ??
+    "free";
+  const setWorkflow = (value: keyof typeof workflows) =>
+    setWorkflowChoices((current) => ({ ...current, [draftKey]: value }));
+  const assignments: Record<string, string> = {
+    ...defaultAssignments(threadMembers, view?.thread.coordinator_id),
+    ...Object.fromEntries(
+      Object.entries(assignmentChoices[draftKey] ?? {}).filter(([, id]) =>
+        available.some((agent) => agent.id === id),
+      ),
+    ),
+  };
 
   const navigate = useCallback((ws: string, th = "", push = true) => {
     setPendingRequest(pendingSubmission.current.has(th));
@@ -181,6 +214,11 @@ export function App() {
         const info = await api<System>("/api/v1/system");
         if (canceled) return;
         setSystem(info);
+        setVerifyExecutor(
+          info.executors?.find(
+            (item) => item.installed && item.supported !== false,
+          )?.id ?? "claude",
+        );
         setCSRF(info.csrf_token);
         const spaces = await loadSpaces();
         if (!workspaceID && spaces.length) navigate(spaces[0].id);
@@ -218,16 +256,6 @@ export function App() {
       void refreshThread(threadID).catch((error) => setError(errorText(error)));
     }
   }, [ready, threadID, refreshThread]);
-  useEffect(() => {
-    if (!agents.length) return;
-    setAssignments({
-      researcher: agents[0]?.id,
-      critic: agents[1]?.id,
-      coordinator: agents[2]?.id ?? agents[0]?.id,
-      analyst: agents[0]?.id,
-      reviewer: agents[1]?.id,
-    });
-  }, [agents]);
   useEffect(() => {
     if (!inspectedRun) return;
     const id = inspectedRun.id;
@@ -289,6 +317,11 @@ export function App() {
       },
     );
     currentThread.current = thread.id;
+    setWorkflowChoices((current) => ({ ...current, [thread.id]: workflow }));
+    setAssignmentChoices((current) => ({
+      ...current,
+      [thread.id]: assignments,
+    }));
     setDrafts((current) => ({
       ...current,
       [thread.id]: current[`new:${workspaceID}`] ?? title,
@@ -313,13 +346,7 @@ export function App() {
             message: text,
             workflow: workflow === "free" ? "" : workflow,
             targets:
-              workflow === "free"
-                ? selected
-                : workflow === "discussion"
-                  ? selected.length
-                    ? selected
-                    : available.slice(0, 4).map((a) => a.id)
-                  : [],
+              workflow === "free" || workflow === "discussion" ? selected : [],
             assignments: workflow === "free" ? {} : assignments,
             source_urls: urls
               .split("\n")
@@ -771,7 +798,7 @@ export function App() {
                       onClick={() => selectMember(agent.id)}
                     >
                       <span>{catIcon(index)}</span>
-                      {agent.display_name}
+                      {memberLabel(agent)}
                     </button>
                   ))}
                   <small>
@@ -783,11 +810,13 @@ export function App() {
                   </small>
                 </div>
               )}
-              {(workflow === "research" || workflow === "code_analysis") && (
+              {workflow !== "free" && (
                 <div className={cx("role-selectors")}>
-                  {(workflow === "research"
-                    ? ["researcher", "critic", "coordinator"]
-                    : ["analyst", "reviewer"]
+                  {(workflow === "discussion"
+                    ? ["coordinator"]
+                    : workflow === "research"
+                      ? ["researcher", "critic", "coordinator"]
+                      : ["analyst", "reviewer"]
                   ).map((role) => (
                     <label key={role}>
                       {
@@ -802,15 +831,19 @@ export function App() {
                       <select
                         value={assignments[role] ?? ""}
                         onChange={(event) =>
-                          setAssignments((current) => ({
+                          setAssignmentChoices((current) => ({
                             ...current,
-                            [role]: event.target.value,
+                            [draftKey]: {
+                              ...current[draftKey],
+                              [role]: event.target.value,
+                            },
                           }))
                         }
                       >
+                        <option value="">请选择成员</option>
                         {available.map((agent) => (
                           <option value={agent.id} key={agent.id}>
-                            {agent.display_name}
+                            {memberLabel(agent)}
                           </option>
                         ))}
                       </select>
@@ -854,7 +887,7 @@ export function App() {
                       key={agent.id}
                       onClick={() => updateDraft(draft + agent.handle + " ")}
                     >
-                      {agent.display_name} @{agent.handle}
+                      {memberLabel(agent)}
                     </button>
                   ))}
                 </div>
@@ -887,9 +920,10 @@ export function App() {
                   {routing.clarification ||
                     `${routing.explanation} · ${
                       routing.targets
-                        ?.map(
-                          (id) => agents.find((a) => a.id === id)?.display_name,
-                        )
+                        ?.map((id) => {
+                          const agent = agents.find((a) => a.id === id);
+                          return agent ? memberLabel(agent) : "";
+                        })
                         .filter(Boolean)
                         .join("、") ||
                       workflows[routing.workflow as keyof typeof workflows]
@@ -992,7 +1026,12 @@ export function App() {
                           @{agent.handle} {agent.disabled && "· 已停用"}
                         </small>
                         <p>{agent.role_description}</p>
-                        <span className={cx("model-label")}>{agent.model}</span>
+                        <span className={cx("model-label")}>
+                          {agent.executor ? `${agent.executor} · ` : ""}
+                          {agent.model === "default"
+                            ? "CLI 默认模型"
+                            : agent.model}
+                        </span>
                       </div>
                     </article>
                   ))}
@@ -1191,7 +1230,19 @@ export function App() {
                       工具与交接记录在本次协作期间实时出现。
                     </p>
                   )}
-                  <ToolTimeline events={events} agents={agents} />
+                  <ToolTimeline
+                    events={events}
+                    agents={inspectedRun?.agents ?? []}
+                    sources={view?.sources ?? []}
+                    onSource={(id) =>
+                      void api<Source>(`/api/v1/sources/${id}`)
+                        .then((value) => {
+                          setSource(value);
+                          setTab("sources");
+                        })
+                        .catch((error) => setError(errorText(error)))
+                    }
+                  />
                 </>
               )}
             </div>
@@ -1230,7 +1281,7 @@ export function App() {
           workspaceID={workspaceID}
           close={() => setModal(null)}
           save={async (value) => {
-            await api(
+            const saved = await api<Agent>(
               value.id
                 ? `/api/v1/agents/${value.id}`
                 : `/api/v1/workspaces/${workspaceID}/agents`,
@@ -1239,6 +1290,7 @@ export function App() {
               value.id ? { "If-Match": String(value.revision) } : {},
             );
             await loadMembers(workspaceID);
+            return saved;
           }}
         />
       )}
@@ -1256,6 +1308,11 @@ export function App() {
               value,
               value.id ? { "If-Match": String(value.revision) } : {},
             );
+            setWorkflowChoices((current) => ({
+              ...current,
+              [th.id]: th.workflow as keyof typeof workflows,
+            }));
+            setAssignmentChoices((current) => ({ ...current, [th.id]: {} }));
             setModal(null);
             await loadThreads(workspaceID);
             navigate(workspaceID, th.id);
@@ -1274,7 +1331,9 @@ export function App() {
                 {agent.display_name} (@{agent.handle})
               </h3>
               <p>
-                配置版本 {agent.revision} · 模型 {agent.model}
+                配置版本 {agent.revision} ·{" "}
+                {agent.executor ? `${agent.executor} · ` : ""}模型{" "}
+                {agent.model === "default" ? "CLI 默认" : agent.model}
               </p>
               <p>{agent.role_description}</p>
               <p>工具：{agent.tools?.join(", ")}</p>
@@ -1288,7 +1347,7 @@ export function App() {
           <p>
             {system.demo
               ? "当前使用确定性离线模型，仅访问随包资料。"
-              : "凭证只在服务端环境变量配置，网页不会读取密钥。"}
+              : "成员调用本机 Claude、Codex 或 Gemini CLI，复用各 CLI 的登录状态。网页不会读取登录凭证。"}
           </p>
           <dl>
             <dt>执行限制</dt>
@@ -1297,9 +1356,21 @@ export function App() {
                 .map(([key, value]) => `${key}: ${value}`)
                 .join(" · ")}
             </dd>
-            <dt>模型</dt>
+            <dt>{system.demo ? "模型" : "本机 CLI"}</dt>
             <dd>
-              {statusText[system.model_status]} · {system.models.join(", ")}
+              {system.demo
+                ? `${statusText[system.model_status]} · ${system.models.join(", ")}`
+                : system.executors?.map((executor) => (
+                    <p key={executor.id}>
+                      {executor.id} ·{" "}
+                      {executor.installed
+                        ? `已安装 · ${executor.version}`
+                        : "未检测到"}
+                      {executor.installed && executor.supported === false
+                        ? ` · 不支持：${executor.reason}`
+                        : ""}
+                    </p>
+                  ))}
             </dd>
             <dt>在线搜索</dt>
             <dd>{statusText[system.search_status]}</dd>
@@ -1307,20 +1378,93 @@ export function App() {
             <dd>{system.roots.join("\n") || "未设置"}</dd>
           </dl>
           <p>
-            真实运行会发送问题与读取片段至模型服务；搜索会发送查询词。已配置不等于已连通。
+            真实运行会通过 CLI
+            发送问题与读取片段至模型服务；搜索会发送查询词。已安装不代表已登录或模型可用。
           </p>
+          {!system.demo && (
+            <>
+              <label>
+                验证 CLI
+                <select
+                  value={verifyExecutor}
+                  onChange={(event) => {
+                    setVerifyExecutor(event.target.value);
+                    setVerificationError("");
+                  }}
+                >
+                  {["claude", "codex", "gemini"].map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                验证模型（留空使用 CLI 默认）
+                <input
+                  value={verifyModel}
+                  onChange={(event) => {
+                    setVerifyModel(event.target.value);
+                    setVerificationError("");
+                  }}
+                  placeholder="CLI 默认模型"
+                />
+              </label>
+            </>
+          )}
           <button
+            disabled={
+              verifying ||
+              (!system.demo &&
+                !system.executors?.some(
+                  (executor) =>
+                    executor.id === verifyExecutor &&
+                    executor.installed &&
+                    executor.supported !== false,
+                ))
+            }
             onClick={() => {
-              void api("/api/v1/system/verify", "POST", {})
+              setVerifying(true);
+              setVerificationError("");
+              void api(
+                "/api/v1/system/verify",
+                "POST",
+                system.demo
+                  ? {}
+                  : {
+                      executor: verifyExecutor,
+                      model: verifyModel.trim() || "default",
+                    },
+              )
                 .then(() => api<System>("/api/v1/system"))
                 .then(setSystem)
-                .catch((error) => setError(errorText(error)));
+                .catch((error) => setVerificationError(errorText(error)))
+                .finally(() => setVerifying(false));
             }}
           >
-            验证模型连接（可能产生用量）
+            {verifying ? "正在验证…" : "验证模型连接（可能产生用量）"}
           </button>
-          {system.verified.model && (
-            <p>验证时间：{new Date(system.verified.model).toLocaleString()}</p>
+          {verificationError && (
+            <p role="alert" className={cx("error")}>
+              {verificationError}
+            </p>
+          )}
+          {system.verified[
+            system.demo
+              ? "model"
+              : `${verifyExecutor}:${verifyModel.trim() || "default"}`
+          ] && (
+            <p>
+              验证时间：
+              {new Date(
+                system.verified[
+                  system.demo
+                    ? "model"
+                    : `${verifyExecutor}:${verifyModel.trim() || "default"}`
+                ],
+              ).toLocaleString()}{" "}
+              · {system.demo ? "离线演示检查通过" : "该 CLI 与模型上次已验证"}
+            </p>
           )}
         </Modal>
       )}

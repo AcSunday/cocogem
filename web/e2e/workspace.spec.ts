@@ -21,6 +21,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByLabel("别名（用逗号分隔）").fill("布布");
   await page.getByRole("button", { name: "保存成员" }).click();
   await expect(page.getByRole("status")).toContainText("已保存");
+  await page.getByLabel("职责").fill("研究资料并核对证据。");
+  await page.getByRole("button", { name: "保存成员" }).click();
+  await expect(page.getByRole("status")).toContainText("已保存");
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await page
     .getByRole("button", { name: "做一次 Research", exact: false })
@@ -29,6 +32,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(page.getByText("已完成", { exact: true }).first()).toBeVisible({
     timeout: 15000,
   });
+  const researchURL = page.url();
   await page.getByRole("tab", { name: "来源" }).click();
   await expect(
     page.getByRole("button", { name: /WEB · 已捕获原文/ }).first(),
@@ -165,6 +169,67 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
   expect(accessibility.violations).toEqual([]);
+
+  // A saved default applies after navigation and reload; ordinary discussion
+  // uses this conversation's two members instead of inviting the third.
+  await page
+    .getByRole("button", { name: "新建会话", exact: false })
+    .first()
+    .click();
+  await page.getByLabel("会话标题").fill("双成员讨论");
+  await page
+    .getByRole("checkbox", { name: "橘猫 (@orange)", exact: true })
+    .uncheck();
+  await expect(
+    page.getByLabel("协调者").locator("option").first(),
+  ).toHaveJSProperty("selected", true);
+  await page.getByLabel("默认工作方式").selectOption("discussion");
+  await page.getByRole("button", { name: "保存会话" }).click();
+  await expect(page.getByLabel("工作方式", { exact: true })).toHaveValue(
+    "discussion",
+  );
+  const twoMemberURL = page.url();
+  await page.reload();
+  await expect(page.getByLabel("工作方式", { exact: true })).toHaveValue(
+    "discussion",
+  );
+  await page.getByLabel("输入问题").fill("独立讨论协作工作空间的优缺点。");
+  const accepted = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/runs") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  const discussionRun = await (await accepted).json();
+  expect(
+    discussionRun.agents
+      .map((agent: { handle: string }) => agent.handle)
+      .sort(),
+  ).toEqual(["maine", "ragdoll"]);
+  await expect(page.getByTestId("run-status")).toHaveText("已完成");
+
+  // Renaming does not relabel an already captured tool execution.
+  await page.getByRole("tab", { name: "成员", exact: true }).click();
+  await page.getByRole("button", { name: "管理成员与称呼" }).click();
+  await page
+    .getByRole("button", { name: "布偶猫 (@ragdoll)", exact: true })
+    .click();
+  await page.getByLabel("显示名").fill("新布偶猫");
+  await page.getByRole("button", { name: "保存成员" }).click();
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+    "已保存",
+  );
+  await page.getByRole("button", { name: "关闭窗口" }).click();
+  await page.goto(researchURL);
+  await page.getByRole("tab", { name: "工具", exact: true }).click();
+  await page.getByLabel("历史协作").selectOption({ index: 0 });
+  await expect(
+    page.getByText(/^布偶猫 \(@ragdoll\) · fetch_url · 完成$/).first(),
+  ).toBeVisible();
+  await page.goto(twoMemberURL);
+  await expect(page.getByLabel("工作方式", { exact: true })).toHaveValue(
+    "discussion",
+  );
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "导航", exact: true }).click();
