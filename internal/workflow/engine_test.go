@@ -583,3 +583,38 @@ func TestRevokedMemberToolStopsQueuedDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDependencySkipsPreserveOriginalNativeFailure(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		for i := range run.Agents {
+			run.Agents[i].Executor = "claude"
+			if err := tx.SaveAgent(run.Agents[i]); err != nil {
+				return err
+			}
+		}
+		return tx.SaveRun(run)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := nativeRunnerFunc(func(context.Context, model.Request, agent.Execute, agent.Observe) error {
+		return fmt.Errorf("upstream model connection unavailable")
+	})
+	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: tools.NewWeb("", true), Demo: true}
+	ctx, cancel := context.WithCancel(t.Context())
+	if err := e.Start(ctx); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	got := awaitRun(t, s, run.ID)
+	cancel()
+	e.Wait()
+	if got.Status != "failed" || got.Error != "upstream model connection unavailable" {
+		t.Fatalf("lost original failure: %+v", got)
+	}
+}

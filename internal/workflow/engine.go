@@ -331,7 +331,9 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		}
 		if steps[i].Status != "succeeded" {
 			status = "failed"
-			cause = errors.New(steps[i].Error)
+			if cause == nil || steps[i].Status == "failed" && cause.Error() == "upstream step did not succeed" {
+				cause = errors.New(steps[i].Error)
+			}
 		}
 	}
 	if ctx.Err() != nil {
