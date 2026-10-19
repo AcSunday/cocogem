@@ -53,6 +53,9 @@ export function MembersForm({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const executorInfo = system.executors?.find(
+    (item) => item.id === value.executor,
+  );
   return (
     <Modal title="成员与称呼" close={close}>
       <div className={cx("member-picker")}>
@@ -176,7 +179,11 @@ export function MembersForm({
           </label>
         )}
         <label>
-          {system.demo ? "模型" : "模型（留空使用 CLI 默认）"}
+          {system.demo
+            ? "模型"
+            : value.executor === "codex"
+              ? "模型（Codex 必须指定模型 ID）"
+              : "模型（留空使用 CLI 默认）"}
           {system.demo ? (
             <select
               value={value.model}
@@ -191,8 +198,14 @@ export function MembersForm({
             </select>
           ) : (
             <input
+              required={value.executor === "codex"}
+              pattern={value.executor === "codex" ? "\\S+" : undefined}
               value={value.model === "default" ? "" : value.model}
-              placeholder="CLI 默认模型"
+              placeholder={
+                value.executor === "codex"
+                  ? "输入可用的模型 ID"
+                  : "CLI 默认模型"
+              }
               onChange={(event) => {
                 setSaved(false);
                 setValue({ ...value, model: event.target.value || "default" });
@@ -207,23 +220,23 @@ export function MembersForm({
             下列权限仅控制 Cocogem 的资料工具，不授予原生命令或写文件权限。
           </p>
         )}
+        {!system.demo && value.executor === "codex" && (
+          <p>Codex 必须指定模型 ID，不能沿用本机用户配置中的默认模型。</p>
+        )}
         {!system.demo && !value.executor && (
           <p role="status">
             此成员尚未绑定本机 CLI。请选择执行 CLI；原 API
             模型配置不会自动沿用。
           </p>
         )}
-        {!system.demo &&
-          system.executors?.find((item) => item.id === value.executor)
-            ?.supported === false && (
-            <p role="status">
-              此 CLI 当前不可执行：
-              {
-                system.executors.find((item) => item.id === value.executor)
-                  ?.reason
-              }
-            </p>
-          )}
+        {!system.demo && executorInfo?.reason && (
+          <p role="status">
+            {executorInfo.supported === false
+              ? "此 CLI 当前不可执行："
+              : "使用限制："}
+            {executorInfo.reason}
+          </p>
+        )}
         <fieldset>
           <legend>允许工具</legend>
           {allTools.map((tool) => (

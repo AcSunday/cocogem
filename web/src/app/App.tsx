@@ -1366,8 +1366,8 @@ export function App() {
                       {executor.installed
                         ? `已安装 · ${executor.version}`
                         : "未检测到"}
-                      {executor.installed && executor.supported === false
-                        ? ` · 不支持：${executor.reason}`
+                      {executor.reason
+                        ? ` · ${executor.supported === false ? "不支持" : "使用限制"}：${executor.reason}`
                         : ""}
                     </p>
                   ))}
@@ -1400,21 +1400,34 @@ export function App() {
                 </select>
               </label>
               <label>
-                验证模型（留空使用 CLI 默认）
+                {verifyExecutor === "codex"
+                  ? "验证模型（Codex 必须指定模型 ID）"
+                  : "验证模型（留空使用 CLI 默认）"}
                 <input
+                  required={verifyExecutor === "codex"}
                   value={verifyModel}
                   onChange={(event) => {
                     setVerifyModel(event.target.value);
                     setVerificationError("");
                   }}
-                  placeholder="CLI 默认模型"
+                  placeholder={
+                    verifyExecutor === "codex"
+                      ? "输入可用的模型 ID"
+                      : "CLI 默认模型"
+                  }
                 />
               </label>
+              {verifyExecutor === "codex" && (
+                <p>Codex 必须指定模型 ID，不能沿用本机用户配置中的默认模型。</p>
+              )}
             </>
           )}
           <button
             disabled={
               verifying ||
+              (!system.demo &&
+                verifyExecutor === "codex" &&
+                !verifyModel.trim()) ||
               (!system.demo &&
                 !system.executors?.some(
                   (executor) =>

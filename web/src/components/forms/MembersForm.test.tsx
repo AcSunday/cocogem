@@ -88,7 +88,7 @@ it("keeps the created identity and configures a CLI without granting tools", asy
         installed: true,
         version: "1",
         supported: true,
-        reason: "",
+        reason: "Codex 必须指定模型 ID",
       },
       {
         id: "gemini",
@@ -124,17 +124,27 @@ it("keeps the created identity and configures a CLI without granting tools", asy
   await user.type(screen.getByLabelText("Handle"), "ragdoll");
   await user.click(screen.getByLabelText("read_file"));
   await user.selectOptions(screen.getByLabelText("执行 CLI"), "codex");
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "使用限制：Codex 必须指定模型 ID",
+  );
+  expect(screen.getByLabelText("模型（Codex 必须指定模型 ID）")).toBeRequired();
+  await user.click(screen.getByRole("button", { name: "保存成员" }));
+  expect(save).not.toHaveBeenCalled();
+  await user.type(
+    screen.getByLabelText("模型（Codex 必须指定模型 ID）"),
+    "chosen-model",
+  );
   await user.click(screen.getByRole("button", { name: "保存成员" }));
   expect(save).toHaveBeenLastCalledWith(
     expect.objectContaining({
       executor: "codex",
-      model: "default",
+      model: "chosen-model",
       tools: expect.not.arrayContaining(["read_file"]),
     }),
   );
   await user.type(
-    screen.getByLabelText("模型（留空使用 CLI 默认）"),
-    "chosen-model",
+    screen.getByLabelText("模型（Codex 必须指定模型 ID）"),
+    "-v2",
   );
   await user.click(screen.getByRole("button", { name: "保存成员" }));
   expect(save).toHaveBeenLastCalledWith(
@@ -142,7 +152,7 @@ it("keeps the created identity and configures a CLI without granting tools", asy
       id: "created",
       revision: 1,
       executor: "codex",
-      model: "chosen-model",
+      model: "chosen-model-v2",
       tools: expect.not.arrayContaining(["read_file"]),
     }),
   );
@@ -188,12 +198,12 @@ it("requires an explicit CLI choice when editing an old API member", async () =>
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "保存成员" }));
   expect(save).not.toHaveBeenCalled();
-  await user.selectOptions(screen.getByLabelText("执行 CLI"), "codex");
+  await user.selectOptions(screen.getByLabelText("执行 CLI"), "claude");
   await user.click(screen.getByRole("button", { name: "保存成员" }));
   expect(save).toHaveBeenCalledWith(
     expect.objectContaining({
       id: "old",
-      executor: "codex",
+      executor: "claude",
       model: "default",
       tools: ["read_file"],
     }),

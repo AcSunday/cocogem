@@ -49,8 +49,8 @@ func TestNativeExecutorUsesItsOwnModelSelection(t *testing.T) {
 	for _, executor := range []string{"claude", "codex", "gemini"} {
 		t.Run(executor, func(t *testing.T) {
 			a := Agent{DisplayName: "研究员", Handle: "research", Executor: executor, Model: "default"}
-			if err := ValidateAgent(a, nil, nil, nil); err != nil {
-				t.Fatal(err)
+			if err := ValidateAgent(a, nil, nil, nil); (err != nil) != (executor == "codex") {
+				t.Fatalf("default model: %v", err)
 			}
 			a.Model = "some-model-id"
 			if err := ValidateAgent(a, nil, nil, nil); err != nil {

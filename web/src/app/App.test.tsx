@@ -21,7 +21,13 @@ const system: System = {
       supported: true,
       reason: "",
     },
-    { id: "codex", installed: true, version: "1", supported: true, reason: "" },
+    {
+      id: "codex",
+      installed: true,
+      version: "1",
+      supported: true,
+      reason: "必须指定模型 ID",
+    },
     {
       id: "gemini",
       installed: true,
@@ -60,8 +66,15 @@ it("verifies the selected local CLI and exact model, with unsupported versions d
   await user.click(await screen.findByRole("button", { name: "⚙ 服务与设置" }));
   expect(screen.getByText(/已安装不代表已登录或模型可用/)).toBeInTheDocument();
   await user.selectOptions(screen.getByLabelText("验证 CLI"), "codex");
+  expect(screen.getByText(/使用限制：必须指定模型 ID/)).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "验证模型连接（可能产生用量）" }),
+  ).toBeDisabled();
+  expect(
+    screen.getByLabelText("验证模型（Codex 必须指定模型 ID）"),
+  ).toBeRequired();
   await user.type(
-    screen.getByLabelText("验证模型（留空使用 CLI 默认）"),
+    screen.getByLabelText("验证模型（Codex 必须指定模型 ID）"),
     "chosen-model",
   );
   await user.click(

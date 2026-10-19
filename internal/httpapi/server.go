@@ -743,6 +743,9 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 			if err := s.validateExecutor(a.Executor); err != nil {
 				return err
 			}
+			if err := w.ValidateAgent(a, nil, s.config.Models, tools.Names); err != nil {
+				return err
+			}
 			if !slices.ContainsFunc(run.Agents, func(x w.Agent) bool { return x.ID == a.ID }) {
 				run.Agents = append(run.Agents, a)
 			}
