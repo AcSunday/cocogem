@@ -71,7 +71,11 @@ func claudeConnectionSettings() (map[string]any, error) {
 			env[key] = value
 		}
 	}
-	if len(input.APIKeyHelper) > 0 && env["ANTHROPIC_API_KEY"] == "" && env["ANTHROPIC_AUTH_TOKEN"] == "" {
+	var helper string
+	if len(input.APIKeyHelper) > 0 && json.Unmarshal(input.APIKeyHelper, &helper) != nil {
+		return nil, errors.New("local Claude apiKeyHelper configuration is invalid")
+	}
+	if helper != "" && env["ANTHROPIC_API_KEY"] == "" && env["ANTHROPIC_AUTH_TOKEN"] == "" {
 		return nil, errors.New("Claude uses apiKeyHelper; configure a static CLI authentication environment value for the restricted adapter")
 	}
 	settings["env"] = env

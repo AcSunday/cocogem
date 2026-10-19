@@ -65,3 +65,16 @@ func TestClaudeConfigurationErrorsNeverExposeContents(t *testing.T) {
 		t.Fatal("invalid settings leaked content or succeeded")
 	}
 }
+
+func TestEmptyClaudeCredentialHelperDoesNotBlockNativeAuthentication(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	for _, value := range []string{"null", `""`} {
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"apiKeyHelper":`+value+`}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := claudeConnectionSettings(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
