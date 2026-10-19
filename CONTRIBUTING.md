@@ -18,3 +18,18 @@ generated frontend types and contract tests in the same pull request.
 
 Public releases and remote pushes are separate maintainer actions. AI review
 does not replace automated tests or independent review of security changes.
+
+Native CLI adapters have three different verification levels. `make test` uses
+only temporary subprocess fixtures; `make e2e` uses the explicit demo model.
+To exercise installed Codex/Gemini binaries against a local fake model and
+scoped MCP, run:
+
+```sh
+COCOGEM_CHECK_INSTALLED_CODEX=1 COCOGEM_CHECK_INSTALLED_GEMINI=1 \
+  go test ./internal/nativecli -run TestInstalled -v
+```
+
+These opt-in checks use synthetic connection configuration and a loopback fake
+model endpoint. They must not be reported as live provider quality tests.
+Actual page-based collaboration uses the maintainer's CLI connection settings
+and only public sample tasks; record it separately in the alignment review.

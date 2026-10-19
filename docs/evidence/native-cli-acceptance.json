@@ -1,0 +1,353 @@
+{
+  "date": "2026-10-19",
+  "scope": "Real page-triggered local CLI calls using public synthetic fixtures; no API keys or provider addresses captured.",
+  "cli_versions": {
+    "claude": "2.1.301",
+    "codex": "0.162.1",
+    "gemini": "0.64.0"
+  },
+  "runs": [
+    {
+      "id": "9b006294-e855-415d-bcaa-0fb752bb4154",
+      "status": "succeeded",
+      "demo": false,
+      "workflow": "research",
+      "routing": {
+        "decision": "assign",
+        "model_call": false,
+        "usage_known": false
+      },
+      "steps": [
+        {
+          "role": "researcher",
+          "member": "布偶猫",
+          "executor": "claude",
+          "status": "succeeded"
+        },
+        {
+          "role": "critic",
+          "member": "缅因猫",
+          "executor": "claude",
+          "status": "succeeded"
+        },
+        {
+          "role": "coordinator",
+          "member": "橘猫",
+          "executor": "claude",
+          "status": "succeeded"
+        }
+      ],
+      "native_sessions": [
+        {
+          "cwd": "isolated",
+          "executor": "claude",
+          "mode": "fresh",
+          "session_id": "36b35fbe-74bc-4365-9459-8e58df216c3c"
+        },
+        {
+          "cwd": "isolated",
+          "executor": "claude",
+          "mode": "fresh",
+          "session_id": "c7228b03-78b3-4ec7-abbb-1112d99dcaaf"
+        },
+        {
+          "cwd": "isolated",
+          "executor": "claude",
+          "mode": "fresh",
+          "session_id": "83f96fc7-9925-4e3e-b1e4-ddd3b8ae948b"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "list_files",
+          "status": "ok"
+        },
+        {
+          "name": "read_file",
+          "status": "ok"
+        },
+        {
+          "name": "publish_artifact",
+          "status": "ok"
+        },
+        {
+          "name": "read_source",
+          "status": "ok"
+        },
+        {
+          "name": "publish_artifact",
+          "status": "ok"
+        },
+        {
+          "name": "read_source",
+          "status": "ok"
+        },
+        {
+          "name": "publish_artifact",
+          "status": "ok"
+        }
+      ],
+      "handoffs": 2,
+      "usage": [
+        {
+          "input_tokens": 1339,
+          "known": true,
+          "output_tokens": 889
+        },
+        {
+          "input_tokens": 1656,
+          "known": true,
+          "output_tokens": 1502
+        },
+        {
+          "input_tokens": 2286,
+          "known": true,
+          "output_tokens": 1054
+        }
+      ],
+      "artifacts": [
+        {
+          "type": "note",
+          "version": 1,
+          "demo": false,
+          "findings": 4,
+          "source_count": 1
+        },
+        {
+          "type": "note",
+          "version": 1,
+          "demo": false,
+          "findings": 5,
+          "source_count": 1
+        },
+        {
+          "type": "research_report",
+          "version": 1,
+          "demo": false,
+          "findings": 4,
+          "source_count": 1
+        }
+      ],
+      "sources": [
+        {
+          "kind": "file",
+          "path": "research-scenario.md",
+          "sha256": "32a394231f1c39672d94bd645587786d4174baf69c52a7da672a1f4dfcd1e50b",
+          "start_line": 1,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "id": "aa1d4f82-5f0f-4914-aab6-bf66bbeba8b5",
+      "status": "succeeded",
+      "demo": false,
+      "workflow": "research",
+      "routing": {
+        "decision": "assign",
+        "model_call": false,
+        "usage_known": false
+      },
+      "steps": [
+        {
+          "role": "researcher",
+          "member": "缅因猫",
+          "executor": "codex",
+          "status": "succeeded"
+        },
+        {
+          "role": "critic",
+          "member": "橘猫",
+          "executor": "gemini",
+          "status": "succeeded"
+        },
+        {
+          "role": "coordinator",
+          "member": "缅因猫",
+          "executor": "codex",
+          "status": "succeeded"
+        }
+      ],
+      "native_sessions": [
+        {
+          "cwd": "isolated",
+          "executor": "codex",
+          "mode": "fresh",
+          "session_id": "01a1539a-d172-7ba1-9f41-1cef385719dd"
+        },
+        {
+          "cwd": "isolated",
+          "executor": "gemini",
+          "mode": "fresh",
+          "session_id": "8f2bf796-1b35-44fc-8e79-7a4ca8148bcd"
+        },
+        {
+          "cwd": "isolated",
+          "executor": "codex",
+          "mode": "fresh",
+          "session_id": "01a1539b-bd77-74b0-9ba6-647db4c76ea2"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "read_source",
+          "status": "ok"
+        },
+        {
+          "name": "publish_artifact",
+          "status": "ok"
+        },
+        {
+          "name": "read_source",
+          "status": "ok"
+        },
+        {
+          "name": "publish_artifact",
+          "status": "ok"
+        },
+        {
+          "name": "read_source",
+          "status": "ok"
+        },
+        {
+          "name": "publish_artifact",
+          "status": "ok"
+        }
+      ],
+      "handoffs": 2,
+      "usage": [
+        {
+          "input_tokens": 18131,
+          "known": true,
+          "output_tokens": 557
+        },
+        {
+          "input_tokens": 38512,
+          "known": true,
+          "output_tokens": 1217
+        },
+        {
+          "input_tokens": 24299,
+          "known": true,
+          "output_tokens": 513
+        }
+      ],
+      "artifacts": [
+        {
+          "type": "note",
+          "version": 1,
+          "demo": false,
+          "findings": 1,
+          "source_count": 1
+        },
+        {
+          "type": "note",
+          "version": 1,
+          "demo": false,
+          "findings": 1,
+          "source_count": 1
+        },
+        {
+          "type": "research_report",
+          "version": 1,
+          "demo": false,
+          "findings": 1,
+          "source_count": 1
+        }
+      ],
+      "sources": []
+    },
+    {
+      "id": "8e8a2d38-4896-4def-8f37-557c9cd4d7aa",
+      "status": "succeeded",
+      "demo": false,
+      "workflow": "free",
+      "routing": {
+        "decision": "assign",
+        "model_call": true,
+        "usage_known": true
+      },
+      "steps": [
+        {
+          "role": "responder",
+          "member": "缅因猫",
+          "executor": "codex",
+          "status": "succeeded"
+        }
+      ],
+      "native_sessions": [
+        {
+          "cwd": "isolated",
+          "executor": "codex",
+          "mode": "fresh",
+          "session_id": "01a1539c-068d-7df2-b1d8-26c7a52db5a1"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "list_files",
+          "status": "ok"
+        },
+        {
+          "name": "read_file",
+          "status": "ok"
+        }
+      ],
+      "handoffs": 0,
+      "usage": [
+        {
+          "input_tokens": 16904,
+          "known": true,
+          "output_tokens": 257
+        }
+      ],
+      "artifacts": [],
+      "sources": [
+        {
+          "kind": "file",
+          "path": "research-scenario.md",
+          "sha256": "32a394231f1c39672d94bd645587786d4174baf69c52a7da672a1f4dfcd1e50b",
+          "start_line": 1,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "id": "aff05a77-affb-4ff7-97c4-29278b07f532",
+      "status": "canceled",
+      "demo": false,
+      "workflow": "free",
+      "routing": {
+        "decision": "assign",
+        "model_call": false,
+        "usage_known": false
+      },
+      "steps": [
+        {
+          "role": "responder",
+          "member": "缅因猫",
+          "executor": "codex",
+          "status": "canceled"
+        }
+      ],
+      "native_sessions": [
+        {
+          "cwd": "isolated",
+          "executor": "codex",
+          "mode": "fresh",
+          "session_id": "01a1539d-83bc-7e52-ba40-8ce37d4880f7"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "read_source",
+          "status": "ok"
+        }
+      ],
+      "handoffs": 0,
+      "usage": [],
+      "artifacts": [],
+      "sources": []
+    }
+  ]
+}

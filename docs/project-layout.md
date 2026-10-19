@@ -16,7 +16,8 @@ cocogem/
 │   ├── cli/               # 原生 CLI 参数、事件、进程、会话及测试
 │   ├── agent/             # 有界工具循环
 │   ├── httpapi/           # REST、SSE、本地认证与契约
-│   ├── model/             # 模型协议适配与离线模型
+│   ├── model/             # 执行协议类型与离线模型
+│   ├── nativecli/         # 网页 CLI 执行、受限 MCP 和进程生命周期
 │   ├── store/             # SQLite、事务与迁移
 │   ├── tools/             # 只读文件、公共网页与来源工具
 │   ├── workflow/          # 路由、流程和运行调度

@@ -10,6 +10,8 @@ Cocogem 的目标是一个由 Go 驱动、带交互式 Web 前端的多 Agent �
 
 ![Cocogem 离线演示工作空间](docs/screenshots/workspace-demo.jpg)
 
+[真实 CLI 协作验收与修正记录](docs/alignment-review.md)区分演示、原生协议测试和实际模型运行。
+
 开发需要 Go 1.26.9+、Node.js 22.12+（建议 24 LTS）与 npm。发布包运行无需 Node.js。
 
 ```sh
@@ -27,16 +29,31 @@ make e2e
 
 `make e2e` 首次需要在 `web/` 下运行 `npx playwright install chromium`。已有 Chrome 时可以使用 `PLAYWRIGHT_CHANNEL=chrome make e2e`。`make dev` 启动 Vite 与 Go 服务；开发页面位于 `http://127.0.0.1:5173`，先用服务端启动链接建立同主机的本地会话。
 
-真实模型和在线搜索配置：
+真实模式使用本机 CLI，无需为 Cocogem 额外设置模型 API Key：
 
 ```sh
-export ANTHROPIC_API_KEY='在本机设置，勿提交'
-export COCOGEM_MODELS='你有权使用的模型ID'
-# 可选：BRAVE_SEARCH_API_KEY，用于在线发现资料
+make build
+# 在对应 CLI 内完成登录，先确认它能实际回复。
+# 启动后在网页成员设置选择 CLI，模型默认沿用 CLI 默认值。
 ./dist/cocogem-server --allow-root /absolute/path/to/public-sources
+# 可选：BRAVE_SEARCH_API_KEY，仅用于在线发现资料
 ```
 
-`.env.example` 只提供变量说明，程序不自动加载 `.env`。不要把真实凭证写入命令示例、截图或版本库。真实模式发送问题和读取片段到模型服务；搜索发送查询词。首次使用需确认该工作空间的数据处理范围。
+网页在“服务与设置”中显示 CLI 的安装、版本、受限适配支持和按 CLI/模型
+记录的验证时间。“已安装”和 CLI 的登录状态查询都不能替代一次真实调用。
+三种 CLI 都有受限适配；当前 Codex 适配限制为 0.162.x，Gemini 为 0.64.x，
+其它版本或存在无法兼容的系统策略时会明确阻止执行。成员的 `default` 使用
+本机 CLI 的模型/供应商连接配置；可显式指定其它可用模型。
+适配与实际验收的差异见[对齐审查](docs/alignment-review.md)。
+
+每个网页步骤使用新 CLI 会话与隔离目录，Go 提供其所需的共享消息和确切
+上游产物；不复用本机交互会话的 `latest`。CLI 管理模型和工具循环，通过
+本步专用 MCP 调用 Go 的只读工具。普通 shell、原生文件工具、外部 MCP
+和扩展不会因接入 CLI 自动获准。CLI 的认证和模型访问仍由对应供应商管理。宿主仅按白名单转交本机连接配置；不会继承其中的 hooks、插件、外部 MCP 或通用工具权限。
+
+旧 API 模式创建的成员需要在成员设置明确选择 CLI，历史记录保留；不会
+静默迁移旧模型 ID。`.env.example` 仅有配置说明，程序不自动加载 `.env`。
+首次使用需确认问题与实际读取的资料可以通过 CLI 发送给模型服务。
 
 默认监听 `127.0.0.1:8741`，首版拒绝公网监听；需要浏览器本地会话和 CSRF 校验。启动 token 一次使用、十五分钟过期，通过地址片段交换后移除。服务重启需重新打开新的启动链接。
 
@@ -44,7 +61,7 @@ export COCOGEM_MODELS='你有权使用的模型ID'
 
 模型和工具执行有时间、轮数、来源大小和队列限制。未配置搜索时可以研究给定 URL 或本地文本；不能访问登录网页、执行 shell、修改文件或上传 Office/PDF。自然语言路由仍可能误判；页面提供解释与明确选人入口，歧义时不会执行。
 
-真实 Anthropic/Brave smoke、平台证据及远端 CI 状态见[验证进度](docs/development-progress.md)，工具链升级与扫描结果见[安全扫描记录](docs/security-scan.md)。本地功能测试通过不等于公开发布验收完成。
+真实 CLI/搜索 smoke、平台证据及远端 CI 状态见[验证进度](docs/development-progress.md)，工具链升级与扫描结果见[安全扫描记录](docs/security-scan.md)。本地功能测试通过不等于公开发布验收完成。
 
 ## 开源开发
 

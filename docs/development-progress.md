@@ -8,11 +8,29 @@ The product specification remains the acceptance source of truth.
 | Existing CLI baseline | Preserved | `go test ./...` on original Go 1.22 |
 | M0 engineering and contracts | Implemented | Go 1.26.9, public module, policies, generated OpenAPI/types, actual response conformance and drift checks |
 | Persistent domain and records | Implemented | Naming negative cases; SQLite rollback, active-run uniqueness, terminal immutability, reopen and permissions; race tests and vet |
-| M1 single-agent vertical flow | Implemented; live provider gate pending | Bounded Anthropic SSE, schema-validated host tools, persistent HTTP/SSE, authentication and demo |
+| M1 single-agent vertical flow | Implemented; live provider gate pending | Local CLI runtime, scoped MCP tools, persistent HTTP/SSE, authentication and demo; historical Anthropic protocol tests are not web execution evidence |
 | M2 names, routing and collaboration | Implemented | Renaming preserves identity; longest normalized names; semantic quote validation; finite parallel/serial workflows |
 | M3 research, code analysis and artifacts | Implemented; live service gate pending | All three browser flows, real file tools, HTTP fixtures, captured sources, immutable versions, feedback and Markdown export |
 | M4 recovery, security and interaction | Implemented | Cancellation, lost-response idempotency, long history, replay, restart, queue policy revalidation, commit-failure injection, backup/restore; WCAG automatic checks |
 | M5 release candidate | Built; publication blocked | Clean checkout reproduced; macOS arm64 and Linux amd64 candidate smoke; notices/checksums; Go 1.26.9 security gate passed locally; live provider and remote CI still pending |
+
+## Product alignment correction on 2026-10-19
+
+- Web execution, routing and verification now use local CLI sessions instead
+  of requiring Anthropic API credentials. Members choose the executor/model.
+- Fixed conversation member/default-workflow scope, form revision handling,
+  negated/contradictory routing, exact artifact handoffs, recent complete
+  history, queued tool revocation and historical identity labels.
+- Native CLI protocol/MCP tests and Go race tests pass. Frontend now has 13
+  behavior tests; Chrome demo E2E and real HTTP/backup smoke pass.
+- The first real page probe failed because restricted launching omitted the
+  existing native API connection configuration. After forwarding allowlisted
+  connection fields, real page probes for Claude/Codex/Gemini passed. A real
+  three-member Claude Research also completed with distinct sessions, captured
+  sources, two handoffs and a report retaining critique. A separate
+  Codex/Gemini/Codex Research, natural-language single-member dispatch and
+  actual Codex cancellation also passed through the page.
+  See [the alignment review](alignment-review.md) for findings and evidence.
 
 ## Toolchain update on 2026-10-18
 
@@ -49,9 +67,9 @@ The product specification remains the acceptance source of truth.
 
 ## Remaining release gates
 
-1. Anthropic and Brave credentials are absent in this session. Protocol/fixture tests pass, but paid live calls, actual account/model availability and quality are not verified.
-2. GitHub-hosted CI has not run because commits have not been pushed. No tag, GitHub Release or remote publication was created.
+1. Real three-member Claude and Codex/Gemini Research examples are verified, as are natural-language dispatch, cancellation and all three CLI probes. The all-three-CLI-in-one-run attempt encountered upstream 502 errors; broader task quality and online discovery still need independent validation.
+2. This correction has not been verified by GitHub-hosted CI. No tag or GitHub Release was created during this work.
 
 All feature changes were committed separately after their relevant tests. Local
 build artifacts are in ignored `dist/`; do not treat their existence as release
-approval; live-provider validation and GitHub-hosted CI remain incomplete.
+approval; live-provider validation and GitHub-hosted CI and broader real-task quality evaluation remain incomplete.
