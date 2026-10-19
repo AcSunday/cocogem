@@ -22,9 +22,9 @@ import (
 const fakeSession = "12345678-1234-4234-8234-123456789abc"
 
 func fakeProvider(mode string) Provider {
-	return Provider{command: func(_ string, args ...string) *exec.Cmd {
+	return Provider{command: func(id string, args ...string) *exec.Cmd {
 		cmd := exec.Command(os.Args[0], append([]string{"-test.run=TestNativeCLIHelperProcess", "--"}, args...)...)
-		cmd.Env = append(os.Environ(), "COCOGEM_NATIVE_HELPER=1", "COCOGEM_NATIVE_MODE="+mode, "GORACE=atexit_sleep_ms=0")
+		cmd.Env = append(os.Environ(), "COCOGEM_NATIVE_HELPER=1", "COCOGEM_NATIVE_MODE="+mode, "COCOGEM_NATIVE_EXECUTOR="+id, "GORACE=atexit_sleep_ms=0")
 		return cmd
 	}}
 }
@@ -38,12 +38,20 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 		return
 	}
 	mode := os.Getenv("COCOGEM_NATIVE_MODE")
+	executor := os.Getenv("COCOGEM_NATIVE_EXECUTOR")
 	if os.Args[len(os.Args)-1] == "--version" {
-		fmt.Println("2.1.301 (Claude Code)")
+		switch executor {
+		case "codex":
+			fmt.Println("codex-cli 0.162.1")
+		case "gemini":
+			fmt.Println("0.64.0")
+		default:
+			fmt.Println("2.1.301 (Claude Code)")
+		}
 		os.Exit(0)
 	}
 	if os.Args[len(os.Args)-1] == "--help" {
-		fmt.Println("--restricted --tools --strict-mcp-config --setting-sources --permission-prompts --no-session-persistence --settings --disable-slash-commands --extensions --allowed-mcp-server-names --approval-mode --output-format")
+		fmt.Println("--restricted --tools --strict-mcp-config --setting-sources --permission-prompts --no-session-persistence --settings --disable-slash-commands --extensions --allowed-mcp-server-names --approval-mode --output-format --policy --admin-policy --skip-trust --ignore-user-config --ignore-rules --ephemeral --sandbox --json")
 		os.Exit(0)
 	}
 	arg := func(name string) string {
@@ -53,6 +61,10 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 			}
 		}
 		return "missing"
+	}
+	if executor != "claude" {
+		runOtherNativeHelper(executor, mode, arg)
+		os.Exit(0)
 	}
 	configPath := arg("--mcp-config")
 	for _, flag := range []string{"--restricted", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"} {
@@ -145,7 +157,9 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 	if mode == "exit" {
 		os.Exit(8)
 	}
-	if mode == "failed" {
+	if mode == "usage" {
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":7,"output_tokens":11}}`)
+	} else if mode == "failed" {
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error_during_execution","is_error":true}`)
 	} else {
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","is_error":false}`)
@@ -236,6 +250,16 @@ func TestNativeFailureDiagnosticDoesNotExposeInput(t *testing.T) {
 	}
 }
 
+func TestCompletePreservesNativeUsage(t *testing.T) {
+	t.Parallel()
+	request := testRequest()
+	request.Tools = nil
+	response, err := fakeProvider("usage").Complete(context.Background(), request, nil)
+	if err != nil || !response.UsageKnown || response.InputTokens != 7 || response.OutputTokens != 11 {
+		t.Fatalf("response=%+v error=%v", response, err)
+	}
+}
+
 func TestCapabilitiesFailClosed(t *testing.T) {
 	t.Parallel()
 	if capabilities("claude", "2.1.301", "--tools") || capabilities("gemini", "0.64.0", "--tools") || capabilities("codex", "1", "--tools") {
@@ -245,7 +269,7 @@ func TestCapabilitiesFailClosed(t *testing.T) {
 
 func TestUnsupportedExecutorsFailBeforeSpawn(t *testing.T) {
 	t.Parallel()
-	for _, id := range []string{"codex", "gemini", "unknown"} {
+	for _, id := range []string{"unknown"} {
 		request := testRequest()
 		request.Executor = id
 		p := Provider{command: func(string, ...string) *exec.Cmd { t.Fatal("unsupported executor spawned"); return nil }}
@@ -276,7 +300,7 @@ func TestBridgeSecurityAndSerialization(t *testing.T) {
 	}
 	defer b.close()
 	invoke := func(host, origin, auth, name, arguments string) (int, bool) {
-		raw := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + name + `","arguments":` + arguments + `}}`
+		raw := `{"jsonrpc":"2.0","id":1,"method":"tools/call","_meta":{"progressToken":"fixture"},"params":{"name":"` + name + `","arguments":` + arguments + `}}`
 		req, _ := http.NewRequest(http.MethodPost, b.url(), strings.NewReader(raw))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", auth)

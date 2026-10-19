@@ -54,7 +54,7 @@ func Discover(ctx context.Context) []ExecutorInfo {
 		if info.Supported && err == nil {
 			helpCtx, stop := context.WithTimeout(ctx, 5*time.Second)
 			help := &boundedBuffer{limit: 65536}
-			probe := exec.Command(id, "--help")
+			probe := exec.Command(id, helpArgs(id)...)
 			probe.Stdout, probe.Stderr = help, help
 			helpErr := runProbe(helpCtx, probe)
 			stop()
@@ -75,9 +75,12 @@ func supported(id string) (bool, string) {
 	case "claude":
 		return true, ""
 	case "codex":
-		return false, "此 Codex exec 适配尚不能关闭全部原生工具，网页执行暂不支持"
+		return true, "复用本机默认模型与供应商连接；工具权限由工作空间单独限制"
 	case "gemini":
-		return false, "Gemini 的配置与登录隔离尚未安全接通，网页执行暂不支持"
+		if err := geminiPolicyBoundary(); err != nil {
+			return false, err.Error()
+		}
+		return true, ""
 	default:
 		return false, "不支持的 CLI"
 	}
@@ -87,6 +90,7 @@ func supported(id string) (bool, string) {
 func (p Provider) Complete(ctx context.Context, request model.Request, emit func(string) error) (model.Response, error) {
 	var calls []model.Block
 	var text strings.Builder
+	response := model.Response{}
 	observe := func(kind string, data map[string]any) error {
 		if kind == "text" {
 			chunk := data["text"].(string)
@@ -94,6 +98,11 @@ func (p Provider) Complete(ctx context.Context, request model.Request, emit func
 			if emit != nil {
 				return emit(chunk)
 			}
+		}
+		if kind == "usage" {
+			response.UsageKnown, _ = data["known"].(bool)
+			response.InputTokens, _ = data["input_tokens"].(int)
+			response.OutputTokens, _ = data["output_tokens"].(int)
 		}
 		return nil
 	}
@@ -108,12 +117,14 @@ func (p Provider) Complete(ctx context.Context, request model.Request, emit func
 		return model.Response{}, err
 	}
 	if len(calls) != 0 {
-		return model.Response{Blocks: calls, StopReason: "tool_use", UsageKnown: false}, nil
+		response.Blocks, response.StopReason = calls, "tool_use"
+		return response, nil
 	}
 	if strings.TrimSpace(text.String()) == "" {
 		return model.Response{}, errors.New("native CLI returned an empty reply")
 	}
-	return model.Response{Blocks: []model.Block{{Type: "text", Text: text.String()}}, StopReason: "end_turn", UsageKnown: false}, nil
+	response.Blocks, response.StopReason = []model.Block{{Type: "text", Text: text.String()}}, "end_turn"
+	return response, nil
 }
 
 // Run starts a fresh isolated native session and exposes only this step's tools.
@@ -159,11 +170,32 @@ func (p Provider) Run(ctx context.Context, request model.Request, execute agent.
 		return errors.New("write scoped CLI configuration")
 	}
 	settingsPath := filepath.Join(workdir, "settings.json")
-	if err := os.WriteFile(settingsPath, []byte(`{"disableAllHooks":true,"enabledPlugins":{}}`), 0600); err != nil {
+	settings := map[string]any{"disableAllHooks": true, "enabledPlugins": map[string]any{}}
+	if request.Executor == "claude" {
+		settings, err = claudeConnectionSettings()
+		if err != nil {
+			return err
+		}
+	}
+	safeSettings, err := json.Marshal(settings)
+	if err != nil {
+		return errors.New("encode scoped CLI connection settings")
+	}
+	if err := os.WriteFile(settingsPath, safeSettings, 0600); err != nil {
 		return errors.New("write isolated CLI settings")
 	}
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--restricted", "--tools", "", "--strict-mcp-config", "--mcp-config", configPath, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--allowedTools", "mcp__cocogem__*", "--disable-slash-commands", "--no-chrome", "--no-session-persistence", "--setting-sources", "", "--settings", settingsPath}
-	if request.Model != "" && request.Model != "default" {
+	var env map[string]string
+	switch request.Executor {
+	case "codex":
+		args, env, err = prepareCodex(request, workdir, gate)
+	case "gemini":
+		args, env, err = prepareGemini(request, workdir, gate)
+	}
+	if err != nil {
+		return err
+	}
+	if request.Executor != "codex" && request.Model != "" && request.Model != "default" {
 		if strings.HasPrefix(request.Model, "-") || len(request.Model) > 200 {
 			return errors.New("invalid CLI model")
 		}
@@ -171,8 +203,14 @@ func (p Provider) Run(ctx context.Context, request model.Request, execute agent.
 	}
 	cmd := command(request.Executor, args...)
 	cmd.Dir = workdir
+	if len(env) != 0 {
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = overrideEnv(cmd.Env, env)
+	}
 	cmd.Stdin = strings.NewReader(request.System + "\n\nOnly use the cocogem MCP tools explicitly supplied for this step. Complete the assigned step, then finish. User messages and upstream evidence:\n" + string(prompt))
-	processErr := streamProcess(ctx, cmd, gate)
+	processErr := streamProcess(ctx, request.Executor, cmd, gate)
 	gate.close()
 	if err := gate.failure(); err != nil {
 		return err
@@ -180,10 +218,24 @@ func (p Provider) Run(ctx context.Context, request model.Request, execute agent.
 	if processErr != nil {
 		return processErr
 	}
-	if err := gate.emit("usage", map[string]any{"known": false, "input_tokens": 0, "output_tokens": 0}); err != nil {
+	if err := gate.emit("usage", map[string]any{"known": gate.usageKnown, "input_tokens": gate.inputTokens, "output_tokens": gate.outputTokens}); err != nil {
 		return fmt.Errorf("persist native CLI usage: %w", err)
 	}
 	return nil
+}
+
+func overrideEnv(env []string, values map[string]string) []string {
+	result := make([]string, 0, len(env)+len(values))
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, overridden := values[key]; !overridden {
+			result = append(result, entry)
+		}
+	}
+	for key, value := range values {
+		result = append(result, key+"="+value)
+	}
+	return result
 }
 
 func checkCapabilities(ctx context.Context, id string, command func(string, ...string) *exec.Cmd) error {
@@ -194,6 +246,9 @@ func checkCapabilities(ctx context.Context, id string, command func(string, ...s
 	}{{"--version", version}, {"--help", help}} {
 		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		cmd := command(id, probe.flag)
+		if probe.flag == "--help" {
+			cmd = command(id, helpArgs(id)...)
+		}
 		cmd.Stdout, cmd.Stderr = probe.out, probe.out
 		err := runProbe(probeCtx, cmd)
 		cancel()
@@ -208,4 +263,11 @@ func checkCapabilities(ctx context.Context, id string, command func(string, ...s
 		return errors.New("native CLI version lacks verified tool isolation controls")
 	}
 	return nil
+}
+
+func helpArgs(id string) []string {
+	if id == "codex" {
+		return []string{"exec", "--help"}
+	}
+	return []string{"--help"}
 }

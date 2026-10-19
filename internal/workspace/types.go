@@ -230,9 +230,6 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 		return errors.New("executor is not supported")
 	}
 	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "gemini" {
-		if a.Executor == "codex" && a.Model == "default" {
-			return errors.New("Codex 网页执行需要明确填写模型 ID，不能沿用用户配置默认值")
-		}
 		if len(a.Model) > 150 || strings.TrimSpace(a.Model) == "" || strings.HasPrefix(a.Model, "-") || strings.ContainsAny(a.Model, "\r\n\x00") {
 			return errors.New("CLI model must be default or a model identifier")
 		}

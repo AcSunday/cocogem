@@ -1347,7 +1347,7 @@ export function App() {
           <p>
             {system.demo
               ? "当前使用确定性离线模型，仅访问随包资料。"
-              : "成员调用本机 Claude、Codex 或 Gemini CLI，复用各 CLI 的登录状态。网页不会读取登录凭证。"}
+              : "成员调用本机 Claude、Codex 或 Gemini CLI，复用本机的模型、供应商与认证配置。网页不会读取凭证。"}
           </p>
           <dl>
             <dt>执行限制</dt>
@@ -1379,7 +1379,7 @@ export function App() {
           </dl>
           <p>
             真实运行会通过 CLI
-            发送问题与读取片段至模型服务；搜索会发送查询词。已安装不代表已登录或模型可用。
+            发送问题与读取片段至模型服务；搜索会发送查询词。已安装不代表连接或模型可用。
           </p>
           {!system.demo && (
             <>
@@ -1400,34 +1400,21 @@ export function App() {
                 </select>
               </label>
               <label>
-                {verifyExecutor === "codex"
-                  ? "验证模型（Codex 必须指定模型 ID）"
-                  : "验证模型（留空使用 CLI 默认）"}
+                验证模型（留空使用 CLI 默认）
                 <input
-                  required={verifyExecutor === "codex"}
                   value={verifyModel}
                   onChange={(event) => {
                     setVerifyModel(event.target.value);
                     setVerificationError("");
                   }}
-                  placeholder={
-                    verifyExecutor === "codex"
-                      ? "输入可用的模型 ID"
-                      : "CLI 默认模型"
-                  }
+                  placeholder="CLI 默认模型"
                 />
               </label>
-              {verifyExecutor === "codex" && (
-                <p>Codex 必须指定模型 ID，不能沿用本机用户配置中的默认模型。</p>
-              )}
             </>
           )}
           <button
             disabled={
               verifying ||
-              (!system.demo &&
-                verifyExecutor === "codex" &&
-                !verifyModel.trim()) ||
               (!system.demo &&
                 !system.executors?.some(
                   (executor) =>

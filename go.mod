@@ -3,6 +3,7 @@ module github.com/AcSunday/cocogem
 go 1.26.9
 
 require (
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	golang.org/x/net v0.58.0
 	modernc.org/sqlite v1.59.0

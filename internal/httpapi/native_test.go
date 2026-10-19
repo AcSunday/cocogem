@@ -233,6 +233,7 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 	}
 	ledger := filepath.Join(dir, "invocations.txt")
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("COCOGEM_NATIVE_HTTP_HELPER", "1")
 	t.Setenv("COCOGEM_NATIVE_HTTP_LEDGER", ledger)
 	t.Setenv("GORACE", "atexit_sleep_ms=0")

@@ -179,11 +179,7 @@ export function MembersForm({
           </label>
         )}
         <label>
-          {system.demo
-            ? "模型"
-            : value.executor === "codex"
-              ? "模型（Codex 必须指定模型 ID）"
-              : "模型（留空使用 CLI 默认）"}
+          {system.demo ? "模型" : "模型（留空使用 CLI 默认）"}
           {system.demo ? (
             <select
               value={value.model}
@@ -198,14 +194,8 @@ export function MembersForm({
             </select>
           ) : (
             <input
-              required={value.executor === "codex"}
-              pattern={value.executor === "codex" ? "\\S+" : undefined}
               value={value.model === "default" ? "" : value.model}
-              placeholder={
-                value.executor === "codex"
-                  ? "输入可用的模型 ID"
-                  : "CLI 默认模型"
-              }
+              placeholder="CLI 默认模型"
               onChange={(event) => {
                 setSaved(false);
                 setValue({ ...value, model: event.target.value || "default" });
@@ -216,12 +206,9 @@ export function MembersForm({
         {!system.demo && (
           <p>
             复用本机 CLI
-            的登录。已安装不代表已登录或模型可用，请在“服务与设置”验证。
+            的模型、供应商与认证配置。已安装不代表连接或模型可用，请在“服务与设置”验证。
             下列权限仅控制 Cocogem 的资料工具，不授予原生命令或写文件权限。
           </p>
-        )}
-        {!system.demo && value.executor === "codex" && (
-          <p>Codex 必须指定模型 ID，不能沿用本机用户配置中的默认模型。</p>
         )}
         {!system.demo && !value.executor && (
           <p role="status">

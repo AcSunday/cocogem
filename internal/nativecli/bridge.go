@@ -22,19 +22,23 @@ import (
 )
 
 type bridge struct {
-	ctx     context.Context
-	server  *http.Server
-	addr    string
-	token   string
-	tools   []model.Tool
-	schemas map[string]*jsonschema.Schema
-	execute agent.Execute
-	observe agent.Observe
-	mu      sync.Mutex
-	calls   int
-	err     error
-	stop    context.CancelFunc
-	closed  bool
+	ctx          context.Context
+	server       *http.Server
+	addr         string
+	token        string
+	tools        []model.Tool
+	schemas      map[string]*jsonschema.Schema
+	execute      agent.Execute
+	observe      agent.Observe
+	mu           sync.Mutex
+	calls        int
+	err          error
+	stop         context.CancelFunc
+	closed       bool
+	nativePrefix string
+	usageKnown   bool
+	inputTokens  int
+	outputTokens int
 }
 
 func newBridge(ctx context.Context, tools []model.Tool, execute agent.Execute, observe agent.Observe) (*bridge, error) {
@@ -120,6 +124,25 @@ type rpcRequest struct {
 	ID      json.RawMessage `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params"`
+	Meta    json.RawMessage `json:"_meta"`
+}
+
+type tokenUsage struct {
+	Input  *int `json:"input_tokens"`
+	Output *int `json:"output_tokens"`
+}
+
+func (b *bridge) recordUsage(usage tokenUsage) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if usage.Input == nil || usage.Output == nil {
+		return nil
+	}
+	if *usage.Input < 0 || *usage.Output < 0 {
+		return errors.New("native CLI returned invalid token usage")
+	}
+	b.usageKnown, b.inputTokens, b.outputTokens = true, *usage.Input, *usage.Output
+	return nil
 }
 
 func (b *bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {

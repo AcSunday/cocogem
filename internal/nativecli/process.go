@@ -51,7 +51,7 @@ func runProbe(ctx context.Context, cmd *exec.Cmd) error {
 	return cmd.Wait()
 }
 
-func streamProcess(ctx context.Context, cmd *exec.Cmd, gate *bridge) error {
+func streamProcess(ctx context.Context, executor string, cmd *exec.Cmd, gate *bridge) error {
 	if err := configureProcess(cmd); err != nil {
 		return err
 	}
@@ -65,7 +65,15 @@ func streamProcess(ctx context.Context, cmd *exec.Cmd, gate *bridge) error {
 	}
 	stop := context.AfterFunc(ctx, func() { terminateProcess(cmd) })
 	defer stop()
-	streamErr := parseClaude(stdout, gate)
+	var streamErr error
+	switch executor {
+	case "codex":
+		streamErr = parseCodex(stdout, gate)
+	case "gemini":
+		streamErr = parseGemini(stdout, gate)
+	default:
+		streamErr = parseClaude(stdout, gate)
+	}
 	if streamErr != nil {
 		terminateProcess(cmd)
 	}
@@ -111,6 +119,7 @@ func parseClaude(reader io.Reader, gate *bridge) error {
 			Errors    []string        `json:"errors"`
 			Tools     []string        `json:"tools"`
 			Message   json.RawMessage `json:"message"`
+			Usage     tokenUsage      `json:"usage"`
 		}
 		if err := json.Unmarshal(line, &event); err != nil || event.Type == "" {
 			return errors.New("malformed native CLI event")
@@ -171,6 +180,9 @@ func parseClaude(reader io.Reader, gate *bridge) error {
 				return nativeFailure(event.Subtype, event.Result+" "+strings.Join(event.Errors, " "))
 			}
 			finished = true
+			if err := gate.recordUsage(event.Usage); err != nil {
+				return err
+			}
 		case "error":
 			return errors.New("native CLI reported an error")
 		}
@@ -220,7 +232,24 @@ func (b *bridge) allowedNativeName(name string) bool {
 
 func capabilities(id, version, help string) bool {
 	flags := []string{"--restricted", "--tools", "--strict-mcp-config", "--setting-sources", "--permission-prompts", "--no-session-persistence", "--settings", "--disable-slash-commands"}
-	if id != "claude" || version == "" {
+	switch id {
+	case "codex":
+		// shortcut: inspect native registry changes before enabling other Codex minor versions.
+		if !regexp.MustCompile(`^codex-cli 0\.162\.\d+$`).MatchString(version) {
+			return false
+		}
+		flags = []string{"--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "--json"}
+	case "gemini":
+		// shortcut: inspect settings and policy precedence before enabling other Gemini minor versions.
+		if !regexp.MustCompile(`^0\.64\.\d+$`).MatchString(version) {
+			return false
+		}
+		flags = []string{"--extensions", "--allowed-mcp-server-names", "--policy", "--admin-policy", "--output-format", "--skip-trust"}
+	case "claude":
+	default:
+		return false
+	}
+	if version == "" {
 		return false
 	}
 	for _, flag := range flags {

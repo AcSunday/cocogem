@@ -88,7 +88,7 @@ it("keeps the created identity and configures a CLI without granting tools", asy
         installed: true,
         version: "1",
         supported: true,
-        reason: "Codex 必须指定模型 ID",
+        reason: "只读工具范围由 Cocogem 管理",
       },
       {
         id: "gemini",
@@ -125,26 +125,20 @@ it("keeps the created identity and configures a CLI without granting tools", asy
   await user.click(screen.getByLabelText("read_file"));
   await user.selectOptions(screen.getByLabelText("执行 CLI"), "codex");
   expect(screen.getByRole("status")).toHaveTextContent(
-    "使用限制：Codex 必须指定模型 ID",
+    "使用限制：只读工具范围由 Cocogem 管理",
   );
-  expect(screen.getByLabelText("模型（Codex 必须指定模型 ID）")).toBeRequired();
-  await user.click(screen.getByRole("button", { name: "保存成员" }));
-  expect(save).not.toHaveBeenCalled();
-  await user.type(
-    screen.getByLabelText("模型（Codex 必须指定模型 ID）"),
-    "chosen-model",
-  );
+  expect(screen.getByLabelText("模型（留空使用 CLI 默认）")).not.toBeRequired();
   await user.click(screen.getByRole("button", { name: "保存成员" }));
   expect(save).toHaveBeenLastCalledWith(
     expect.objectContaining({
       executor: "codex",
-      model: "chosen-model",
+      model: "default",
       tools: expect.not.arrayContaining(["read_file"]),
     }),
   );
   await user.type(
-    screen.getByLabelText("模型（Codex 必须指定模型 ID）"),
-    "-v2",
+    screen.getByLabelText("模型（留空使用 CLI 默认）"),
+    "chosen-model",
   );
   await user.click(screen.getByRole("button", { name: "保存成员" }));
   expect(save).toHaveBeenLastCalledWith(
@@ -152,7 +146,7 @@ it("keeps the created identity and configures a CLI without granting tools", asy
       id: "created",
       revision: 1,
       executor: "codex",
-      model: "chosen-model-v2",
+      model: "chosen-model",
       tools: expect.not.arrayContaining(["read_file"]),
     }),
   );

@@ -26,7 +26,7 @@ const system: System = {
       installed: true,
       version: "1",
       supported: true,
-      reason: "必须指定模型 ID",
+      reason: "只读工具范围由 Cocogem 管理",
     },
     {
       id: "gemini",
@@ -64,17 +64,31 @@ it("verifies the selected local CLI and exact model, with unsupported versions d
   render(<App />);
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "⚙ 服务与设置" }));
-  expect(screen.getByText(/已安装不代表已登录或模型可用/)).toBeInTheDocument();
+  expect(screen.getByText(/已安装不代表连接或模型可用/)).toBeInTheDocument();
   await user.selectOptions(screen.getByLabelText("验证 CLI"), "codex");
-  expect(screen.getByText(/使用限制：必须指定模型 ID/)).toBeInTheDocument();
+  expect(
+    screen.getByText(/使用限制：只读工具范围由 Cocogem 管理/),
+  ).toBeInTheDocument();
   expect(
     screen.getByRole("button", { name: "验证模型连接（可能产生用量）" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   expect(
-    screen.getByLabelText("验证模型（Codex 必须指定模型 ID）"),
-  ).toBeRequired();
+    screen.getByLabelText("验证模型（留空使用 CLI 默认）"),
+  ).not.toBeRequired();
+  await user.click(
+    screen.getByRole("button", { name: "验证模型连接（可能产生用量）" }),
+  );
+  await waitFor(() =>
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/system/verify",
+      expect.objectContaining({
+        body: JSON.stringify({ executor: "codex", model: "default" }),
+      }),
+    ),
+  );
+  await screen.findByText(/该 CLI 与模型上次已验证/);
   await user.type(
-    screen.getByLabelText("验证模型（Codex 必须指定模型 ID）"),
+    screen.getByLabelText("验证模型（留空使用 CLI 默认）"),
     "chosen-model",
   );
   await user.click(
