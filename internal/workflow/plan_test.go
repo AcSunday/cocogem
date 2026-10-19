@@ -53,3 +53,14 @@ func TestRequiredPublicationCannotGrantRevokedPermission(t *testing.T) {
 		t.Fatal("workflow silently granted publication")
 	}
 }
+
+func TestIntermediateStepsCannotPublishFormalReports(t *testing.T) {
+	for _, kind := range []string{"note", "research_report", "code_analysis"} {
+		t.Run(kind, func(t *testing.T) {
+			err := ValidateArtifact(w.Artifact{Type: kind, Title: "result", Body: "bounded note"}, "", nil)
+			if (err == nil) != (kind == "note") {
+				t.Fatalf("kind=%s err=%v", kind, err)
+			}
+		})
+	}
+}

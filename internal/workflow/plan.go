@@ -122,6 +122,9 @@ func RequiredArtifact(step w.Step, in w.RunInput) string {
 
 // ValidateArtifact verifies source custody and typed report findings.
 func ValidateArtifact(a w.Artifact, required string, sources []w.Source) error {
+	if required == "" && a.Type != "note" {
+		return errors.New("intermediate steps may publish notes only; final reports require the designated coordinator or reviewer")
+	}
 	if !slices.Contains([]string{"note", "research_report", "code_analysis"}, a.Type) || a.Type != required && required != "" {
 		return errors.New("wrong artifact type")
 	}
