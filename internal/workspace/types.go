@@ -35,6 +35,7 @@ type Agent struct {
 	Handle          string   `json:"handle"`
 	Aliases         []string `json:"aliases"`
 	RoleDescription string   `json:"role_description"`
+	Executor        string   `json:"executor,omitempty"`
 	Model           string   `json:"model"`
 	Tools           []string `json:"tools"`
 	Disabled        bool     `json:"disabled"`
@@ -225,7 +226,14 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	if !handlePattern.MatchString(a.Handle) {
 		return errors.New("handle must match [a-z][a-z0-9-]{1,31}")
 	}
-	if !slices.Contains(models, a.Model) {
+	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "gemini", "anthropic"}, a.Executor) {
+		return errors.New("executor is not supported")
+	}
+	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "gemini" {
+		if len(a.Model) > 150 || strings.TrimSpace(a.Model) == "" || strings.HasPrefix(a.Model, "-") || strings.ContainsAny(a.Model, "\r\n\x00") {
+			return errors.New("CLI model must be default or a model identifier")
+		}
+	} else if !slices.Contains(models, a.Model) {
 		return errors.New("model is not configured")
 	}
 	if len(a.Aliases) > 12 || len(a.RoleDescription) > 8000 {

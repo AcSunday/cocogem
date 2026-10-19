@@ -33,6 +33,7 @@ type Tool struct {
 
 // Request contains no credentials and is immutable during an API call.
 type Request struct {
+	Executor  string    `json:"-"`
 	Model     string    `json:"model"`
 	System    string    `json:"system"`
 	Messages  []Message `json:"messages"`

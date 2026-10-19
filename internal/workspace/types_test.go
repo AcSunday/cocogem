@@ -44,3 +44,22 @@ func TestTerminal(t *testing.T) {
 		t.Fatal("unconfirmed cancellation is terminal")
 	}
 }
+
+func TestNativeExecutorUsesItsOwnModelSelection(t *testing.T) {
+	for _, executor := range []string{"claude", "codex", "gemini"} {
+		t.Run(executor, func(t *testing.T) {
+			a := Agent{DisplayName: "研究员", Handle: "research", Executor: executor, Model: "default"}
+			if err := ValidateAgent(a, nil, nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			a.Model = "some-model-id"
+			if err := ValidateAgent(a, nil, nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			a.Model = "bad\nmodel"
+			if err := ValidateAgent(a, nil, nil, nil); err == nil {
+				t.Fatal("multiline model accepted")
+			}
+		})
+	}
+}

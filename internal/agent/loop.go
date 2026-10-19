@@ -18,6 +18,11 @@ type Observe func(kind string, data map[string]any) error
 // Execute is a permission-checked host tool handler.
 type Execute func(context.Context, string, json.RawMessage) (string, error)
 
+// Runner owns one invocation's model and tool lifecycle.
+type Runner interface {
+	Run(context.Context, model.Request, Execute, Observe) error
+}
+
 // Loop drives one member's step; it does not delegate work or create runs.
 type Loop struct {
 	Model     model.Model
