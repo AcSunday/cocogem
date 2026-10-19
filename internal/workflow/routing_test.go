@@ -183,3 +183,25 @@ func TestSemanticSuggestionCannotTurnNegationOrConditionsIntoAssignment(t *testi
 		})
 	}
 }
+
+func TestRoutingToolSchemaRestrictsTargetsAndRoleValuesToCandidateIDs(t *testing.T) {
+	router := &recordingRouter{routing: Routing{Decision: "discuss"}}
+	_, err := ResolveRouting(t.Context(), router, false, w.RunInput{Message: "我觉得布偶猫做研究挺好"}, w.Thread{CoordinatorID: "a"}, []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "default"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	props := router.request.Tools[0].Schema["properties"].(map[string]any)
+	target := props["targets"].(map[string]any)["items"].(map[string]any)
+	if !slices.Equal(target["enum"].([]string), []string{"a"}) {
+		t.Fatal("targets accept invented names or IDs")
+	}
+	assignment := props["assignments"].(map[string]any)
+	if assignment["additionalProperties"] != false {
+		t.Fatal("assignments accept task instruction fields")
+	}
+	for _, raw := range assignment["properties"].(map[string]any) {
+		if !slices.Equal(raw.(map[string]any)["enum"].([]string), []string{"a"}) {
+			t.Fatal("role accepts values outside member IDs")
+		}
+	}
+}
