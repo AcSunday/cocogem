@@ -1,0 +1,305 @@
+/* App shell: sidebar, top bar, columns, and the mobile drawers. */
+.app-shell {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+}
+.sidebar {
+  width: 248px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 12px 12px;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+}
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 650;
+  text-decoration: none;
+}
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+}
+.version {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sidebar-close {
+  display: none;
+}
+.sidebar > select {
+  width: 100%;
+  background: var(--surface);
+}
+.new-thread {
+  justify-content: flex-start;
+  width: 100%;
+  font-weight: 600;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+}
+.search:focus-within {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+.search input {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  outline: none;
+}
+.section-label {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px 0;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+.thread-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  overflow: auto;
+}
+.thread-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.thread-item:hover,
+.thread-item.selected {
+  background: var(--surface-3);
+}
+.thread-item.selected {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.thread {
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 7px 8px 7px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.thread:hover:not(:disabled) {
+  background: transparent;
+}
+.thread strong {
+  width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread small {
+  font-size: 12px;
+}
+.thread-delete {
+  opacity: 0;
+  margin-right: 2px;
+}
+.thread-item:hover .thread-delete,
+.thread-item:focus-within .thread-delete,
+.thread-item.selected .thread-delete {
+  opacity: 1;
+}
+.empty-small {
+  padding: 8px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.sidebar-footer {
+  display: grid;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.sidebar-footer button {
+  justify-content: flex-start;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+.sidebar-footer p {
+  margin: 6px 8px 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--topbar);
+  flex-shrink: 0;
+  padding: 0 16px 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.breadcrumb {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.breadcrumb strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+.breadcrumb span {
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+}
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.top-actions .count {
+  color: var(--text-3);
+}
+.mobile-only {
+  display: none;
+}
+.workspace-columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.backdrop {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .sidebar {
+    width: 220px;
+  }
+}
+.panel-toggle {
+  display: none;
+}
+/* Below 900px the context panel becomes a drawer opened from the top bar. */
+@media (max-width: 900px) {
+  .panel-toggle {
+    display: inline-flex;
+  }
+}
+/* Below 700px the sidebar becomes a full drawer as well. */
+@media (max-width: 700px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    width: min(300px, 86vw);
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    box-shadow: var(--shadow);
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+    visibility: hidden;
+  }
+  .sidebar.open {
+    transform: none;
+    visibility: visible;
+  }
+  .sidebar-close {
+    display: inline-flex;
+  }
+  .mobile-only {
+    display: inline-flex;
+  }
+  .desktop-only {
+    display: none;
+  }
+  .topbar {
+    padding: 0 8px;
+    gap: 4px;
+  }
+  .breadcrumb span {
+    display: none;
+  }
+  .thread-delete {
+    opacity: 1;
+  }
+}
+@media (max-width: 900px) {
+  .backdrop.open {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: block;
+    border: 0;
+    border-radius: 0;
+    background: rgb(20 28 20 / 35%);
+  }
+}
+.bootstrap {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 12px;
+  min-height: 100dvh;
+  padding: 24px;
+  text-align: center;
+}
+.bootstrap h1 {
+  margin: 0;
+}
+.bootstrap .brand-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+}

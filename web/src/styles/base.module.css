@@ -1,0 +1,145 @@
+/* Design tokens and element defaults shared by every module. */
+:root {
+  --bg: #f6f7f3;
+  --surface: #ffffff;
+  --surface-2: #f1f3ed;
+  --surface-3: #e8ece2;
+  --border: #e0e4da;
+  --border-strong: #c7cfbd;
+  --text: #20261f;
+  --text-2: #475042;
+  --text-3: #5a6354;
+  --accent: #2f5a3f;
+  --accent-hover: #244a33;
+  --accent-soft: #e4eddd;
+  --accent-text: #2a4d35;
+  --warn-bg: #f6f0d9;
+  --warn-text: #6b5a1d;
+  --danger: #a3402c;
+  --danger-bg: #fbece6;
+  --focus: #4f8a5c;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow: 0 1px 2px rgb(32 38 31 / 6%), 0 6px 20px rgb(32 38 31 / 7%);
+  --topbar: 56px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-top: 0;
+}
+h1 {
+  font-size: 26px;
+  line-height: 1.35;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+h2 {
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+h4 {
+  font-size: 14px;
+  font-weight: 600;
+}
+a {
+  color: var(--accent);
+}
+button,
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+button:hover:not(:disabled),
+a.button:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.small {
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.icon-button {
+  min-width: 34px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+.danger {
+  color: var(--danger);
+  border-color: #e9c3b7;
+}
+button.danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+}

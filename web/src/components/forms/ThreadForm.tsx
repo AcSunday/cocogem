@@ -123,9 +123,11 @@ export function ThreadForm({
             {error}
           </p>
         )}
-        <button className={cx("primary")} disabled={saving}>
-          保存会话
-        </button>
+        <div className={cx("form-actions")}>
+          <button className={cx("primary")} disabled={saving}>
+            保存会话
+          </button>
+        </div>
       </form>
     </Modal>
   );

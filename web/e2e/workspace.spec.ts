@@ -28,35 +28,37 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page
     .getByRole("button", { name: "做一次 Research", exact: false })
     .click();
-  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByText("已完成", { exact: true }).first()).toBeVisible({
     timeout: 15000,
   });
   const researchURL = page.url();
   await page.getByRole("tab", { name: "来源" }).click();
   await expect(
-    page.getByRole("button", { name: /WEB · 已捕获原文/ }).first(),
+    page.getByRole("button", { name: /网页 · 已读原文/ }).first(),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: /WEB · 已捕获原文/ })
+    .getByRole("button", { name: /网页 · 已读原文/ })
     .first()
     .click();
   await expect(page.getByTestId("source-detail")).toContainText("仅为离线演示");
   await page.getByRole("tab", { name: "产物" }).click();
   await page
-    .getByRole("button", { name: /research_report · v1/ })
+    .getByRole("button", { name: /研究报告 · v1/ })
     .last()
     .click();
   await expect(page.getByTestId("artifact-detail")).toContainText("分歧与限制");
   await page.getByRole("button", { name: "接受", exact: true }).click();
-  await expect(page.getByRole("button", { name: /已接受/ })).toBeVisible();
+  await expect(
+    page.getByRole("dialog").getByRole("button", { name: "已接受" }),
+  ).toHaveAttribute("aria-pressed", "true");
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: "下载 Markdown" }).click();
   expect((await download).suggestedFilename()).toBe("cocogem-report.md");
   await page.getByRole("button", { name: "引用后追问" }).click();
   await page.getByLabel("输入问题").fill("补充讨论这个方案的限制");
   await page.getByLabel("工作方式", { exact: true }).selectOption("discussion");
-  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "停止协作", exact: false }),
   ).toBeVisible();
@@ -64,9 +66,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(page.getByTestId("run-status")).toHaveText("已停止");
   await page.reload();
   await expect(page.getByTestId("run-status")).toHaveText("已停止");
-  await page.getByRole("tab", { name: "工具" }).click();
+  await page.getByRole("tab", { name: "过程" }).click();
   await page.getByLabel("历史协作").selectOption({ index: 0 });
-  await expect(page.getByText(/fetch_url · 完成/).first()).toBeVisible();
+  await expect(page.getByText("读取网页").first()).toBeVisible();
 
   await page
     .getByRole("button", { name: "新建会话", exact: false })
@@ -81,10 +83,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page
     .getByLabel("输入问题")
     .fill("分析示例仓库如何区分身份和角色，不要声称执行测试。");
-  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByTestId("run-status")).toHaveText("已完成");
   await page.getByRole("tab", { name: "产物" }).click();
-  await page.getByRole("button", { name: /code_analysis · v1/ }).click();
+  await page.getByRole("button", { name: /代码分析报告 · v1/ }).click();
   await page
     .getByRole("button", { name: /打开来源/ })
     .first()
@@ -104,10 +106,12 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page
     .getByLabel("输入问题")
     .fill("分别讨论协作的收益和成本，保留不同观点。");
-  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByTestId("run-status")).toHaveText("已完成");
   await page.getByRole("tab", { name: "产物" }).click();
-  await expect(page.getByRole("button", { name: /note · v1/ })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /讨论纪要 · v1/ }),
+  ).toBeVisible();
 
   // An unresolved name preserves the new-thread draft instead of silently dispatching.
   await page
@@ -119,7 +123,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByLabel("工作方式", { exact: true }).selectOption("free");
   await page.getByLabel("输入问题").fill("@missing 帮我调查");
-  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByLabel("输入问题")).toHaveValue("@missing 帮我调查");
   await expect(
     page.getByRole("status").filter({ hasText: "不可用" }),
@@ -132,7 +136,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     await route.fulfill({ response });
   });
   await page.getByLabel("输入问题").fill("布布帮我研究一下协作方法");
-  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   await page.getByLabel("输入问题").fill("下一条草稿，不能被清除");
   await expect(page.getByTestId("run-status")).toHaveText("已完成");
   await expect(page.getByLabel("输入问题")).toHaveValue(
@@ -153,7 +157,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     } else await route.continue();
   });
   await page.getByLabel("输入问题").fill("布布帮我研究一下幂等重试");
-  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "重试原请求", exact: true }),
   ).toBeEnabled();
@@ -199,7 +203,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
       response.url().endsWith("/runs") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   const discussionRun = await (await accepted).json();
   expect(
     discussionRun.agents
@@ -212,6 +216,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByRole("tab", { name: "成员", exact: true }).click();
   await page.getByRole("button", { name: "管理成员与称呼" }).click();
   await page
+    .getByRole("dialog")
     .getByRole("button", { name: "布偶猫 (@ragdoll)", exact: true })
     .click();
   await page.getByLabel("显示名").fill("新布偶猫");
@@ -221,10 +226,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   );
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await page.goto(researchURL);
-  await page.getByRole("tab", { name: "工具", exact: true }).click();
+  await page.getByRole("tab", { name: "过程", exact: true }).click();
   await page.getByLabel("历史协作").selectOption({ index: 0 });
   await expect(
-    page.getByText(/^布偶猫 \(@ragdoll\) · fetch_url · 完成$/).first(),
+    page.getByText("布偶猫 (@ragdoll)", { exact: true }).first(),
   ).toBeVisible();
   await page.goto(twoMemberURL);
   await expect(page.getByLabel("工作方式", { exact: true })).toHaveValue(
@@ -232,7 +237,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   );
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "导航", exact: true }).click();
+  await page.getByRole("button", { name: "打开导航", exact: true }).click();
   await expect(page.getByLabel("切换工作空间")).toBeVisible();
   await page
     .getByRole("button", { name: "只读代码分析", exact: false })
@@ -245,4 +250,39 @@ test("create a team, run research, inspect evidence, export, follow up and cance
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  // The context panel is a drawer on phones and Escape closes it.
+  await page.getByRole("button", { name: "打开资料面板" }).click();
+  await expect(page.getByRole("tab", { name: /产物/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tab", { name: /产物/ })).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // @ mentions filter by what is typed and are chosen with the keyboard.
+  const input = page.getByLabel("输入问题");
+  await input.fill("请 @ma");
+  await expect(
+    page.getByRole("listbox", { name: "选择成员" }).getByRole("option"),
+  ).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(input).toHaveValue("请 @maine ");
+  await input.fill("");
+
+  // Deleting a conversation asks first and then removes it from the list.
+  const threadList = page.getByRole("navigation", { name: "会话列表" });
+  await expect(
+    threadList.getByRole("button", { name: "并行讨论" }),
+  ).toBeVisible();
+  await threadList
+    .locator("div")
+    .filter({ hasText: "并行讨论" })
+    .getByRole("button", { name: "删除会话" })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "删除会话" })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    threadList.getByRole("button", { name: "并行讨论" }),
+  ).toHaveCount(0);
 });

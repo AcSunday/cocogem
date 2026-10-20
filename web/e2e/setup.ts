@@ -14,7 +14,15 @@ export default async function setup() {
   await new Promise<void>((resolve) => probe.close(() => resolve()));
   const child = spawn(
     "../dist/cocogem-server",
-    ["--demo", "--demo-pace", "0", "--listen", `127.0.0.1:${port}`, "--web-dir", "dist"],
+    [
+      "--demo",
+      "--demo-pace",
+      "0",
+      "--listen",
+      `127.0.0.1:${port}`,
+      "--web-dir",
+      "dist",
+    ],
     {
       cwd: process.cwd(),
       env: { ...process.env, COCOGEM_DATA_DIR: dir },

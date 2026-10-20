@@ -9,11 +9,13 @@ export function WorkspaceForm({
   system,
   close,
   save,
+  onDelete,
 }: {
   current?: Workspace;
   system: System;
   close: () => void;
   save: (value: Workspace) => Promise<void>;
+  onDelete?: () => void;
 }) {
   const [value, setValue] = useState<Workspace>(
     current ?? {
@@ -95,10 +97,22 @@ export function WorkspaceForm({
             {error}
           </p>
         )}
-        <button className={cx("primary")} disabled={saving}>
-          {saving ? "保存中…" : "保存工作空间"}
-        </button>
+        <div className={cx("form-actions")}>
+          <button className={cx("primary")} disabled={saving}>
+            {saving ? "保存中…" : "保存工作空间"}
+          </button>
+        </div>
       </form>
+      {onDelete && (
+        <section className={cx("danger-zone")}>
+          <p className={cx("muted")}>
+            删除后，此空间的成员、会话、来源和产物都会被永久移除。
+          </p>
+          <button type="button" className={cx("danger")} onClick={onDelete}>
+            删除工作空间
+          </button>
+        </section>
+      )}
     </Modal>
   );
 }

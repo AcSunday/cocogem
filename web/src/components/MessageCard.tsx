@@ -1,42 +1,38 @@
-import type { Agent, Message } from "../api/client";
+import type { Message } from "../api/client";
 import { statusText } from "../api/client";
 import { cx } from "../styles/classes";
-import { catIcon } from "../lib/presentation";
+import { formatMessageTime, roleLabel } from "../lib/presentation";
+import { Avatar } from "./Avatar";
 import { Markdown } from "./Markdown";
 
 export function MessageCard({
   message,
-  agents,
+  index,
+  role,
 }: {
   message: Message;
-  agents: Agent[];
+  index: number;
+  role?: string;
 }) {
-  const index = Math.max(
-    0,
-    agents.findIndex((a) => a.id === message.agent_id),
-  );
+  const user = message.role === "user";
   return (
-    <article
-      className={cx(`message ${message.role === "user" ? "user-message" : ""}`)}
-    >
-      <div
-        className={cx(
-          `avatar ${message.role === "user" ? "user-avatar" : `cat-${index % 3}`}`,
-        )}
-      >
-        {message.role === "user" ? "你" : catIcon(index)}
-      </div>
+    <article className={cx(`message ${user ? "user-message" : ""}`)}>
+      {user ? (
+        <span className={cx("avatar tone-user")} aria-hidden="true">
+          你
+        </span>
+      ) : (
+        <Avatar name={message.agent_name} index={index} />
+      )}
       <div className={cx("message-content")}>
         <div className={cx("message-meta")}>
-          <strong>{message.agent_name}</strong>
-          <time>
-            {new Date(message.created_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+          <strong>{user ? "你" : message.agent_name}</strong>
+          {role && <span className={cx("role-chip")}>{roleLabel(role)}</span>}
+          <time dateTime={message.created_at}>
+            {formatMessageTime(message.created_at)}
           </time>
           {message.status !== "completed" && (
-            <small>{statusText[message.status]}</small>
+            <small className={cx("live")}>{statusText[message.status]}</small>
           )}
         </div>
         <Markdown text={message.content || "正在准备回复…"} />

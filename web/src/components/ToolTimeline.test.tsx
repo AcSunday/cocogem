@@ -50,9 +50,8 @@ it("shows the committed upstream replies, exact artifact versions and captured s
       onSource={onSource}
     />,
   );
-  await userEvent.click(
-    screen.getByText("交给 旧缅因猫 (@maine) · 工作包已准备"),
-  );
+  expect(screen.getByText("旧缅因猫 (@maine)")).toBeVisible();
+  await userEvent.click(screen.getByText("收到工作包"));
   expect(screen.getByText("方案一节省时间，但证据仍有不足。")).toBeVisible();
   expect(screen.getByText("方案分析 · v2")).toBeVisible();
   expect(screen.queryByText(/internal-step-id/)).not.toBeInTheDocument();

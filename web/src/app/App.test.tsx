@@ -63,7 +63,7 @@ it("verifies the selected local CLI and exact model, with unsupported versions d
   vi.stubGlobal("fetch", fetcher);
   render(<App />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "⚙ 服务与设置" }));
+  await user.click(await screen.findByRole("button", { name: "服务与设置" }));
   expect(screen.getByText(/已安装不代表连接或模型可用/)).toBeInTheDocument();
   await user.selectOptions(screen.getByLabelText("验证 CLI"), "codex");
   expect(
@@ -171,7 +171,7 @@ it("uses the saved conversation workflow and enabled conversation roles without 
   expect(screen.getByLabelText("汇总")).toHaveValue("two");
   await user.selectOptions(screen.getByLabelText("工作方式"), "discussion");
   await user.type(screen.getByLabelText("输入问题"), "比较协作的取舍");
-  await user.click(screen.getByRole("button", { name: "发送 ↑" }));
+  await user.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() =>
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/threads/two/routing-preview",

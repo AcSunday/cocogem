@@ -262,9 +262,11 @@ export function MembersForm({
           </p>
         )}
         {saved && <p role="status">已保存，可以继续编辑此成员。</p>}
-        <button className={cx("primary")} disabled={saved || saving}>
-          {saving ? "保存中…" : "保存成员"}
-        </button>
+        <div className={cx("form-actions")}>
+          <button className={cx("primary")} disabled={saved || saving}>
+            {saving ? "保存中…" : "保存成员"}
+          </button>
+        </div>
       </form>
     </Modal>
   );
