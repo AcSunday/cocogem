@@ -67,6 +67,7 @@ export const statusText: Record<string, string> = {
   configured: "已配置",
   not_configured: "未配置",
   verified: "已验证",
+  demo: "离线演示",
   error: "异常",
 };
 

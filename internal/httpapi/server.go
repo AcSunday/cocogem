@@ -193,7 +193,7 @@ func (s *Server) system(rw http.ResponseWriter, r *http.Request) {
 	s.auth.mu.Unlock()
 	state := func(configured bool) string {
 		if s.config.Demo {
-			return "verified"
+			return "demo"
 		}
 		if configured {
 			return "configured"

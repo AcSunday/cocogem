@@ -55,6 +55,7 @@ func run() error {
 	listen := flag.String("listen", "127.0.0.1:8741", "Loopback listener")
 	webDir := flag.String("web-dir", "", "Built frontend directory")
 	demo := flag.Bool("demo", false, "Use offline deterministic fixtures only")
+	demoPace := flag.Duration("demo-pace", 600*time.Millisecond, "Delay per offline demo model call; 0 keeps tests fast")
 	flag.Var(&roots, "allow-root", "Allowed source directory (repeatable)")
 	flag.Parse()
 	host, _, err := net.SplitHostPort(*listen)
@@ -109,7 +110,7 @@ func run() error {
 	}
 	if *demo {
 		models = []string{"demo"}
-		provider = model.Demo{}
+		provider = model.Demo{Delay: *demoPace}
 		root := filepath.Join(dataDir, "fixtures")
 		if err := os.MkdirAll(root, 0700); err != nil {
 			return err

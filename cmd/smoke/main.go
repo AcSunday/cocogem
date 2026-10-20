@@ -214,7 +214,7 @@ func (c *apiClient) finished(ctx context.Context, id string) error {
 }
 
 func start(ctx context.Context, binary, web, data string) (*apiClient, func() error, error) {
-	cmd := exec.CommandContext(ctx, binary, "--demo", "--listen", "127.0.0.1:18745", "--web-dir", web)
+	cmd := exec.CommandContext(ctx, binary, "--demo", "--demo-pace", "0", "--listen", "127.0.0.1:18745", "--web-dir", web)
 	cmd.Env = append(os.Environ(), "COCOGEM_DATA_DIR="+data)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

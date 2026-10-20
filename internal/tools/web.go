@@ -97,6 +97,13 @@ func NewWeb(searchKey string, demo bool) *Web {
 	}}}
 }
 
+// demoFixtures are bundled public pages; every one is labeled as offline demo material.
+var demoFixtures = map[string][2]string{
+	"https://example.org/cocogem/research": {"离线演示：Agent 协作方法", "示例资料：工具循环负责调用模型和工具。多成员协作需要明确身份、来源、有限步骤以及失败恢复。该资料仅为离线演示，不能证明真实模型效果。"},
+	"https://example.org/cocogem/limits":   {"离线演示：协作的成本与限制", "示例资料：多成员协作需要传递上下文并等待上游结果；简单问题拆分后可能更慢。该资料没有量化收益，仅为离线演示。"},
+	"https://example.org/cocogem/cases":    {"离线演示：协作适用案例", "示例资料：资料调研、代码审查等可拆分、需要交叉核对的任务，适合由不同成员分别研究、复核与汇总。该资料仅为离线演示。"},
+}
+
 // SearchEnabled distinguishes missing credentials from an empty result set.
 func (wb *Web) SearchEnabled() bool { return wb.demo || wb.searchKey != "" }
 
@@ -107,10 +114,11 @@ func (wb *Web) Fetch(ctx context.Context, raw string) (w.Source, error) {
 		return w.Source{}, err
 	}
 	if wb.demo {
-		if u.String() != "https://example.org/cocogem/research" {
+		fixture, ok := demoFixtures[u.String()]
+		if !ok {
 			return w.Source{}, errors.New("demo mode only reads bundled sources")
 		}
-		return w.Source{Kind: "web", Title: "离线演示：Agent 协作方法", URL: u.String(), Content: "示例资料：工具循环负责调用模型和工具。多成员协作需要明确身份、来源、有限步骤以及失败恢复。该资料仅为离线演示，不能证明真实模型效果。", CapturedAt: w.Now()}, nil
+		return w.Source{Kind: "web", Title: fixture[0], URL: u.String(), Content: fixture[1], CapturedAt: w.Now()}, nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
