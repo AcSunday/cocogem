@@ -90,3 +90,8 @@ type VerifyReply struct {
 	Model      string `json:"model"`
 	VerifiedAt string `json:"verified_at"`
 }
+
+// DeleteReply confirms which object was permanently removed.
+type DeleteReply struct {
+	ID string `json:"id"`
+}

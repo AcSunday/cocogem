@@ -79,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspaces)
 	mux.HandleFunc("POST /api/v1/workspaces", s.createWorkspace)
 	mux.HandleFunc("PATCH /api/v1/workspaces/{id}", s.updateWorkspace)
+	mux.HandleFunc("DELETE /api/v1/workspaces/{id}", s.deleteWorkspace)
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/agents", s.agents)
 	mux.HandleFunc("POST /api/v1/workspaces/{id}/agents", s.createAgent)
 	mux.HandleFunc("PATCH /api/v1/agents/{id}", s.updateAgent)
@@ -86,6 +87,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/workspaces/{id}/threads", s.createThread)
 	mux.HandleFunc("GET /api/v1/threads/{id}", s.thread)
 	mux.HandleFunc("PATCH /api/v1/threads/{id}", s.updateThread)
+	mux.HandleFunc("DELETE /api/v1/threads/{id}", s.deleteThread)
 	mux.HandleFunc("POST /api/v1/threads/{id}/routing-preview", s.preview)
 	mux.HandleFunc("POST /api/v1/threads/{id}/runs", s.submit)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
@@ -555,6 +557,70 @@ func (s *Server) updateThread(rw http.ResponseWriter, r *http.Request) {
 	})
 	respond(rw, r, th, err)
 }
+
+// errRunActive keeps deletion from racing a queued or running collaboration.
+var errRunActive = &RequestError{409, "run_active", "有协作正在进行，请先停止再删除"}
+
+func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
+		if _, err := tx.Thread(id); err != nil {
+			return err
+		}
+		active, err := tx.Active()
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(active, func(run w.Run) bool { return run.ThreadID == id }) {
+			return errRunActive
+		}
+		return tx.DeleteThread(id)
+	})
+	if err == nil {
+		s.dropProposals(func(p proposal) bool { return p.ThreadID == id })
+	}
+	respond(rw, r, DeleteReply{ID: id}, err)
+}
+
+func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	threads := map[string]bool{}
+	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
+		if _, err := tx.Workspace(id); err != nil {
+			return err
+		}
+		active, err := tx.Active()
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(active, func(run w.Run) bool { return run.WorkspaceID == id }) {
+			return errRunActive
+		}
+		list, err := tx.Threads(id)
+		if err != nil {
+			return err
+		}
+		for _, th := range list {
+			threads[th.ID] = true
+		}
+		return tx.DeleteWorkspace(id)
+	})
+	if err == nil {
+		s.dropProposals(func(p proposal) bool { return threads[p.ThreadID] })
+	}
+	respond(rw, r, DeleteReply{ID: id}, err)
+}
+
+func (s *Server) dropProposals(match func(proposal) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, p := range s.proposals {
+		if match(p) {
+			delete(s.proposals, key)
+		}
+	}
+}
+
 func (s *Server) thread(rw http.ResponseWriter, r *http.Request) {
 	var th w.Thread
 	var messages []w.Message

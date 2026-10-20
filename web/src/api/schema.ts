@@ -158,7 +158,7 @@ export interface paths {
     get: operations["thread"];
     put?: never;
     post?: never;
-    delete?: never;
+    delete: operations["deleteThread"];
     options?: never;
     head?: never;
     patch: operations["updateThread"];
@@ -238,7 +238,7 @@ export interface paths {
     get?: never;
     put?: never;
     post?: never;
-    delete?: never;
+    delete: operations["deleteWorkspace"];
     options?: never;
     head?: never;
     patch: operations["updateWorkspace"];
@@ -365,6 +365,9 @@ export interface components {
     };
     BootstrapReply: {
       csrf_token: string;
+    };
+    DeleteReply: {
+      id: string;
     };
     EmptyInput: Record<string, never>;
     Error: {
@@ -1254,6 +1257,39 @@ export interface operations {
       };
     };
   };
+  deleteThread: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DeleteReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   updateThread: {
     parameters: {
       query?: never;
@@ -1449,6 +1485,39 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Workspace"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  deleteWorkspace: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DeleteReply"];
         };
       };
       /** @description Structured error */

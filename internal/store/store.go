@@ -327,3 +327,38 @@ func (t *Tx) SaveArtifact(v w.Artifact) error {
 	}
 	return t.exec("INSERT INTO artifacts(id,version,thread_id,run_id,revision,body) VALUES(?,?,?,?,?,?) ON CONFLICT(id,version) DO UPDATE SET revision=excluded.revision,body=excluded.body", v.ID, v.Version, v.ThreadID, v.RunID, v.Revision, body(v))
 }
+
+// DeleteThread removes a conversation and everything recorded under it, children first.
+func (t *Tx) DeleteThread(id string) error {
+	for _, q := range []string{
+		"DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
+		"DELETE FROM steps WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
+		"DELETE FROM messages WHERE thread_id=?",
+		"DELETE FROM sources WHERE thread_id=?",
+		"DELETE FROM artifacts WHERE thread_id=?",
+		"DELETE FROM runs WHERE thread_id=?",
+		"DELETE FROM threads WHERE id=?",
+	} {
+		if err := t.exec(q, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteWorkspace removes a workspace with its members and conversations.
+func (t *Tx) DeleteWorkspace(id string) error {
+	threads, err := t.Threads(id)
+	if err != nil {
+		return err
+	}
+	for _, th := range threads {
+		if err := t.DeleteThread(th.ID); err != nil {
+			return err
+		}
+	}
+	if err := t.exec("DELETE FROM agent_profiles WHERE workspace_id=?", id); err != nil {
+		return err
+	}
+	return t.exec("DELETE FROM workspaces WHERE id=?", id)
+}

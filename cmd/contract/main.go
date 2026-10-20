@@ -48,7 +48,7 @@ func schema(t reflect.Type) map[string]any {
 func ref(name string) map[string]any { return map[string]any{"$ref": "#/components/schemas/" + name} }
 func main() {
 	schemas := map[string]any{}
-	for _, value := range []any{w.Workspace{}, w.Agent{}, w.Thread{}, w.RunInput{}, w.Run{}, w.Step{}, w.Message{}, w.Source{}, w.Artifact{}, w.Event{}, w.Finding{}, w.ArtifactRef{}, httpapi.SystemInfo{}, httpapi.ThreadView{}, httpapi.RunView{}, httpapi.RoutingPreview{}, httpapi.WorkspaceInput{}, httpapi.BootstrapInput{}, httpapi.BootstrapReply{}, httpapi.FeedbackInput{}, httpapi.VerifyReply{}, httpapi.VerifyInput{}, httpapi.ExecutorInfo{}, workflow.Routing{}} {
+	for _, value := range []any{w.Workspace{}, w.Agent{}, w.Thread{}, w.RunInput{}, w.Run{}, w.Step{}, w.Message{}, w.Source{}, w.Artifact{}, w.Event{}, w.Finding{}, w.ArtifactRef{}, httpapi.SystemInfo{}, httpapi.ThreadView{}, httpapi.RunView{}, httpapi.RoutingPreview{}, httpapi.WorkspaceInput{}, httpapi.BootstrapInput{}, httpapi.BootstrapReply{}, httpapi.FeedbackInput{}, httpapi.VerifyReply{}, httpapi.VerifyInput{}, httpapi.ExecutorInfo{}, httpapi.DeleteReply{}, workflow.Routing{}} {
 		t := reflect.TypeOf(value)
 		schemas[t.Name()] = schema(t)
 	}
@@ -103,9 +103,9 @@ func main() {
 	schemas["ThreadInput"].(map[string]any)["required"] = []string{"title", "agent_ids", "coordinator_id"}
 	for _, endpoint := range [][5]string{
 		{"/bootstrap", "post", "bootstrap", "BootstrapReply", "BootstrapInput"}, {"/api/v1/system", "get", "system", "SystemInfo", ""}, {"/api/v1/system/verify", "post", "verify", "VerifyReply", "VerifyInput"},
-		{"/api/v1/workspaces", "get", "workspaces", "WorkspaceList", ""}, {"/api/v1/workspaces", "post", "createWorkspace", "Workspace", "WorkspaceInput"}, {"/api/v1/workspaces/{id}", "patch", "updateWorkspace", "Workspace", "WorkspaceInput"},
+		{"/api/v1/workspaces", "get", "workspaces", "WorkspaceList", ""}, {"/api/v1/workspaces", "post", "createWorkspace", "Workspace", "WorkspaceInput"}, {"/api/v1/workspaces/{id}", "patch", "updateWorkspace", "Workspace", "WorkspaceInput"}, {"/api/v1/workspaces/{id}", "delete", "deleteWorkspace", "DeleteReply", ""},
 		{"/api/v1/workspaces/{id}/agents", "get", "agents", "AgentList", ""}, {"/api/v1/workspaces/{id}/agents", "post", "createAgent", "Agent", "AgentInput"}, {"/api/v1/agents/{id}", "patch", "updateAgent", "Agent", "AgentInput"},
-		{"/api/v1/workspaces/{id}/threads", "get", "threads", "ThreadList", ""}, {"/api/v1/workspaces/{id}/threads", "post", "createThread", "Thread", "ThreadInput"}, {"/api/v1/threads/{id}", "get", "thread", "ThreadView", ""}, {"/api/v1/threads/{id}", "patch", "updateThread", "Thread", "ThreadInput"},
+		{"/api/v1/workspaces/{id}/threads", "get", "threads", "ThreadList", ""}, {"/api/v1/workspaces/{id}/threads", "post", "createThread", "Thread", "ThreadInput"}, {"/api/v1/threads/{id}", "get", "thread", "ThreadView", ""}, {"/api/v1/threads/{id}", "patch", "updateThread", "Thread", "ThreadInput"}, {"/api/v1/threads/{id}", "delete", "deleteThread", "DeleteReply", ""},
 		{"/api/v1/threads/{id}/routing-preview", "post", "routingPreview", "RoutingPreview", "RunRequest"}, {"/api/v1/threads/{id}/runs", "post", "submitRun", "Run", "RunRequest"}, {"/api/v1/runs/{id}", "get", "run", "RunView", ""}, {"/api/v1/runs/{id}/cancel", "post", "cancelRun", "Run", "EmptyInput"},
 		{"/api/v1/runs/{id}/events", "get", "runEvents", "Event", ""}, {"/api/v1/sources/{id}", "get", "source", "Source", ""}, {"/api/v1/threads/{id}/artifacts", "get", "artifacts", "ArtifactList", ""}, {"/api/v1/artifacts/{id}/versions/{version}", "get", "artifact", "Artifact", ""}, {"/api/v1/artifacts/{id}/versions/{version}", "patch", "feedback", "Artifact", "FeedbackInput"}, {"/api/v1/artifacts/{id}/versions/{version}/export", "get", "exportArtifact", "Artifact", ""},
 	} {

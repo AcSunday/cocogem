@@ -203,6 +203,70 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	if !strings.Contains(string(b), "离线演示") {
 		t.Fatal("demo export not labeled")
 	}
+
+	// Deleting a conversation removes its run history; deleting the workspace removes the rest.
+	rw = call("DELETE", "/api/v1/threads/"+th.ID, nil, nil)
+	if rw.Code != 200 {
+		t.Fatal(rw.Body.String())
+	}
+	validateResponse(t, "/api/v1/threads/{id}", "delete", 200, rw.Body.Bytes())
+	if got := call("GET", "/api/v1/threads/"+th.ID, nil, nil).Code; got != 404 {
+		t.Fatal("deleted thread still readable", got)
+	}
+	if got := call("GET", "/api/v1/artifacts/"+artifact.ID+"/versions/1", nil, nil).Code; got != 404 {
+		t.Fatal("deleted thread kept its artifact", got)
+	}
+	if got := call("GET", "/api/v1/runs/"+run.ID, nil, nil).Code; got != 404 {
+		t.Fatal("deleted thread kept its run", got)
+	}
+	if got := call("DELETE", "/api/v1/threads/"+th.ID, nil, nil).Code; got != 404 {
+		t.Fatal("repeated delete", got)
+	}
+	rw = call("DELETE", "/api/v1/workspaces/"+ws.ID, nil, nil)
+	if rw.Code != 200 {
+		t.Fatal(rw.Body.String())
+	}
+	var spaces struct {
+		Items []w.Workspace `json:"items"`
+	}
+	json.Unmarshal(call("GET", "/api/v1/workspaces", nil, nil).Body.Bytes(), &spaces)
+	if len(spaces.Items) != 0 {
+		t.Fatal("workspace survived deletion")
+	}
+}
+
+func TestDeleteRefusesActiveRun(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ws := w.Workspace{ID: w.NewID(), Name: "x", Revision: 1}
+	th := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Revision: 1, UpdatedAt: w.Now()}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, ThreadID: th.ID, Status: "running", CreatedAt: w.Now()}
+	if err := db.Write(context.Background(), func(tx *store.Tx) error {
+		if err := tx.SaveWorkspace(ws); err != nil {
+			return err
+		}
+		if err := tx.SaveThread(th); err != nil {
+			return err
+		}
+		return tx.InsertRun(run, "key", "hash")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{store: db, proposals: map[string]proposal{}}
+	for _, path := range []string{"/api/v1/threads/" + th.ID, "/api/v1/workspaces/" + ws.ID} {
+		req := httptest.NewRequest("DELETE", path, nil)
+		rw := httptest.NewRecorder()
+		mux := http.NewServeMux()
+		mux.HandleFunc("DELETE /api/v1/threads/{id}", s.deleteThread)
+		mux.HandleFunc("DELETE /api/v1/workspaces/{id}", s.deleteWorkspace)
+		mux.ServeHTTP(rw, req)
+		if rw.Code != 409 {
+			t.Fatal(path, rw.Code, rw.Body.String())
+		}
+	}
 }
 
 type countModel struct{ calls atomic.Int32 }
