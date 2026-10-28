@@ -6,7 +6,7 @@ import { errorText, memberLabel } from "../../lib/presentation";
 import { Avatar, avatars } from "../Avatar";
 import { Modal } from "../Modal";
 
-const allTools = [
+export const allTools = [
   "list_files",
   "read_file",
   "search_content",

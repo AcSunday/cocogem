@@ -60,14 +60,105 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(
     page.getByRole("button", { name: "成员 3", exact: true }),
   ).toBeEnabled();
+  const workspaceID = page.url().split("/w/")[1];
+  const memberInput = page.getByLabel("输入问题");
+  await memberInput.fill("成员入口草稿");
   await page.getByRole("button", { name: "成员 3", exact: true }).click();
-  await page.getByLabel("别名（用逗号分隔）").fill("布布");
-  await page.getByRole("button", { name: "保存成员" }).click();
-  await expect(page.getByRole("dialog").getByRole("status")).toContainText("已保存");
-  await page.getByLabel("职责").fill("研究资料并核对证据。");
-  await page.getByRole("button", { name: "保存成员" }).click();
-  await expect(page.getByRole("dialog").getByRole("status")).toContainText("已保存");
+  const membersDialog = page.getByRole("dialog", { name: "工作空间成员" });
+  await expect(membersDialog.getByLabel("显示名")).toHaveCount(0);
+  await expect(membersDialog.getByLabel("Handle")).toHaveCount(0);
+  await expect(membersDialog.getByLabel("职责")).toHaveCount(0);
+  await expect(membersDialog.getByLabel("头像")).toHaveCount(0);
+  await expect(membersDialog.getByLabel("执行 CLI")).toHaveCount(0);
+  await expect(
+    membersDialog.getByText("在所有工作空间停用此成员"),
+  ).toHaveCount(0);
+  await expect(
+    membersDialog.getByRole("button", { name: "＋ 新成员" }),
+  ).toHaveCount(0);
+  await expect(membersDialog.getByText(/全局档案请到设置/)).toBeVisible();
+  await expect(membersDialog.getByText(/当前实际生效：/)).toBeVisible();
   await page.getByRole("button", { name: "关闭窗口" }).click();
+  await expect(memberInput).toHaveValue("成员入口草稿");
+
+  // Global profiles stay in Settings → Members; the top entry only links them.
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settingsDialog = page.getByRole("dialog", { name: "设置" });
+  await settingsDialog.getByRole("tab", { name: "成员" }).click();
+  await settingsDialog
+    .getByRole("button", { name: /^布偶猫 \(@ragdoll\)$/ })
+    .click();
+  await settingsDialog.getByLabel("别名（用逗号分隔）").fill("布布");
+  await settingsDialog.getByRole("button", { name: "保存成员" }).click();
+  await expect(settingsDialog.getByRole("status")).toContainText("已保存");
+  await settingsDialog.getByLabel("职责").fill("研究资料并核对证据。");
+  await settingsDialog.getByRole("button", { name: "保存成员" }).click();
+  await expect(settingsDialog.getByRole("status")).toContainText("已保存");
+  const createdProfile = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/agents") &&
+      response.request().method() === "POST",
+  );
+  await settingsDialog.getByRole("button", { name: "＋ 新成员" }).click();
+  await settingsDialog.getByLabel("显示名").fill("访客猫");
+  await settingsDialog.getByLabel("Handle").fill("visitor");
+  await settingsDialog.getByRole("button", { name: "保存成员" }).click();
+  await expect(settingsDialog.getByRole("status")).toContainText("已保存");
+  const visitor = await (await createdProfile).json();
+  await page.getByRole("button", { name: "关闭窗口" }).click();
+
+  // Join, restrict, disable and remove only this workspace's relationship.
+  await page.getByRole("button", { name: "成员 3", exact: true }).click();
+  await membersDialog
+    .getByRole("button", { name: /^访客猫 \(@visitor\) · 可加入$/ })
+    .click();
+  await membersDialog.getByLabel("web_search").uncheck();
+  const joined = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(
+        `/api/v1/workspaces/${workspaceID}/members/${visitor.id}`,
+      ) && response.request().method() === "PUT",
+  );
+  await membersDialog.getByRole("button", { name: "加入本工作空间" }).click();
+  const joinRequest = (await joined).request();
+  expect(joinRequest.headers()["if-match"]).toBeUndefined();
+  expect(joinRequest.postDataJSON()).toMatchObject({
+    enabled: true,
+    tools: expect.not.arrayContaining(["web_search"]),
+  });
+  await expect(membersDialog.getByRole("status")).toContainText(
+    "本空间成员配置已保存",
+  );
+  await membersDialog.getByLabel("在本工作空间启用").uncheck();
+  const updated = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(
+        `/api/v1/workspaces/${workspaceID}/members/${visitor.id}`,
+      ) && response.request().method() === "PATCH",
+  );
+  await membersDialog.getByRole("button", { name: "保存本空间权限" }).click();
+  const updateRequest = (await updated).request();
+  expect(updateRequest.headers()["if-match"]).toBe("1");
+  expect(updateRequest.postDataJSON()).toMatchObject({
+    enabled: false,
+    tools: expect.not.arrayContaining(["web_search"]),
+  });
+  const removed = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(
+        `/api/v1/workspaces/${workspaceID}/members/${visitor.id}`,
+      ) && response.request().method() === "DELETE",
+  );
+  await membersDialog.getByRole("button", { name: "移出本工作空间" }).click();
+  expect((await removed).request().headers()["if-match"]).toBe("2");
+  await expect(
+    membersDialog.getByRole("button", {
+      name: /^访客猫 \(@visitor\) · 可加入$/,
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "关闭窗口" }).click();
+  await expect(memberInput).toHaveValue("成员入口草稿");
+  await memberInput.fill("");
   await page
     .getByRole("button", { name: "做一次 Research", exact: false })
     .click();
@@ -446,17 +537,15 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   ).toHaveText(/缅因猫/);
   await page.getByRole("button", { name: "关闭窗口", exact: true }).click();
 
-  // Renaming does not relabel an already captured tool execution.
-  await page.getByRole("button", { name: "成员 3", exact: true }).click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: /^布偶猫 \(@ragdoll\)/ })
+  // Renaming a global profile does not relabel an already captured tool execution.
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await settingsDialog.getByRole("tab", { name: "成员" }).click();
+  await settingsDialog
+    .getByRole("button", { name: /^布偶猫 \(@ragdoll\)$/ })
     .click();
-  await page.getByLabel("显示名").fill("新布偶猫");
-  await page.getByRole("button", { name: "保存成员" }).click();
-  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
-    "已保存",
-  );
+  await settingsDialog.getByLabel("显示名").fill("新布偶猫");
+  await settingsDialog.getByRole("button", { name: "保存成员" }).click();
+  await expect(settingsDialog.getByRole("status")).toContainText("已保存");
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await page.goto(researchURL);
   await openPanel("过程");

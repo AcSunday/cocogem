@@ -41,10 +41,10 @@ import { MessageCard } from "../components/MessageCard";
 import { RunDivider } from "../components/RunDivider";
 import { SettingsDialog, SnapshotDialog } from "../components/SettingsDialog";
 import { Sidebar } from "../components/Sidebar";
-import { MembersSettings } from "../components/forms/MembersSettings";
 import { ThreadForm } from "../components/forms/ThreadForm";
 import { ThreadRenameForm } from "../components/forms/ThreadRenameForm";
 import { WorkspaceForm } from "../components/forms/WorkspaceForm";
+import { WorkspaceMembersForm } from "../components/forms/WorkspaceMembersForm";
 import {
   conversationCoordinator,
   defaultAssignments,
@@ -672,12 +672,13 @@ function WorkspaceApp({
       void Promise.all([
         loadMembers(workspaceID),
         loadThreads(workspaceID),
+        loadGlobalAgents(),
       ]).catch((error) => setError(errorText(error)));
     } else if (ready) {
       setAgents([]);
       setThreads([]);
     }
-  }, [ready, workspaceID, loadMembers, loadThreads]);
+  }, [ready, workspaceID, loadMembers, loadThreads, loadGlobalAgents]);
   useEffect(() => {
     if (ready && threadID) {
       setView(undefined);
@@ -1591,26 +1592,13 @@ function WorkspaceApp({
             }}
           />
         )}
-      {modal?.kind === "agents" && system && (
-        <MembersSettings
+      {modal?.kind === "agents" && workspaceID && (
+        <WorkspaceMembersForm
           agents={agents}
-          system={system}
+          catalog={globalAgents}
           workspaceID={workspaceID}
           refresh={() => loadMembers(workspaceID)}
           close={close}
-          save={async (value) => {
-            const saved = await api<Agent>(
-              value.id
-                ? `/api/v1/agents/${value.id}`
-                : `/api/v1/workspaces/${workspaceID}/agents`,
-              value.id ? "PATCH" : "POST",
-              value,
-              value.id ? { "If-Match": String(value.revision) } : {},
-            );
-            await loadMembers(workspaceID);
-            await loadGlobalAgents();
-            return saved;
-          }}
         />
       )}
       {(modal?.kind === "thread" || modal?.kind === "edit-thread") &&
