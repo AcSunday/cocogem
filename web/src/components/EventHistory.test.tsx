@@ -67,6 +67,7 @@ it("remounts for a new start sequence so an old page cannot win", async () => {
   expect(screen.getByText("读取网页")).toBeVisible();
 });
 
+// Seventy paged clicks exceed the default 5 s budget when workers share the CPU.
 it("bounds cursors past 64 pages and returns to this history's start", async () => {
   const fetcher = vi.fn((path: string) => {
     const after = new URL(path, "http://local").searchParams.get("after") ?? "";
@@ -122,4 +123,4 @@ it("bounds cursors past 64 pages and returns to this history's start", async () 
   expect(
     screen.queryByRole("button", { name: "回到历史事件第一页" }),
   ).not.toBeInTheDocument();
-});
+}, 15_000);
