@@ -5,6 +5,7 @@ import { Markdown } from "./Markdown";
 import {
   livenessLabel,
   memberLabel,
+  noticeLabel,
   toolLabel,
   usageSummary,
 } from "../lib/presentation";
@@ -30,6 +31,13 @@ function groups(events: Event[]) {
   const out: Group[] = [];
   for (const event of events) {
     if (!event.agent_id) continue;
+    // Routine notices render no row; a step that only sent them must not leave
+    // an empty member header behind.
+    if (
+      event.type === "native_notice" &&
+      !noticeLabel(String(data(event).kind || ""))
+    )
+      continue;
     const key = event.step_id || event.agent_id;
     let group = out.find((item) => item.key === key);
     if (!group) {
@@ -147,13 +155,14 @@ export function ToolTimeline({
                     检测到 CLI 程序变化，已重新检查兼容性。
                   </p>
                 );
-              if (event.type === "native_notice")
-                return (
+              if (event.type === "native_notice") {
+                const notice = noticeLabel(String(data(event).kind || ""));
+                return notice ? (
                   <p className={cx("muted")} key={event.seq}>
-                    忽略非关键 CLI 通知：
-                    {String(data(event).kind || "unknown")}
+                    {notice}
                   </p>
-                );
+                ) : null;
+              }
               if (event.type === "tool_finished") {
                 if (attachedFinishes.has(event.seq)) return null;
                 const output = data(event);

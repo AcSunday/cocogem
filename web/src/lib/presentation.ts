@@ -159,6 +159,12 @@ export const livenessLabel = labels({
   waiting_tool: "等待工具",
   waiting_member: "等待其他成员",
 });
+// Native notices stay in the event log for diagnostics; only capability changes
+// reach the user. Literal matching keeps prototype keys out of the render path.
+export const noticeLabel = (kind = "") =>
+  kind === "native_file_degraded"
+    ? "原生文件工具已停用，本步改用平台文件工具"
+    : "";
 
 /** Only confirmed host tool work counts as activity; status/usage/heartbeats do not. */
 const progressEvents = new Set([

@@ -269,6 +269,68 @@ it("shows a paired native finish without inventing a duration", () => {
   expect(screen.queryByText(/^\d+ ms$/)).not.toBeInTheDocument();
 });
 
+it("hides routine CLI notices from live and history lists but keeps capability degradation", () => {
+  const notices = [
+    ...Array.from({ length: 12 }, (_, index) =>
+      event(index + 1, "native_notice", { kind: "system.thinking_tokens" }),
+    ),
+    event(13, "native_notice", { kind: "status", detail: "ignored" }),
+    event(14, "native_notice", { kind: "mcp.notifications/progress" }),
+    event(15, "native_notice", { kind: "repeated_tool_input" }),
+  ];
+  const degraded = event(16, "native_notice", {
+    kind: "native_file_degraded",
+    detail:
+      "native file tools are disabled for this step; platform MCP file tools remain available",
+  });
+  for (const mode of ["live", "history"] as const) {
+    const view = render(
+      <ToolTimeline
+        mode={mode}
+        agents={[member]}
+        events={[...notices, degraded]}
+      />,
+    );
+    // Routine notices stay in the event log for diagnostics only.
+    expect(screen.queryByText(/忽略非关键 CLI 通知/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/thinking_tokens/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/repeated_tool_input/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("原生文件工具已停用，本步改用平台文件工具"),
+    ).toBeVisible();
+    view.unmount();
+  }
+});
+
+it("leaves no member header for steps that only carry routine notices", () => {
+  const routine = [
+    event(1, "native_notice", { kind: "system.thinking_tokens" }),
+    event(2, "native_notice", { kind: "constructor" }),
+    event(3, "native_notice", { kind: "__proto__" }),
+    event(4, "native_notice", { kind: "toString" }),
+  ];
+  const view = render(<ToolTimeline agents={[member]} events={routine} />);
+  expect(view.container.textContent).toBe("");
+});
+
+it("keeps member groups for degradation notices and failures", () => {
+  const events = [
+    event(1, "native_notice", { kind: "native_file_degraded" }),
+    event(2, "tool_finished", {
+      tool_call_id: "call",
+      name: "read_file",
+      status: "failed",
+      output: "boom",
+    }),
+  ];
+  render(<ToolTimeline agents={[member]} events={events} runStatus="running" />);
+  expect(screen.getByText("研究成员 (@member)")).toBeVisible();
+  expect(
+    screen.getByText("原生文件工具已停用，本步改用平台文件工具"),
+  ).toBeVisible();
+  expect(screen.getByText("失败")).toBeVisible();
+});
+
 it("does not fake a running tool once the live window has evicted its finish", async () => {
   const onHistory = vi.fn();
   const events = [

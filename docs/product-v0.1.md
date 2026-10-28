@@ -619,7 +619,7 @@ X-CSRF-Token: 浏览器会话的CSRF值
 | `step_started / step_waiting / step_finished` | 当前成员职责、依赖、等待与结果 |
 | `attempt_started / attempt_finished` | 一次执行尝试的 CLI、会话、进程归属与终态 |
 | `liveness_warning` | 等待首个响应或长时间无进展；不伪造百分比 |
-| `native_notice / cli_changed` | 非关键 CLI 通知；CLI 程序身份变化后的重新检查 |
+| `native_notice / cli_changed` | `native_notice` 仅写入诊断记录；用户过程列表只展示影响本步能力的降级通知（如原生文件工具停用），普通系统/未知通知不展示。`cli_changed` 表示 CLI 程序身份变化后的重新检查 |
 | `handoff_prepared` | 上游到下游的工作包及输入引用已准备好，不表示接收者已读 |
 | `message_started / message_delta / message_finished` | 更新同一消息 ID；delta 明确 append/replace |
 | `tool_started / tool_finished` | 关联 tool_call_id、脱敏摘要、结果和来源 |

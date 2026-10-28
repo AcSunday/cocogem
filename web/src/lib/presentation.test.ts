@@ -12,6 +12,7 @@ import {
   livenessFromAttempts,
   mergeAttemptLiveness,
   nextLiveness,
+  noticeLabel,
   runErrorText,
   runDuration,
   runUsageSummary,
@@ -191,6 +192,15 @@ it("explains an unconfirmed old CLI process without promising automatic resume",
   expect(text).toContain("核实");
   expect(text).toContain("停止");
   expect(text).toContain("不会自动续跑");
+});
+
+it("shows only capability-changing native notices and ignores prototype keys", () => {
+  for (const kind of ["constructor", "__proto__", "toString", "hasOwnProperty"])
+    expect(noticeLabel(kind)).toBe("");
+  expect(noticeLabel()).toBe("");
+  expect(noticeLabel("native_file_degraded")).toBe(
+    "原生文件工具已停用，本步改用平台文件工具",
+  );
 });
 
 it("keeps a liveness warning outside progress and clears it on confirmed activity", () => {
