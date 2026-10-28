@@ -208,21 +208,26 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  width: fit-content;
   margin: 6px 4px 0 8px;
   color: var(--text-3);
   font-size: 12px;
+  line-height: 20px;
 }
+/* Size the control to its value so the chevron stays beside the text. */
 .appearance-select .select-wrap {
-  flex: 1;
+  flex: none;
   width: auto;
 }
 .appearance-select .select {
-  flex: 1;
-  min-height: 30px;
-  padding: 4px;
+  gap: 4px;
+  width: auto;
+  min-height: 28px;
+  padding: 3px 6px;
   border-color: transparent;
   background: transparent;
   font-size: 12px;
+  line-height: 20px;
 }
 .workspace-main {
   flex: 1;
