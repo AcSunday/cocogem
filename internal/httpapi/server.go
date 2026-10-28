@@ -520,9 +520,18 @@ func (s *Server) threads(rw http.ResponseWriter, r *http.Request) {
 	page, err := paginate(r, threads)
 	respond(rw, r, page, err)
 }
+func validateThreadTitle(title string) error {
+	if strings.TrimSpace(title) == "" || len([]rune(title)) > 150 {
+		return errors.New("会话标题无效")
+	}
+	return nil
+}
 func validateThread(th w.Thread, agents []w.Agent) error {
-	if strings.TrimSpace(th.Title) == "" || len([]rune(th.Title)) > 150 || len(th.AgentIDs) < 1 || len(th.AgentIDs) > 4 {
-		return errors.New("会话标题或成员数量无效")
+	if err := validateThreadTitle(th.Title); err != nil {
+		return err
+	}
+	if len(th.AgentIDs) < 1 || len(th.AgentIDs) > 4 {
+		return errors.New("会话成员数量无效")
 	}
 	if !slices.Contains(th.AgentIDs, th.CoordinatorID) {
 		return errors.New("协调者必须是会话成员")
@@ -564,29 +573,46 @@ func (s *Server) createThread(rw http.ResponseWriter, r *http.Request) {
 	respond(rw, r, th, err)
 }
 func (s *Server) updateThread(rw http.ResponseWriter, r *http.Request) {
-	var th w.Thread
-	if !decode(rw, r, &th) {
+	var in ThreadUpdate
+	if !decode(rw, r, &in) {
 		return
 	}
+	var th w.Thread
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
-		old, err := tx.Thread(r.PathValue("id"))
+		var err error
+		th, err = tx.Thread(r.PathValue("id"))
 		if err != nil {
 			return err
 		}
-		if err := revision(r, old.Revision); err != nil {
+		if err := revision(r, th.Revision); err != nil {
 			return err
 		}
-		th.ID = old.ID
-		th.WorkspaceID = old.WorkspaceID
-		th.Revision = old.Revision + 1
+		th.Title = in.Title
+		if in.AgentIDs == nil && in.CoordinatorID == nil && in.Workflow == nil {
+			// A title-only edit must still work after a member is disabled.
+			if err := validateThreadTitle(th.Title); err != nil {
+				return err
+			}
+		} else {
+			if in.AgentIDs != nil {
+				th.AgentIDs = *in.AgentIDs
+			}
+			if in.CoordinatorID != nil {
+				th.CoordinatorID = *in.CoordinatorID
+			}
+			if in.Workflow != nil {
+				th.Workflow = *in.Workflow
+			}
+			agents, err := tx.Agents(th.WorkspaceID)
+			if err != nil {
+				return err
+			}
+			if err := validateThread(th, agents); err != nil {
+				return err
+			}
+		}
+		th.Revision++
 		th.UpdatedAt = w.Now()
-		agents, err := tx.Agents(th.WorkspaceID)
-		if err != nil {
-			return err
-		}
-		if err := validateThread(th, agents); err != nil {
-			return err
-		}
 		return tx.SaveThread(th)
 	})
 	respond(rw, r, th, err)

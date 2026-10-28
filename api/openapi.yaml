@@ -3188,6 +3188,70 @@
         ],
         "type": "object"
       },
+      "ThreadUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coordinator_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "description": "Accepted for compatibility; ignored. The path id is authoritative.",
+            "type": "string"
+          },
+          "revision": {
+            "description": "Accepted for compatibility; ignored. If-Match is authoritative.",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Accepted for compatibility; ignored. The server sets the timestamp.",
+            "type": "string"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspace_id": {
+            "description": "Accepted for compatibility; ignored. A thread never changes workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
       "ThreadView": {
         "additionalProperties": false,
         "properties": {
@@ -5025,7 +5089,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ThreadInput"
+                "$ref": "#/components/schemas/ThreadUpdate"
               }
             }
           },

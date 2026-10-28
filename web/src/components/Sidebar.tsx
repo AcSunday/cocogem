@@ -1,5 +1,5 @@
 import { Select } from "./Select";
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Thread, Workspace } from "../api/client";
 import { cx } from "../styles/classes";
 import { formatMessageTime } from "../lib/presentation";
@@ -18,6 +18,7 @@ export function Sidebar({
   onHome,
   onThread,
   onNewThread,
+  onRenameThread,
   onDeleteThread,
   onCreateWorkspace,
   onEditWorkspace,
@@ -36,6 +37,7 @@ export function Sidebar({
   onHome: () => void;
   onThread: (id: string) => void;
   onNewThread: () => void;
+  onRenameThread: (thread: Thread) => void;
   onDeleteThread: (thread: Thread) => void;
   onCreateWorkspace: () => void;
   onEditWorkspace: () => void;
@@ -124,14 +126,12 @@ export function Sidebar({
               <strong>{thread.title}</strong>
               <small>{formatMessageTime(thread.updated_at)}</small>
             </button>
-            <button
-              className={cx("icon-button small thread-delete")}
-              aria-label="删除会话"
-              title={`删除“${thread.title}”`}
-              onClick={() => onDeleteThread(thread)}
-            >
-              <Icon name="trash" size={14} />
-            </button>
+            <ThreadMenu
+              thread={thread}
+              session={threadID}
+              onRename={() => onRenameThread(thread)}
+              onDelete={() => onDeleteThread(thread)}
+            />
           </div>
         ))}
         {!threads.length && (
@@ -159,5 +159,142 @@ export function Sidebar({
         <p>本地工作空间 · 数据留在本机</p>
       </div>
     </aside>
+  );
+}
+
+/** One row's actions; switching conversations drops every stale menu. */
+function ThreadMenu({
+  thread,
+  session,
+  onRename,
+  onDelete,
+}: {
+  thread: Thread;
+  session: string;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const dismiss = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) trigger.current?.focus();
+  };
+  const choose = (action: () => void) => {
+    // Focus the trigger first so the dialog restores focus to this row.
+    dismiss(true);
+    action();
+  };
+  useEffect(() => {
+    setOpen(false);
+  }, [session]);
+  useLayoutEffect(() => {
+    const anchor = trigger.current;
+    const list = menu.current;
+    if (!open || !anchor || !list) return;
+    const rect = anchor.getBoundingClientRect();
+    const width = 140;
+    const height = 84;
+    setPosition({
+      left: Math.max(8, Math.min(rect.right - width, innerWidth - width - 8)),
+      top:
+        rect.bottom + height + 4 > innerHeight
+          ? Math.max(8, rect.top - height - 4)
+          : rect.bottom + 4,
+    });
+    list.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: Event) => {
+      const target = event.target as Node;
+      if (menu.current?.contains(target) || trigger.current?.contains(target))
+        return;
+      setOpen(false);
+    };
+    // Fixed positioning would detach from the anchor if the list scrolls.
+    const close = () => setOpen(false);
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("focusin", outside);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("focusin", outside);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+  return (
+    <div className={cx("thread-actions")}>
+      <button
+        ref={trigger}
+        type="button"
+        className={cx("icon-button small thread-more")}
+        aria-label={`更多会话操作：${thread.title}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && open) {
+            event.preventDefault();
+            event.stopPropagation();
+            dismiss(true);
+          }
+        }}
+      >
+        <Icon name="more" size={16} />
+      </button>
+      {open && (
+        <div
+          ref={menu}
+          role="menu"
+          aria-label={`${thread.title} 的会话操作`}
+          className={cx("thread-menu")}
+          style={{ left: position.left, top: position.top }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              dismiss(true);
+              return;
+            }
+            if (
+              !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+            )
+              return;
+            event.preventDefault();
+            const items = [
+              ...(menu.current?.querySelectorAll<HTMLElement>(
+                '[role="menuitem"]',
+              ) ?? []),
+            ];
+            const at = items.indexOf(document.activeElement as HTMLElement);
+            const next =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? items.length - 1
+                  : (at + (event.key === "ArrowUp" ? -1 : 1) + items.length) %
+                    items.length;
+            items[next]?.focus();
+          }}
+        >
+          <button type="button" role="menuitem" onClick={() => choose(onRename)}>
+            重命名
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={cx("danger")}
+            onClick={() => choose(onDelete)}
+          >
+            删除
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -339,3 +339,23 @@ web 调用完成但无可保存内容，MCP 后备完成纪要（116.46 秒）�
 原生优先采用实际工具名/映射与对应 MCP 后备描述，是模型指引，不是硬执行策略；
 Gemini 仍 MCP，Codex 当前真实 case 无原生来源，原生联网不保证消除 403。
 未做 Linux、完整研究事实审计、commit/push/发布。
+
+## 2026-10-28：会话行更多菜单
+
+会话列表每行右侧改为“更多”菜单，菜单只含重命名和删除。触发按钮仅在悬停或键盘焦点时显示，
+选中当前会话不再常驻显示；窄屏和 `hover: none` 触屏常显。菜单打开后聚焦第一项，支持方向键、
+Home/End、Escape 回焦触发按钮，点击菜单外、滚动或切换会话都会关闭。删除仍走原确认对话框和
+后端 409/错误提示。重命名使用独立标题对话框和现有 `PATCH /threads/{id}`，只提交 `title` 与
+`If-Match` revision；服务端 title-only 分支只校验标题，保留成员、协调者、流程、ID 和 revision，
+成员停用后仍可改名。显式提交 `agent_ids` 等设置时仍走完整成员校验，显式空成员不会被跳过；
+版本冲突返回 412。旧客户端仍可提交完整会话对象：`id`、`workspace_id`、`revision`、`updated_at`
+只被接收并忽略，身份、版本仍由路径和 `If-Match` 决定，任意未知字段继续返回 400。
+失败时保留已输入标题并显示错误。
+
+验证：`go test -race ./internal/httpapi` 覆盖成员停用后改名、成员/角色不变、显式空成员被拒、
+412、带伪造身份/版本字段的完整对象更新成功但身份不变，以及未知字段仍返回 400；
+前端 `npm run lint`、`npm run typecheck`、`npm test`（134 项）和 `npm run build` 通过；
+本次针对重命名改动复跑 `PLAYWRIGHT_CHANNEL=chrome npx playwright test e2e/workspace.spec.ts`
+（1/1）。此前全量 `PLAYWRIGHT_CHANNEL=chrome npx playwright test` 7/7 通过。浏览器路径检查了
+选中行按钮隐藏、悬停显示、菜单 Escape 回焦、重命名仅改标题（API 前后成员/协调者/流程一致）
+以及经菜单删除。

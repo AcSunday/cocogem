@@ -135,14 +135,49 @@
 .thread small {
   font-size: 12px;
 }
-.thread-delete {
-  opacity: 0;
+.thread-actions {
+  position: relative;
+  display: flex;
   margin-right: 2px;
 }
-.thread-item:hover .thread-delete,
-.thread-item:focus-within .thread-delete,
-.thread-item.selected .thread-delete {
+.thread-more {
+  opacity: 0;
+}
+.thread-item:hover .thread-more,
+.thread-item:focus-within .thread-more {
   opacity: 1;
+}
+/* A touch screen has no hover, so the menu trigger must stay reachable. */
+@media (hover: none) {
+  .thread-more {
+    opacity: 1;
+  }
+}
+.thread-menu {
+  position: fixed;
+  inset: auto;
+  display: grid;
+  min-width: 140px;
+  margin: 0;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  z-index: 100;
+}
+.thread-menu button {
+  justify-content: flex-start;
+  min-height: 34px;
+  padding: 6px 10px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+.thread-menu button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--surface-3);
 }
 .empty-small {
   padding: 8px;
@@ -316,7 +351,7 @@
   .breadcrumb span {
     display: none;
   }
-  .thread-delete {
+  .thread-more {
     opacity: 1;
   }
 }

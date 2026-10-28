@@ -83,6 +83,13 @@ const paths = {
     </>
   ),
   chevron: <path d="m6 9 6 6 6-6" />,
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </>
+  ),
   open: <path d="m7 17 10-10M7 7h10v10" />,
 } satisfies Record<string, ReactNode>;
 

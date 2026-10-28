@@ -738,6 +738,114 @@ it("preserves the current conversation while saving coordinator and workspace di
   expect(push).not.toHaveBeenCalled();
 });
 
+it("renames a conversation with If-Match, keeps its members and retains a failed draft", async () => {
+  history.replaceState({}, "", "/w/ws/t/thread");
+  const workspace = {
+    id: "ws",
+    name: "研究室",
+    description: "",
+    root: "",
+    skill_ids: null,
+    revision: 1,
+    created_at: "",
+  };
+  let thread = {
+    id: "thread",
+    workspace_id: "ws",
+    title: "保留原会话",
+    agent_ids: ["one", "two"],
+    coordinator_id: "two",
+    workflow: "research",
+    revision: 4,
+    updated_at: "2026-10-24T00:00:00Z",
+  };
+  const agents: Agent[] = ["one", "two"].map((id) => ({
+    id,
+    workspace_id: "ws",
+    display_name: id,
+    handle: id,
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "codex",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  }));
+  const patches: { body: Record<string, unknown>; options?: RequestInit }[] =
+    [];
+  let conflict = true;
+  vi.stubGlobal(
+    "EventSource",
+    class {
+      close() {}
+    },
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, options?: RequestInit) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [workspace] });
+      if (path.endsWith("/agents")) return Response.json({ items: agents });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [thread], next_cursor: "" });
+      if (path === "/api/v1/threads/thread" && options?.method === "PATCH") {
+        const body = JSON.parse(String(options.body));
+        patches.push({ body, options });
+        if (conflict) {
+          conflict = false;
+          return Response.json(
+            { error: { message: "会话已在别处更新，请重新打开后再试" } },
+            { status: 412 },
+          );
+        }
+        thread = { ...thread, ...body, revision: thread.revision + 1 };
+        return Response.json(thread);
+      }
+      if (path.startsWith("/api/v1/threads/thread?"))
+        return Response.json({
+          thread,
+          messages: { items: [], next_cursor: "" },
+          runs: [],
+          sources: [],
+        });
+      return Response.json({ items: [] });
+    }),
+  );
+  const user = userEvent.setup();
+  render(<App />);
+  const trigger = await screen.findByRole("button", {
+    name: "更多会话操作：保留原会话",
+  });
+  await user.click(trigger);
+  await user.click(screen.getByRole("menuitem", { name: "重命名" }));
+  const input = screen.getByLabelText("会话标题");
+  expect(input).toHaveValue("保留原会话");
+  await user.clear(input);
+  await user.type(input, "新的标题");
+  await user.click(screen.getByRole("button", { name: "保存名称" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "会话已在别处更新，请重新打开后再试",
+  );
+  expect(input).toHaveValue("新的标题");
+  await user.click(screen.getByRole("button", { name: "保存名称" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+  );
+  expect(patches).toHaveLength(2);
+  for (const patch of patches) {
+    expect(patch.options?.headers).toEqual(
+      expect.objectContaining({ "If-Match": "4" }),
+    );
+    expect(patch.body).toEqual({ title: "新的标题" });
+  }
+  expect(
+    screen.getByRole("button", { name: "更多会话操作：新的标题" }),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "新的标题" })).toBeInTheDocument();
+});
+
 it("clears a stale tool-wait warning after confirmed progress", async () => {
   history.replaceState({}, "", "/w/ws/t/thread");
   const agent = {

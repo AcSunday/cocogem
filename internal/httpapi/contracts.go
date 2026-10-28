@@ -86,6 +86,21 @@ type WorkspaceInput struct {
 	SkillIDs    []string `json:"skill_ids"`
 }
 
+// ThreadUpdate edits the supplied fields; omitted settings keep their stored values.
+type ThreadUpdate struct {
+	Title         string    `json:"title"`
+	AgentIDs      *[]string `json:"agent_ids,omitempty"`
+	CoordinatorID *string   `json:"coordinator_id,omitempty"`
+	Workflow      *string   `json:"workflow,omitempty"`
+
+	// Legacy full-thread fields accept old clients; they are ignored because the
+	// path and If-Match remain authoritative for identity and revision.
+	ID          string `json:"id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Revision    int    `json:"revision,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
 // AuthStatus exposes whether the local workspace password has been initialized.
 type AuthStatus struct {
 	Initialized bool `json:"initialized"`

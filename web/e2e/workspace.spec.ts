@@ -472,8 +472,12 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "打开导航", exact: true }).click();
   await expect(page.getByLabel("切换工作空间")).toBeVisible();
+  // Touch and narrow layouts keep the row action reachable without hover.
+  await expect(
+    page.getByRole("button", { name: /更多会话操作：/ }).first(),
+  ).toHaveCSS("opacity", "1");
   await page
-    .getByRole("button", { name: "只读代码分析", exact: false })
+    .getByRole("button", { name: "只读代码分析", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "只读代码分析", exact: true }),
@@ -548,15 +552,70 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(input).toHaveValue("请 @maine ");
   await input.fill("");
 
-  // Deleting a conversation asks first and then removes it from the list.
+  // Row actions hide until hover or focus; selection alone does not pin them.
   const threadList = page.getByRole("navigation", { name: "会话列表" });
-  await expect(
-    threadList.getByRole("button", { name: "并行讨论" }),
-  ).toBeVisible();
-  await threadList
+  const currentRow = threadList
     .locator("div")
-    .filter({ hasText: "并行讨论" })
-    .getByRole("button", { name: "删除会话" })
+    .filter({ hasText: "只读代码分析" });
+  const currentActions = threadList.getByRole("button", {
+    name: "更多会话操作：只读代码分析",
+  });
+  await page.mouse.move(0, 0);
+  await expect(currentActions).toHaveCSS("opacity", "0");
+  await currentRow.hover();
+  await expect(currentActions).toHaveCSS("opacity", "1");
+  await currentActions.click();
+  const currentMenu = page.getByRole("menu", {
+    name: "只读代码分析 的会话操作",
+  });
+  await expect(currentMenu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(currentMenu).toHaveCount(0);
+  await expect(currentActions).toBeFocused();
+
+  // Renaming edits only the title and keeps the conversation's members.
+  const renamedThreadID = new URL(page.url()).pathname.split("/t/")[1];
+  const beforeRename = await (
+    await page.request.get(`/api/v1/threads/${renamedThreadID}`)
+  ).json();
+  await currentActions.click();
+  await currentMenu.getByRole("menuitem", { name: "重命名" }).click();
+  const renameDialog = page.getByRole("dialog", { name: "重命名会话" });
+  await expect(renameDialog.getByLabel("会话标题")).toHaveValue("只读代码分析");
+  await renameDialog.getByLabel("会话标题").fill("只读代码分析改名");
+  await renameDialog.getByRole("button", { name: "保存名称" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "只读代码分析改名", exact: true }),
+  ).toBeVisible();
+  await expect(
+    threadList.getByRole("button", {
+      name: "更多会话操作：只读代码分析改名",
+    }),
+  ).toBeVisible();
+  expect(page.url()).toContain(`/t/${renamedThreadID}`);
+  const afterRename = await (
+    await page.request.get(`/api/v1/threads/${renamedThreadID}`)
+  ).json();
+  expect(afterRename.thread.title).toBe("只读代码分析改名");
+  expect(afterRename.thread.agent_ids).toEqual(beforeRename.thread.agent_ids);
+  expect(afterRename.thread.coordinator_id).toBe(
+    beforeRename.thread.coordinator_id,
+  );
+  expect(afterRename.thread.workflow).toBe(beforeRename.thread.workflow);
+
+  // Deleting a conversation asks first and then removes it from the list.
+  const parallelRow = threadList.locator("div").filter({ hasText: "并行讨论" });
+  await expect(
+    threadList.getByRole("button", { name: "并行讨论", exact: true }),
+  ).toBeVisible();
+  await parallelRow.hover();
+  await threadList
+    .getByRole("button", { name: "更多会话操作：并行讨论" })
+    .click();
+  await page
+    .getByRole("menu", { name: "并行讨论 的会话操作" })
+    .getByRole("menuitem", { name: "删除" })
     .click();
   await page
     .getByRole("dialog")
@@ -564,7 +623,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
-    threadList.getByRole("button", { name: "并行讨论" }),
+    threadList.getByRole("button", { name: "并行讨论", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "服务与设置" }).click();
   await page.getByRole("button", { name: "锁定工作空间" }).click();

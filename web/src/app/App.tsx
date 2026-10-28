@@ -42,6 +42,7 @@ import { SettingsDialog, SnapshotDialog } from "../components/SettingsDialog";
 import { Sidebar } from "../components/Sidebar";
 import { MembersSettings } from "../components/forms/MembersSettings";
 import { ThreadForm } from "../components/forms/ThreadForm";
+import { ThreadRenameForm } from "../components/forms/ThreadRenameForm";
 import { WorkspaceForm } from "../components/forms/WorkspaceForm";
 import {
   defaultAssignments,
@@ -89,6 +90,7 @@ type ModalState =
   | { kind: "thread" | "edit-thread" }
   | { kind: "snapshot"; run: Run }
   | { kind: "artifact" }
+  | { kind: "rename-thread"; thread: Thread }
   | { kind: "delete-thread"; thread: Thread }
   | { kind: "delete-workspace"; workspace: Workspace };
 
@@ -1166,6 +1168,7 @@ function WorkspaceApp({
         onHome={() => navigate(workspaceID)}
         onThread={(id) => navigate(workspaceID, id)}
         onNewThread={() => setModal({ kind: "thread" })}
+        onRenameThread={(thread) => setModal({ kind: "rename-thread", thread })}
         onDeleteThread={(thread) => setModal({ kind: "delete-thread", thread })}
         onCreateWorkspace={() => setModal({ kind: "workspace" })}
         onEditWorkspace={() => setModal({ kind: "edit-workspace" })}
@@ -1560,7 +1563,12 @@ function WorkspaceApp({
                   ? `/api/v1/threads/${value.id}`
                   : `/api/v1/workspaces/${workspaceID}/threads`,
                 value.id ? "PATCH" : "POST",
-                value,
+                {
+                  title: value.title,
+                  agent_ids: value.agent_ids,
+                  coordinator_id: value.coordinator_id,
+                  workflow: value.workflow,
+                },
                 value.id ? { "If-Match": String(value.revision) } : {},
               );
               setWorkflowChoices((current) => ({
@@ -1610,6 +1618,28 @@ function WorkspaceApp({
             openSource(id);
           }}
           onError={(error) => setError(errorText(error))}
+        />
+      )}
+      {modal?.kind === "rename-thread" && (
+        <ThreadRenameForm
+          thread={modal.thread}
+          close={close}
+          save={async (title) => {
+            // The title-only update leaves members, coordinator and workflow untouched.
+            const saved = await api<Thread>(
+              `/api/v1/threads/${modal.thread.id}`,
+              "PATCH",
+              { title },
+              { "If-Match": String(modal.thread.revision) },
+            );
+            setView((current) =>
+              current?.thread.id === saved.id
+                ? { ...current, thread: saved }
+                : current,
+            );
+            close();
+            await loadThreads(workspaceID);
+          }}
         />
       )}
       {modal?.kind === "delete-thread" && (

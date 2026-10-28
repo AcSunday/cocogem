@@ -1185,6 +1185,20 @@ export interface components {
       items: components["schemas"]["Thread"][] | null;
       next_cursor?: string;
     };
+    ThreadUpdate: {
+      agent_ids?: (string[] | null) | null;
+      coordinator_id?: string | null;
+      /** @description Accepted for compatibility; ignored. The path id is authoritative. */
+      id?: string;
+      /** @description Accepted for compatibility; ignored. If-Match is authoritative. */
+      revision?: number;
+      title: string;
+      /** @description Accepted for compatibility; ignored. The server sets the timestamp. */
+      updated_at?: string;
+      workflow?: string | null;
+      /** @description Accepted for compatibility; ignored. A thread never changes workspace. */
+      workspace_id?: string;
+    };
     ThreadView: {
       messages: {
         items: {
@@ -2053,7 +2067,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        "application/json": components["schemas"]["ThreadInput"];
+        "application/json": components["schemas"]["ThreadUpdate"];
       };
     };
     responses: {
