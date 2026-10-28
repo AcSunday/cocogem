@@ -26,6 +26,7 @@ type connectionPlan struct {
 	codexEnv       map[string]string
 	geminiModel    string
 	geminiEnv      map[string]string
+	geminiUnset    []string
 }
 
 var connectionPlans = struct {
@@ -152,6 +153,16 @@ func codexInfoFromLaunch(resolved string, args []string, env map[string]string) 
 	return agent.ConnectionInfo{ResolvedModel: resolved, Identity: connectionDigest(fields)}
 }
 
+// geminiConnectionEnv is the complete environment allowlist that can change
+// the Gemini CLI connection. Keys absent from the recorded plan stay absent at
+// launch: the CLI treats a present empty value differently from an unset key
+// when loading its own .env.
+var geminiConnectionEnv = []string{
+	"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_CLI_AUTH_OVERRIDE",
+	"GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
+	"GEMINI_MODEL", "GOOGLE_GENAI_MODEL", "GEMINI_CLI_MODEL", "GEMINI_CLI_HOME", "GEMINI_CONFIG_DIR",
+}
+
 func geminiPlan(model string) (connectionPlan, error) {
 	settingsFile := geminiSettingsFile()
 	settingsHash := ""
@@ -184,15 +195,17 @@ func geminiPlan(model string) (connectionPlan, error) {
 	if resolved == "" || resolved == "default" {
 		resolved = "cli-default"
 	}
-	envKeys := []string{
-		"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_CLI_AUTH_OVERRIDE",
-		"GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
-		"GEMINI_MODEL", "GOOGLE_GENAI_MODEL", "GEMINI_CLI_MODEL", "GEMINI_CLI_HOME", "GEMINI_CONFIG_DIR",
-	}
 	env := map[string]string{}
+	unset := []string{}
+	present := []string{}
 	fields := map[string]any{"executor": "gemini", "model": resolved, "settings_hash": settingsHash}
-	for _, key := range envKeys {
-		value := os.Getenv(key)
+	for _, key := range geminiConnectionEnv {
+		value, ok := os.LookupEnv(key)
+		if !ok {
+			unset = append(unset, key)
+			continue
+		}
+		present = append(present, key)
 		env[key] = value
 		if key != "GEMINI_API_KEY" && key != "GOOGLE_API_KEY" {
 			fields[key] = value
@@ -200,8 +213,11 @@ func geminiPlan(model string) (connectionPlan, error) {
 			fields[key] = value != ""
 		}
 	}
+	// Presence itself is connection-relevant, so an explicit empty value and
+	// an unset key must not share an identity.
+	fields["env_present"] = present
 	info := agent.ConnectionInfo{ResolvedModel: resolved, Identity: connectionDigest(fields)}
-	return connectionPlan{executor: "gemini", info: info, geminiModel: resolved, geminiEnv: env}, nil
+	return connectionPlan{executor: "gemini", info: info, geminiModel: resolved, geminiEnv: env, geminiUnset: unset}, nil
 }
 
 func geminiConnectionInfo(model string) (agent.ConnectionInfo, error) {

@@ -127,6 +127,7 @@ type runOptions struct {
 	codexArgs      []string
 	codexEnv       map[string]string
 	geminiEnv      map[string]string
+	geminiUnset    []string
 }
 
 // Run starts a fresh isolated native session and exposes only this step's tools.
@@ -261,6 +262,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 					request.Model = plan.geminiModel
 				}
 				options.geminiEnv = plan.geminiEnv
+				options.geminiUnset = plan.geminiUnset
 			}
 		}
 	}
@@ -336,6 +338,14 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		}
 		cmd.Env = overrideEnv(cmd.Env, env)
 	}
+	if len(options.geminiUnset) != 0 {
+		// A frozen absence must not be filled in by a variable exported after
+		// the connection was recorded.
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = removeEnv(cmd.Env, options.geminiUnset)
+	}
 	instruction := "Only use the tool set explicitly supplied for this step. Complete the assigned step, then finish."
 	if len(nativeNames) != 0 {
 		instruction = "Prefer the supplied native tools for their granted operations (" + strings.Join(nativeNames, ", ") + "); the CLI executes them under its own permissions. If a native tool fails or returns no usable content, report the exact error, then use the corresponding platform MCP fallback when available. Native search results are leads, and native web output is a CLI-processed observation, not a raw page. " + instruction
@@ -405,6 +415,22 @@ func overrideEnv(env []string, values map[string]string) []string {
 	}
 	for key, value := range values {
 		result = append(result, key+"="+value)
+	}
+	return result
+}
+
+// removeEnv drops the named variables from the inherited environment.
+func removeEnv(env []string, keys []string) []string {
+	drop := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		drop[key] = struct{}{}
+	}
+	result := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, removed := drop[key]; !removed {
+			result = append(result, entry)
+		}
 	}
 	return result
 }

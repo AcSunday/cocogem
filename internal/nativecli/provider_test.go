@@ -39,6 +39,11 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 	}
 	mode := os.Getenv("COCOGEM_NATIVE_MODE")
 	executor := os.Getenv("COCOGEM_NATIVE_EXECUTOR")
+	if path := os.Getenv("COCOGEM_NATIVE_ENV_DUMP"); path != "" && strings.Contains(strings.Join(os.Args, " "), "--prompt") {
+		if err := os.WriteFile(path, []byte(strings.Join(os.Environ(), "\n")), 0600); err != nil {
+			os.Exit(30)
+		}
+	}
 	if os.Args[len(os.Args)-1] == "--version" {
 		switch executor {
 		case "codex":
