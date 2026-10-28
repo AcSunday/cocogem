@@ -562,3 +562,85 @@ func TestCodeAnalysisDefaultsKeepTheOnlyPublisherForTheReviewer(t *testing.T) {
 		t.Fatalf("configured exclusive role was not preserved: %+v", got.Assignments)
 	}
 }
+
+// TestRoutingProposalCatalogIsAvatarFreeButPermissionSensitive reproduces the
+// web case where a member already has a profile avatar when routing is
+// previewed. Avatars are presentation-only and must not stale the submission,
+// while real grant and disabled-state changes still must.
+func TestRoutingProposalCatalogIsAvatarFreeButPermissionSensitive(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	engine := &workflow.Engine{Store: db, Model: testutil.Model{}, Web: testutil.Web{}}
+	api := newDeliveryAPI(t, dir, db, engine)
+
+	var ws w.Workspace
+	api.call("POST", "/api/v1/workspaces", WorkspaceInput{Name: "头像路由回归"}, nil, 200, &ws)
+	var listed Page[w.Agent]
+	api.call("GET", "/api/v1/workspaces/"+ws.ID+"/agents", nil, nil, 200, &listed)
+	if len(listed.Items) < 2 {
+		t.Fatalf("seeded members = %d", len(listed.Items))
+	}
+	fox, other := listed.Items[0], listed.Items[1]
+	fox.Avatar = "🦊"
+	api.call("PATCH", "/api/v1/agents/"+fox.ID, fox, map[string]string{"If-Match": strconv.Itoa(fox.Revision)}, 200, &fox)
+	if fox.Avatar != "🦊" {
+		t.Fatalf("avatar was not saved: %+v", fox)
+	}
+	newThread := func(title string) w.Thread {
+		t.Helper()
+		var th w.Thread
+		api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: title, AgentIDs: []string{fox.ID, other.ID}, Workflow: "discussion"}, nil, 200, &th)
+		return th
+	}
+	preview := func(threadID string) w.RunInput {
+		t.Helper()
+		in := w.RunInput{Message: "头像只影响展示，不影响本次讨论", Workflow: "discussion", Targets: []string{fox.ID, other.ID}}
+		var proposal RoutingPreview
+		api.call("POST", "/api/v1/threads/"+threadID+"/routing-preview", in, nil, 200, &proposal)
+		if proposal.ProposalID == "" {
+			t.Fatalf("preview did not return a proposal: %+v", proposal)
+		}
+		in.ProposalID = proposal.ProposalID
+		return in
+	}
+	stale := func(threadID string, in w.RunInput, key string) {
+		t.Helper()
+		var body struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		api.call("POST", "/api/v1/threads/"+threadID+"/runs", in, map[string]string{"Idempotency-Key": key}, 409, &body)
+		if body.Error.Code != "routing_proposal_stale" {
+			t.Fatalf("changed permission was not rejected as a stale proposal: %+v", body)
+		}
+	}
+
+	// The actual UI reproduction: a nonempty avatar before preview is accepted.
+	avatarThread := newThread("头像讨论")
+	input := preview(avatarThread.ID)
+	headers := map[string]string{"Idempotency-Key": "avatar-preview-submit"}
+	var accepted, replay w.Run
+	api.call("POST", "/api/v1/threads/"+avatarThread.ID+"/runs", input, headers, 202, &accepted)
+	api.call("POST", "/api/v1/threads/"+avatarThread.ID+"/runs", input, headers, 202, &replay)
+	if accepted.ID == "" || replay.ID != accepted.ID {
+		t.Fatalf("idempotent repeat changed the accepted run: %s / %s", accepted.ID, replay.ID)
+	}
+
+	// A workspace tool grant change still invalidates the proposal.
+	toolThread := newThread("权限变更")
+	toolInput := preview(toolThread.ID)
+	api.call("PATCH", "/api/v1/workspaces/"+ws.ID+"/members/"+other.ID, w.WorkspaceMember{Enabled: true, Tools: []string{"read_file"}}, map[string]string{"If-Match": "1"}, 200, nil)
+	stale(toolThread.ID, toolInput, "avatar-tool-change")
+
+	// A global disable still invalidates the proposal.
+	disabledThread := newThread("成员停用")
+	disabledInput := preview(disabledThread.ID)
+	fox.Disabled = true
+	api.call("PATCH", "/api/v1/agents/"+fox.ID, fox, map[string]string{"If-Match": strconv.Itoa(fox.Revision)}, 200, &fox)
+	stale(disabledThread.ID, disabledInput, "avatar-disabled-member")
+}

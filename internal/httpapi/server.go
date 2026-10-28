@@ -929,7 +929,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		original := in
 		original.ProposalID = ""
-		if !ok || p.ThreadID != th.ID || time.Now().After(p.Expires) || p.Digest != digest(original) || p.Catalog != digest(agents) {
+		if !ok || p.ThreadID != th.ID || time.Now().After(p.Expires) || p.Digest != digest(original) || p.Catalog != digest(routingCatalog(agents)) {
 			return &RequestError{409, "routing_proposal_stale", "路由建议已失效，请重新解析收件人"}
 		}
 		if !s.modelConfigured(executors) {
