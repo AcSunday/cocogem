@@ -129,7 +129,8 @@ func (d Model) Complete(ctx context.Context, r model.Request, emit func(string) 
 		role = m[1]
 	}
 	voice := fixtureVoice(r.System)
-	code := strings.Contains(r.System, "workflow=code_analysis")
+	code := strings.Contains(r.System, "workflow=code_analysis") ||
+		strings.Contains(r.System, "workflow=engineering") && !strings.Contains(r.System, "authorized develop action")
 	if code && allowed("read_file") && !used["read_file"] {
 		input := map[string]any{"path": "README.md"}
 		if role == "reviewer" {
@@ -149,7 +150,8 @@ func (d Model) Complete(ctx context.Context, r model.Request, emit func(string) 
 		}
 		return tool("fetch_url", map[string]any{"url": url}), nil
 	}
-	if allowed("publish_artifact") && !used["publish_artifact"] && (role == "coordinator" || role == "reviewer") {
+	publisher := role == "coordinator" || role == "final_reviewer" || role == "reviewer" && code
+	if allowed("publish_artifact") && !used["publish_artifact"] && publisher {
 		return tool("publish_artifact", fixtureArtifact(r.System, code, sourceIDs)), nil
 	}
 	replies := fixtureReplies[role]

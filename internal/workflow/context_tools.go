@@ -488,7 +488,7 @@ type sourceListCursor struct {
 // CLI-processed observation, not raw page text; native search is only a lead.
 func evidenceStrength(kind string) string {
 	switch kind {
-	case "file", "web", "native_file":
+	case "file", "web", "native_file", "diff", "test":
 		return "original"
 	case "native_web":
 		return "observation"
@@ -564,7 +564,7 @@ func (e *Engine) listSources(ctx context.Context, run w.Run, sources []w.Source,
 		if strength == "original" && tools.IsSearchResultURL(source.URL) {
 			strength = "lead"
 		}
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"source_id":         source.ID,
 			"kind":              source.Kind,
 			"title":             boundedField(source.Title, 300),
@@ -573,7 +573,12 @@ func (e *Engine) listSources(ctx context.Context, run w.Run, sources []w.Source,
 			"captured_at":       source.CapturedAt,
 			"truncated":         source.Truncated,
 			"evidence_strength": strength,
-		})
+		}
+		if source.Kind == "test" {
+			item["exit_code"] = source.ExitCode
+			item["timed_out"] = source.TimedOut
+		}
+		items = append(items, item)
 	}
 	page := func(count int) (string, error) {
 		end := offset + count
@@ -668,36 +673,38 @@ func (e *Engine) readSource(ctx context.Context, run w.Run, sources []w.Source, 
 // Attempt/session/time/cursor/timeout policy never enter it.
 func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, connection agent.ConnectionInfo, adapter agent.AdapterInfo, scope *readScope, toolNames []string, sources []w.Source) (string, error) {
 	type plan struct {
-		AgentID       string   `json:"agent_id"`
-		AgentName     string   `json:"agent_name"`
-		Handle        string   `json:"handle"`
-		Role          string   `json:"role"`
-		RoleProfile   string   `json:"role_profile"`
-		Capabilities  []string `json:"capabilities"`
-		Instruction   string   `json:"instruction"`
-		OriginalTask  string   `json:"original_task"`
-		Workflow      string   `json:"workflow"`
-		ResearchScope string   `json:"research_scope"`
-		SourceURLs    []string `json:"source_urls"`
-		Executor      string   `json:"executor"`
-		Model         string   `json:"model"`
-		ResolvedModel string   `json:"resolved_model"`
-		Connection    string   `json:"connection"`
-		CLIIdentity   string   `json:"cli_identity"`
-		CLIProgram    string   `json:"cli_program"`
-		Adapter       string   `json:"adapter"`
-		Tools         []string `json:"tools"`
-		NativeTools   []string `json:"native_tools"`
-		Skills        []string `json:"skills"`
-		Roster        []string `json:"roster"`
-		System        string   `json:"system_identity"`
-		Refs          []string `json:"refs"`
+		AgentID           string   `json:"agent_id"`
+		AgentName         string   `json:"agent_name"`
+		Handle            string   `json:"handle"`
+		Role              string   `json:"role"`
+		RoleProfile       string   `json:"role_profile"`
+		Capabilities      []string `json:"capabilities"`
+		Instruction       string   `json:"instruction"`
+		OriginalTask      string   `json:"original_task"`
+		Workflow          string   `json:"workflow"`
+		EngineeringAction string   `json:"engineering_action,omitempty"`
+		ResearchScope     string   `json:"research_scope"`
+		SourceURLs        []string `json:"source_urls"`
+		Executor          string   `json:"executor"`
+		Model             string   `json:"model"`
+		ResolvedModel     string   `json:"resolved_model"`
+		Connection        string   `json:"connection"`
+		CLIIdentity       string   `json:"cli_identity"`
+		CLIProgram        string   `json:"cli_program"`
+		Adapter           string   `json:"adapter"`
+		Tools             []string `json:"tools"`
+		NativeTools       []string `json:"native_tools"`
+		Skills            []string `json:"skills"`
+		Roster            []string `json:"roster"`
+		System            string   `json:"system_identity"`
+		Refs              []string `json:"refs"`
 	}
 	member := w.Agent{ID: step.AgentID}
 	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
 		member = run.Agents[index]
 	}
-	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: effectiveInput(run).Workflow, ResearchScope: run.Input.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, run.Input.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
+	in := effectiveInput(run)
+	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, EngineeringAction: in.EngineeringAction, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
 	for _, id := range enabledSkills(run) {
 		value.Skills = append(value.Skills, id+"@"+run.SkillVersions[id])
 	}
@@ -769,7 +776,7 @@ func (e *Engine) planDigestFor(tx *store.Tx, run w.Run, step w.Step, adapter age
 	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
 		member = run.Agents[index]
 	}
-	return inputPlanDigest(tx, step, run, member.Model, connection, adapter, scope, e.allowedTools(run, member), sources)
+	return inputPlanDigest(tx, step, run, member.Model, connection, adapter, scope, e.allowedTools(run, member, step), sources)
 }
 
 // sourcesByIDs reconstructs exactly the capture metadata an attempt was

@@ -59,10 +59,41 @@ type WorkspaceMember struct {
 }
 
 // WorkflowRoles is the exact role vocabulary of each built-in workflow.
+// Engineering keeps one vocabulary for both actions; the plan uses only the
+// subset that applies to the selected action (analyst+reviewer for analyze,
+// developer+reviewer for develop).
 var WorkflowRoles = map[string][]string{
 	"discussion":    {"coordinator"},
 	"research":      {"researcher", "critic", "coordinator"},
 	"code_analysis": {"analyst", "reviewer"},
+	"engineering":   {"analyst", "developer", "reviewer"},
+}
+
+// WorkflowActionRoles is the role subset a workflow action actually plans.
+func WorkflowActionRoles(workflow, action string) []string {
+	if workflow != "engineering" {
+		return WorkflowRoles[workflow]
+	}
+	if action == EngineeringDevelop {
+		return []string{"developer", "reviewer"}
+	}
+	return []string{"analyst", "reviewer"}
+}
+
+// RoleTools are the host grants a planned role cannot work without. A develop
+// reviewer both publishes the final report and reruns tests; analysis reviewers
+// stay read-only and never need run_test.
+func RoleTools(workflow, action, role string) []string {
+	switch role {
+	case "coordinator", "reviewer", "final_reviewer":
+		if workflow == "engineering" && action == EngineeringDevelop {
+			return []string{"publish_artifact", "run_test"}
+		}
+		return []string{"publish_artifact"}
+	case "developer":
+		return []string{"write_file", "run_test"}
+	}
+	return nil
 }
 
 // Settings holds device-wide collaboration defaults shared by every workspace.
@@ -84,6 +115,33 @@ type Thread struct {
 	UpdatedAt     string   `json:"updated_at"`
 }
 
+// Engineering actions: analysis is read-only, development may write files and
+// run tests only through host tools granted for the step's role.
+const (
+	EngineeringAnalyze = "analyze"
+	EngineeringDevelop = "develop"
+)
+
+// NormalizeEngineeringAction validates the explicit user mode choice. A
+// non-engineering workflow never carries an engineering action, and engineering
+// defaults to the read-only analysis action.
+func NormalizeEngineeringAction(workflow, action string) (string, error) {
+	if workflow != "engineering" {
+		if action != "" {
+			return "", errors.New("engineering_action is only valid for the engineering workflow")
+		}
+		return "", nil
+	}
+	switch action {
+	case "", EngineeringAnalyze:
+		return EngineeringAnalyze, nil
+	case EngineeringDevelop:
+		return EngineeringDevelop, nil
+	default:
+		return "", errors.New("engineering_action must be analyze or develop")
+	}
+}
+
 // RunInput is a user's request, independent of a particular provider protocol.
 type RunInput struct {
 	Message       string            `json:"message"`
@@ -93,8 +151,11 @@ type RunInput struct {
 	SourceURLs    []string          `json:"source_urls"`
 	ArtifactRefs  []ArtifactRef     `json:"artifact_refs"`
 	ResearchScope string            `json:"research_scope"`
-	ProposalID    string            `json:"proposal_id"`
-	RetryOfRunID  string            `json:"retry_of_run_id"`
+	// EngineeringAction is the explicit Composer choice; it is never inferred
+	// from a member's tool grant. Empty means the read-only analysis action.
+	EngineeringAction string `json:"engineering_action,omitempty"`
+	ProposalID        string `json:"proposal_id"`
+	RetryOfRunID      string `json:"retry_of_run_id"`
 }
 
 // ArtifactRef identifies an immutable version, not whichever version is newest.
@@ -322,10 +383,20 @@ type Source struct {
 	Path        string `json:"path"`
 	StartLine   int    `json:"start_line"`
 	EndLine     int    `json:"end_line"`
-	SHA256      string `json:"sha256"`
-	Content     string `json:"content"`
-	CapturedAt  string `json:"captured_at"`
-	Truncated   bool   `json:"truncated"`
+	// SHA256 is the exact file hash for file/diff sources. For host test
+	// evidence ("test") it is the delivered-tree digest exposed only when the
+	// bounded digest taken immediately before and after the test both completed
+	// and matched. The engineering gate also compares it with the current tree,
+	// so a tree the test rewrote has no qualifying digest and cannot verify
+	// delivery.
+	SHA256     string `json:"sha256"`
+	Content    string `json:"content"`
+	CapturedAt string `json:"captured_at"`
+	Truncated  bool   `json:"truncated"`
+	// ExitCode and TimedOut are set on host test evidence ("test"). A timed-out
+	// or killed test uses -1 and never counts as a passing verification.
+	ExitCode int  `json:"exit_code,omitempty"`
+	TimedOut bool `json:"timed_out,omitempty"`
 
 	// CaptureStepID attributes a capture to the logical step that requested
 	// it, so one step's checkpoint ignores unrelated sibling captures.
@@ -493,6 +564,9 @@ func ValidateSettings(s Settings, agents []Agent) error {
 		}
 		if roles["analyst"] != "" && roles["analyst"] == roles["reviewer"] {
 			return errors.New("analyst and reviewer must be different members")
+		}
+		if roles["developer"] != "" && roles["developer"] == roles["reviewer"] {
+			return errors.New("developer and reviewer must be different members")
 		}
 	}
 	return nil

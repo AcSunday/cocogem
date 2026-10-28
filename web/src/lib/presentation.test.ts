@@ -24,6 +24,7 @@ import {
   sourceKindLabel,
   threadTitle,
   usageSummary,
+  workflowChoices,
 } from "./presentation";
 import { applyMention, mentionAt, mentionMatches } from "./mention";
 
@@ -136,13 +137,15 @@ it("explains recovery and capability checkpoints without hiding the reason", () 
   expect(runErrorText("first_response_timeout: no response")).toContain(
     "等待首个有效响应",
   );
-  expect(runErrorText("stall_timeout: no progress")).toContain("没有产生任何执行进展");
+  expect(runErrorText("stall_timeout: no progress")).toContain(
+    "没有产生任何执行进展",
+  );
   expect(
     runErrorText("checkpoint_blocked: source directory authorization changed"),
   ).toContain("恢复检查未通过");
-  expect(
-    runErrorText("connection_blocked: claude: 连接配置不可用"),
-  ).toContain("连接配置未通过检查");
+  expect(runErrorText("connection_blocked: claude: 连接配置不可用")).toContain(
+    "连接配置未通过检查",
+  );
   expect(
     runErrorText(
       "connection_changed: resolved model/upstream changed from a to b",
@@ -155,9 +158,7 @@ it("explains recovery and capability checkpoints without hiding the reason", () 
 it("describes disabled limits and hides the removed tool-call counter", () => {
   expect(limitLabel("run_seconds", 0)).toBe("不设协作总期限");
   expect(limitLabel("step_seconds", 0)).toBe("不设单步执行期限");
-  expect(limitLabel("first_response_seconds", 0)).toBe(
-    "关闭首个响应超时检测",
-  );
+  expect(limitLabel("first_response_seconds", 0)).toBe("关闭首个响应超时检测");
   expect(limitLabel("stall_seconds", 0)).toBe("关闭长时间无进展检测");
   expect(limitLabel("tool_calls", 30)).toBe("");
   expect(limitLabel("handoffs", 12)).toContain("12 个任务");
@@ -432,9 +433,11 @@ it("reports known, partial and unknown usage without turning gaps into zero", ()
     data,
   });
   expect(usageSummary([])).toBe("");
-  expect(usageSummary([usage(1, { known: true, input_tokens: 10, output_tokens: 4 })])).toBe(
-    "10 / 4 tokens",
-  );
+  expect(
+    usageSummary([
+      usage(1, { known: true, input_tokens: 10, output_tokens: 4 }),
+    ]),
+  ).toBe("10 / 4 tokens");
   expect(
     usageSummary([
       usage(1, { known: true, input_tokens: 10, output_tokens: 4 }),
@@ -512,7 +515,11 @@ it("sums run usage from persisted attempts, not the bounded event window", () =>
         ...routing,
       },
     }) as Run;
-  const zero = attempt({ usage_known: true, input_tokens: 0, output_tokens: 0 });
+  const zero = attempt({
+    usage_known: true,
+    input_tokens: 0,
+    output_tokens: 0,
+  });
   expect(runUsageSummary(run(), [])).toBe("");
   expect(runUsageSummary(run(), [zero])).toBe("用量：0 / 0 tokens");
   expect(
@@ -526,7 +533,12 @@ it("sums run usage from persisted attempts, not the bounded event window", () =>
   );
   expect(
     runUsageSummary(
-      run({ usage_known: true, model_call: true, input_tokens: 3, output_tokens: 1 }),
+      run({
+        usage_known: true,
+        model_call: true,
+        input_tokens: 3,
+        output_tokens: 1,
+      }),
       [attempt({ usage_known: true, input_tokens: 10, output_tokens: 2 })],
     ),
   ).toBe("用量：13 / 3 tokens");
@@ -645,6 +657,12 @@ it("labels search result pages as unread leads", () => {
   ).toBe("网页 · 已读原文");
 });
 
+it("offers engineering as the primary mode and keeps legacy code analysis out", () => {
+  const keys = workflowChoices.map(([key]) => key);
+  expect(keys).toContain("engineering");
+  expect(keys).not.toContain("code_analysis");
+});
+
 it("labels the persisted run method and readable selection reason", () => {
   const run = (extra: Record<string, unknown>): Run =>
     ({ input: { workflow: "free" }, ...extra }) as Run;
@@ -674,9 +692,29 @@ it("labels the persisted run method and readable selection reason", () => {
   // how the persisted method reads, and no member ID enters the label.
   expect(runMethod(run({ selected_workflow: selection }))).toEqual({
     method: "code_analysis",
-    label: "工程分析",
+    label: "工程分析（旧）",
     reason: "需要只读核对源码",
   });
+  expect(
+    runMethod(
+      run({
+        input: { workflow: "engineering", engineering_action: "develop" },
+      }),
+    ),
+  ).toEqual({ method: "engineering", label: "工程开发", reason: "" });
+  expect(
+    runMethod(
+      run({
+        input: { workflow: "engineering", engineering_action: "analyze" },
+      }),
+    ),
+  ).toEqual({ method: "engineering", label: "工程分析", reason: "" });
+  // A selected workflow can only be read-only engineering analysis.
+  expect(
+    runMethod(
+      run({ selected_workflow: { ...selection, workflow: "engineering" } }),
+    ),
+  ).toMatchObject({ method: "engineering", label: "工程分析" });
 });
 
 it("renders method events as readable text without raw payload details", () => {
@@ -688,6 +726,13 @@ it("renders method events as readable text without raw payload details", () => {
     occurred_at: "",
     data,
   });
+  expect(
+    methodEventLabel(
+      event("workflow_selected", {
+        selection: { workflow: "engineering", reason: "只读核对" },
+      }),
+    ),
+  ).toBe("协调者选择方法：工程分析（只读） · 只读核对");
   const selected = methodEventLabel(
     event("workflow_selected", {
       selection: {
@@ -701,15 +746,15 @@ it("renders method events as readable text without raw payload details", () => {
       steps: [{ step_id: "plan-step-uuid" }],
     }),
   );
-  expect(selected).toBe(
-    "协调者选择方法：协作讨论 · 需要独立观点和交叉质询",
-  );
+  expect(selected).toBe("协调者选择方法：协作讨论 · 需要独立观点和交叉质询");
   expect(selected).not.toContain("uuid");
   expect(methodEventLabel(event("method_recorded", { method: "direct" }))).toBe(
     "本轮方法：直接回答",
   );
   expect(methodEventLabel(event("method_recorded", {}))).toBe("");
-  expect(methodEventLabel(event("run_finished", { method: "direct" }))).toBe("");
+  expect(methodEventLabel(event("run_finished", { method: "direct" }))).toBe(
+    "",
+  );
 });
 
 it("keeps unknown labels as readable keys instead of prototype objects", () => {

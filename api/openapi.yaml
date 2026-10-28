@@ -1595,6 +1595,10 @@
                   "null"
                 ]
               },
+              "engineering_action": {
+                "description": "Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value.",
+                "type": "string"
+              },
               "message": {
                 "type": "string"
               },
@@ -1907,6 +1911,10 @@
               "null"
             ]
           },
+          "engineering_action": {
+            "description": "Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value.",
+            "type": "string"
+          },
           "message": {
             "type": "string"
           },
@@ -1988,6 +1996,10 @@
               "object",
               "null"
             ]
+          },
+          "engineering_action": {
+            "description": "Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value.",
+            "type": "string"
           },
           "message": {
             "type": "string"
@@ -2570,6 +2582,9 @@
                       "null"
                     ]
                   },
+                  "engineering_action": {
+                    "type": "string"
+                  },
                   "message": {
                     "type": "string"
                   },
@@ -3044,6 +3059,9 @@
           "end_line": {
             "type": "integer"
           },
+          "exit_code": {
+            "type": "integer"
+          },
           "id": {
             "type": "string"
           },
@@ -3064,6 +3082,9 @@
           },
           "thread_id": {
             "type": "string"
+          },
+          "timed_out": {
+            "type": "boolean"
           },
           "title": {
             "type": "string"
@@ -3809,6 +3830,9 @@
                         "null"
                       ]
                     },
+                    "engineering_action": {
+                      "type": "string"
+                    },
                     "message": {
                       "type": "string"
                     },
@@ -4107,6 +4131,9 @@
                 "end_line": {
                   "type": "integer"
                 },
+                "exit_code": {
+                  "type": "integer"
+                },
                 "id": {
                   "type": "string"
                 },
@@ -4127,6 +4154,9 @@
                 },
                 "thread_id": {
                   "type": "string"
+                },
+                "timed_out": {
+                  "type": "boolean"
                 },
                 "title": {
                   "type": "string"

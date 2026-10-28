@@ -438,10 +438,11 @@ func (b *bridge) call(raw json.RawMessage) any {
 		return toolResult("Could not persist tool start.", true)
 	}
 	started := time.Now()
+	limit := toolDeadline(params.Name)
 	if b.live != nil {
-		b.live.toolStarted()
+		b.live.toolStarted(limit)
 	}
-	callCtx, cancel := context.WithTimeout(b.ctx, hostToolDeadline)
+	callCtx, cancel := context.WithTimeout(b.ctx, limit)
 	output, callErr := b.execute(callCtx, params.Name, params.Arguments)
 	cancel()
 	if b.live != nil {

@@ -49,6 +49,23 @@ func TestFixtureRolesReadDifferentSourcesAndReplyDifferently(t *testing.T) {
 	}
 }
 
+func TestFixtureEngineeringAnalysisStaysReadOnly(t *testing.T) {
+	read := fixtureStep(t, "role=analyst workflow=engineering", "read_file")
+	if len(read.Blocks) != 1 || read.Blocks[0].Name != "read_file" {
+		t.Fatalf("engineering analyst did not read a file: %+v", read.Blocks)
+	}
+	publish := fixtureStep(t, "role=reviewer workflow=engineering type=code_analysis", "publish_artifact")
+	if len(publish.Blocks) != 1 || publish.Blocks[0].Name != "publish_artifact" {
+		t.Fatalf("engineering reviewer did not publish: %+v", publish.Blocks)
+	}
+	var in struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(publish.Blocks[0].Input, &in); err != nil || in.Type != "code_analysis" {
+		t.Fatalf("engineering analysis artifact type = %q, %v", in.Type, err)
+	}
+}
+
 func TestFixtureChecksReturnStructuredCorrections(t *testing.T) {
 	for _, handle := range []string{"ragdoll", "maine", "orange"} {
 		resp := fixtureStep(t, "(@"+handle+") role=checker workflow=discussion")

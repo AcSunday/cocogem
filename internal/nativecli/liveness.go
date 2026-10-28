@@ -8,9 +8,18 @@ import (
 	"github.com/AcSunday/cocogem/internal/agent"
 )
 
-// hostToolDeadline bounds one host tool call. Once it passes, an in-flight
-// tool no longer exempts the step from stall detection.
+// hostToolDeadline bounds one ordinary host tool call. run_test has its own
+// bounded host timeout so a real test run is not cut off after 20 seconds.
 const hostToolDeadline = 20 * time.Second
+
+const testToolDeadline = 10 * time.Minute
+
+func toolDeadline(name string) time.Duration {
+	if name == "run_test" {
+		return testToolDeadline
+	}
+	return hostToolDeadline
+}
 
 // liveness separates first-response waiting, tool activity and true silence.
 // A parsed zero disables that individual check; defaults belong to config.
@@ -30,6 +39,7 @@ type liveness struct {
 	lastProgress time.Time
 	lastType     string
 	toolSince    time.Time
+	toolLimit    time.Duration
 	tools        int
 	warned       map[string]bool
 	err          error
@@ -134,12 +144,16 @@ func (l *liveness) notice(eventType string) {
 	l.lastType = eventType
 }
 
-func (l *liveness) toolStarted() {
+func (l *liveness) toolStarted(limit ...time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock()
 	if l.tools == 0 {
 		l.toolSince = now
+		l.toolLimit = hostToolDeadline
+		if len(limit) > 0 && limit[0] > 0 {
+			l.toolLimit = limit[0]
+		}
 	}
 	l.tools++
 	l.progressLocked("tool")
@@ -153,6 +167,7 @@ func (l *liveness) toolFinished() {
 	}
 	if l.tools == 0 {
 		l.toolSince = time.Time{}
+		l.toolLimit = 0
 	}
 	l.progressLocked("tool")
 }
@@ -192,9 +207,13 @@ func (l *liveness) check() bool {
 		l.mu.Unlock()
 		return true
 	}
-	// An in-flight tool gets its own 20s window; after that the watchdog is
-	// allowed to judge the silence normally.
-	if l.tools > 0 && now.Sub(l.toolSince) < hostToolDeadline {
+	// An in-flight tool gets its own bounded window; after that the watchdog
+	// is allowed to judge the silence normally.
+	limit := l.toolLimit
+	if limit <= 0 {
+		limit = hostToolDeadline
+	}
+	if l.tools > 0 && now.Sub(l.toolSince) < limit {
 		if now.Sub(l.lastProgress) >= l.stall/2 && !l.warned["waiting_tool"] {
 			l.warned["waiting_tool"] = true
 			silence, last := now.Sub(l.lastProgress), safeToken(l.lastType)

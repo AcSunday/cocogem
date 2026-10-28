@@ -133,7 +133,10 @@ export function ContextPanel({
                 <span className={cx("card-kicker")}>
                   <Icon
                     name={
-                      item.kind === "file" || item.kind === "native_file"
+                      item.kind === "file" ||
+                      item.kind === "native_file" ||
+                      item.kind === "diff" ||
+                      item.kind === "test"
                         ? "file"
                         : "globe"
                     }
@@ -161,6 +164,8 @@ export function ContextPanel({
                   {source.path &&
                     source.end_line > 0 &&
                     ` · 第 ${source.start_line}–${source.end_line} 行`}
+                  {source.kind === "test" &&
+                    ` · exit ${source.timed_out ? "超时" : (source.exit_code ?? 0)}`}
                 </small>
                 <pre className={cx("pre")} tabIndex={0}>
                   {source.content}

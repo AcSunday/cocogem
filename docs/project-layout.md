@@ -22,7 +22,7 @@ cocogem/
 │   ├── skills/            # 单一源共享技能、索引、版本和按需读取
 │   ├── store/             # SQLite、事务与迁移
 │   ├── testutil/          # 仅测试的模型与网页 fixtures
-│   ├── tools/             # 只读文件、公共网页与来源工具
+│   ├── tools/             # 只读文件/网页、来源、受控工程写入与 OS 沙箱测试
 │   ├── workflow/          # 路由、流程和运行调度
 │   └── workspace/         # 领域类型与校验
 ├── api/                   # 生成的 OpenAPI

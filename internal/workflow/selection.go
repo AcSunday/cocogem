@@ -35,6 +35,11 @@ func effectiveInput(run w.Run) w.RunInput {
 	in.Workflow = run.SelectedWorkflow.Workflow
 	in.Targets = slices.Clone(run.SelectedWorkflow.Targets)
 	in.Assignments = maps.Clone(run.SelectedWorkflow.Assignments)
+	if in.Workflow == "engineering" {
+		// Method selection is never a develop authorization: the coordinator
+		// can only select the read-only analysis action.
+		in.EngineeringAction = w.EngineeringAnalyze
+	}
 	return in
 }
 
@@ -73,21 +78,21 @@ func selectionTools(run w.Run, step w.Step) []model.Tool {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"workflow": map[string]any{"type": "string", "enum": []string{"discussion", "research", "code_analysis"}},
+			"workflow": map[string]any{"type": "string", "enum": []string{"discussion", "research", "engineering", "code_analysis"}},
 			"targets":  map[string]any{"type": "array", "maxItems": 4, "uniqueItems": true, "items": member, "description": "Discussion participants (2–4 distinct members). Empty for other methods."},
 			"assignments": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
 				"researcher":  memberOrEmpty("research"),
 				"critic":      memberOrEmpty("research"),
 				"coordinator": memberOrEmpty("research, discussion or final delivery"),
-				"analyst":     memberOrEmpty("code_analysis"),
-				"reviewer":    memberOrEmpty("code_analysis"),
+				"analyst":     memberOrEmpty("engineering analysis"),
+				"reviewer":    memberOrEmpty("engineering analysis"),
 			}, "description": "Method role to exact member UUID. Use only the roles of the chosen workflow; never put task instructions here."},
 			"reason": map[string]any{"type": "string", "maxLength": selectionReasonLimit},
 		},
 		"required":             []string{"workflow"},
 		"additionalProperties": false,
 	}
-	return []model.Tool{{Name: "choose_workflow", Description: "Select this free run's collaboration method once: discussion for independent views with cross-critique, research for evidence gathering, or code_analysis for read-only engineering analysis. Use it only when the task genuinely needs that method; a simple question needs no tool. code_analysis never authorizes development or file writes. Fill roles with exact runtime roster IDs chosen by actual capabilities and permissions, never by display names or CLI/model brands. If the roster cannot staff the method, finish with a short explanation instead of inventing members. After acceptance, finish this planning step without answering the task; the platform runs the selected plan next.", Schema: schema}}
+	return []model.Tool{{Name: "choose_workflow", Description: "Select this free run's collaboration method once: discussion for independent views with cross-critique, research for evidence gathering, or engineering for read-only code analysis. Use it only when the task genuinely needs that method; a simple question needs no tool. When the user explicitly requests one of these methods, independent views with cross-critique, or names choose_workflow, selecting it is required; do not answer directly or replace the request with a single handoff. Selecting engineering (or legacy code_analysis) never authorizes development or file writes; development requires the user's explicit Composer choice. Fill roles with exact runtime roster IDs chosen by actual capabilities and permissions, never by display names or CLI/model brands. If the roster cannot staff the method, finish with a short explanation instead of inventing members. After acceptance, finish this planning step without answering the task; the platform runs the selected plan next.", Schema: schema}}
 }
 
 func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, raw json.RawMessage) (string, error) {
@@ -97,7 +102,12 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 	}
 	roles, ok := w.WorkflowRoles[in.Workflow]
 	if !ok {
-		return "", errors.New("workflow method must be discussion, research or code_analysis")
+		return "", errors.New("workflow method must be discussion, research, engineering or code_analysis")
+	}
+	if in.Workflow == "engineering" {
+		// A method selection only ever means the read-only analysis action, so
+		// the developer role is not part of its selectable vocabulary.
+		roles = w.WorkflowActionRoles(in.Workflow, w.EngineeringAnalyze)
 	}
 	if utf8.RuneCountInString(in.Reason) > selectionReasonLimit || strings.TrimSpace(in.Reason) != in.Reason {
 		return "", errors.New("invalid method selection reason")
@@ -149,7 +159,7 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 				return errors.New("selected participant is outside this run roster")
 			}
 		}
-		if desired.Workflow == "code_analysis" && current.Workspace.Root == "" {
+		if (desired.Workflow == "code_analysis" || desired.Workflow == "engineering") && current.Workspace.Root == "" {
 			return errors.New("the selected engineering analysis method requires a bound source directory")
 		}
 		if slices.ContainsFunc(steps, func(s w.Step) bool { return s.Kind == "handoff" || s.Kind == "continuation" }) {
@@ -177,7 +187,11 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 		if err := fillSelectionDefaults(&desired, current, settings); err != nil {
 			return err
 		}
-		plan, err := Plan(current.ID, w.RunInput{Workflow: desired.Workflow, Targets: desired.Targets, Assignments: desired.Assignments}, current.Agents)
+		planInput := w.RunInput{Workflow: desired.Workflow, Targets: desired.Targets, Assignments: desired.Assignments}
+		if desired.Workflow == "engineering" {
+			planInput.EngineeringAction = w.EngineeringAnalyze
+		}
+		plan, err := Plan(current.ID, planInput, current.Agents)
 		if err != nil {
 			return fmt.Errorf("the selected method cannot run with the current roster: %w", err)
 		}
@@ -237,7 +251,7 @@ func fillSelectionDefaults(sel *w.WorkflowSelection, run w.Run, settings w.Setti
 		}
 	}
 	preferences := settings.Assignments[sel.Workflow]
-	for _, role := range w.WorkflowRoles[sel.Workflow] {
+	for _, role := range w.WorkflowActionRoles(sel.Workflow, w.EngineeringAnalyze) {
 		if sel.Assignments[role] != "" {
 			continue
 		}

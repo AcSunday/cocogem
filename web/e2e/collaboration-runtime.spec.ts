@@ -160,9 +160,7 @@ test("browser, server and scheduler execute research, independent review and res
   await expect(researchTask.locator("summary")).toContainText("调度员 →");
   await expect(reviewTask.locator("summary")).toContainText("调度员 →");
   await reviewTask.locator("summary").click();
-  await expect(reviewTask).toContainText(
-    "独立核对研究消息、来源与研究笔记的确切版本。",
-  );
+  await expect(reviewTask).toContainText("独立核对研究消息与来源的确切版本。");
   await expect(reviewTask).toContainText("资料员");
   await expect(
     reviewTask.getByRole("button", { name: "来源：测试资料", exact: true }),

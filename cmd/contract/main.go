@@ -143,6 +143,7 @@ func main() {
 		props("Run")["input"].(map[string]any)["properties"].(map[string]any),
 	} {
 		properties["research_scope"].(map[string]any)["description"] = "auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior."
+		properties["engineering_action"].(map[string]any)["description"] = "Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value."
 	}
 	schemas["WorkspaceInput"].(map[string]any)["required"] = []string{"name"}
 	schemas["AgentInput"] = schema(reflect.TypeFor[w.Agent]())

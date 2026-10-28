@@ -2,8 +2,10 @@ package tools
 
 import (
 	"encoding/json"
-	"github.com/santhosh-tekuri/jsonschema/v6"
+	"slices"
 	"testing"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 func TestStrictToolInputAndCapabilitySchemas(t *testing.T) {
@@ -44,5 +46,18 @@ func TestEveryProviderToolSchemaIsValidJSONSchema(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestEngineeringToolsAreOptInOnly(t *testing.T) {
+	for _, name := range EngineeringNames {
+		if slices.Contains(Names, name) {
+			t.Fatalf("%s became a default grant", name)
+		}
+	}
+	for _, name := range AllNames {
+		if !slices.Contains(Names, name) && !slices.Contains(EngineeringNames, name) {
+			t.Fatalf("%s is outside the complete vocabulary", name)
+		}
 	}
 }

@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/testutil"
+	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -101,6 +103,8 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 		{Assignments: map[string]map[string]string{"research": {"writer": one[0].ID}}},
 		{Assignments: map[string]map[string]string{"research": {"researcher": one[0].ID, "critic": one[0].ID}}},
 		{Assignments: map[string]map[string]string{"code_analysis": {"analyst": one[0].ID, "reviewer": one[0].ID}}},
+		{Assignments: map[string]map[string]string{"engineering": {"developer": one[0].ID, "reviewer": one[0].ID}}},
+		{Assignments: map[string]map[string]string{"engineering": {"writer": one[0].ID}}},
 	}
 	for _, input := range bad {
 		call("PATCH", "/api/v1/settings", input, nil, 1, 400)
@@ -111,6 +115,7 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 			"discussion":    {"coordinator": one[1].ID},
 			"research":      {"researcher": one[0].ID, "critic": one[1].ID, "coordinator": one[2].ID},
 			"code_analysis": {"analyst": one[0].ID, "reviewer": one[1].ID},
+			"engineering":   {"analyst": one[0].ID, "developer": one[1].ID, "reviewer": one[2].ID},
 		},
 	}, &settings, 1, 200)
 	if settings.Revision != 2 || settings.DefaultCoordinatorID != one[2].ID || settings.Assignments["research"]["critic"] != one[1].ID {
@@ -369,6 +374,152 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 // TestCodeAnalysisDefaultsKeepTheOnlyPublisherForTheReviewer covers a feasible
 // two-member assignment: the member without publish_artifact analyzes and the
 // only publisher reviews, instead of rejecting the run.
+func TestEngineeringRoleDefaultsFollowTheSelectedAction(t *testing.T) {
+	builder := w.Agent{ID: "builder", DisplayName: "开发", Tools: []string{"read_file", "write_file", "run_test", "publish_artifact"}}
+	writer := w.Agent{ID: "writer", DisplayName: "写手", Tools: []string{"read_file", "write_file", "run_test"}}
+	reviewer := w.Agent{ID: "reviewer", DisplayName: "复核", Tools: []string{"read_file", "run_test", "publish_artifact"}}
+	reader := w.Agent{ID: "reader", DisplayName: "只读", Tools: []string{"read_file"}}
+	agents := []w.Agent{builder, writer, reviewer, reader}
+	thread := w.Thread{AgentIDs: []string{builder.ID, writer.ID, reviewer.ID, reader.ID}, CoordinatorID: reviewer.ID}
+	develop := func(in w.RunInput, settings w.Settings) (w.RunInput, error) {
+		in.Workflow = "engineering"
+		in.EngineeringAction = w.EngineeringDevelop
+		return applySettingsDefaults(in, thread, agents, settings)
+	}
+
+	// Omitted roles use only the action's subset and never self-review.
+	got, err := develop(w.RunInput{}, w.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assignments["developer"] != builder.ID || got.Assignments["reviewer"] != reviewer.ID {
+		t.Fatalf("develop defaults = %+v", got.Assignments)
+	}
+	if _, ok := got.Assignments["analyst"]; ok {
+		t.Fatalf("develop defaults included the analysis role: %+v", got.Assignments)
+	}
+	// A configured role UUID is consumed when it is actually eligible.
+	got, err = develop(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
+		"engineering": {"developer": writer.ID, "reviewer": reviewer.ID},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assignments["developer"] != writer.ID || got.Assignments["reviewer"] != reviewer.ID {
+		t.Fatalf("configured engineering roles = %+v", got.Assignments)
+	}
+	// A configured default that cannot perform the role is not used and does
+	// not expand the conversation roster.
+	got, err = develop(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
+		"engineering": {"developer": reader.ID},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assignments["developer"] != builder.ID || got.Assignments["reviewer"] != reviewer.ID {
+		t.Fatalf("unavailable developer default = %+v", got.Assignments)
+	}
+	// An explicit role outside the action or outside the roster is an error.
+	if _, err := develop(w.RunInput{Assignments: map[string]string{"analyst": reader.ID}}, w.Settings{}); err == nil || !strings.Contains(err.Error(), "不支持角色") {
+		t.Fatalf("explicit analyst on develop err = %v", err)
+	}
+	if _, err := develop(w.RunInput{Assignments: map[string]string{"developer": "outside"}}, w.Settings{}); err == nil || !strings.Contains(err.Error(), "不可用") {
+		t.Fatalf("explicit outside developer err = %v", err)
+	}
+	// The same member may not develop and review its own work.
+	self, err := develop(w.RunInput{Assignments: map[string]string{"developer": builder.ID, "reviewer": builder.ID}}, w.Settings{})
+	if err == nil {
+		_, err = workflow.Plan("preview", self, agents)
+	}
+	if err == nil {
+		t.Fatal("developer and reviewer shared a member")
+	}
+
+	// Analysis ignores the inapplicable developer default and keeps the
+	// publisher for the reviewer.
+	analyze, err := applySettingsDefaults(w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}, thread, agents, w.Settings{Assignments: map[string]map[string]string{
+		"engineering": {"developer": writer.ID},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analyze.Assignments["analyst"] != builder.ID || analyze.Assignments["reviewer"] != reviewer.ID {
+		t.Fatalf("analysis defaults = %+v", analyze.Assignments)
+	}
+	if _, ok := analyze.Assignments["developer"]; ok {
+		t.Fatalf("analysis used the developer role: %+v", analyze.Assignments)
+	}
+
+	// The only publisher is reserved for the reviewer even when it is also the
+	// first eligible developer; the other writer takes development.
+	publisher := w.Agent{ID: "publisher", DisplayName: "唯一发布者", Tools: []string{"read_file", "write_file", "run_test", "publish_artifact"}}
+	pairAgents := []w.Agent{publisher, writer, reader}
+	pair := w.Thread{AgentIDs: []string{publisher.ID, writer.ID, reader.ID}, CoordinatorID: publisher.ID}
+	reserved, err := applySettingsDefaults(w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop}, pair, pairAgents, w.Settings{Assignments: map[string]map[string]string{
+		"engineering": {"developer": publisher.ID},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reserved.Assignments["developer"] != writer.ID || reserved.Assignments["reviewer"] != publisher.ID {
+		t.Fatalf("publisher reservation = %+v", reserved.Assignments)
+	}
+	// A journal entry for an unsupported engineering role is rejected.
+	if err := w.ValidateSettings(w.Settings{Assignments: map[string]map[string]string{"engineering": {"writer": publisher.ID}}}, agents); err == nil {
+		t.Fatal("settings accepted an unsupported engineering role")
+	}
+}
+
+// TestEngineeringDevelopReviewerDefaultsRequireRunTest proves the production
+// default resolver applies the develop action's full reviewer grant set: a
+// publisher without run_test cannot review development, while analysis keeps
+// its read-only reviewer requirement.
+func TestEngineeringDevelopReviewerDefaultsRequireRunTest(t *testing.T) {
+	developer := w.Agent{ID: "dev", DisplayName: "开发", Tools: []string{"read_file", "write_file", "run_test"}}
+	publisher := w.Agent{ID: "publisher", DisplayName: "仅发布", Tools: []string{"read_file", "publish_artifact"}}
+	reviewer := w.Agent{ID: "reviewer", DisplayName: "复核", Tools: []string{"read_file", "run_test", "publish_artifact"}}
+	agents := []w.Agent{developer, publisher, reviewer}
+	thread := w.Thread{AgentIDs: []string{developer.ID, publisher.ID, reviewer.ID}, CoordinatorID: publisher.ID}
+	develop := func(in w.RunInput, settings w.Settings) (w.RunInput, error) {
+		in.Workflow = "engineering"
+		in.EngineeringAction = w.EngineeringDevelop
+		return applySettingsDefaults(in, thread, agents, settings)
+	}
+
+	// A global reviewer preference without run_test is unusable and falls back
+	// to an eligible reviewer inside the same roster.
+	got, err := develop(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
+		"engineering": {"reviewer": publisher.ID},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assignments["reviewer"] != reviewer.ID || got.Assignments["developer"] != developer.ID {
+		t.Fatalf("develop defaults accepted an undergranted reviewer: %+v", got.Assignments)
+	}
+	// An explicit undergranted reviewer is authoritative and refused.
+	_, err = develop(w.RunInput{Assignments: map[string]string{"reviewer": publisher.ID}}, w.Settings{})
+	if err == nil || !strings.Contains(err.Error(), "run_test") {
+		t.Fatalf("explicit develop reviewer without run_test err = %v", err)
+	}
+	// An explicit valid reviewer stays unchanged.
+	got, err = develop(w.RunInput{Assignments: map[string]string{"developer": developer.ID, "reviewer": reviewer.ID}}, w.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assignments["developer"] != developer.ID || got.Assignments["reviewer"] != reviewer.ID {
+		t.Fatalf("explicit develop assignments changed: %+v", got.Assignments)
+	}
+	// Analysis keeps the publish-only reviewer requirement: no run_test needed.
+	analyze, err := applySettingsDefaults(w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze, Assignments: map[string]string{"analyst": developer.ID, "reviewer": publisher.ID}}, thread, agents, w.Settings{})
+	if err != nil {
+		t.Fatalf("analysis reviewer without run_test was refused: %v", err)
+	}
+	if analyze.Assignments["reviewer"] != publisher.ID {
+		t.Fatalf("analysis assignments = %+v", analyze.Assignments)
+	}
+}
+
 func TestCodeAnalysisDefaultsKeepTheOnlyPublisherForTheReviewer(t *testing.T) {
 	publisher := w.Agent{ID: "publisher", DisplayName: "发布者", Tools: []string{"publish_artifact"}}
 	reader := w.Agent{ID: "reader", DisplayName: "读者"}

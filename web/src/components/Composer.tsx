@@ -11,6 +11,7 @@ import { cx } from "../styles/classes";
 import {
   memberLabel,
   roleLabel,
+  workflowChoices,
   workflowRoles,
   workflows,
 } from "../lib/presentation";
@@ -19,6 +20,7 @@ import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 
 export type WorkflowKey = keyof typeof workflows;
+export type EngineeringAction = "analyze" | "develop";
 
 export function Composer({
   agents,
@@ -27,6 +29,8 @@ export function Composer({
   setDraft,
   workflow,
   setWorkflow,
+  engineeringAction = "analyze",
+  setEngineeringAction,
   artifactRef,
   clearArtifactRef,
   coordinator,
@@ -45,6 +49,8 @@ export function Composer({
   setDraft: (value: string) => void;
   workflow: WorkflowKey;
   setWorkflow: (value: WorkflowKey) => void;
+  engineeringAction?: EngineeringAction;
+  setEngineeringAction?: (value: EngineeringAction) => void;
   artifactRef?: Artifact;
   clearArtifactRef: () => void;
   coordinator?: { name: string; fallback: boolean };
@@ -231,13 +237,32 @@ export function Composer({
               disabled={disabled}
               onChange={(selected) => setWorkflow(selected as WorkflowKey)}
             >
-              {Object.entries(workflows).map(([key, name]) => (
+              {workflowChoices.map(([key, name]) => (
                 <option key={key} value={key}>
                   {name}
                 </option>
               ))}
+              {workflow === "code_analysis" && (
+                <option value="code_analysis">{workflows.code_analysis}</option>
+              )}
             </Select>
           </label>
+          {workflow === "engineering" && (
+            <label>
+              <span className={cx("sr-only")}>工程动作</span>
+              <Select
+                aria-label="工程动作"
+                value={engineeringAction}
+                disabled={disabled}
+                onChange={(selected) =>
+                  setEngineeringAction?.(selected as EngineeringAction)
+                }
+              >
+                <option value="analyze">分析（只读）</option>
+                <option value="develop">开发（可修改并测试）</option>
+              </Select>
+            </label>
+          )}
         </div>
         {active ? (
           <button
@@ -269,6 +294,13 @@ export function Composer({
             ? "本次协作结束后可以继续发送"
             : "Enter 发送 · Shift + Enter 换行"}
         </small>
+        {workflow === "engineering" && (
+          <small className={cx("muted")} role="note">
+            {engineeringAction === "develop"
+              ? "开发测试器：go test / npm test（其他未支持）"
+              : "只读分析：不改写、不执行测试"}
+          </small>
+        )}
         {coordinator && (
           <span
             className={cx("route-chip")}

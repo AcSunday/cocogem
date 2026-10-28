@@ -284,7 +284,12 @@ it("edits the global profile separately from workspace permissions", async () =>
       capabilities: ["资料分析", "技术复核"],
     }),
   );
+  const globalGrants = within(
+    screen.getByRole("group", { name: "全局允许工具" }),
+  );
+  expect(globalGrants.getByLabelText("patch_file")).not.toBeChecked();
   const grants = within(screen.getByRole("group", { name: "本工作空间权限" }));
+  expect(grants.getByLabelText("patch_file")).not.toBeChecked();
   expect(grants.getByLabelText("web_search")).not.toBeChecked();
   await user.click(grants.getByLabelText("在本工作空间启用"));
   await user.click(screen.getByRole("button", { name: "保存本空间权限" }));

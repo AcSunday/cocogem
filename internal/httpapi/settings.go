@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
@@ -106,12 +107,14 @@ func applyThreadDefaults(th *w.Thread, agents []w.Agent, settings w.Settings) {
 	}
 }
 
-// requiredRoleTool is the tool a role cannot work without.
-func requiredRoleTool(role string) string {
-	if role == "coordinator" || role == "reviewer" {
-		return "publish_artifact"
+func missingTools(agent w.Agent, required []string) []string {
+	missing := []string{}
+	for _, tool := range required {
+		if !slices.Contains(agent.Tools, tool) {
+			missing = append(missing, tool)
+		}
 	}
-	return ""
+	return missing
 }
 
 // roleConflict reports whether two exclusive roles cannot share a member.
@@ -121,6 +124,11 @@ func roleConflict(workflow, role, other string) bool {
 		return role == "researcher" && other == "critic" || role == "critic" && other == "researcher"
 	case "code_analysis":
 		return role == "analyst" && other == "reviewer" || role == "reviewer" && other == "analyst"
+	case "engineering":
+		// Develop uses developer+reviewer, analyze uses analyst+reviewer; the
+		// reviewer would otherwise review its own work.
+		return role == "reviewer" && (other == "analyst" || other == "developer") ||
+			(role == "analyst" || role == "developer") && other == "reviewer"
 	}
 	return false
 }
@@ -135,9 +143,22 @@ func applySettingsDefaults(in w.RunInput, th w.Thread, agents []w.Agent, setting
 	if workflow == "" {
 		workflow = "free"
 	}
+	action := ""
 	roles, builtin := w.WorkflowRoles[workflow]
 	if !builtin {
 		return in, nil
+	}
+	if workflow == "engineering" {
+		var err error
+		action, err = w.NormalizeEngineeringAction(workflow, in.EngineeringAction)
+		if err != nil {
+			return in, err
+		}
+		// Only the roles the selected action actually plans are assignable.
+		roles = w.WorkflowActionRoles(workflow, action)
+	}
+	roleTools := func(role string) []string {
+		return w.RoleTools(workflow, action, role)
 	}
 	enabled := map[string]w.Agent{}
 	for _, agent := range agents {
@@ -150,8 +171,7 @@ func applySettingsDefaults(in w.RunInput, th w.Thread, agents []w.Agent, setting
 		if !ok {
 			return false
 		}
-		tool := requiredRoleTool(role)
-		return tool == "" || slices.Contains(agent.Tools, tool)
+		return len(missingTools(agent, roleTools(role))) == 0
 	}
 	// Defaults stay inside the roster the user selected explicitly: the
 	// conversation members plus any targets named for this run.
@@ -177,8 +197,8 @@ func applySettingsDefaults(in w.RunInput, th w.Thread, agents []w.Agent, setting
 			continue
 		}
 		if !can(role, id) {
-			if tool := requiredRoleTool(role); tool != "" {
-				return in, fmt.Errorf("所选 %s 成员不可用或缺少该角色所需的 %s 权限，请重新选择", role, tool)
+			if tools := roleTools(role); len(tools) > 0 {
+				return in, fmt.Errorf("所选 %s 成员不可用或缺少该角色所需的 %s 权限，请重新选择", role, strings.Join(tools, "、"))
 			}
 			return in, fmt.Errorf("所选 %s 成员在当前工作空间不可用，请重新选择", role)
 		}
@@ -186,13 +206,13 @@ func applySettingsDefaults(in w.RunInput, th w.Thread, agents []w.Agent, setting
 	}
 	filled, stuck := defaultRoleAssignments(workflow, roles, assignments, settings.Assignments[workflow], th.CoordinatorID, pool, can)
 	if stuck != "" {
-		if tool := requiredRoleTool(stuck); tool != "" {
+		if tools := roleTools(stuck); len(tools) > 0 {
 			for other, id := range assignments {
-				if id != "" && roleConflict(workflow, stuck, other) && slices.Contains(enabled[id].Tools, tool) {
-					return in, fmt.Errorf("已选择的 %s 占用了唯一具备 %s 权限的成员，请为 %s 选择另一位成员", other, tool, stuck)
+				if id != "" && roleConflict(workflow, stuck, other) && len(missingTools(enabled[id], roleTools(stuck))) == 0 {
+					return in, fmt.Errorf("已选择的 %s 占用了唯一具备 %s 权限的成员，请为 %s 选择另一位成员", other, strings.Join(tools, "、"), stuck)
 				}
 			}
-			return in, fmt.Errorf("当前会话没有可用的 %s 成员（需要 %s 权限）", stuck, tool)
+			return in, fmt.Errorf("当前会话没有可用的 %s 成员（需要 %s 权限）", stuck, strings.Join(tools, "、"))
 		}
 		return in, fmt.Errorf("当前会话没有足够的可用成员承担 %s", stuck)
 	}

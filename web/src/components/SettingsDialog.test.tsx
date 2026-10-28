@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import type {
@@ -9,6 +15,7 @@ import type {
   System,
 } from "../api/client";
 import { SettingsDialog, SnapshotDialog } from "./SettingsDialog";
+import { chooseOption } from "../test/select";
 
 HTMLDialogElement.prototype.showModal = function () {
   this.setAttribute("open", "");
@@ -71,9 +78,7 @@ it("shows the frozen execution policy and run deadlines", () => {
   expect(row("长时间无进展")).toHaveTextContent("15 分钟后仅提示（warn）");
   expect(screen.getByText(/开始时间：/)).toBeVisible();
   expect(screen.getByText("截止时间：不设绝对期限")).toBeVisible();
-  expect(
-    screen.getByText(/以上是本次协作创建时冻结的执行策略/),
-  ).toBeVisible();
+  expect(screen.getByText(/以上是本次协作创建时冻结的执行策略/)).toBeVisible();
 });
 
 it("explains that one collaboration runs at a time", () => {
@@ -158,6 +163,63 @@ it("clears an unavailable member instead of saving the stale id", async () => {
     default_coordinator_id: "",
     assignments: { research: { critic: "one" } },
   });
+});
+
+it("configures engineering analyst, developer and reviewer defaults", async () => {
+  const system = {
+    csrf_token: "",
+    limits: {},
+    roots: [],
+    model_status: "configured",
+    search_status: "not_configured",
+    models: [],
+    verified: {},
+    executors: [],
+  } as unknown as System;
+  const agents: Agent[] = ["analyst", "developer", "reviewer"].map((id) => ({
+    id,
+    workspace_id: "",
+    display_name: id,
+    handle: id,
+    aliases: [],
+    role_description: "",
+    model: "default",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  }));
+  const saveSettings = vi.fn(async (value: SettingsInput) => ({
+    revision: 2,
+    ...value,
+  }));
+  render(
+    <SettingsDialog
+      system={system}
+      setSystem={() => {}}
+      close={() => {}}
+      lock={async () => {}}
+      settings={{ revision: 1, default_coordinator_id: "", assignments: {} }}
+      saveSettings={saveSettings}
+      agents={agents}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "协作" }));
+  const engineering = screen
+    .getByText("工程协作")
+    .closest("fieldset") as HTMLElement;
+  expect(within(engineering).getByLabelText("分析")).toBeInTheDocument();
+  expect(within(engineering).getByLabelText("复核")).toBeInTheDocument();
+  await chooseOption(
+    user,
+    within(engineering).getByLabelText("开发"),
+    "developer",
+  );
+  await user.click(screen.getByRole("button", { name: "保存协作默认" }));
+  await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
+  expect(
+    saveSettings.mock.calls[0][0].assignments?.engineering?.developer,
+  ).toBe("developer");
 });
 
 it("shows the persisted method and selection reason without raw payloads", () => {

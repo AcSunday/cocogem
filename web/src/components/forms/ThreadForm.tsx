@@ -2,7 +2,12 @@ import { Select } from "../Select";
 import { useState } from "react";
 import type { Thread, Agent } from "../../api/client";
 import { cx } from "../../styles/classes";
-import { errorText, memberLabel, workflows } from "../../lib/presentation";
+import {
+  errorText,
+  memberLabel,
+  workflowChoices,
+  workflows,
+} from "../../lib/presentation";
 import { Modal } from "../Modal";
 
 export function ThreadForm({
@@ -119,11 +124,14 @@ export function ThreadForm({
             value={value.workflow}
             onChange={(selected) => setValue({ ...value, workflow: selected })}
           >
-            {Object.entries(workflows).map(([key, name]) => (
+            {workflowChoices.map(([key, name]) => (
               <option key={key} value={key}>
                 {name}
               </option>
             ))}
+            {value.workflow === "code_analysis" && (
+              <option value="code_analysis">{workflows.code_analysis}</option>
+            )}
           </Select>
         </label>
         {error && (

@@ -18,11 +18,44 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
+// Sensitive path policy shared by DeniedPath, SensitivePath and the macOS
+// sandbox regex. Keeping one list prevents the write policy, read tools and OS
+// test sandbox from drifting apart.
+var (
+	sensitiveNames    = []string{".git", ".cocogem", ".ssh", "secrets"}
+	sensitivePrefixes = []string{".env", "id_rsa", ".git-credentials"}
+	sensitiveSuffixes = []string{".pem", ".key", ".sqlite"}
+)
+
+func sensitiveComponent(part string) bool {
+	p := strings.ToLower(part)
+	for _, name := range sensitiveNames {
+		if p == name {
+			return true
+		}
+	}
+	for _, prefix := range sensitivePrefixes {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	for _, suffix := range sensitiveSuffixes {
+		if strings.HasSuffix(p, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// testVisibleComponents are hidden from project tools but stay readable to the
+// project's own test process, so the OS sandbox must not mask them.
+var testVisibleComponents = map[string]bool{"node_modules": true, "dist": true, "build": true}
+
 // DeniedPath identifies known credentials and irrelevant or private directories.
 func DeniedPath(path string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
 		p := strings.ToLower(part)
-		if p == ".git" || p == ".cocogem" || p == "node_modules" || p == "dist" || p == "build" || p == "secrets" || p == ".ssh" || strings.HasPrefix(p, ".env") || strings.HasSuffix(p, ".pem") || strings.HasSuffix(p, ".key") || strings.HasPrefix(p, "id_rsa") || strings.HasSuffix(p, ".sqlite") || strings.HasPrefix(p, ".git-credentials") {
+		if sensitiveComponent(p) || testVisibleComponents[p] {
 			return true
 		}
 	}

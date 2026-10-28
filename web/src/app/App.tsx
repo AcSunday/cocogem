@@ -32,7 +32,11 @@ import { AuthScreen } from "../components/AuthScreen";
 import { ArtifactReader } from "../components/ArtifactReader";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
-import { Composer, type WorkflowKey } from "../components/Composer";
+import {
+  Composer,
+  type EngineeringAction,
+  type WorkflowKey,
+} from "../components/Composer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
@@ -76,10 +80,10 @@ const scenarios = [
     sample: "研究多 Agent 协作的适用场景，说明证据和限制。",
   },
   {
-    key: "code_analysis",
+    key: "engineering",
     icon: "code",
-    title: "理解一份代码",
-    description: "只读分析与独立复核，保留文件证据。",
+    title: "工程协作",
+    description: "只读分析或受控开发，保留 diff 与测试证据。",
     sample: "分析示例仓库如何区分成员身份与任务职责。",
   },
 ] as const;
@@ -322,9 +326,9 @@ function WorkspaceApp({
   const [view, setView] = useState<ThreadView>();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [stepsByRun, setStepsByRun] = useState<Record<string, Step[]>>({});
-  const [attemptsByRun, setAttemptsByRun] = useState<
-    Record<string, Attempt[]>
-  >({});
+  const [attemptsByRun, setAttemptsByRun] = useState<Record<string, Attempt[]>>(
+    {},
+  );
   const [events, setEvents] = useState<Event[]>([]);
   const [livenessByRun, setLivenessByRun] = useState<Record<string, Event[]>>(
     {},
@@ -350,6 +354,9 @@ function WorkspaceApp({
   });
   const [workflowChoices, setWorkflowChoices] = useState<
     Record<string, WorkflowKey>
+  >({});
+  const [engineeringActionChoices, setEngineeringActionChoices] = useState<
+    Record<string, EngineeringAction>
   >({});
   const [routing, setRouting] = useState<Routing>();
   const [tab, setTab] = useState<PanelTab>("artifacts");
@@ -413,6 +420,10 @@ function WorkspaceApp({
     workflowChoices[draftKey] ??
     (view?.thread.workflow as WorkflowKey | undefined) ??
     "free";
+  const engineeringAction: EngineeringAction =
+    workflow === "engineering"
+      ? (engineeringActionChoices[draftKey] ?? "analyze")
+      : "analyze";
   const setWorkflow = (value: WorkflowKey) => {
     setWorkflowChoices((current) => ({ ...current, [draftKey]: value }));
     setRouting(undefined);
@@ -435,6 +446,13 @@ function WorkspaceApp({
           coordinatorID !== settings.default_coordinator_id,
       }
     : undefined;
+  const setEngineeringAction = (value: EngineeringAction) => {
+    setEngineeringActionChoices((current) => ({
+      ...current,
+      [draftKey]: value,
+    }));
+    setRouting(undefined);
+  };
   const updateDraft = (value: string) =>
     setDrafts((current) => ({ ...current, [draftKey]: value }));
 
@@ -738,9 +756,7 @@ function WorkspaceApp({
             messages.push({ seq: event.seq, message });
           const run = eventRun(event);
           if (run?.id === id)
-            runSnapshot = runSnapshot
-              ? mergeRun(runSnapshot, run)
-              : run;
+            runSnapshot = runSnapshot ? mergeRun(runSnapshot, run) : run;
           const step = eventStep(event);
           if (step?.run_id === id) {
             const previous = steps.get(step.id);
@@ -787,7 +803,9 @@ function WorkspaceApp({
             }
             const changed =
               next.length !== current.messages.items.length ||
-              next.some((message, at) => message !== current.messages.items[at]);
+              next.some(
+                (message, at) => message !== current.messages.items[at],
+              );
             return changed
               ? { ...current, messages: { ...current.messages, items: next } }
               : current;
@@ -870,10 +888,7 @@ function WorkspaceApp({
       const event = JSON.parse(message.data) as Event;
       // Replayed or cross-run frames must not move the cursor, apply a delta,
       // clear a warning, or trigger a reload.
-      if (
-        event.run_id !== id ||
-        event.seq <= (confirmedSeq.current[id] ?? 0)
-      )
+      if (event.run_id !== id || event.seq <= (confirmedSeq.current[id] ?? 0))
         return;
       confirmedSeq.current[id] = event.seq;
       setEvents((current) => mergeEvents(current, event));
@@ -886,7 +901,8 @@ function WorkspaceApp({
       if (
         event.type === "message_delta" &&
         event.seq > (appliedDelta.current[event.run_id] ?? 0) &&
-        event.seq > (snapshotSeq.current[event.run_id] ?? Number.MAX_SAFE_INTEGER)
+        event.seq >
+          (snapshotSeq.current[event.run_id] ?? Number.MAX_SAFE_INTEGER)
       ) {
         appliedDelta.current[event.run_id] = event.seq;
         const data =
@@ -962,6 +978,10 @@ function WorkspaceApp({
     );
     currentThread.current = thread.id;
     setWorkflowChoices((current) => ({ ...current, [thread.id]: workflow }));
+    setEngineeringActionChoices((current) => ({
+      ...current,
+      [thread.id]: engineeringAction,
+    }));
     setDrafts((current) => ({
       ...current,
       [thread.id]: current[`new:${workspaceID}`] ?? text,
@@ -993,6 +1013,9 @@ function WorkspaceApp({
               ? [{ id: artifactRef.id, version: artifactRef.version }]
               : [],
             research_scope: "auto",
+            ...(workflow === "engineering"
+              ? { engineering_action: engineeringAction }
+              : {}),
             proposal_id: "",
             retry_of_run_id: "",
           };
@@ -1114,8 +1137,7 @@ function WorkspaceApp({
         if (generation === sourceGeneration.current) setSource(loaded);
       })
       .catch((error) => {
-        if (generation === sourceGeneration.current)
-          setError(errorText(error));
+        if (generation === sourceGeneration.current) setError(errorText(error));
       })
       .finally(() => {
         if (generation === sourceGeneration.current) setSourceLoading(false);
@@ -1301,44 +1323,41 @@ function WorkspaceApp({
                   />
                 )}
                 <div className={cx("timeline-inner")}>
-                  {view &&
-                    (messageCursor || view.messages.next_cursor) && (
-                      <div
-                        className={cx("timeline-paging")}
-                        role="group"
-                        aria-label="消息分页"
-                      >
-                        {messageCursor && (
-                          <button
-                            type="button"
-                            className={cx("ghost small")}
-                            disabled={messagePaging}
-                            onClick={() => void browseMessages("")}
-                          >
-                            回到最新消息
-                          </button>
-                        )}
-                        {view.messages.next_cursor && (
-                          <button
-                            type="button"
-                            className={cx("ghost small")}
-                            disabled={messagePaging}
-                            onClick={() =>
-                              void browseMessages(
-                                view.messages.next_cursor,
-                              )
-                            }
-                          >
-                            加载更早的消息
-                          </button>
-                        )}
-                        {messagePaging && (
-                          <small className={cx("muted")} role="status">
-                            正在加载消息…
-                          </small>
-                        )}
-                      </div>
-                    )}
+                  {view && (messageCursor || view.messages.next_cursor) && (
+                    <div
+                      className={cx("timeline-paging")}
+                      role="group"
+                      aria-label="消息分页"
+                    >
+                      {messageCursor && (
+                        <button
+                          type="button"
+                          className={cx("ghost small")}
+                          disabled={messagePaging}
+                          onClick={() => void browseMessages("")}
+                        >
+                          回到最新消息
+                        </button>
+                      )}
+                      {view.messages.next_cursor && (
+                        <button
+                          type="button"
+                          className={cx("ghost small")}
+                          disabled={messagePaging}
+                          onClick={() =>
+                            void browseMessages(view.messages.next_cursor)
+                          }
+                        >
+                          加载更早的消息
+                        </button>
+                      )}
+                      {messagePaging && (
+                        <small className={cx("muted")} role="status">
+                          正在加载消息…
+                        </small>
+                      )}
+                    </div>
+                  )}
                   {runs.map((run, index) => (
                     <RunSegment
                       key={run.id}
@@ -1398,6 +1417,8 @@ function WorkspaceApp({
               setDraft={updateDraft}
               workflow={workflow}
               setWorkflow={setWorkflow}
+              engineeringAction={engineeringAction}
+              setEngineeringAction={setEngineeringAction}
               artifactRef={artifactRef}
               clearArtifactRef={() => setArtifactRef(undefined)}
               coordinator={coordinator}
@@ -1559,9 +1580,7 @@ function WorkspaceApp({
           agents={globalAgents}
           saveAgent={async (value) => {
             const saved = await api<Agent>(
-              value.id
-                ? `/api/v1/agents/${value.id}`
-                : "/api/v1/agents",
+              value.id ? `/api/v1/agents/${value.id}` : "/api/v1/agents",
               value.id ? "PATCH" : "POST",
               value,
               value.id ? { "If-Match": String(value.revision) } : {},
@@ -1676,7 +1695,7 @@ function Welcome({
           <p>Cocogem 让几位成员分工研究、互相质疑，再汇总成有来源的结论。</p>
           <ol>
             <li>创建工作空间，选择可以跨空间复用的成员</li>
-            <li>选择讨论、Research 或代码分析，提出问题</li>
+            <li>选择讨论、Research 或工程协作，提出问题</li>
             <li>查看过程、来源和报告，继续追问</li>
           </ol>
           <button className={cx("primary")} onClick={onCreate}>

@@ -983,7 +983,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			}
 		}
 	}
-	allowed := e.allowedTools(run, a)
+	allowed := e.allowedTools(run, a, step)
 	required := RequiredArtifact(step, effectiveInput(run))
 	message := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: step.ID, AgentID: a.ID, AgentName: a.DisplayName, Role: "assistant", Status: "processing", ContentFormat: w.ContentFormatChunksV1, CreatedAt: w.Now()}
 	step.Status = "running"
@@ -1264,6 +1264,9 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		if permissionErr := e.Store.Read(callCtx, func(tx *store.Tx) error { return e.validateMember(tx, run, step.AgentID) }); permissionErr != nil {
 			return "", permissionErr
 		}
+		if (name == "write_file" || name == "patch_file" || name == "run_test") && !slices.Contains(allowed, name) {
+			return "", errors.New("tool is not granted for this step's role and engineering action")
+		}
 		switch name {
 		case "read_skill":
 			return e.readSkill(callCtx, run, step, input)
@@ -1343,6 +1346,9 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		stateMu.Unlock()
 		ensureNativeObservationDisclosure(&artifact, knownSources)
 		if err := ValidateArtifact(artifact, required, knownSources); err != nil {
+			return "", err
+		}
+		if err := ValidateEngineeringEvidence(artifact, run, knownSources); err != nil {
 			return "", err
 		}
 		// Persist the unpublished payload on the attempt immediately; a process

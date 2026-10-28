@@ -6,7 +6,7 @@ import { errorText, memberLabel } from "../../lib/presentation";
 import { Avatar, avatars } from "../Avatar";
 import { Modal } from "../Modal";
 
-export const allTools = [
+const readOnlyTools = [
   "list_files",
   "read_file",
   "search_content",
@@ -15,6 +15,8 @@ export const allTools = [
   "read_source",
   "publish_artifact",
 ];
+const engineeringTools = ["write_file", "patch_file", "run_test"];
+export const allTools = [...readOnlyTools, ...engineeringTools];
 const names = (value: string) =>
   value
     .split(/[,，]/)
@@ -60,7 +62,7 @@ export function MembersForm({
     role_description: "",
     executor,
     model: "default",
-    tools: allTools,
+    tools: readOnlyTools,
     disabled: false,
     revision: 1,
   });
@@ -269,8 +271,11 @@ export function MembersForm({
         <p>
           复用本机 CLI
           的模型、供应商与认证配置。已安装不代表连接或模型可用，请在“设置 →
-          服务”验证。
-          下列权限仅控制 Cocogem 的资料工具，不授予原生命令或写文件权限。
+          服务”验证。 下列权限仅控制 Cocogem 的宿主工具，不授予原生命令或任意
+          shell。 write_file、patch_file 与 run_test
+          只在工程协作的“开发”动作中按角色生效；复核者不会被授予宿主写工具，
+          但项目测试代码本身仍可能写入允许的工程路径，这样的测试会改变工程树，
+          不能作为已验证交付。
         </p>
         {!value.executor && (
           <p role="status">

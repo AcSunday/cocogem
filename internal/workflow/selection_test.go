@@ -431,6 +431,59 @@ func TestRequiredArtifactUsesEffectiveInput(t *testing.T) {
 	}
 }
 
+func TestSelectionEngineeringIsAlwaysReadOnlyAnalysis(t *testing.T) {
+	e, s, run, agents, root := seedMethodFixture(t, nil)
+	in := selectionInput{Workflow: "engineering", Assignments: map[string]string{"analyst": agents[1].ID, "reviewer": agents[2].ID}}
+	if _, err := runSelection(t, e, run, root, in); err == nil || !strings.Contains(err.Error(), "bound source directory") {
+		t.Fatalf("engineering selection without a root err = %v", err)
+	}
+	bound, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Workspace.Root = bound
+	e.AllowedRoots = []string{bound}
+	if err := s.Write(context.Background(), func(tx *store.Tx) error {
+		if err := tx.SaveWorkspace(run.Workspace); err != nil {
+			return err
+		}
+		return tx.SaveRun(run)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The selectable vocabulary never includes the developer role.
+	if _, err := runSelection(t, e, run, root, selectionInput{Workflow: "engineering", Assignments: map[string]string{"developer": agents[1].ID, "reviewer": agents[2].ID}}); err == nil || !strings.Contains(err.Error(), "does not use role developer") {
+		t.Fatalf("selection authorized developer err = %v", err)
+	}
+	if _, err := runSelection(t, e, run, root, in); err != nil {
+		t.Fatal(err)
+	}
+	current, steps := readRunAndSteps(t, s, run.ID)
+	if current.SelectedWorkflow == nil || current.SelectedWorkflow.Workflow != "engineering" || len(steps) != 3 {
+		t.Fatalf("engineering selection = %+v steps=%d", current.SelectedWorkflow, len(steps))
+	}
+	if steps[1].Role != "analyst" || steps[2].Role != "reviewer" {
+		t.Fatalf("engineering analysis roles = %s, %s", steps[1].Role, steps[2].Role)
+	}
+	effective := effectiveInput(current)
+	if effective.Workflow != "engineering" || effective.EngineeringAction != w.EngineeringAnalyze {
+		t.Fatalf("effective engineering input = %+v", effective)
+	}
+	for _, role := range []string{"analyst", "reviewer"} {
+		for _, name := range []string{"write_file", "patch_file"} {
+			if EngineeringToolAllowed(effective, role, name) {
+				t.Fatalf("selected engineering analysis authorized %s for %s", name, role)
+			}
+		}
+	}
+	if EngineeringToolAllowed(effective, "reviewer", "run_test") {
+		t.Fatal("selected engineering analysis authorized project tests")
+	}
+	if RequiredArtifact(steps[2], effective) != "code_analysis" {
+		t.Fatal("selected engineering analysis did not require a code_analysis report")
+	}
+}
+
 func TestSelectionToolSchemaEnumeratesRuntimeRoster(t *testing.T) {
 	_, _, run, agents, root := seedMethodFixture(t, nil)
 	disabled := w.Agent{ID: w.NewID(), DisplayName: "停用成员", Disabled: true, Revision: 1}
@@ -445,11 +498,18 @@ func TestSelectionToolSchemaEnumeratesRuntimeRoster(t *testing.T) {
 	if !slices.Equal(member["enum"].([]string), want) {
 		t.Fatalf("target enum = %v, want %v", member["enum"], want)
 	}
+	workflows := props["workflow"].(map[string]any)["enum"].([]string)
+	if !slices.Contains(workflows, "engineering") {
+		t.Fatalf("workflow enum = %v, want engineering", workflows)
+	}
 	roles := props["assignments"].(map[string]any)["properties"].(map[string]any)
 	for _, role := range []string{"researcher", "critic", "coordinator", "analyst", "reviewer"} {
 		if !slices.Equal(roles[role].(map[string]any)["enum"].([]string), want) {
 			t.Fatalf("%s enum = %v, want %v", role, roles[role], want)
 		}
+	}
+	if _, ok := roles["developer"]; ok {
+		t.Fatal("selection schema offered developer, which would imply develop authorization")
 	}
 }
 

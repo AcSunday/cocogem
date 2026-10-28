@@ -156,3 +156,12 @@ func (o *observedEvents) snapshotStates() []string {
 	_, states := o.snapshot()
 	return states
 }
+
+func TestRunTestHasBoundedLongHostDeadline(t *testing.T) {
+	if toolDeadline("read_file") != hostToolDeadline {
+		t.Fatal("ordinary host tool deadline changed")
+	}
+	if toolDeadline("run_test") <= hostToolDeadline || toolDeadline("run_test") > 10*time.Minute {
+		t.Fatalf("run_test deadline = %s", toolDeadline("run_test"))
+	}
+}

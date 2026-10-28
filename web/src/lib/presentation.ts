@@ -1,11 +1,23 @@
-import type { Agent, Attempt, Event, Message, Run, Source } from "../api/client";
+import type {
+  Agent,
+  Attempt,
+  Event,
+  Message,
+  Run,
+  Source,
+} from "../api/client";
 
 export const workflows = {
   free: "自由协作",
   discussion: "协作讨论",
   research: "Research",
-  code_analysis: "代码分析",
+  engineering: "工程协作",
+  code_analysis: "代码分析（旧）",
 };
+/** New choices use engineering; legacy code_analysis stays readable only. */
+export const workflowChoices = Object.entries(workflows).filter(
+  ([key]) => key !== "code_analysis",
+);
 export const errorText = (error: unknown) =>
   error instanceof Error ? runErrorText(error.message) : "操作失败";
 /** Member avatars use the first character of the display name. */
@@ -41,6 +53,9 @@ export const toolLabel = labels({
   read_source: "重读来源",
   list_sources: "列出本步来源",
   publish_artifact: "发布产物",
+  write_file: "写入文件",
+  patch_file: "局部修改",
+  run_test: "运行测试",
   handoff_task: "交接任务",
   get_task: "查询协作任务",
   read_skill: "读取协作技能",
@@ -54,13 +69,17 @@ export const artifactTypeLabel = labels({
   note: "讨论纪要",
   research_report: "研究报告",
   code_analysis: "代码分析报告",
+  engineering_report: "工程交付报告",
 });
+
 export const roleLabel = labels({
   researcher: "研究",
   critic: "质疑",
   coordinator: "汇总",
   analyst: "分析",
+  developer: "开发",
   reviewer: "复核",
+  final_reviewer: "最终复核",
   discussant: "讨论",
   synthesizer: "综合草案",
   checker: "原作者复查",
@@ -73,7 +92,8 @@ export const methodLabel = labels({
   delegation: "自由分工",
   discussion: "协作讨论",
   research: "Research",
-  code_analysis: "工程分析",
+  engineering: "工程协作",
+  code_analysis: "工程分析（旧）",
 });
 
 /**
@@ -91,9 +111,18 @@ export function runMethod(
     (input && input !== "free" ? input : "") ||
     run.method ||
     "";
+  // Engineering labels the explicit action instead of a generic method.
+  const label =
+    method === "engineering"
+      ? run.input?.engineering_action === "develop"
+        ? "工程开发"
+        : "工程分析"
+      : method
+        ? methodLabel(method)
+        : workflows.free;
   return {
     method,
-    label: method ? methodLabel(method) : workflows.free,
+    label,
     reason: selected?.reason?.trim() ?? "",
   };
 }
@@ -244,7 +273,10 @@ export function methodEventLabel(event: Event) {
     if (!workflow) return "";
     const reason =
       typeof selection.reason === "string" ? selection.reason.trim() : "";
-    return `协调者选择方法：${methodLabel(workflow)}${reason ? ` · ${reason}` : ""}`;
+    // Selection can only mean read-only engineering analysis.
+    const label =
+      workflow === "engineering" ? "工程分析（只读）" : methodLabel(workflow);
+    return `协调者选择方法：${label}${reason ? ` · ${reason}` : ""}`;
   }
   if (event.type === "method_recorded") {
     const method = typeof data.method === "string" ? data.method : "";
@@ -548,18 +580,22 @@ export const sourceKindLabel = (source: Pick<Source, "kind" | "url">) =>
     ? "文件"
     : source.kind === "native_file"
       ? "文件 · 原生读取"
-      : source.kind === "search_snippet"
-        ? "搜索摘要 · 未读原文"
-        : source.kind === "native_search"
-          ? "原生搜索线索 · 未读原文"
-          : source.kind === "native_web"
-            ? legacySearchResultURL(source.url)
-              ? "原生观察 · 搜索页线索"
-              : "原生网页观察 · 可能为摘要"
-            : source.kind === "search_results" ||
-                legacySearchResultURL(source.url)
-              ? "搜索结果页 · 未读原文"
-              : "网页 · 已读原文";
+      : source.kind === "diff"
+        ? "写文件 diff"
+        : source.kind === "test"
+          ? "测试记录"
+          : source.kind === "search_snippet"
+            ? "搜索摘要 · 未读原文"
+            : source.kind === "native_search"
+              ? "原生搜索线索 · 未读原文"
+              : source.kind === "native_web"
+                ? legacySearchResultURL(source.url)
+                  ? "原生观察 · 搜索页线索"
+                  : "原生网页观察 · 可能为摘要"
+                : source.kind === "search_results" ||
+                    legacySearchResultURL(source.url)
+                  ? "搜索结果页 · 未读原文"
+                  : "网页 · 已读原文";
 
 /** Repeated runs re-capture the same page; list only the latest capture of each. */
 export function latestSources(sources: Source[]) {
@@ -626,6 +662,7 @@ export function threadTitle(text: string) {
 export const workflowRoles: Record<string, string[]> = {
   discussion: ["coordinator"],
   research: ["researcher", "critic", "coordinator"],
+  engineering: ["analyst", "developer", "reviewer"],
   code_analysis: ["analyst", "reviewer"],
 };
 

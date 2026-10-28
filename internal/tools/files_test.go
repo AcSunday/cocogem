@@ -22,6 +22,14 @@ func TestFilesEnforceScopeAndCapture(t *testing.T) {
 	if err != nil || s.Content != "2: target\n" || len(s.SHA256) != 64 {
 		t.Fatal(s, err)
 	}
+	big := "first\n" + strings.Repeat("line\n", 10000)
+	if err := os.WriteFile(filepath.Join(root, "big-text"), []byte(big), 0600); err != nil {
+		t.Fatal(err)
+	}
+	excerpt, err := ReadFile(context.Background(), root, "big-text", 1, 1)
+	if err != nil || excerpt.SHA256 != sha(big) || excerpt.Content == big {
+		t.Fatalf("excerpt sha256 must cover the complete file: %q %v", excerpt.SHA256, err)
+	}
 	for _, p := range []string{"../outside", "/etc/passwd", ".env", "link", "binary", "pipe"} {
 		t.Run(p, func(t *testing.T) {
 			if _, err := ReadFile(context.Background(), root, p, 0, 0); err == nil {

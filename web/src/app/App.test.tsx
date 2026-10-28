@@ -367,7 +367,11 @@ it("applies edited collaboration defaults to a new conversation without losing t
       });
     if (path === "/api/v1/threads/new-thread/routing-preview")
       return Response.json({
-        routing: { decision: "discuss", clarification: "等待确认", targets: [] },
+        routing: {
+          decision: "discuss",
+          clarification: "等待确认",
+          targets: [],
+        },
       });
     return Response.json({ items: [] });
   });
@@ -437,9 +441,7 @@ it("shows a visible coordinator fallback when the global default is unavailable"
     }),
   );
   render(<App />);
-  expect(
-    await screen.findByText("默认协调者不可用，使用two"),
-  ).toBeVisible();
+  expect(await screen.findByText("默认协调者不可用，使用two")).toBeVisible();
 });
 
 it.each([
@@ -1581,9 +1583,7 @@ it("loads source bodies from the source endpoint instead of the metadata list", 
     "aria-selected",
     "true",
   );
-  expect(
-    screen.queryByRole("tab", { name: "成员" }),
-  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "成员" })).not.toBeInTheDocument();
   await user.click(screen.getByRole("tab", { name: /来源/ }));
   await user.click(screen.getByRole("button", { name: /公开资料/ }));
   expect(await screen.findByText("捕获的完整正文")).toBeVisible();
@@ -2498,4 +2498,72 @@ it("ignores replayed and cross-run SSE frames without regressing state", async (
     } as MessageEvent),
   );
   expect(await screen.findByText(/现有回复新正文/)).toBeVisible();
+});
+
+it("submits the explicit engineering action and defaults to analysis", async () => {
+  history.replaceState({}, "", "/w/ws/t/eng");
+  const agents: Agent[] = ["dev", "review"].map((id) => ({
+    id,
+    workspace_id: "ws",
+    display_name: id === "dev" ? "开发者" : "复核者",
+    handle: id,
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "codex",
+    tools: ["read_file", "write_file", "run_test", "publish_artifact"],
+    disabled: false,
+    revision: 1,
+  }));
+  const thread = {
+    id: "eng",
+    workspace_id: "ws",
+    title: "工程会话",
+    agent_ids: ["dev", "review"],
+    coordinator_id: "review",
+    workflow: "engineering",
+    revision: 1,
+    updated_at: "",
+  };
+  const inputs: RunInput[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, options?: RequestInit) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "工作空间" }] });
+      if (path === "/api/v1/workspaces/ws/agents")
+        return Response.json({ items: agents });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [thread], next_cursor: "" });
+      if (path.startsWith("/api/v1/threads/eng?"))
+        return Response.json({
+          thread,
+          messages: { items: [], next_cursor: "" },
+          runs: [],
+          sources: [],
+        });
+      if (path === "/api/v1/threads/eng/routing-preview") {
+        inputs.push(JSON.parse(String(options?.body)));
+        return Response.json({ routing: { clarification: "等待确认" } });
+      }
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  const user = userEvent.setup();
+  await screen.findByRole("heading", { name: "工程会话" });
+  expect(screen.getByLabelText("工程动作")).toHaveTextContent("分析（只读）");
+  await user.type(screen.getByLabelText("输入问题"), "先看看这个工程");
+  await user.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(inputs).toHaveLength(1));
+  expect(inputs[0].workflow).toBe("engineering");
+  expect(inputs[0].engineering_action).toBe("analyze");
+  await chooseOption(user, screen.getByLabelText("工程动作"), "develop");
+  await user.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(inputs).toHaveLength(2));
+  expect(inputs[1].engineering_action).toBe("develop");
+  // The composer never carries assignment controls; the server resolves the
+  // action's role defaults from global settings and the conversation roster.
+  expect(inputs[1].assignments).toEqual({});
 });

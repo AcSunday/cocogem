@@ -267,7 +267,7 @@ func browserCollaboration(request model.Request, emit func(string) error) (model
 	role, capability, instruction := "researcher", "fixture-research", "研究给定资料并发布研究笔记，保留证据限制。"
 	refs := []string{}
 	if task.Kind == "continuation" {
-		role, capability, instruction = "reviewer", "fixture-review", "独立核对研究消息、来源与研究笔记的确切版本。"
+		role, capability, instruction = "reviewer", "fixture-review", "独立核对研究消息与来源的确切版本。"
 		_, handoffJSON, found := strings.Cut(input, nativeHandoffHeader)
 		var handoff workflow.Handoff
 		if !found {

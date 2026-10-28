@@ -100,7 +100,7 @@ func (s *Server) createMemberProfile(rw http.ResponseWriter, r *http.Request, wo
 		if err := s.validateExecutor(agent.Executor); err != nil {
 			return err
 		}
-		if err := w.ValidateAgent(agent, nil, s.config.Models, tools.Names); err != nil {
+		if err := w.ValidateAgent(agent, nil, s.config.Models, tools.AllNames); err != nil {
 			return err
 		}
 		if err := tx.SaveAgent(agent); err != nil {
@@ -140,7 +140,7 @@ func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 		if err := s.validateExecutor(agent.Executor); err != nil {
 			return err
 		}
-		if err := w.ValidateAgent(agent, nil, s.config.Models, tools.Names); err != nil {
+		if err := w.ValidateAgent(agent, nil, s.config.Models, tools.AllNames); err != nil {
 			return err
 		}
 		revoked = agent.Disabled && !old.Disabled || revokedTools(old.Tools, agent.Tools)
@@ -155,7 +155,7 @@ func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 
 func validateMemberTools(member w.WorkspaceMember) error {
 	for _, tool := range member.Tools {
-		if !slices.Contains(tools.Names, tool) {
+		if !slices.Contains(tools.AllNames, tool) {
 			return errors.New("工作空间工具权限无效")
 		}
 	}

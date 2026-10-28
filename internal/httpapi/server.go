@@ -545,7 +545,7 @@ func validateThread(th w.Thread, agents []w.Agent) error {
 		}
 		seen[id] = true
 	}
-	if !slices.Contains([]string{"free", "discussion", "research", "code_analysis"}, th.Workflow) {
+	if !slices.Contains([]string{"free", "discussion", "research", "code_analysis", "engineering"}, th.Workflow) {
 		return errors.New("不支持的默认流程")
 	}
 	return nil
@@ -793,6 +793,12 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 	if !decode(rw, r, &in) {
 		return
 	}
+	action, err := w.NormalizeEngineeringAction(in.Workflow, in.EngineeringAction)
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	in.EngineeringAction = action
 	if strings.TrimSpace(in.Message) == "" || len([]rune(in.Message)) > 16000 {
 		respond(rw, r, nil, errors.New("问题必须为 1–16000 个字符"))
 		return
@@ -807,7 +813,7 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 	var thread w.Thread
 	var agents []w.Agent
 	var settings w.Settings
-	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+	err = s.store.Read(r.Context(), func(tx *store.Tx) error {
 		var err error
 		thread, err = tx.Thread(r.PathValue("id"))
 		if err != nil {
@@ -837,12 +843,23 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, err)
 		return
 	}
+	if route.Decision != "clarify" {
+		routeAction, actionErr := w.NormalizeEngineeringAction(route.Workflow, in.EngineeringAction)
+		if actionErr != nil || routeAction == w.EngineeringDevelop && route.Workflow != "engineering" {
+			if actionErr == nil {
+				actionErr = errors.New("develop action requires the engineering workflow")
+			}
+			respond(rw, r, nil, actionErr)
+			return
+		}
+		in.EngineeringAction = routeAction
+	}
 	if route.Decision == "clarify" {
 		writeJSON(rw, 200, map[string]any{"routing": route})
 		return
 	}
 	// Never hand out a proposal whose frozen assignments cannot form a plan.
-	if _, err := workflow.Plan("preview", w.RunInput{Workflow: route.Workflow, Targets: route.Targets, Assignments: route.Assignments}, agents); err != nil {
+	if _, err := workflow.Plan("preview", w.RunInput{Workflow: route.Workflow, Targets: route.Targets, Assignments: route.Assignments, EngineeringAction: in.EngineeringAction}, agents); err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
@@ -869,6 +886,12 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 	if !decode(rw, r, &in) {
 		return
 	}
+	action, err := w.NormalizeEngineeringAction(in.Workflow, in.EngineeringAction)
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	in.EngineeringAction = action
 	key := r.Header.Get("Idempotency-Key")
 	if len(key) < 16 || len(key) > 100 {
 		respond(rw, r, nil, errors.New("有效的 Idempotency-Key 是必需的"))
@@ -877,7 +900,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 	executors := s.refreshExecutors(r.Context())
 	hash := digest(in)
 	var run w.Run
-	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
+	err = s.store.Write(r.Context(), func(tx *store.Tx) error {
 		previous, oldHash, err := tx.Idempotent(r.PathValue("id"), key)
 		if err == nil {
 			if oldHash != hash {
@@ -915,8 +938,8 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if in.ResearchScope == "web_discovery" && !s.engine.Web.SearchEnabled() {
 			return &RequestError{503, "search_unavailable", "在线搜索尚未配置"}
 		}
-		if p.Routing.Workflow == "code_analysis" && ws.Root == "" {
-			return errors.New("代码分析需要绑定允许的资料目录")
+		if (p.Routing.Workflow == "code_analysis" || p.Routing.Workflow == "engineering") && ws.Root == "" {
+			return errors.New("代码分析与工程协作需要绑定允许的资料目录")
 		}
 		if len(in.SourceURLs) > 10 || len(in.ArtifactRefs) > 5 {
 			return errors.New("资料引用过多")
@@ -946,6 +969,14 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		in.Targets = p.Routing.Targets
 		// Global defaults were resolved and validated with the accepted routing.
 		in.Assignments = p.Routing.Assignments
+		routeAction, actionErr := w.NormalizeEngineeringAction(in.Workflow, in.EngineeringAction)
+		if actionErr != nil || routeAction == w.EngineeringDevelop && in.Workflow != "engineering" {
+			if actionErr == nil {
+				actionErr = errors.New("develop action requires the engineering workflow")
+			}
+			return actionErr
+		}
+		in.EngineeringAction = routeAction
 		var policy *w.ExecutionPolicy
 		if s.engine != nil {
 			limits := s.engine.Limits
@@ -969,7 +1000,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 			if err := s.validateExecutor(a.Executor); err != nil {
 				return err
 			}
-			if err := w.ValidateAgent(a, nil, s.config.Models, tools.Names); err != nil {
+			if err := w.ValidateAgent(a, nil, s.config.Models, tools.AllNames); err != nil {
 				return err
 			}
 			if !slices.ContainsFunc(run.Agents, func(x w.Agent) bool { return x.ID == a.ID }) {

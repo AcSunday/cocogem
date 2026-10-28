@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -13,8 +15,17 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-// Names is the finite v0.1 tool vocabulary, including the workflow-owned publisher.
+// Names is the default read-only vocabulary for new members, including the
+// workflow-owned publisher. Engineering write/test tools are deliberately not
+// default grants, so adding them cannot expand existing or new-install rights.
 var Names = []string{"list_files", "read_file", "search_content", "web_search", "fetch_url", "read_source", "publish_artifact"}
+
+// EngineeringNames are writable/executable host tools. They are valid grants,
+// but the workflow action and step role must also authorize them.
+var EngineeringNames = []string{"write_file", "patch_file", "run_test"}
+
+// AllNames is the complete grant vocabulary accepted by member configuration.
+var AllNames = append(append([]string{}, Names...), EngineeringNames...)
 
 func object(properties map[string]any, required ...string) map[string]any {
 	if required == nil {
@@ -31,10 +42,13 @@ func Definitions(names []string) []model.Tool {
 	defs := map[string]model.Tool{
 		"read_source":    {Name: "read_source", Description: "Page an exact captured source visible in this step's input snapshot. Does not refresh the original.", Schema: object(map[string]any{"source_id": text("Captured source UUID"), "cursor": text("Opaque next_cursor from the previous page"), "max_bytes": map[string]any{"type": "integer", "minimum": 1, "maximum": w.MaxTextPageBytes}}, "source_id")},
 		"list_files":     {Name: "list_files", Description: "List files in the bound source directory; symbolic links and secrets are excluded.", Schema: object(map[string]any{"path": text("Relative directory; defaults to .")})},
-		"read_file":      {Name: "read_file", Description: "Read a bounded text excerpt and obtain a captured source ID.", Schema: object(map[string]any{"path": text("Relative file path"), "start_line": map[string]any{"type": "integer", "minimum": 1}, "end_line": map[string]any{"type": "integer", "minimum": 1}}, "path")},
+		"read_file":      {Name: "read_file", Description: "Read a bounded, line-numbered text excerpt and obtain a captured source ID. The returned sha256 is the SHA-256 of the complete file, not just the excerpt, so it can be passed as expected_sha256 to patch_file or write_file.", Schema: object(map[string]any{"path": text("Relative file path"), "start_line": map[string]any{"type": "integer", "minimum": 1}, "end_line": map[string]any{"type": "integer", "minimum": 1}}, "path")},
 		"search_content": {Name: "search_content", Description: "Search literal text in allowed source files; results are navigation hints, not read-file evidence.", Schema: object(map[string]any{"path": text("Relative directory"), "query": text("Literal search text")}, "query")},
 		"web_search":     {Name: "web_search", Description: "Search public web sources. Results are snippets; fetch original pages to verify claims.", Schema: object(map[string]any{"query": text("Search query")}, "query")},
 		"fetch_url":      {Name: "fetch_url", Description: "Read a public original text page and capture its exact source. Search-engine result pages are captured as leads, not originals.", Schema: object(map[string]any{"url": text("Public HTTP(S) URL")}, "url")},
+		"write_file":     {Name: "write_file", Description: "Create or replace one UTF-8 text file inside the bound project (at most 32 KiB). Replacing an existing file requires its current expected_sha256; creating a new path requires that path to be absent. Symlinks, hard links, sensitive paths, non-regular files, oversized content and stale hashes are rejected. Returns the new SHA-256 and a captured diff source ID. Retrying the exact same content is idempotent. Use patch_file, when granted, for a targeted edit of a larger existing file. This tool is only available to the developer role in an authorized develop action.", Schema: object(map[string]any{"path": text("Relative file path inside the bound project"), "content": text("Complete UTF-8 file content"), "expected_sha256": text("Current complete-file SHA-256 from read_file; required when the file already exists, empty for a new path")}, "path", "content")},
+		"patch_file":     {Name: "patch_file", Description: "Replace one exact occurrence of old_text with new_text in an existing UTF-8 file. old_text must occur exactly once and the file must match expected_sha256, the complete-file SHA-256 from read_file. Full files may be up to 1 MiB; old_text and new_text together may be at most 32 KiB. Symlinks, hard links, sensitive paths, non-regular files, ambiguous or missing matches and stale hashes are rejected. Returns the new SHA-256 and a captured diff source ID. An identical retry that provably was already applied returns changed=false and is not applied again. This tool is only available to the developer role in an authorized develop action.", Schema: object(map[string]any{"path": text("Relative file path inside the bound project"), "expected_sha256": text("Current complete-file SHA-256 from read_file"), "old_text": text("Exact fragment to replace; must occur exactly once"), "new_text": text("Replacement fragment")}, "path", "expected_sha256", "old_text", "new_text")},
+		"run_test":       {Name: "run_test", Description: "Run the project's own tests under the host OS sandbox. No shell is used and no network, user home or credentials are available. toolchain=go runs go test -count=1 ./...; toolchain=npm runs npm test. target is a relative project directory. A nonzero exit is returned as a tool error with captured evidence; only exit code 0 verifies tests. Other toolchains are not supported.", Schema: object(map[string]any{"toolchain": map[string]any{"type": "string", "enum": []string{"go", "npm"}}, "target": text("Relative project directory; defaults to ."), "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600, "description": "Bounded execution limit; defaults to 120 seconds"}}, "toolchain")},
 		"publish_artifact": {Name: "publish_artifact", Description: "Submit this step's deliverable. Use captured source IDs only; for native CLI observations obtain server-assigned IDs via list_sources and never invent them. Code findings require file evidence. Supported findings require a read original source; search snippets, search result pages and native search leads are not evidence. Native web output is a CLI-processed observation, not raw page text. Research reports include scope, methods, findings, disagreements, limitations and next steps in the body.", Schema: object(map[string]any{
 			"type": map[string]any{"type": "string", "enum": []string{"note", "research_report", "code_analysis"}}, "title": text("Title"), "body": text("Markdown body"), "source_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "limitations": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"findings": map[string]any{"type": "array", "items": object(map[string]any{"title": text("Finding title"), "detail": text("Evidence and reasoning"), "status": map[string]any{"type": "string", "enum": []string{"supported", "confirmed", "disputed", "insufficient_evidence"}}, "severity": map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}}, "source_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "title", "detail", "status", "source_ids")}}, "type", "title", "body", "findings", "source_ids", "limitations")},
@@ -82,12 +96,62 @@ type Scope struct {
 	Capture func(w.Source) (w.Source, error)
 }
 
-// Execute returns a JSON observation for a registered read-only operation.
+// Execute returns a JSON observation for a registered host operation. run_test
+// applies its own bounded timeout instead of the short read-tool budget.
 func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
+	if name != "run_test" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+	}
 	var result any
 	switch name {
+	case "write_file":
+		var in WriteFileInput
+		if err := Decode(raw, &in); err != nil {
+			return "", err
+		}
+		write, err := WriteFile(ctx, scope.Root, in)
+		if err != nil {
+			return "", err
+		}
+		return observeWrite(scope, write)
+	case "patch_file":
+		var in PatchFileInput
+		if err := Decode(raw, &in); err != nil {
+			return "", err
+		}
+		write, err := PatchFile(ctx, scope.Root, in)
+		if err != nil {
+			return "", err
+		}
+		return observeWrite(scope, write)
+	case "run_test":
+		var in struct {
+			Toolchain      string `json:"toolchain"`
+			Target         string `json:"target"`
+			TimeoutSeconds int    `json:"timeout_seconds"`
+		}
+		if err := Decode(raw, &in); err != nil {
+			return "", err
+		}
+		test, err := RunTest(ctx, scope.Root, RunTestInput{Toolchain: in.Toolchain, Target: in.Target, TimeoutSeconds: in.TimeoutSeconds})
+		if err != nil {
+			return "", err
+		}
+		source, err := scope.Capture(w.Source{Kind: "test", Title: test.Command, Path: test.Target, SHA256: test.WorkspaceSHA256, Content: test.Output, CapturedAt: w.Now(), Truncated: test.Truncated, ExitCode: test.ExitCode, TimedOut: test.TimedOut})
+		if err != nil {
+			return "", err
+		}
+		if !test.Passed {
+			reason := "test exited with code " + strconv.Itoa(test.ExitCode)
+			if test.TimedOut {
+				reason = "test exceeded its bounded timeout and was killed"
+			}
+			return "", fmt.Errorf("test_failed: %s; command=%s; source_id=%s; output:\n%s", reason, test.Command, source.ID, utf8Prefix(test.Output, 4096))
+		}
+		result = map[string]any{"passed": true, "toolchain": test.Toolchain, "target": test.Target, "command": test.Command, "exit_code": 0, "duration_ms": test.DurationMS, "truncated": test.Truncated, "workspace_sha256": test.WorkspaceSHA256, "workspace_changed": test.WorkspaceChanged, "evidence_reason": test.EvidenceReason, "source_id": source.ID, "output_preview": utf8Prefix(test.Output, 4096)}
+		return marshalObservation(result)
 	case "list_files":
 		var in struct {
 			Path string `json:"path"`
@@ -173,6 +237,50 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 	}
 	b, err := json.Marshal(result)
 	return string(b), err
+}
+
+// observeWrite turns an accepted write into the shared observation and, only
+// for a real change, one captured diff source.
+func observeWrite(scope Scope, write WriteResult) (string, error) {
+	observation := map[string]any{"path": write.Path, "changed": write.Changed, "sha256": write.SHA256, "previous_sha256": write.PreviousSHA256, "bytes": write.Bytes, "source_id": "", "diff_truncated": write.DiffTruncated}
+	if !write.Changed {
+		reason := write.Reason
+		if reason == "" {
+			reason = "content already matches; nothing was overwritten"
+		}
+		observation["reason"] = reason
+		return marshalObservation(observation)
+	}
+	source, err := scope.Capture(w.Source{Kind: "diff", Title: write.Path, Path: write.Path, SHA256: write.SHA256, Content: write.Diff, CapturedAt: w.Now(), Truncated: write.DiffTruncated})
+	if err != nil {
+		return "", err
+	}
+	observation["source_id"] = source.ID
+	observation["diff_preview"] = utf8Prefix(write.Diff, 4096)
+	return marshalObservation(observation)
+}
+
+func marshalObservation(value any) (string, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	if len(encoded) > 65536 {
+		return "", errors.New("tool observation exceeds 64 KiB")
+	}
+	return string(encoded), nil
+}
+
+// boundedText returns at most maxBytes of a valid UTF-8 prefix.
+func utf8Prefix(value string, maxBytes int) string {
+	if len(value) <= maxBytes {
+		return value
+	}
+	end := maxBytes
+	for end > 0 && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end] + "…"
 }
 
 // sourceValue flattens capture metadata so a caller can still decode the

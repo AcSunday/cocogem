@@ -824,6 +824,8 @@ export interface components {
         assignments: {
           [key: string]: string;
         } | null;
+        /** @description Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value. */
+        engineering_action?: string;
         message: string;
         proposal_id: string;
         /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -896,6 +898,8 @@ export interface components {
       assignments: {
         [key: string]: string;
       } | null;
+      /** @description Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value. */
+      engineering_action?: string;
       message: string;
       proposal_id: string;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -915,6 +919,8 @@ export interface components {
       assignments?: {
         [key: string]: string;
       } | null;
+      /** @description Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value. */
+      engineering_action?: string;
       message: string;
       proposal_id?: string;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -1051,6 +1057,7 @@ export interface components {
           assignments: {
             [key: string]: string;
           } | null;
+          engineering_action?: string;
           message: string;
           proposal_id: string;
           research_scope: string;
@@ -1164,6 +1171,7 @@ export interface components {
       content: string;
       content_digest?: string;
       end_line: number;
+      exit_code?: number;
       id: string;
       kind: string;
       path: string;
@@ -1171,6 +1179,7 @@ export interface components {
       sha256: string;
       start_line: number;
       thread_id: string;
+      timed_out?: boolean;
       title: string;
       truncated: boolean;
       url: string;
@@ -1346,6 +1355,7 @@ export interface components {
           assignments: {
             [key: string]: string;
           } | null;
+          engineering_action?: string;
           message: string;
           proposal_id: string;
           research_scope: string;
@@ -1413,6 +1423,7 @@ export interface components {
         content: string;
         content_digest?: string;
         end_line: number;
+        exit_code?: number;
         id: string;
         kind: string;
         path: string;
@@ -1420,6 +1431,7 @@ export interface components {
         sha256: string;
         start_line: number;
         thread_id: string;
+        timed_out?: boolean;
         title: string;
         truncated: boolean;
         url: string;

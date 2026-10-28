@@ -2,7 +2,7 @@ import { useState, type ComponentProps } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import { Composer, type WorkflowKey } from "./Composer";
+import { Composer, type EngineeringAction, type WorkflowKey } from "./Composer";
 import type { Agent } from "../api/client";
 import { chooseOption } from "../test/select";
 
@@ -28,6 +28,8 @@ function Example({
 }: Partial<ComponentProps<typeof Composer>> & { initialDraft?: string }) {
   const [draft, setDraft] = useState(initialDraft);
   const [workflow, setWorkflow] = useState<WorkflowKey>("free");
+  const [engineeringAction, setEngineeringAction] =
+    useState<EngineeringAction>("analyze");
   return (
     <Composer
       agents={agents}
@@ -36,6 +38,8 @@ function Example({
       setDraft={setDraft}
       workflow={workflow}
       setWorkflow={setWorkflow}
+      engineeringAction={engineeringAction}
+      setEngineeringAction={setEngineeringAction}
       clearArtifactRef={() => {}}
       active={false}
       canceling={false}
@@ -188,4 +192,20 @@ it("renders only an accessible stop icon while running", async () => {
   rerender(<Example active canceling onStop={stop} />);
   expect(screen.getByRole("button", { name: "正在停止" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "正在停止" }).textContent).toBe("");
+});
+
+it("defaults engineering to read-only analysis and switches roles for develop", async () => {
+  render(<Example />);
+  const user = userEvent.setup();
+  await chooseOption(user, screen.getByLabelText("工作方式"), "engineering");
+  const action = screen.getByLabelText("工程动作");
+  expect(action).toHaveTextContent("分析（只读）");
+  expect(screen.getByText(/只读分析：不改写、不执行测试/)).toBeVisible();
+  await chooseOption(user, action, "develop");
+  expect(action).toHaveTextContent("开发（可修改并测试）");
+  expect(
+    screen.getByText(/开发测试器：go test \/ npm test（其他未支持）/),
+  ).toBeVisible();
+  // Assignment controls stay out of the composer.
+  expect(screen.queryByText("分工")).not.toBeInTheDocument();
 });

@@ -150,7 +150,11 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 			return Routing{}, errors.New("routing assignment lacks an exact user instruction quote")
 		}
 	}
-	if _, err := Plan("preview", w.RunInput{Workflow: r.Workflow, Targets: r.Targets, Assignments: r.Assignments}, agents); err != nil {
+	planInput := w.RunInput{Workflow: r.Workflow, Targets: r.Targets, Assignments: r.Assignments}
+	if r.Workflow == "engineering" {
+		planInput.EngineeringAction = input.EngineeringAction
+	}
+	if _, err := Plan("preview", planInput, agents); err != nil {
 		return Routing{}, err
 	}
 	return reconcileRouting(r, input, thread, candidates, clean), nil

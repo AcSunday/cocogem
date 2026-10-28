@@ -296,13 +296,14 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     .getByRole("button", { name: "新建会话", exact: false })
     .first()
     .click();
-  await page.getByLabel("会话标题").fill("只读代码分析");
+  await page.getByLabel("会话标题").fill("只读工程分析");
   await page.getByRole("button", { name: "保存会话" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await selectOption(
     page.getByLabel("工作方式", { exact: true }),
-    "code_analysis",
+    "engineering",
   );
+  await expect(page.getByLabel("工程动作")).toHaveText("分析（只读）");
   await page
     .getByLabel("输入问题")
     .fill("分析示例仓库如何区分身份和角色，不要声称执行测试。");
@@ -605,10 +606,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     page.getByRole("button", { name: /更多会话操作：/ }).first(),
   ).toHaveCSS("opacity", "1");
   await page
-    .getByRole("button", { name: "只读代码分析", exact: true })
+    .getByRole("button", { name: "只读工程分析", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "只读代码分析", exact: true }),
+    page.getByRole("heading", { name: "只读工程分析", exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -679,9 +680,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   const threadList = page.getByRole("navigation", { name: "会话列表" });
   const currentRow = threadList
     .locator("div")
-    .filter({ hasText: "只读代码分析" });
+    .filter({ hasText: "只读工程分析" });
   const currentActions = threadList.getByRole("button", {
-    name: "更多会话操作：只读代码分析",
+    name: "更多会话操作：只读工程分析",
   });
   await page.mouse.move(0, 0);
   await expect(currentActions).toHaveCSS("opacity", "0");
@@ -689,7 +690,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(currentActions).toHaveCSS("opacity", "1");
   await currentActions.click();
   const currentMenu = page.getByRole("menu", {
-    name: "只读代码分析 的会话操作",
+    name: "只读工程分析 的会话操作",
   });
   await expect(currentMenu).toBeVisible();
   await page.keyboard.press("Escape");
@@ -704,23 +705,23 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await currentActions.click();
   await currentMenu.getByRole("menuitem", { name: "重命名" }).click();
   const renameDialog = page.getByRole("dialog", { name: "重命名会话" });
-  await expect(renameDialog.getByLabel("会话标题")).toHaveValue("只读代码分析");
-  await renameDialog.getByLabel("会话标题").fill("只读代码分析改名");
+  await expect(renameDialog.getByLabel("会话标题")).toHaveValue("只读工程分析");
+  await renameDialog.getByLabel("会话标题").fill("只读工程分析改名");
   await renameDialog.getByRole("button", { name: "保存名称" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "只读代码分析改名", exact: true }),
+    page.getByRole("heading", { name: "只读工程分析改名", exact: true }),
   ).toBeVisible();
   await expect(
     threadList.getByRole("button", {
-      name: "更多会话操作：只读代码分析改名",
+      name: "更多会话操作：只读工程分析改名",
     }),
   ).toBeVisible();
   expect(page.url()).toContain(`/t/${renamedThreadID}`);
   const afterRename = await (
     await page.request.get(`/api/v1/threads/${renamedThreadID}`)
   ).json();
-  expect(afterRename.thread.title).toBe("只读代码分析改名");
+  expect(afterRename.thread.title).toBe("只读工程分析改名");
   expect(afterRename.thread.agent_ids).toEqual(beforeRename.thread.agent_ids);
   expect(afterRename.thread.coordinator_id).toBe(
     beforeRename.thread.coordinator_id,
