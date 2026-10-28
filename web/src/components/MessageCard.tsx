@@ -22,6 +22,9 @@ const MAX_CONTENT_CURSORS = 64;
 
 export type CursorStack = { base: number; items: string[] };
 
+/** The exact page whose request failed, so Retry never reloads a good page. */
+type PageFailure = { index: number; cursor: string; message: string };
+
 /** Retains only the recent cursor window; `base` keeps absolute page numbers. */
 export function rememberCursor(
   current: CursorStack,
@@ -63,7 +66,7 @@ export function MessageCard({
   const [pageIndex, setPageIndex] = useState(0);
   const [stack, setStack] = useState({ base: 0, items: [""] });
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState("");
+  const [failure, setFailure] = useState<PageFailure>();
   // A different message or run must never receive a response started for the old one.
   const generation = useRef(0);
   const record = `${message.run_id}:${message.id}`;
@@ -75,14 +78,14 @@ export function MessageCard({
     setPageIndex(0);
     setStack({ base: 0, items: [""] });
     setLoading(false);
-    setLoadError("");
+    setFailure(undefined);
   }, [record]);
 
   const load = useCallback(
     async (nextIndex: number, cursor: string) => {
       const request = ++generation.current;
       setLoading(true);
-      setLoadError("");
+      setFailure(undefined);
       try {
         const result = await messageContent(message.run_id, message.id, cursor);
         if (request !== generation.current) return;
@@ -90,7 +93,8 @@ export function MessageCard({
         setPageIndex(nextIndex);
         setStack((current) => rememberCursor(current, nextIndex, cursor));
       } catch (error) {
-        if (request === generation.current) setLoadError(errorText(error));
+        if (request === generation.current)
+          setFailure({ index: nextIndex, cursor, message: errorText(error) });
       } finally {
         if (request === generation.current) setLoading(false);
       }
@@ -175,14 +179,14 @@ export function MessageCard({
                 正在加载全文…
               </small>
             )}
-            {open && loadError && (
+            {open && failure && (
               <span className={cx("error")} role="alert">
-                {loadError}
+                {failure.message}
                 <button
                   type="button"
                   className={cx("ghost small")}
                   aria-label="重新加载全文"
-                  onClick={() => void load(pageIndex, cursorAt(pageIndex))}
+                  onClick={() => void load(failure.index, failure.cursor)}
                 >
                   重试
                 </button>

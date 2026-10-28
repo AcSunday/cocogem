@@ -190,6 +190,35 @@ it("shows loading and retryable errors without exposing protocol fields", async 
   expect(await screen.findByText("第一页正文")).toBeVisible();
 });
 
+it("retries the exact page that failed instead of reloading the previous page", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(page()))
+    .mockRejectedValueOnce(new Error("第二页读取失败"))
+    .mockResolvedValueOnce(
+      Response.json(
+        page({
+          content: "第二页正文",
+          has_more: false,
+          next_cursor: undefined,
+        }),
+      ),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  const user = userEvent.setup();
+  render(<MessageCard message={message()} index={0} />);
+  await user.click(screen.getByRole("button", { name: "展开全文" }));
+  await screen.findByText("第一页正文");
+  await user.click(screen.getByRole("button", { name: "查看下一页全文" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("第二页读取失败");
+  expect(screen.getByText("第一页正文")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "重新加载全文" }));
+  expect(await screen.findByText("第二页正文")).toBeVisible();
+  expect(screen.queryByText("第一页正文")).not.toBeInTheDocument();
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  expect(fetcher.mock.calls[2][0]).toContain("cursor=cursor-2");
+});
+
 it("ignores a page that resolves after the card switched to another message", async () => {
   let releaseOld: (value: Response) => void = () => {};
   const oldPage = new Promise<Response>((resolve) => {

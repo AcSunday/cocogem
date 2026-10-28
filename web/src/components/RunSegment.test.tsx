@@ -435,6 +435,58 @@ it("pages a long final body one bounded page at a time", async () => {
   expect(urls.filter((url) => url.includes("cursor=cursor-2"))).toHaveLength(1);
 });
 
+it("retries the exact final page that failed", async () => {
+  let pageTwoCalls = 0;
+  const fetchMock = vi.fn(async (path: string) => {
+    if (path.includes("cursor=cursor-2")) {
+      pageTwoCalls++;
+      if (pageTwoCalls === 1)
+        return Response.json(
+          { error: { message: "第二页加载失败" } },
+          { status: 500 },
+        );
+      return contentPage("final-long", "第二页正文");
+    }
+    return contentPage("final-long", "第一页正文", {
+      has_more: true,
+      next_cursor: "cursor-2",
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <RunSegment
+      {...props}
+      run={{
+        ...baseRun,
+        status: "succeeded",
+        delivery: {
+          message_ids: ["final-long"],
+          artifact_refs: [],
+        },
+      }}
+      steps={[step]}
+      messages={[message("middle", "过程回复")]}
+    />,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "查看最终结果" }));
+  expect(await screen.findByText("第一页正文")).toBeVisible();
+  await userEvent.click(
+    screen.getByRole("button", { name: "查看下一页最终结果" }),
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent("第二页加载失败");
+  expect(screen.getByText("第一页正文")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "重试" }));
+  expect(await screen.findByText("第二页正文")).toBeVisible();
+  expect(screen.queryByText("第一页正文")).toBeNull();
+  expect(screen.getByText("第 2 页")).toBeVisible();
+  expect(
+    fetchMock.mock.calls.filter(([path]) =>
+      (path as string).includes("cursor=cursor-2"),
+    ),
+  ).toHaveLength(2);
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
 it("does not let a previous run's response reach the new run", async () => {
   const pending: Record<string, (response: Response) => void> = {};
   vi.stubGlobal(

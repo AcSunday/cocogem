@@ -31,6 +31,9 @@ type FinalPage = {
   stack: CursorStack;
 };
 
+/** The exact page whose request failed, so Retry never reloads a good page. */
+type FinalPageError = { index: number; cursor: string; message: string };
+
 const firstCursor = (): CursorStack => ({ base: 0, items: [""] });
 
 /** Final messages outside the current page are read by exact id, never by paging all history. */
@@ -48,7 +51,7 @@ function MissingFinalResults({
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Record<string, FinalPage>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, FinalPageError>>({});
   // A newer request for a message supersedes an older response for it.
   const requests = useRef<Record<string, number>>({});
 
@@ -83,7 +86,11 @@ function MissingFinalResults({
       if (requests.current[messageID] === request)
         setErrors((current) => ({
           ...current,
-          [messageID]: errorText(failure),
+          [messageID]: {
+            index,
+            cursor,
+            message: errorText(failure),
+          },
         }));
     } finally {
       if (requests.current[messageID] === request)
@@ -123,6 +130,7 @@ function MissingFinalResults({
       {open &&
         messageIDs.map((messageID, position) => {
           const item = items[messageID];
+          const failure = errors[messageID];
           const label =
             messageIDs.length > 1 ? `最终结果 ${position + 1}` : "最终结果";
           if (!item) {
@@ -132,14 +140,16 @@ function MissingFinalResults({
                 className={cx("final-result")}
                 aria-label={label}
               >
-                {errors[messageID] ? (
+                {failure ? (
                   <span className={cx("error")} role="alert">
-                    {errors[messageID]}
+                    {failure.message}
                     <button
                       type="button"
                       className={cx("ghost small")}
                       disabled={loading[messageID]}
-                      onClick={() => void load(messageID, 0, "")}
+                      onClick={() =>
+                        void load(messageID, failure.index, failure.cursor)
+                      }
                     >
                       重试
                     </button>
@@ -201,7 +211,7 @@ function MissingFinalResults({
               {(item.page.has_more ||
                 item.index > 0 ||
                 loading[messageID] ||
-                errors[messageID]) && (
+                failure) && (
                 <div className={cx("message-content-paging")}>
                   {(item.page.has_more || item.index > 0) && (
                     <small className={cx("muted")}>
@@ -213,19 +223,15 @@ function MissingFinalResults({
                       正在加载…
                     </small>
                   )}
-                  {errors[messageID] && (
+                  {failure && (
                     <span className={cx("error")} role="alert">
-                      {errors[messageID]}
+                      {failure.message}
                       <button
                         type="button"
                         className={cx("ghost small")}
                         disabled={loading[messageID]}
                         onClick={() =>
-                          void load(
-                            messageID,
-                            item.index,
-                            cursorAt(messageID, item.index),
-                          )
+                          void load(messageID, failure.index, failure.cursor)
                         }
                       >
                         重试
