@@ -4,7 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { RunDivider } from "./RunDivider";
 import type { Attempt, Event, Run, Step } from "../api/client";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 const run = {
   id: "run",
@@ -43,7 +46,7 @@ const toolEvent = (seq: number, type: string, data: unknown): Event => ({
   data,
 });
 
-it("folds task details while keeping activity visible and preserves the reader's choice", async () => {
+it("shows the process while running and keeps a manual collapse after success", async () => {
   const step = {
     id: "step",
     agent_name: "研究成员",
@@ -62,22 +65,91 @@ it("folds task details while keeping activity visible and preserves the reader's
   const { rerender } = render(
     <RunDivider run={{ ...run, status: "running" }} {...props} />,
   );
-  const summary = screen.getByText("协作过程", { selector: "summary" });
-  expect(summary.closest("details")).not.toHaveAttribute("open");
+  const summary = screen.getByText(/^协作过程/, { selector: "summary" });
+  expect(summary.closest("details")).toHaveAttribute("open");
+  expect(screen.getByRole("list", { name: "协作任务" })).toBeVisible();
   expect(screen.getByText("研究成员正在处理")).toBeVisible();
   expect(screen.getByTestId("run-status")).toBeVisible();
   await userEvent.click(summary);
-  expect(screen.getByRole("list", { name: "协作任务" })).toBeVisible();
+  expect(summary.closest("details")).not.toHaveAttribute("open");
   rerender(
     <RunDivider
-      run={run}
+      run={{
+        ...run,
+        delivery: { message_ids: ["final"], artifact_refs: [] },
+      }}
       {...props}
       steps={[{ ...step, status: "succeeded" }]}
     />,
   );
-  expect(summary.closest("details")).toHaveAttribute("open");
-  expect(screen.getByRole("list", { name: "协作任务" })).toBeVisible();
+  expect(summary.closest("details")).not.toHaveAttribute("open");
   expect(screen.queryByText("研究成员正在处理")).not.toBeInTheDocument();
+});
+
+it("folds a delivered success once and lets the reader expand it again", async () => {
+  const step = {
+    id: "step",
+    agent_name: "研究成员",
+    status: "succeeded",
+  } as Step;
+  const delivered = {
+    ...run,
+    delivery: { message_ids: ["final"], artifact_refs: [] },
+  };
+  const props = {
+    index: 1,
+    steps: [step],
+    latest: true,
+    busy: false,
+    onSnapshot: () => {},
+    onRetry: () => {},
+    onResume: () => {},
+  };
+  const { rerender } = render(
+    <RunDivider run={{ ...run, status: "running" }} {...props} />,
+  );
+  const details = screen
+    .getByText(/^协作过程/, { selector: "summary" })
+    .closest("details")!;
+  expect(details).toHaveAttribute("open");
+  rerender(<RunDivider run={delivered} {...props} />);
+  expect(details).not.toHaveAttribute("open");
+  expect(details.querySelector("summary")).toHaveTextContent(
+    "协作已完成 · 1 条过程",
+  );
+  await userEvent.click(details.querySelector("summary")!);
+  expect(details).toHaveAttribute("open");
+  expect(details.querySelector("summary")).toHaveTextContent(
+    "协作过程 · 1 条过程",
+  );
+});
+
+it("shows a selected workflow and its reason instead of the free label", () => {
+  render(
+    <RunDivider
+      run={{
+        ...run,
+        status: "running",
+        selected_workflow: {
+          workflow: "research",
+          targets: null,
+          assignments: null,
+          reason: "需要外部资料核对",
+          step_id: "step",
+          selected_at: "2026-10-20T00:00:00Z",
+        },
+      }}
+      index={1}
+      latest
+      busy={false}
+      onSnapshot={() => {}}
+      onRetry={() => {}}
+      onResume={() => {}}
+    />,
+  );
+  expect(screen.getByText("Research")).toBeVisible();
+  expect(screen.getByText("需要外部资料核对")).toBeVisible();
+  expect(screen.queryByText("自由协作")).not.toBeInTheDocument();
 });
 
 it("shows the latest tool activity and its error while a run is active", () => {

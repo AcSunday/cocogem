@@ -1132,6 +1132,9 @@
           "has_more": {
             "type": "boolean"
           },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
           "message_id": {
             "type": "string"
           },

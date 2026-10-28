@@ -48,31 +48,34 @@ test("browser, server and scheduler execute research, independent review and res
   await page.getByRole("button", { name: "保存工作空间" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "成员 3", exact: true }).click();
+  // Global profiles live in Settings → Members; the top entry only manages
+  // this workspace's grants.
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const settingsDialog = page.getByRole("dialog", { name: "设置" });
+  await settingsDialog.getByRole("tab", { name: "成员" }).click();
   for (const [handle, name, capability] of [
     ["ragdoll", "调度员", "fixture-coordinate"],
     ["maine", "资料员", "fixture-research"],
     ["orange", "核对员", "fixture-review"],
   ]) {
-    await page
-      .getByRole("dialog")
+    await settingsDialog
       .getByRole("button", { name: new RegExp(`\\(@${handle}\\)`) })
       .click();
-    await page.getByLabel("显示名", { exact: true }).fill(name);
-    await page.getByLabel("能力标签（用逗号分隔）").fill(capability);
-    await page.getByRole("button", { name: "保存成员", exact: true }).click();
-    await expect(page.getByRole("dialog").getByRole("status")).toContainText(
-      "已保存",
-    );
+    await settingsDialog.getByLabel("显示名", { exact: true }).fill(name);
+    await settingsDialog.getByLabel("能力标签（用逗号分隔）").fill(capability);
+    await settingsDialog
+      .getByRole("button", { name: "保存成员", exact: true })
+      .click();
+    await expect(settingsDialog.getByRole("status")).toContainText("已保存");
   }
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await page.reload();
-  await page.getByRole("button", { name: "成员 3", exact: true }).click();
-  await page
-    .getByRole("dialog")
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await settingsDialog.getByRole("tab", { name: "成员" }).click();
+  await settingsDialog
     .getByRole("button", { name: /^资料员 \(@maine\)/ })
     .click();
-  await expect(page.getByLabel("能力标签（用逗号分隔）")).toHaveValue(
+  await expect(settingsDialog.getByLabel("能力标签（用逗号分隔）")).toHaveValue(
     "fixture-research",
   );
   await page.getByRole("button", { name: "关闭窗口" }).click();
@@ -140,10 +143,13 @@ test("browser, server and scheduler execute research, independent review and res
   await expect(page.getByTestId("run-status")).toHaveText("已完成", {
     timeout: 15000,
   });
-  await page
-    .locator("summary")
-    .filter({ hasText: /^协作过程/ })
-    .click();
+  const process = page.getByTestId("run-process");
+  await expect(process).not.toHaveAttribute("open");
+  await expect(process.locator(":scope > summary")).toHaveText(
+    /协作已完成 · \d+ 条过程/,
+  );
+  await process.locator(":scope > summary").click();
+  await expect(process).toHaveAttribute("open");
   const tasks = page.getByRole("list", { name: "协作任务" });
   const researchTask = tasks.locator("details").filter({
     has: page.locator("summary").getByText("资料员", { exact: true }),
@@ -157,12 +163,7 @@ test("browser, server and scheduler execute research, independent review and res
   await expect(reviewTask).toContainText(
     "独立核对研究消息、来源与研究笔记的确切版本。",
   );
-  await expect(
-    reviewTask.getByRole("button", {
-      name: "动态协作研究笔记 · v1",
-      exact: true,
-    }),
-  ).toBeVisible();
+  await expect(reviewTask).toContainText("资料员");
   await expect(
     reviewTask.getByRole("button", { name: "来源：测试资料", exact: true }),
   ).toBeVisible();
@@ -206,25 +207,27 @@ test("browser, server and scheduler execute research, independent review and res
   const researchMessage = thread.messages.items?.find(
     (message) => message.step_id === handoffs[0].id,
   )!;
-  const researchNote = artifacts.items.find(
-    (artifact) => artifact.step_id === handoffs[0].id,
-  )!;
-  expect(artifacts.items).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        title: "动态协作验收纪要",
-        type: "note",
-        version: 1,
-      }),
-    ]),
-  );
+  // Process handoffs reference committed messages and sources; only the final
+  // coordinator continuation publishes a formal artifact.
+  expect(artifacts.items).toHaveLength(1);
+  expect(artifacts.items[0]).toMatchObject({
+    title: "动态协作验收纪要",
+    type: "note",
+    version: 1,
+    step_id: detail.steps.filter((item) => item.kind === "continuation").at(-1)
+      ?.id,
+  });
+  expect(handoffs[1].context_refs).toHaveLength(2);
   expect(handoffs[1].context_refs).toEqual(
-    expect.arrayContaining([
-      researchMessage.id,
-      `${researchNote.id}@${researchNote.version}`,
-      thread.sources[0].id,
-    ]),
+    expect.arrayContaining([researchMessage.id, thread.sources[0].id]),
   );
+  expect(detail.run.delivery?.message_ids.length).toBeGreaterThan(0);
+  expect(detail.run.delivery?.artifact_refs).toEqual([
+    expect.objectContaining({
+      id: artifacts.items[0].id,
+      version: 1,
+    }),
+  ]);
   expect(Object.keys(detail.run.skill_versions ?? {}).sort()).toEqual(
     savedWorkspace.skill_ids?.sort(),
   );
@@ -267,10 +270,8 @@ test("browser, server and scheduler execute research, independent review and res
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await page.reload();
   await expect(page.getByTestId("run-status")).toHaveText("已完成");
-  await page
-    .locator("summary")
-    .filter({ hasText: /^协作过程/ })
-    .click();
+  // The reader expanded the process before reloading; that choice survives.
+  await expect(page.getByTestId("run-process")).toHaveAttribute("open");
   await expect(tasks.locator("details")).toHaveCount(5);
   await page.screenshot({
     path: test.info().outputPath("dynamic-collaboration-runtime.png"),

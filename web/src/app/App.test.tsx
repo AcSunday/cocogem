@@ -647,9 +647,8 @@ it("loads persisted handoffs and stops their whole collaboration with the compos
   vi.stubGlobal("fetch", fetcher);
   const { unmount } = render(<App />);
   const user = userEvent.setup();
-  await userEvent.click(
-    await screen.findByText("协作过程", { selector: "summary" }),
-  );
+  // A running collaboration keeps its process visible without a click.
+  await screen.findByTestId("run-process");
   const tasks = within(await screen.findByRole("list", { name: "协作任务" }));
   expect(tasks.getByText("协调成员 →")).toBeVisible();
   expect(tasks.getByText("等待结果")).toBeVisible();
@@ -1910,9 +1909,7 @@ it("merges a bounded seed history into the run view without repeating or droppin
     }),
   );
   render(<App />);
-  await userEvent.click(
-    await screen.findByText("协作过程", { selector: "summary" }),
-  );
+  await screen.findByTestId("run-process");
   const list = await screen.findByRole("list", { name: "协作任务" });
   const tasks = within(list);
   await waitFor(() => expect(detail).toHaveBeenCalled());
@@ -2082,9 +2079,7 @@ it("applies a terminal seed snapshot before one bounded refresh replaces the pag
   });
   expect(screen.getAllByText("新的完整回复").length).toBeGreaterThan(0);
   expect(screen.getByTestId("run-status")).toHaveTextContent("已完成");
-  await userEvent.click(
-    await screen.findByText("协作过程", { selector: "summary" }),
-  );
+  await screen.findByTestId("run-process");
   const tasks = within(screen.getByRole("list", { name: "协作任务" }));
   expect(tasks.getByText("已完成")).toBeVisible();
   await user.click(tasks.getByText("合成成员", { selector: "strong" }));
@@ -2331,9 +2326,7 @@ it("discards steps loaded by a refresh generation that started earlier", async (
   await act(async () => {
     await detailGate;
   });
-  await userEvent.click(
-    await screen.findByText("协作过程", { selector: "summary" }),
-  );
+  await screen.findByTestId("run-process");
   const tasks = within(await screen.findByRole("list", { name: "协作任务" }));
   await userEvent.click(tasks.getByText("合成成员", { selector: "strong" }));
   expect(await tasks.findByText("新版任务说明")).toBeVisible();

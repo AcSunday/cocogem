@@ -20,7 +20,7 @@ import { Markdown } from "./Markdown";
 /** Cursors are small, but a long read must not grow the page state forever. */
 const MAX_CONTENT_CURSORS = 64;
 
-type CursorStack = { base: number; items: string[] };
+export type CursorStack = { base: number; items: string[] };
 
 /** Retains only the recent cursor window; `base` keeps absolute page numbers. */
 export function rememberCursor(

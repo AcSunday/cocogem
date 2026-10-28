@@ -59,6 +59,9 @@ func main() {
 	schemas["PasswordInput"].(map[string]any)["properties"].(map[string]any)["password"] = map[string]any{"type": "string", "minLength": 12, "maxLength": 128, "writeOnly": true}
 	schemas["Event"].(map[string]any)["description"] = "Persisted per-run event. seq is strictly increasing; clients deduplicate (run_id,seq)."
 	props := func(name string) map[string]any { return schemas[name].(map[string]any)["properties"].(map[string]any) }
+	// A content page reuses the Message entity for author/model snapshots;
+	// reference it instead of inlining a second copy of the same schema.
+	props("MessageContentPage")["message"] = ref("Message")
 	for name, description := range map[string]string{
 		"id":           "Accepted for compatibility; ignored. The path id is authoritative.",
 		"workspace_id": "Accepted for compatibility; ignored. A thread never changes workspace.",

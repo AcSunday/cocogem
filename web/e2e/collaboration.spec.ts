@@ -199,10 +199,8 @@ test("persisted task handoffs, skill settings and whole-run cancellation", async
     await route.fulfill({ json: body });
   });
   await page.goto(`/w/${workspace.id}/t/${thread.id}`);
-  await page
-    .locator("summary")
-    .filter({ hasText: /^协作过程/ })
-    .click();
+  // Running collaborations keep their process visible without a click.
+  await expect(page.getByTestId("run-process")).toHaveAttribute("open");
   const tasks = page.getByRole("list", { name: "协作任务" });
   await expect(tasks.getByText("等待结果", { exact: true })).toBeVisible();
   const review = tasks
@@ -245,10 +243,7 @@ test("persisted task handoffs, skill settings and whole-run cancellation", async
   expect(cancellations).toBe(1);
   await page.reload();
   await expect(page.getByTestId("run-status")).toHaveText("已停止");
-  await page
-    .locator("summary")
-    .filter({ hasText: /^协作过程/ })
-    .click();
+  await expect(page.getByTestId("run-process")).toHaveAttribute("open");
   await expect(tasks.getByText("已停止", { exact: true })).toHaveCount(2);
 
   await page.getByRole("button", { name: "编辑工作空间", exact: true }).click();

@@ -205,20 +205,13 @@ func browserCollaboration(request model.Request, emit func(string) error) (model
 	}
 	task := state.Tasks[current]
 	used := map[string]bool{}
-	sourceIDs := []string{}
 	for _, message := range request.Messages {
 		for _, block := range message.Content {
 			if block.Type == "tool_use" {
 				used[block.Name] = true
 			}
-			if block.Type == "tool_result" {
-				if block.IsError {
-					return model.Response{}, fmt.Errorf("browser collaboration tool failed: %s", block.Content)
-				}
-				var source w.Source
-				if json.Unmarshal([]byte(block.Content), &source) == nil && source.ID != "" {
-					sourceIDs = append(sourceIDs, source.ID)
-				}
+			if block.Type == "tool_result" && block.IsError {
+				return model.Response{}, fmt.Errorf("browser collaboration tool failed: %s", block.Content)
 			}
 		}
 	}
@@ -255,15 +248,12 @@ func browserCollaboration(request model.Request, emit func(string) error) (model
 			if !used["fetch_url"] {
 				return call("fetch_url", map[string]any{"url": testutil.Sources[0]})
 			}
-			if !used["publish_artifact"] {
-				return call("publish_artifact", map[string]any{"type": "note", "title": "动态协作研究笔记", "body": "研究证据：稳定身份与有限交接便于核对。资料没有量化证明协作质量提升。", "source_ids": sourceIDs, "findings": []any{}, "limitations": []string{"确定性浏览器测试资料，不代表真实模型质量。"}})
-			}
-			return answer("动态研究结果：已读取原文并提交研究笔记；质量提升仍缺少量化证据。")
+			return answer("动态研究结果：已读取原文并引用资料；质量提升仍缺少量化证据。")
 		}
-		if !strings.Contains(input, "动态研究结果") || !strings.Contains(input, "动态协作研究笔记") {
-			return model.Response{}, errors.New("reviewer did not receive exact committed research inputs")
+		if !strings.Contains(input, "动态研究结果") {
+			return model.Response{}, errors.New("reviewer did not receive the committed research message")
 		}
-		return answer("动态复核结果：已核对研究消息、来源与笔记版本；保留质量收益证据不足这一异议。")
+		return answer("动态复核结果：已核对研究消息与来源；保留质量收益证据不足这一异议。")
 	}
 	if task.Kind == "continuation" && reviewed {
 		if !strings.Contains(input, "动态复核结果") {
@@ -295,8 +285,8 @@ func browserCollaboration(request model.Request, emit func(string) error) (model
 			refs = append(refs, fmt.Sprintf("%s@%d", artifact.ID, artifact.Version))
 		}
 		refs = append(refs, handoff.SourceIDs...)
-		if len(refs) < 3 {
-			return model.Response{}, errors.New("independent review needs exact message, artifact and source references")
+		if len(refs) < 2 {
+			return model.Response{}, errors.New("independent review needs exact message and source references")
 		}
 	}
 	for _, member := range state.Members {

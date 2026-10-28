@@ -1,3 +1,4 @@
+import { useState, type ReactNode, type SyntheticEvent } from "react";
 import type {
   Artifact,
   Attempt,
@@ -8,6 +9,7 @@ import type {
   Step,
 } from "../api/client";
 import { statusText, terminal } from "../api/client";
+import { deliveredRun } from "../lib/delivery";
 import { cx } from "../styles/classes";
 import {
   livenessLabel,
@@ -28,6 +30,40 @@ function eventData(event?: Event): Record<string, unknown> {
 
 const stepKey = (event: Event) =>
   event.step_id || event.agent_id || "";
+
+const PROCESS_KEY = "cocogem.run-process";
+const PROCESS_LIMIT = 200;
+
+const processKey = (run: Run) =>
+  [run.workspace_id, run.thread_id, run.id].join("/");
+
+/** The reader's explicit choice wins over the automatic collapsed default. */
+function readProcessDecision(run: Run): boolean | undefined {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PROCESS_KEY) ?? "{}");
+    const decision = stored?.[processKey(run)];
+    return typeof decision === "boolean" ? decision : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveProcessDecision(run: Run, open: boolean) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(PROCESS_KEY) ?? "{}");
+    const decisions =
+      stored && typeof stored === "object" && !Array.isArray(stored)
+        ? (stored as Record<string, boolean>)
+        : {};
+    decisions[processKey(run)] = open;
+    const keys = Object.keys(decisions);
+    for (const key of keys.slice(0, Math.max(0, keys.length - PROCESS_LIMIT)))
+      delete decisions[key];
+    localStorage.setItem(PROCESS_KEY, JSON.stringify(decisions));
+  } catch {
+    // A disabled storage only costs the preference, never the conversation.
+  }
+}
 
 /**
  * Native tool ids restart at native-1 per attempt, so a finish only pairs with
@@ -71,6 +107,8 @@ export function RunDivider({
   events = [],
   latest,
   busy,
+  processCount = steps?.length ?? 0,
+  children,
   onSnapshot,
   onRetry,
   onResume,
@@ -89,6 +127,8 @@ export function RunDivider({
   events?: Event[];
   latest: boolean;
   busy: boolean;
+  processCount?: number;
+  children?: ReactNode;
   onSnapshot: () => void;
   onRetry: () => void;
   onResume: () => void;
@@ -96,6 +136,19 @@ export function RunDivider({
   onArtifact?: (artifact: Artifact) => void;
 }) {
   const { label: workflow, reason } = runMethod(run);
+  const [decision, setDecision] = useState<boolean | undefined>(() =>
+    readProcessDecision(run),
+  );
+  const foldable = deliveredRun(run);
+  const open = decision ?? !foldable;
+  const toggleProcess = (event: SyntheticEvent<HTMLDetailsElement>) => {
+    const next = event.currentTarget.open;
+    // Programmatic open changes (running to a delivered success) are not a
+    // reader decision and must not enter the preference map.
+    if (next === open) return;
+    setDecision(next);
+    saveProcessDecision(run, next);
+  };
   const duration = runDuration(run);
   const usage = runUsageSummary(run, attempts);
   const failed = ["failed", "interrupted", "canceled"].includes(run.status);
@@ -147,8 +200,12 @@ export function RunDivider({
     <section className={cx("run-card")} aria-label={`第 ${index} 次协作`}>
       <div className={cx("run-card-head")}>
         <span className={cx("run-index")}>第 {index} 次</span>
-        <span>{workflow}</span>
-        {reason && <span className={cx("muted")}>{reason}</span>}
+        <span title={reason || undefined}>{workflow}</span>
+        {reason && (
+          <span className={cx("muted")} title={reason}>
+            {reason.length > 80 ? `${reason.slice(0, 80)}…` : reason}
+          </span>
+        )}
         <span
           className={cx(`status ${run.status}`)}
           {...(latest ? { "data-testid": "run-status" } : {})}
@@ -237,13 +294,18 @@ export function RunDivider({
           )}
         </span>
       </div>
-      {steps && steps.length > 0 && (
-        <details className={cx("run-process")}>
+      {processCount > 0 && (
+        <details
+          className={cx("run-process")}
+          data-testid="run-process"
+          open={open}
+          onToggle={toggleProcess}
+        >
           <summary>
             <Icon name="chevron" size={12} />
-            协作过程
-            <span>{steps.length} 个步骤</span>
-            {steps.some((step) => step.status === "running") && (
+            {open || !foldable ? "协作过程" : "协作已完成"}
+            <span> · {processCount} 条过程</span>
+            {steps?.some((step) => step.status === "running") && (
               <span className={cx("current-members")}>
                 {steps
                   .filter((step) => step.status === "running")
@@ -253,16 +315,19 @@ export function RunDivider({
               </span>
             )}
           </summary>
-          <CollaborationTasks
-            run={run}
-            steps={steps}
-            attempts={attempts}
-            messages={messages}
-            sources={sources}
-            artifacts={artifacts}
-            onSource={onSource}
-            onArtifact={onArtifact}
-          />
+          {steps && steps.length > 0 && (
+            <CollaborationTasks
+              run={run}
+              steps={steps}
+              attempts={attempts}
+              messages={messages}
+              sources={sources}
+              artifacts={artifacts}
+              onSource={onSource}
+              onArtifact={onArtifact}
+            />
+          )}
+          {children}
         </details>
       )}
       {run.error && (

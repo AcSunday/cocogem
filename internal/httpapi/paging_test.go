@@ -209,6 +209,36 @@ func TestMessageContentPagesChunkedAndInlineBodies(t *testing.T) {
 	}
 }
 
+func TestMessageContentCarriesAuthorAndModelSnapshot(t *testing.T) {
+	server, db, cookie, _ := pagingServer(t, workflow.DefaultLimits())
+	thread, run := seedThread(t, db)
+	message := seedMessage(t, db, w.Message{
+		ID: w.NewID(), ThreadID: thread.ID, RunID: run.ID, StepID: "step-1",
+		AgentID: "agent-1", AgentName: "研究成员", Model: "requested-model",
+		ResolvedModel: "resolved-model", Role: "assistant",
+		Content: strings.Repeat("正文", 5000), Status: "completed", CreatedAt: w.Now(),
+	})
+	rw := authCall(server, "GET", "/api/v1/runs/"+run.ID+"/messages/"+message.ID+"/content?limit=1", nil, cookie, "")
+	if rw.Code != 200 {
+		t.Fatal(rw.Body.String())
+	}
+	validateResponse(t, "/api/v1/runs/{id}/messages/{messageID}/content", "get", 200, rw.Body.Bytes())
+	var page MessageContentPage
+	if err := json.Unmarshal(rw.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Message.ID != message.ID || page.Message.AgentID != "agent-1" || page.Message.AgentName != "研究成员" ||
+		page.Message.StepID != "step-1" || page.Message.Model != "requested-model" || page.Message.ResolvedModel != "resolved-model" {
+		t.Fatalf("message snapshot = %+v", page.Message)
+	}
+	if page.Message.Content != "" {
+		t.Fatalf("content endpoint duplicated %d body bytes", len(page.Message.Content))
+	}
+	if page.Content == "" || !page.HasMore {
+		t.Fatalf("body page = %+v", page)
+	}
+}
+
 func TestThreadTimelineBoundsLegacyInlineAndContentRestoresIt(t *testing.T) {
 	server, db, cookie, _ := pagingServer(t, workflow.DefaultLimits())
 	thread, run := seedThread(t, db)

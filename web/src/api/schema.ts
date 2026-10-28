@@ -716,6 +716,7 @@ export interface components {
       content_format: string;
       content_truncated: boolean;
       has_more: boolean;
+      message?: components["schemas"]["Message"];
       message_id: string;
       next_cursor?: string;
     };

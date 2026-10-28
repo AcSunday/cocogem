@@ -41,6 +41,9 @@ type MessageContentPage struct {
 	ContentTruncated bool   `json:"content_truncated"`
 	HasMore          bool   `json:"has_more"`
 	NextCursor       string `json:"next_cursor,omitempty"`
+	// Message is the stored identity and attempt model snapshot for this body.
+	// Its content stays empty because the body is paged in this same response.
+	Message w.Message `json:"message,omitempty"`
 }
 
 // contentCursor binds a page to one immutable snapshot: the chunk highwater
@@ -102,14 +105,23 @@ func (t *Tx) MessageContent(messageID, cursor string, limit int) (MessageContent
 	if err != nil {
 		return MessageContentPage{}, err
 	}
+	var page MessageContentPage
 	switch format := message.Format(); format {
 	case w.ContentFormatInline:
-		return inlineContentPage(message, cursor, limit)
+		page, err = inlineContentPage(message, cursor, limit)
 	case w.ContentFormatChunksV1:
-		return t.chunkedContentPage(message, cursor, limit)
+		page, err = t.chunkedContentPage(message, cursor, limit)
 	default:
 		return MessageContentPage{}, fmt.Errorf("unsupported message content format %q", format)
 	}
+	if err != nil {
+		return MessageContentPage{}, err
+	}
+	// Reuse the stored Message entity so a consumer outside the timeline page
+	// still sees the exact author and model snapshot without a second lookup.
+	message.Content = ""
+	page.Message = message
+	return page, nil
 }
 
 func (t *Tx) chunkedContentPage(message w.Message, cursor string, limit int) (MessageContentPage, error) {

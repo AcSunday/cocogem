@@ -293,6 +293,16 @@
   justify-content: flex-end;
   margin: 4px 2px 0;
 }
+.final-results {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  margin: 4px 0 8px 29px;
+}
+.final-result {
+  width: 100%;
+  max-width: 72ch;
+}
 .run-artifacts {
   display: grid;
   gap: 8px;

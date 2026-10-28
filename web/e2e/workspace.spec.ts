@@ -412,9 +412,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(
     page.getByRole("article", { name: "你的消息" }).last(),
   ).toContainText("布布帮我研究一下幂等重试");
-  await expect(
-    page.locator("summary").filter({ hasText: /^协作过程/ }),
-  ).toHaveCount(after);
+  await expect(page.getByTestId("run-process")).toHaveCount(after);
   // Theme and panel changes keep the linked draft and workflow configuration in place.
   await selectOption(page.getByLabel("工作方式", { exact: true }), "research");
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);

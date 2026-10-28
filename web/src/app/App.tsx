@@ -30,15 +30,13 @@ import {
 } from "../api/client";
 import { AuthScreen } from "../components/AuthScreen";
 import { ArtifactReader } from "../components/ArtifactReader";
-import { ArtifactCard } from "../components/ArtifactCard";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
 import { Composer, type WorkflowKey } from "../components/Composer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
-import { MessageCard } from "../components/MessageCard";
-import { RunDivider } from "../components/RunDivider";
+import { RunSegment } from "../components/RunSegment";
 import { SettingsDialog, SnapshotDialog } from "../components/SettingsDialog";
 import { Sidebar } from "../components/Sidebar";
 import { ThreadForm } from "../components/forms/ThreadForm";
@@ -1164,16 +1162,6 @@ function WorkspaceApp({
     );
 
   const messages = view?.messages.items ?? [];
-  const agentIndex = (id?: string) =>
-    Math.max(
-      0,
-      agents.findIndex((agent) => agent.id === id),
-    );
-  // Avatars come from the run's own member snapshot, never the current profile.
-  const runAvatar = (run: Run, agentID: string) =>
-    run.agents?.find((agent) => agent.id === agentID)?.avatar;
-  const stepRole = (runID: string, stepID: string) =>
-    stepsByRun[runID]?.find((step) => step.id === stepID)?.role;
   return (
     <div className={cx("app-shell")}>
       <a className={cx("skip-link")} href="#composer-input">
@@ -1351,82 +1339,41 @@ function WorkspaceApp({
                         )}
                       </div>
                     )}
-                  {runs.map((run, index) => {
-                    const own = messages.filter((m) => m.run_id === run.id);
-                    return (
-                      <div className={cx("run-segment")} key={run.id}>
-                        {own
-                          .filter((message) => message.role === "user")
-                          .map((message) => (
-                            <MessageCard
-                              key={message.id}
-                              message={message}
-                              index={0}
-                            />
-                          ))}
-                        <RunDivider
-                          run={run}
-                          index={index + 1}
-                          steps={stepsByRun[run.id]}
-                          attempts={attemptsByRun[run.id]}
-                          messages={messages}
-                          sources={view?.sources ?? []}
-                          artifacts={artifacts}
-                          connection={
-                            run.id === inspectedRun?.id ? connection : ""
-                          }
-                          liveness={
-                            run.id === inspectedRun?.id
-                              ? latestLiveness
-                              : undefined
-                          }
-                          events={
-                            run.id === inspectedRun?.id ? events : undefined
-                          }
-                          latest={run.id === currentRun?.id}
-                          busy={busy}
-                          onSnapshot={() => setModal({ kind: "snapshot", run })}
-                          onRetry={() =>
-                            void send({ ...run.input, retry_of_run_id: run.id })
-                          }
-                          onResume={() => void resume(run.id)}
-                          onSource={openSource}
-                          onArtifact={(selected) => {
-                            setArtifact(selected);
-                            setModal({ kind: "artifact" });
-                          }}
-                        />
-                        {own
-                          .filter((message) => message.role !== "user")
-                          .map((message) => (
-                            <MessageCard
-                              key={message.id}
-                              message={message}
-                              index={agentIndex(message.agent_id)}
-                              avatar={runAvatar(run, message.agent_id)}
-                              role={stepRole(run.id, message.step_id)}
-                            />
-                          ))}
-                        <div
-                          className={cx("run-artifacts")}
-                          aria-label={`第 ${index + 1} 次协作产物`}
-                        >
-                          {artifacts
-                            .filter((item) => item.run_id === run.id)
-                            .map((item) => (
-                              <ArtifactCard
-                                key={`${item.id}:${item.version}`}
-                                artifact={item}
-                                onOpen={(selected) => {
-                                  setArtifact(selected);
-                                  setModal({ kind: "artifact" });
-                                }}
-                              />
-                            ))}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {runs.map((run, index) => (
+                    <RunSegment
+                      key={run.id}
+                      run={run}
+                      index={index + 1}
+                      steps={stepsByRun[run.id]}
+                      attempts={attemptsByRun[run.id]}
+                      messages={messages}
+                      sources={view?.sources ?? []}
+                      artifacts={artifacts}
+                      members={agents}
+                      connection={run.id === inspectedRun?.id ? connection : ""}
+                      liveness={
+                        run.id === inspectedRun?.id ? latestLiveness : undefined
+                      }
+                      events={run.id === inspectedRun?.id ? events : undefined}
+                      latest={run.id === currentRun?.id}
+                      busy={busy}
+                      onSnapshot={() => setModal({ kind: "snapshot", run })}
+                      onRetry={() =>
+                        void send({ ...run.input, retry_of_run_id: run.id })
+                      }
+                      onResume={() => void resume(run.id)}
+                      onRefresh={() =>
+                        void refreshThread(threadID).catch((error) =>
+                          setError(errorText(error)),
+                        )
+                      }
+                      onSource={openSource}
+                      onArtifact={(selected) => {
+                        setArtifact(selected);
+                        setModal({ kind: "artifact" });
+                      }}
+                    />
+                  ))}
                 </div>
               </div>
               {newMessages && (
