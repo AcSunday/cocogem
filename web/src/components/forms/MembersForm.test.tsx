@@ -297,6 +297,52 @@ it("edits the global profile separately from workspace permissions", async () =>
   expect(unlink).toHaveBeenCalledWith(membership);
 });
 
+it("saves a built-in avatar for a global member without touching workspace grants", async () => {
+  const agent: Agent = {
+    id: "global",
+    workspace_id: "",
+    display_name: "全局成员",
+    handle: "global",
+    aliases: [],
+    role_description: "",
+    executor: "claude",
+    model: "default",
+    tools: ["read_file"],
+    disabled: false,
+    revision: 2,
+  };
+  const save = vi.fn(async (value: Agent) => ({ ...value, revision: 3 }));
+  render(
+    <MembersForm
+      agents={[]}
+      catalog={[agent]}
+      global
+      system={{
+        models: ["default"],
+        roots: [],
+        model_status: "configured",
+        search_status: "not_configured",
+        verified: {},
+        csrf_token: "test",
+        limits: {},
+        executors: [],
+      }}
+      workspaceID=""
+      close={() => {}}
+      save={save}
+    />,
+  );
+  const user = userEvent.setup();
+  expect(
+    screen.queryByRole("group", { name: "本工作空间权限" }),
+  ).not.toBeInTheDocument();
+  await chooseOption(user, screen.getByLabelText("头像"), "🦊");
+  await user.click(screen.getByRole("button", { name: "保存成员" }));
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({ id: "global", revision: 2, avatar: "🦊" }),
+  );
+});
+
 it("reuses a global member identity without creating a new profile", async () => {
   const agent: Agent = {
     id: "existing",

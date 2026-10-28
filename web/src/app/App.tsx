@@ -20,6 +20,7 @@ import {
   type Run,
   type RunInput,
   type RunView,
+  type Settings,
   type Source,
   type Step,
   type System,
@@ -45,6 +46,7 @@ import { ThreadForm } from "../components/forms/ThreadForm";
 import { ThreadRenameForm } from "../components/forms/ThreadRenameForm";
 import { WorkspaceForm } from "../components/forms/WorkspaceForm";
 import {
+  conversationCoordinator,
   defaultAssignments,
   errorText,
   livenessFromAttempts,
@@ -52,6 +54,7 @@ import {
   nextLiveness,
   seedLiveness,
   threadTitle,
+  workflowRoles,
   workflows,
 } from "../lib/presentation";
 import { cx } from "../styles/classes";
@@ -317,6 +320,8 @@ function WorkspaceApp({
   const [workspaceID, setWorkspaceID] = useState(pathSelection().workspace);
   const [threadID, setThreadID] = useState(pathSelection().thread);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [globalAgents, setGlobalAgents] = useState<Agent[]>([]);
+  const [settings, setSettings] = useState<Settings>();
   const [threads, setThreads] = useState<Thread[]>([]);
   const [view, setView] = useState<ThreadView>();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -400,13 +405,18 @@ function WorkspaceApp({
     : undefined;
   const active = runs.some((run) => !terminal(run.status));
   const available = agents.filter((agent) => !agent.disabled);
+  const newThreadMembers = [...available].sort(
+    (a, b) =>
+      Number(b.id === settings?.default_coordinator_id) -
+      Number(a.id === settings?.default_coordinator_id),
+  );
   const draftKey = threadID || `new:${workspaceID}`;
   const draft = drafts[draftKey] ?? "";
   const threadMembers = view
     ? available.filter((agent) => view.thread.agent_ids?.includes(agent.id))
     : threadID
       ? []
-      : available.slice(0, 4);
+      : newThreadMembers.slice(0, 4);
   const workflow =
     workflowChoices[draftKey] ??
     (view?.thread.workflow as WorkflowKey | undefined) ??
@@ -415,14 +425,46 @@ function WorkspaceApp({
     setWorkflowChoices((current) => ({ ...current, [draftKey]: value }));
     setRouting(undefined);
   };
+  // Only the user's own picks are overrides; global defaults are resolved by
+  // the server so stale permissions fall back authoritatively.
+  const explicitAssignments = (flow: WorkflowKey) =>
+    Object.fromEntries(
+      Object.entries(assignmentChoices[draftKey] ?? {}).filter(
+        ([role, id]) => id !== "" && (workflowRoles[flow] ?? []).includes(role),
+      ),
+    );
   const assignments: Record<string, string> = {
-    ...defaultAssignments(threadMembers, view?.thread.coordinator_id),
+    ...defaultAssignments(
+      threadMembers,
+      view?.thread.coordinator_id,
+      settings?.assignments ?? {},
+      settings?.default_coordinator_id,
+      workflow,
+    ),
     ...Object.fromEntries(
-      Object.entries(assignmentChoices[draftKey] ?? {}).filter(([, id]) =>
+      Object.entries(explicitAssignments(workflow)).filter(([, id]) =>
         available.some((agent) => agent.id === id),
       ),
     ),
   };
+  // Existing conversations keep their own coordinator; a new one previews the
+  // same default/fallback the server applies when creating it.
+  const coordinatorID = threadID
+    ? (view?.thread.coordinator_id ?? "")
+    : conversationCoordinator(
+        threadMembers,
+        settings?.default_coordinator_id ?? "",
+      );
+  const coordinatorMember = agents.find((agent) => agent.id === coordinatorID);
+  const coordinator = coordinatorMember
+    ? {
+        name: coordinatorMember.display_name,
+        fallback:
+          !threadID &&
+          !!settings?.default_coordinator_id &&
+          coordinatorID !== settings.default_coordinator_id,
+      }
+    : undefined;
   const updateDraft = (value: string) =>
     setDrafts((current) => ({ ...current, [draftKey]: value }));
 
@@ -467,6 +509,13 @@ function WorkspaceApp({
     const result = await api<{ items: Workspace[] }>("/api/v1/workspaces");
     setWorkspaces(result.items ?? []);
     return result.items ?? [];
+  }, []);
+  const loadGlobalAgents = useCallback(async () => {
+    const result = await api<{ items: Agent[] }>("/api/v1/agents");
+    setGlobalAgents(result.items ?? []);
+  }, []);
+  const loadSettings = useCallback(async () => {
+    setSettings(await api<Settings>("/api/v1/settings"));
   }, []);
   const loadMembers = useCallback(async (id: string) => {
     const result = await api<{ items: Agent[] }>(
@@ -567,7 +616,11 @@ function WorkspaceApp({
     let canceled = false;
     async function initialize() {
       try {
-        const spaces = await loadSpaces();
+        const [spaces] = await Promise.all([
+          loadSpaces(),
+          loadGlobalAgents(),
+          loadSettings(),
+        ]);
         if (!workspaceID && spaces.length) navigate(spaces[0].id);
         setReady(true);
       } catch (error) {
@@ -932,8 +985,8 @@ function WorkspaceApp({
       "POST",
       {
         title: threadTitle(text),
-        agent_ids: available.slice(0, 4).map((agent) => agent.id),
-        coordinator_id: available[Math.min(2, available.length - 1)].id,
+        // The server applies the global default coordinator when omitted.
+        agent_ids: newThreadMembers.slice(0, 4).map((agent) => agent.id),
         workflow,
       },
     );
@@ -941,7 +994,7 @@ function WorkspaceApp({
     setWorkflowChoices((current) => ({ ...current, [thread.id]: workflow }));
     setAssignmentChoices((current) => ({
       ...current,
-      [thread.id]: assignments,
+      [thread.id]: explicitAssignments(workflow),
     }));
     setDrafts((current) => ({
       ...current,
@@ -967,7 +1020,8 @@ function WorkspaceApp({
             message: text,
             workflow: workflow === "free" ? "" : workflow,
             targets: workflow === "discussion" ? selected : [],
-            assignments: workflow === "free" ? {} : assignments,
+            assignments:
+              workflow === "free" ? {} : explicitAssignments(workflow),
             source_urls: [],
             artifact_refs: artifactRef
               ? [{ id: artifactRef.id, version: artifactRef.version }]
@@ -1147,6 +1201,9 @@ function WorkspaceApp({
       0,
       agents.findIndex((agent) => agent.id === id),
     );
+  // Avatars come from the run's own member snapshot, never the current profile.
+  const runAvatar = (run: Run, agentID: string) =>
+    run.agents?.find((agent) => agent.id === agentID)?.avatar;
   const stepRole = (runID: string, stepID: string) =>
     stepsByRun[runID]?.find((step) => step.id === stepID)?.role;
   return (
@@ -1229,6 +1286,7 @@ function WorkspaceApp({
                     key={agent.id}
                     name={agent.display_name}
                     id={agent.id}
+                    avatar={agent.avatar}
                     small
                   />
                 ))}
@@ -1377,6 +1435,7 @@ function WorkspaceApp({
                               key={message.id}
                               message={message}
                               index={agentIndex(message.agent_id)}
+                              avatar={runAvatar(run, message.agent_id)}
                               role={stepRole(run.id, message.step_id)}
                             />
                           ))}
@@ -1433,14 +1492,16 @@ function WorkspaceApp({
                 )
               }
               assignments={assignments}
-              setAssignment={(role, id) =>
+              setAssignment={(role, id) => {
+                setRouting(undefined);
                 setAssignmentChoices((current) => ({
                   ...current,
                   [draftKey]: { ...current[draftKey], [role]: id },
-                }))
-              }
+                }));
+              }}
               artifactRef={artifactRef}
               clearArtifactRef={() => setArtifactRef(undefined)}
+              coordinator={coordinator}
               routing={routing}
               active={!!active}
               canceling={currentRun?.status === "canceling"}
@@ -1547,6 +1608,7 @@ function WorkspaceApp({
               value.id ? { "If-Match": String(value.revision) } : {},
             );
             await loadMembers(workspaceID);
+            await loadGlobalAgents();
             return saved;
           }}
         />
@@ -1556,6 +1618,7 @@ function WorkspaceApp({
           <ThreadForm
             current={modal.kind === "edit-thread" ? view?.thread : undefined}
             agents={available}
+            defaultCoordinatorID={settings?.default_coordinator_id}
             close={close}
             save={async (value) => {
               const th = await api<Thread>(
@@ -1597,6 +1660,31 @@ function WorkspaceApp({
           setSystem={setSystem}
           close={close}
           lock={lock}
+          settings={settings}
+          saveSettings={async (value) => {
+            const saved = await api<Settings>(
+              "/api/v1/settings",
+              "PATCH",
+              value,
+              { "If-Match": String(settings?.revision ?? 0) },
+            );
+            setSettings(saved);
+            return saved;
+          }}
+          agents={globalAgents}
+          saveAgent={async (value) => {
+            const saved = await api<Agent>(
+              value.id
+                ? `/api/v1/agents/${value.id}`
+                : "/api/v1/agents",
+              value.id ? "PATCH" : "POST",
+              value,
+              value.id ? { "If-Match": String(value.revision) } : {},
+            );
+            await loadGlobalAgents();
+            if (workspaceID) await loadMembers(workspaceID);
+            return saved;
+          }}
         />
       )}
       {modal?.kind === "artifact" && artifact && (

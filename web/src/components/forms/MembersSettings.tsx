@@ -29,16 +29,20 @@ export function MembersSettings({
       canceled = true;
     };
   }, []);
-  if (!catalog)
-    return (
+  if (!catalog) {
+    const loading = error ? (
+      <p role="alert">{error}</p>
+    ) : (
+      <p role="status">正在读取全局成员…</p>
+    );
+    return props.embedded ? (
+      loading
+    ) : (
       <Modal title="成员与称呼" close={props.close}>
-        {error ? (
-          <p role="alert">{error}</p>
-        ) : (
-          <p role="status">正在读取全局成员…</p>
-        )}
+        {loading}
       </Modal>
     );
+  }
   return (
     <MembersForm
       {...props}
@@ -48,24 +52,32 @@ export function MembersSettings({
         await load();
         return saved;
       }}
-      saveMembership={async (agent, member, grant) => {
-        await api(
-          `/api/v1/workspaces/${props.workspaceID}/members/${agent.id}`,
-          member ? "PATCH" : "PUT",
-          grant,
-          member ? { "If-Match": String(member.revision) } : {},
-        );
-        await refresh();
-      }}
-      unlink={async (member) => {
-        await api(
-          `/api/v1/workspaces/${props.workspaceID}/members/${member.agent_id}`,
-          "DELETE",
-          undefined,
-          { "If-Match": String(member.revision) },
-        );
-        await refresh();
-      }}
+      saveMembership={
+        props.workspaceID && !props.global
+          ? async (agent, member, grant) => {
+              await api(
+                `/api/v1/workspaces/${props.workspaceID}/members/${agent.id}`,
+                member ? "PATCH" : "PUT",
+                grant,
+                member ? { "If-Match": String(member.revision) } : {},
+              );
+              await refresh();
+            }
+          : undefined
+      }
+      unlink={
+        props.workspaceID && !props.global
+          ? async (member) => {
+              await api(
+                `/api/v1/workspaces/${props.workspaceID}/members/${member.agent_id}`,
+                "DELETE",
+                undefined,
+                { "If-Match": String(member.revision) },
+              );
+              await refresh();
+            }
+          : undefined
+      }
     />
   );
 }

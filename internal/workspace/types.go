@@ -27,6 +27,10 @@ type Workspace struct {
 	SkillIDs    []string `json:"skill_ids"`
 }
 
+// AvatarChoices are the only accepted built-in avatars. Remote URLs, SVG and
+// uploads are rejected by construction, and avatars never enter model prompts.
+var AvatarChoices = []string{"🐱", "🦊", "🦉", "🐼", "🐰", "🐻", "🐧", "🐯"}
+
 // Agent keeps identity independent of its presentation, model and current role.
 type Agent struct {
 	ID              string           `json:"id"`
@@ -36,6 +40,7 @@ type Agent struct {
 	Aliases         []string         `json:"aliases"`
 	RoleDescription string           `json:"role_description"`
 	Capabilities    []string         `json:"capabilities,omitempty"`
+	Avatar          string           `json:"avatar,omitempty"`
 	Executor        string           `json:"executor,omitempty"`
 	Model           string           `json:"model"`
 	Tools           []string         `json:"tools"`
@@ -51,6 +56,20 @@ type WorkspaceMember struct {
 	Enabled     bool     `json:"enabled"`
 	Tools       []string `json:"tools"`
 	Revision    int      `json:"revision"`
+}
+
+// WorkflowRoles is the exact role vocabulary of each built-in workflow.
+var WorkflowRoles = map[string][]string{
+	"discussion":    {"coordinator"},
+	"research":      {"researcher", "critic", "coordinator"},
+	"code_analysis": {"analyst", "reviewer"},
+}
+
+// Settings holds device-wide collaboration defaults shared by every workspace.
+type Settings struct {
+	Revision             int                          `json:"revision"`
+	DefaultCoordinatorID string                       `json:"default_coordinator_id"`
+	Assignments          map[string]map[string]string `json:"assignments"`
 }
 
 // Thread is a shared, ordered conversation within one workspace.
@@ -381,6 +400,9 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	if len(a.Aliases) > 12 || len(a.RoleDescription) > 8000 || len(a.Capabilities) > 20 {
 		return errors.New("agent configuration exceeds limits")
 	}
+	if a.Avatar != "" && !slices.Contains(AvatarChoices, a.Avatar) {
+		return errors.New("avatar must be a built-in choice")
+	}
 	for _, capability := range a.Capabilities {
 		if strings.TrimSpace(capability) != capability || capability == "" || len([]rune(capability)) > 100 {
 			return errors.New("invalid capability")
@@ -410,6 +432,49 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	for _, name := range a.Tools {
 		if !slices.Contains(tools, name) {
 			return fmt.Errorf("unsupported tool: %s", name)
+		}
+	}
+	return nil
+}
+
+// ValidateSettings rejects unknown workflows and roles, unavailable global
+// members, and exclusive roles assigned twice. Empty values are explicit resets.
+func ValidateSettings(s Settings, agents []Agent) error {
+	byID := map[string]Agent{}
+	for _, a := range agents {
+		byID[a.ID] = a
+	}
+	available := func(id string) error {
+		if id == "" {
+			return nil
+		}
+		a, ok := byID[id]
+		if !ok || a.Disabled {
+			return errors.New("settings reference an unavailable member")
+		}
+		return nil
+	}
+	if err := available(s.DefaultCoordinatorID); err != nil {
+		return err
+	}
+	for workflow, roles := range s.Assignments {
+		allowed, ok := WorkflowRoles[workflow]
+		if !ok {
+			return fmt.Errorf("unsupported workflow in settings: %s", workflow)
+		}
+		for role, id := range roles {
+			if !slices.Contains(allowed, role) {
+				return fmt.Errorf("unsupported role for %s: %s", workflow, role)
+			}
+			if err := available(id); err != nil {
+				return err
+			}
+		}
+		if roles["researcher"] != "" && roles["researcher"] == roles["critic"] {
+			return errors.New("researcher and critic must be different members")
+		}
+		if roles["analyst"] != "" && roles["analyst"] == roles["reviewer"] {
+			return errors.New("analyst and reviewer must be different members")
 		}
 	}
 	return nil

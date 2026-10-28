@@ -88,6 +88,55 @@ func TestAgentIdentityAndNames(t *testing.T) {
 	}
 }
 
+func TestAgentAvatarIsBuiltInOnly(t *testing.T) {
+	a := Agent{DisplayName: "成员", Handle: "member", Executor: "claude", Model: "default"}
+	for _, value := range []string{"", "🐱", "🦊"} {
+		a.Avatar = value
+		if err := ValidateAgent(a, nil, nil, nil); err != nil {
+			t.Fatalf("built-in avatar %q rejected: %v", value, err)
+		}
+	}
+	for _, value := range []string{"https://example.test/a.png", "<svg/>", "data:image/png;base64,AA==", "custom"} {
+		a.Avatar = value
+		if err := ValidateAgent(a, nil, nil, nil); err == nil {
+			t.Fatalf("non-built-in avatar accepted: %q", value)
+		}
+	}
+}
+
+func TestSettingsRejectUnknownRolesAndUnavailableMembers(t *testing.T) {
+	agents := []Agent{{ID: "a", DisplayName: "一", Handle: "one", Model: "default"}, {ID: "b", DisplayName: "二", Handle: "two", Model: "default"}, {ID: "off", DisplayName: "停用", Handle: "off", Model: "default", Disabled: true}}
+	valid := Settings{Revision: 1, DefaultCoordinatorID: "a", Assignments: map[string]map[string]string{
+		"discussion":    {"coordinator": "b"},
+		"research":      {"researcher": "a", "critic": "b", "coordinator": "a"},
+		"code_analysis": {"analyst": "a", "reviewer": "b"},
+	}}
+	if err := ValidateSettings(valid, agents); err != nil {
+		t.Fatalf("valid settings rejected: %v", err)
+	}
+	if err := ValidateSettings(Settings{Revision: 1, Assignments: map[string]map[string]string{}}, agents); err != nil {
+		t.Fatalf("empty reset rejected: %v", err)
+	}
+	for name, value := range map[string]Settings{
+		"unknown workflow": {Assignments: map[string]map[string]string{"writing": {"coordinator": "a"}}},
+		"unknown role":     {Assignments: map[string]map[string]string{"research": {"writer": "a"}}},
+		"unknown member":   {DefaultCoordinatorID: "missing"},
+		"disabled member":  {Assignments: map[string]map[string]string{"research": {"critic": "off"}}},
+		"research duplicate": {Assignments: map[string]map[string]string{"research": {
+			"researcher": "a", "critic": "a",
+		}}},
+		"analysis duplicate": {Assignments: map[string]map[string]string{"code_analysis": {
+			"analyst": "a", "reviewer": "a",
+		}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateSettings(value, agents); err == nil {
+				t.Fatal("invalid settings accepted")
+			}
+		})
+	}
+}
+
 func TestTerminal(t *testing.T) {
 	for _, s := range []string{"succeeded", "failed", "canceled", "interrupted"} {
 		if !Terminal(s) {

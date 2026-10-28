@@ -3,6 +3,8 @@ import type { components } from "./schema";
 export type Workspace = components["schemas"]["Workspace"];
 export type Agent = components["schemas"]["Agent"];
 export type WorkspaceMember = components["schemas"]["WorkspaceMember"];
+export type Settings = components["schemas"]["Settings"];
+export type SettingsInput = components["schemas"]["SettingsInput"];
 export type Thread = components["schemas"]["Thread"];
 export type Message = components["schemas"]["Message"];
 export type Run = components["schemas"]["Run"];

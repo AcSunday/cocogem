@@ -1,6 +1,12 @@
 import { Select } from "./Select";
 import { useState } from "react";
-import type { Run, System } from "../api/client";
+import type {
+  Agent,
+  Run,
+  Settings,
+  SettingsInput,
+  System,
+} from "../api/client";
 import { api, statusText } from "../api/client";
 import { cx } from "../styles/classes";
 import {
@@ -10,20 +16,237 @@ import {
   legacyPolicyNote,
   limitLabel,
   policyNote,
+  roleLabel,
   skillLabel,
+  workflowRoles,
   workflows,
 } from "../lib/presentation";
+import { MembersSettings } from "./forms/MembersSettings";
 import { Modal } from "./Modal";
+
+type SettingsTab = "members" | "collaboration" | "service";
+
+const editable = (settings: Settings): SettingsInput => ({
+  default_coordinator_id: settings.default_coordinator_id ?? "",
+  assignments: Object.fromEntries(
+    Object.entries(settings.assignments ?? {}).map(([workflow, roles]) => [
+      workflow,
+      { ...(roles ?? {}) },
+    ]),
+  ),
+});
 
 export function SettingsDialog({
   system,
   setSystem,
   close,
   lock,
+  settings,
+  saveSettings,
+  agents = [],
+  saveAgent,
 }: {
   system: System;
   setSystem: (value: System) => void;
   close: () => void;
+  lock: () => Promise<void>;
+  settings?: Settings;
+  saveSettings?: (value: SettingsInput) => Promise<Settings>;
+  agents?: Agent[];
+  saveAgent?: (value: Agent) => Promise<Agent>;
+}) {
+  const tabs: [SettingsTab, string][] = [];
+  if (saveAgent) tabs.push(["members", "成员"]);
+  if (settings && saveSettings) tabs.push(["collaboration", "协作"]);
+  tabs.push(["service", "服务"]);
+  const [tab, setTab] = useState<SettingsTab>(tabs[0][0]);
+  return (
+    <Modal title="设置" close={close} wide>
+      <div className={cx("panel-tabs")} role="tablist" aria-label="设置分类">
+        {tabs.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`settings-tab-${key}`}
+            aria-selected={tab === key}
+            aria-controls={`settings-panel-${key}`}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div
+        id={`settings-panel-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`settings-tab-${tab}`}
+      >
+        {tab === "members" && saveAgent && (
+          <MembersSettings
+            embedded
+            global
+            agents={[]}
+            system={system}
+            workspaceID=""
+            refresh={async () => {}}
+            close={close}
+            save={saveAgent}
+          />
+        )}
+        {tab === "collaboration" && settings && saveSettings && (
+          <CollaborationSettings
+            agents={agents}
+            settings={settings}
+            save={saveSettings}
+          />
+        )}
+        {tab === "service" && (
+          <ServiceSettings
+            system={system}
+            setSystem={setSystem}
+            lock={lock}
+          />
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Global collaboration defaults; a member is only used where the workspace grants it. */
+function CollaborationSettings({
+  agents,
+  settings,
+  save,
+}: {
+  agents: Agent[];
+  settings: Settings;
+  save: (value: SettingsInput) => Promise<Settings>;
+}) {
+  const [value, setValue] = useState<SettingsInput>(() => editable(settings));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const enabled = agents.filter((agent) => !agent.disabled);
+  const role = (workflow: string, name: string) =>
+    value.assignments?.[workflow]?.[name] ?? "";
+  const choose = (workflow: string, name: string, id: string) =>
+    setValue((current) => ({
+      ...current,
+      assignments: {
+        ...current.assignments,
+        [workflow]: { ...current.assignments?.[workflow], [name]: id },
+      },
+    }));
+  // Saving never resends a member the server would reject: disabled or removed
+  // profiles are cleared from the value before the PATCH.
+  const clearUnavailable = (current: SettingsInput): SettingsInput => {
+    const ids = new Set(enabled.map((agent) => agent.id));
+    return {
+      default_coordinator_id: ids.has(current.default_coordinator_id ?? "")
+        ? (current.default_coordinator_id ?? "")
+        : "",
+      assignments: Object.fromEntries(
+        Object.entries(current.assignments ?? {}).map(([workflow, roles]) => [
+          workflow,
+          Object.fromEntries(
+            Object.entries(roles ?? {}).filter(
+              ([, id]) => !id || ids.has(id),
+            ),
+          ),
+        ]),
+      ),
+    };
+  };
+  const memberOptions = (current: string) => [
+    <option key="" value="">
+      使用会话可用成员
+    </option>,
+    ...enabled.map((agent) => (
+      <option key={agent.id} value={agent.id}>
+        {agent.display_name} (@{agent.handle})
+      </option>
+    )),
+    ...(current && !enabled.some((agent) => agent.id === current)
+      ? [
+          <option key="unavailable" value={current}>
+            原成员已停用或不存在，保存时清除
+          </option>,
+        ]
+      : []),
+  ];
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSaving(true);
+        setError("");
+        setSaved(false);
+        void save(clearUnavailable(value))
+          .then((next) => {
+            setValue(editable(next));
+            setSaved(true);
+          })
+          .catch((error) => setError(errorText(error)))
+          .finally(() => setSaving(false));
+      }}
+    >
+      <p>
+        默认协调者和模式分工在创建会话与解析分工时使用。显式选择优先；成员未加入当前空间、已停用或缺少该角色所需工具时，回退到本会话可用成员，不会自动加入空间或授予权限。
+      </p>
+      <label>
+        默认协调者
+        <Select
+          value={value.default_coordinator_id ?? ""}
+          onChange={(selected) => {
+            setSaved(false);
+            setValue({ ...value, default_coordinator_id: selected });
+          }}
+        >
+          {memberOptions(value.default_coordinator_id ?? "")}
+        </Select>
+      </label>
+      {Object.entries(workflowRoles).map(([workflow, roles]) => (
+        <fieldset key={workflow}>
+          <legend>{workflows[workflow as keyof typeof workflows]}</legend>
+          {roles.map((name) => (
+            <label key={name}>
+              {roleLabel(name)}
+              <Select
+                value={role(workflow, name)}
+                onChange={(selected) => {
+                  setSaved(false);
+                  choose(workflow, name, selected);
+                }}
+              >
+                {memberOptions(role(workflow, name))}
+              </Select>
+            </label>
+          ))}
+        </fieldset>
+      ))}
+      {error && (
+        <p role="alert" className={cx("error")}>
+          {error}
+        </p>
+      )}
+      {saved && <p role="status">协作默认已保存，新会话会使用这些选择。</p>}
+      <div className={cx("form-actions")}>
+        <button className={cx("primary")} disabled={saving}>
+          {saving ? "保存中…" : "保存协作默认"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ServiceSettings({
+  system,
+  setSystem,
+  lock,
+}: {
+  system: System;
+  setSystem: (value: System) => void;
   lock: () => Promise<void>;
 }) {
   const [executor, setExecutor] = useState(
@@ -39,7 +262,7 @@ export function SettingsDialog({
       item.id === executor && item.installed && item.supported !== false,
   );
   return (
-    <Modal title="服务与设置" close={close}>
+    <>
       <p>
         成员调用本机 Claude、Codex 或 Gemini
         CLI，复用本机的模型、供应商与认证配置。网页不会读取凭证。
@@ -170,7 +393,7 @@ export function SettingsDialog({
           锁定工作空间
         </button>
       </div>
-    </Modal>
+    </>
   );
 }
 

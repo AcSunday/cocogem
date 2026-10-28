@@ -48,10 +48,12 @@ export function MessageCard({
   message,
   index,
   role,
+  avatar,
 }: {
   message: Message;
   index: number;
   role?: string;
+  avatar?: string;
 }) {
   const user = message.role === "user";
   const model = user ? "" : messageModel(message);
@@ -131,6 +133,7 @@ export function MessageCard({
             <Avatar
               name={message.agent_name}
               id={message.agent_id}
+              avatar={avatar}
               index={index}
               small
             />

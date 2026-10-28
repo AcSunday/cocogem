@@ -63,10 +63,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByRole("button", { name: "成员 3", exact: true }).click();
   await page.getByLabel("别名（用逗号分隔）").fill("布布");
   await page.getByRole("button", { name: "保存成员" }).click();
-  await expect(page.getByRole("status")).toContainText("已保存");
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText("已保存");
   await page.getByLabel("职责").fill("研究资料并核对证据。");
   await page.getByRole("button", { name: "保存成员" }).click();
-  await expect(page.getByRole("status")).toContainText("已保存");
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText("已保存");
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await page
     .getByRole("button", { name: "做一次 Research", exact: false })
@@ -625,7 +625,8 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(
     threadList.getByRole("button", { name: "并行讨论", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "服务与设置" }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("tab", { name: "服务" }).click();
   await page.getByRole("button", { name: "锁定工作空间" }).click();
   await expect(page.getByLabel("密码", { exact: true })).toBeVisible();
   const unauthorized = await page.request.get("/api/v1/workspaces");
@@ -635,7 +636,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(page.getByRole("alert")).toContainText("密码不正确");
   await page.getByLabel("密码", { exact: true }).fill("browser-test-password");
   await page.getByRole("button", { name: "解锁工作空间" }).click();
-  await expect(page.getByRole("button", { name: "服务与设置" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "设置", exact: true }),
+  ).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("密码", { exact: true })).toHaveCount(0);
 });

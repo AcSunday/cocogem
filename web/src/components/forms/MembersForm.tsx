@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Agent, System, WorkspaceMember } from "../../api/client";
 import { cx } from "../../styles/classes";
 import { errorText, memberLabel } from "../../lib/presentation";
+import { Avatar, avatars } from "../Avatar";
 import { Modal } from "../Modal";
 
 const allTools = [
@@ -25,6 +26,8 @@ export function MembersForm({
   system,
   workspaceID,
   catalog,
+  global,
+  embedded,
   saveMembership,
   unlink,
   close,
@@ -34,6 +37,8 @@ export function MembersForm({
   system: System;
   workspaceID: string;
   catalog?: Agent[];
+  global?: boolean;
+  embedded?: boolean;
   saveMembership?: (
     agent: Agent,
     member: WorkspaceMember | undefined,
@@ -81,12 +86,13 @@ export function MembersForm({
   );
   const membership =
     agents.find((agent) => agent.id === value.id)?.membership ?? undefined;
-  return (
-    <Modal title="成员与称呼" close={close}>
+  const body = (
+    <>
       {catalog && (
         <p>
           成员档案在所有工作空间共享。职责、能力、CLI
-          与全局权限修改后，各工作空间会使用同一份配置；本空间权限可在下方单独限制。
+          与全局权限修改后，各工作空间会使用同一份配置。
+          {!global && "本空间权限可在下方单独限制。"}
         </p>
       )}
       <div className={cx("member-picker")}>
@@ -102,8 +108,15 @@ export function MembersForm({
             }}
             disabled={saving}
           >
+            <Avatar
+              name={agent.display_name}
+              id={agent.id}
+              avatar={agent.avatar}
+              small
+            />
             {memberLabel(agent)}
             {catalog &&
+              !global &&
               (agents.some((item) => item.id === agent.id)
                 ? " · 已加入"
                 : " · 可加入")}
@@ -196,6 +209,23 @@ export function MembersForm({
           </label>
         )}
         <label>
+          头像
+          <Select
+            value={value.avatar ?? ""}
+            onChange={(selected) => {
+              setSaved(false);
+              setValue({ ...value, avatar: selected });
+            }}
+          >
+            <option value="">使用名称首字</option>
+            {avatars.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label>
           执行 CLI
           <Select
             required
@@ -238,7 +268,8 @@ export function MembersForm({
         </label>
         <p>
           复用本机 CLI
-          的模型、供应商与认证配置。已安装不代表连接或模型可用，请在“服务与设置”验证。
+          的模型、供应商与认证配置。已安装不代表连接或模型可用，请在“设置 →
+          服务”验证。
           下列权限仅控制 Cocogem 的资料工具，不授予原生命令或写文件权限。
         </p>
         {!value.executor && (
@@ -308,6 +339,13 @@ export function MembersForm({
           unlink={() => (membership ? unlink(membership) : Promise.resolve())}
         />
       )}
+    </>
+  );
+  return embedded ? (
+    body
+  ) : (
+    <Modal title="成员与称呼" close={close}>
+      {body}
     </Modal>
   );
 }

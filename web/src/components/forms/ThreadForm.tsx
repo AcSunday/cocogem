@@ -8,11 +8,13 @@ import { Modal } from "../Modal";
 export function ThreadForm({
   current,
   agents,
+  defaultCoordinatorID = "",
   close,
   save,
 }: {
   current?: Thread;
   agents: Agent[];
+  defaultCoordinatorID?: string;
   close: () => void;
   save: (value: Thread) => Promise<void>;
 }) {
@@ -23,6 +25,11 @@ export function ThreadForm({
         ) ?? [])
       : agents
           .filter((agent) => !agent.disabled)
+          .sort(
+            (a, b) =>
+              Number(b.id === defaultCoordinatorID) -
+              Number(a.id === defaultCoordinatorID),
+          )
           .slice(0, 4)
           .map((agent) => agent.id);
     return {
@@ -37,7 +44,9 @@ export function ThreadForm({
       coordinator_id:
         current && ids.includes(current.coordinator_id)
           ? current.coordinator_id
-          : (ids[Math.min(2, ids.length - 1)] ?? ""),
+          : ids.includes(defaultCoordinatorID)
+            ? defaultCoordinatorID
+            : (ids[Math.min(2, ids.length - 1)] ?? ""),
     };
   });
   const [error, setError] = useState("");

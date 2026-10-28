@@ -196,6 +196,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["settings"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["updateSettings"];
+    trace?: never;
+  };
   "/api/v1/sources/{id}": {
     parameters: {
       query?: never;
@@ -442,6 +458,7 @@ export interface components {
   schemas: {
     Agent: {
       aliases: string[] | null;
+      avatar?: string;
       capabilities?: string[] | null;
       disabled: boolean;
       display_name: string;
@@ -463,6 +480,7 @@ export interface components {
     };
     AgentInput: {
       aliases?: string[] | null;
+      avatar?: string;
       capabilities?: string[] | null;
       disabled?: boolean;
       display_name: string;
@@ -751,6 +769,7 @@ export interface components {
       agents:
         | {
             aliases: string[] | null;
+            avatar?: string;
             capabilities?: string[] | null;
             disabled: boolean;
             display_name: string;
@@ -964,6 +983,7 @@ export interface components {
         agents:
           | {
               aliases: string[] | null;
+              avatar?: string;
               capabilities?: string[] | null;
               disabled: boolean;
               display_name: string;
@@ -1087,6 +1107,23 @@ export interface components {
     SessionReply: {
       csrf_token: string;
     };
+    Settings: {
+      assignments: {
+        [key: string]: {
+          [key: string]: string;
+        } | null;
+      } | null;
+      default_coordinator_id: string;
+      revision: number;
+    };
+    SettingsInput: {
+      assignments: {
+        [key: string]: {
+          [key: string]: string;
+        } | null;
+      } | null;
+      default_coordinator_id: string;
+    };
     Source: {
       capture_step_id?: string;
       captured_at: string;
@@ -1175,8 +1212,8 @@ export interface components {
       workspace_id: string;
     };
     ThreadInput: {
-      agent_ids: string[] | null;
-      coordinator_id: string;
+      agent_ids?: string[] | null;
+      coordinator_id?: string;
       id?: string;
       revision?: number;
       title: string;
@@ -1228,6 +1265,7 @@ export interface components {
         agents:
           | {
               aliases: string[] | null;
+              avatar?: string;
               capabilities?: string[] | null;
               disabled: boolean;
               display_name: string;
@@ -1884,6 +1922,71 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  settings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Settings"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  updateSettings: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SettingsInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Settings"];
         };
       };
       /** @description Structured error */

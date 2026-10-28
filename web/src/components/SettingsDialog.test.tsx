@@ -1,6 +1,13 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
-import type { Run, System } from "../api/client";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, expect, it, vi } from "vitest";
+import type {
+  Agent,
+  Run,
+  Settings,
+  SettingsInput,
+  System,
+} from "../api/client";
 import { SettingsDialog, SnapshotDialog } from "./SettingsDialog";
 
 HTMLDialogElement.prototype.showModal = function () {
@@ -91,4 +98,64 @@ it("explains that one collaboration runs at a time", () => {
   expect(
     screen.getByText("同一时间处理一轮协作，其余按顺序排队；可停止当前协作。"),
   ).toBeVisible();
+});
+
+it("clears an unavailable member instead of saving the stale id", async () => {
+  const system = {
+    csrf_token: "",
+    limits: {},
+    roots: [],
+    model_status: "configured",
+    search_status: "not_configured",
+    models: [],
+    verified: {},
+    executors: [],
+  } as unknown as System;
+  const agents: Agent[] = [
+    {
+      id: "one",
+      workspace_id: "",
+      display_name: "布偶猫",
+      handle: "ragdoll",
+      aliases: [],
+      role_description: "",
+      model: "default",
+      tools: [],
+      disabled: false,
+      revision: 1,
+    },
+  ];
+  const settings: Settings = {
+    revision: 1,
+    default_coordinator_id: "gone",
+    assignments: {
+      research: { researcher: "gone", critic: "one" },
+    },
+  };
+  const saveSettings = vi.fn(async (value: SettingsInput) => ({
+    revision: 2,
+    ...value,
+  }));
+  render(
+    <SettingsDialog
+      system={system}
+      setSystem={() => {}}
+      close={() => {}}
+      lock={async () => {}}
+      settings={settings}
+      saveSettings={saveSettings}
+      agents={agents}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "协作" }));
+  expect(
+    screen.getAllByText("原成员已停用或不存在，保存时清除").length,
+  ).toBeGreaterThan(0);
+  await user.click(screen.getByRole("button", { name: "保存协作默认" }));
+  await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
+  expect(saveSettings).toHaveBeenCalledWith({
+    default_coordinator_id: "",
+    assignments: { research: { critic: "one" } },
+  });
 });

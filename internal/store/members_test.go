@@ -68,6 +68,10 @@ func TestMemberMigrationPreservesDistinctIdentitiesAndHistory(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(got.Agents, run.Agents) {
 				t.Fatalf("history rewritten: %+v, %v", got, err)
 			}
+			settings, err := tx.Settings()
+			if err != nil || settings.Revision != 1 || len(settings.Assignments) != 0 {
+				t.Fatalf("migration changed defaults: %+v, %v", settings, err)
+			}
 			return nil
 		}); err != nil {
 			t.Fatal(err)

@@ -566,17 +566,92 @@ export function threadTitle(text: string) {
   return chars.length > 28 ? `${chars.slice(0, 28).join("")}…` : sentence;
 }
 
-export function defaultAssignments(agents: Agent[], coordinatorID = "") {
+/** Roles each built-in workflow needs, in execution order. */
+export const workflowRoles: Record<string, string[]> = {
+  discussion: ["coordinator"],
+  research: ["researcher", "critic", "coordinator"],
+  code_analysis: ["analyst", "reviewer"],
+};
+/** Coordinator and reviewer publish, so a default must carry that grant. */
+export const roleRequiresPublish = (role: string) =>
+  role === "coordinator" || role === "reviewer";
+export const canServeRole = (agent: Agent, role: string) =>
+  !roleRequiresPublish(role) ||
+  (agent.tools ?? []).includes("publish_artifact");
+
+/**
+ * Role defaults prefer global settings, then this conversation's own members.
+ * Exclusive roles never share a member, and a role that publishes skips members
+ * without the grant; the backend remains authoritative for the actual plan.
+ */
+export function defaultAssignments(
+  agents: Agent[],
+  coordinatorID = "",
+  defaults: Record<string, Record<string, string> | null> = {},
+  defaultCoordinatorID = "",
+  workflow = "free",
+) {
   const enabled = agents.filter((agent) => !agent.disabled);
+  const available = (id?: string) =>
+    enabled.find((agent) => agent.id === id)?.id ?? "";
+  const capable = (id?: string, role = "") =>
+    enabled.find((agent) => agent.id === id && canServeRole(agent, role))?.id ??
+    "";
+  const role = (name: string, target = workflow) =>
+    capable(available(defaults[target]?.[name]), name);
+  const different = (name: string, used: string[]) =>
+    enabled.find(
+      (agent) => canServeRole(agent, name) && !used.includes(agent.id),
+    )?.id ?? "";
+  const configuredResearcher = role("researcher", "research");
+  const configuredCritic = role("critic", "research");
+  const researcher =
+    configuredResearcher ||
+    different("researcher", configuredCritic ? [configuredCritic] : []);
+  const critic =
+    configuredCritic || different("critic", researcher ? [researcher] : []);
+  const configuredAnalyst = role("analyst", "code_analysis");
+  const configuredReviewer = role("reviewer", "code_analysis");
+  let analyst =
+    configuredAnalyst ||
+    different("analyst", configuredReviewer ? [configuredReviewer] : []);
+  let reviewer =
+    configuredReviewer || different("reviewer", analyst ? [analyst] : []);
+  if (!reviewer && analyst) {
+    // The picked analyst is the only capable publisher: a feasible pair keeps
+    // that member as reviewer and finds another analyst, as the backend does.
+    const picked = enabled.find((agent) => agent.id === analyst);
+    const other = different("analyst", [analyst]);
+    if (picked && canServeRole(picked, "reviewer") && other) {
+      reviewer = analyst;
+      analyst = other;
+    }
+  }
   return {
-    researcher: enabled[0]?.id ?? "",
-    critic: enabled[1]?.id ?? "",
+    researcher,
+    critic,
+    analyst,
+    reviewer,
     coordinator:
-      enabled.find((agent) => agent.id === coordinatorID)?.id ??
-      enabled[2]?.id ??
-      enabled[0]?.id ??
+      role("coordinator") ||
+      capable(available(coordinatorID), "coordinator") ||
+      capable(available(defaultCoordinatorID), "coordinator") ||
+      enabled.find((agent) => canServeRole(agent, "coordinator"))?.id ||
       "",
-    analyst: enabled[0]?.id ?? "",
-    reviewer: enabled[1]?.id ?? "",
   };
+}
+
+/**
+ * The coordinator a new conversation gets from its prepared roster: the global
+ * default when this workspace can use it, else the server's roster fallback
+ * (third member, or the first when fewer are available).
+ */
+export function conversationCoordinator(
+  agents: Agent[],
+  defaultCoordinatorID = "",
+) {
+  const enabled = agents.filter((agent) => !agent.disabled);
+  if (enabled.some((agent) => agent.id === defaultCoordinatorID))
+    return defaultCoordinatorID;
+  return enabled[Math.min(2, enabled.length - 1)]?.id ?? "";
 }

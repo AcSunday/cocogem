@@ -81,6 +81,10 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	// Avatars are presentation only and never enter model prompts.
+	for i := range candidates {
+		candidates[i].Avatar = ""
+	}
 	catalog, _ := json.Marshal(candidates)
 	schema := map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"assign", "discuss", "clarify"}}, "targets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workflow": map[string]any{"type": "string", "enum": []string{"free", "discussion", "research", "code_analysis"}}, "assignments": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "explanation": map[string]any{"type": "string"}, "clarification": map[string]any{"type": "string"}}, "required": []string{"decision", "targets", "workflow", "explanation"}, "additionalProperties": false}
 	ids := []string{}

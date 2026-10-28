@@ -86,6 +86,12 @@ type WorkspaceInput struct {
 	SkillIDs    []string `json:"skill_ids"`
 }
 
+// SettingsInput replaces the device-wide collaboration defaults.
+type SettingsInput struct {
+	DefaultCoordinatorID string                       `json:"default_coordinator_id"`
+	Assignments          map[string]map[string]string `json:"assignments"`
+}
+
 // ThreadUpdate edits the supplied fields; omitted settings keep their stored values.
 type ThreadUpdate struct {
 	Title         string    `json:"title"`

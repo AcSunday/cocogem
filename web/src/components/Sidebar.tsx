@@ -153,7 +153,7 @@ export function Sidebar({
           <Icon name="edit" size={14} /> 编辑工作空间
         </button>
         <button onClick={onSettings}>
-          <Icon name="settings" size={14} /> 服务与设置
+          <Icon name="settings" size={14} /> 设置
         </button>
         <AppearanceSelect value={appearance} onChange={onAppearance} />
         <p>本地工作空间 · 数据留在本机</p>

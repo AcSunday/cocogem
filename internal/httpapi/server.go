@@ -92,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/workspaces/{id}", s.deleteWorkspace)
 	mux.HandleFunc("GET /api/v1/agents", s.globalAgents)
 	mux.HandleFunc("POST /api/v1/agents", s.createGlobalAgent)
+	mux.HandleFunc("GET /api/v1/settings", s.settings)
+	mux.HandleFunc("PATCH /api/v1/settings", s.updateSettings)
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/agents", s.agents)
 	mux.HandleFunc("PUT /api/v1/workspaces/{id}/members/{agentID}", s.linkMember)
 	mux.HandleFunc("PATCH /api/v1/workspaces/{id}/members/{agentID}", s.updateMember)
@@ -565,6 +567,11 @@ func (s *Server) createThread(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		settings, err := tx.Settings()
+		if err != nil {
+			return err
+		}
+		applyThreadDefaults(&th, agents, settings)
 		if err := validateThread(th, agents); err != nil {
 			return err
 		}
@@ -799,6 +806,7 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 	}
 	var thread w.Thread
 	var agents []w.Agent
+	var settings w.Settings
 	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
 		var err error
 		thread, err = tx.Thread(r.PathValue("id"))
@@ -809,6 +817,9 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		if settings, err = tx.Settings(); err != nil {
+			return err
+		}
 		agents, err = tx.Agents(thread.WorkspaceID)
 		return err
 	})
@@ -816,13 +827,23 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, err)
 		return
 	}
-	route, err := workflow.ResolveRouting(r.Context(), s.config.Model, in, thread, agents)
+	effective, err := applySettingsDefaults(in, thread, agents, settings)
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	route, err := workflow.ResolveRouting(r.Context(), s.config.Model, effective, thread, agents)
 	if err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
 	if route.Decision == "clarify" {
 		writeJSON(rw, 200, map[string]any{"routing": route})
+		return
+	}
+	// Never hand out a proposal whose frozen assignments cannot form a plan.
+	if _, err := workflow.Plan("preview", w.RunInput{Workflow: route.Workflow, Targets: route.Targets, Assignments: route.Assignments}, agents); err != nil {
+		respond(rw, r, nil, err)
 		return
 	}
 	id := w.NewID()
@@ -838,7 +859,7 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ProposalID = ""
-	s.proposals[id] = proposal{ThreadID: thread.ID, Input: in, Routing: route, Digest: digest(in), Catalog: digest(agents), Expires: time.Now().Add(5 * time.Minute)}
+	s.proposals[id] = proposal{ThreadID: thread.ID, Input: in, Routing: route, Digest: digest(in), Catalog: digest(routingCatalog(agents)), Expires: time.Now().Add(5 * time.Minute)}
 	s.mu.Unlock()
 	writeJSON(rw, 200, map[string]any{"proposal_id": id, "routing": route, "expires_in": 300})
 }
@@ -923,6 +944,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		}
 		in.Workflow = p.Routing.Workflow
 		in.Targets = p.Routing.Targets
+		// Global defaults were resolved and validated with the accepted routing.
 		in.Assignments = p.Routing.Assignments
 		var policy *w.ExecutionPolicy
 		if s.engine != nil {

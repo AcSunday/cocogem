@@ -13,6 +13,7 @@ import type {
   Agent,
   Artifact,
   Attempt,
+  Message,
   Run,
   RunInput,
   Step,
@@ -252,7 +253,8 @@ it("verifies the selected local CLI and exact model, with unsupported versions d
   vi.stubGlobal("fetch", fetcher);
   render(<App />);
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "服务与设置" }));
+  await user.click(await screen.findByRole("button", { name: "设置" }));
+  await user.click(screen.getByRole("tab", { name: "服务" }));
   expect(screen.getByText(/已安装不代表连接或模型可用/)).toBeInTheDocument();
   await chooseOption(user, screen.getByLabelText("验证 CLI"), "codex");
   expect(
@@ -302,6 +304,144 @@ it("verifies the selected local CLI and exact model, with unsupported versions d
   expect(screen.getByText(/不支持：缺少安全工具模式/)).toBeInTheDocument();
 });
 
+it("applies edited collaboration defaults to a new conversation without losing the draft", async () => {
+  const agents: Agent[] = ["one", "two", "three"].map((id) => ({
+    id,
+    workspace_id: "ws",
+    display_name: id,
+    handle: id,
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "codex",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  }));
+  let settings = {
+    revision: 1,
+    default_coordinator_id: "one",
+    assignments: {
+      research: { researcher: "one", critic: "two", coordinator: "one" },
+    } as Record<string, Record<string, string>>,
+  };
+  const thread = {
+    id: "new-thread",
+    workspace_id: "ws",
+    title: "新会话",
+    agent_ids: ["three", "one", "two"],
+    coordinator_id: "three",
+    workflow: "free",
+    revision: 1,
+    updated_at: "",
+  };
+  let createBody: Record<string, unknown> | undefined;
+  const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
+    if (path === "/api/v1/system") return Response.json(system);
+    if (path === "/api/v1/workspaces")
+      return Response.json({ items: [{ id: "ws", name: "工作空间" }] });
+    if (path === "/api/v1/agents") return Response.json({ items: agents });
+    if (path === "/api/v1/workspaces/ws/agents")
+      return Response.json({ items: agents });
+    if (path === "/api/v1/settings" && options?.method === "PATCH") {
+      const input = JSON.parse(String(options.body));
+      settings = { revision: settings.revision + 1, ...input };
+      return Response.json(settings);
+    }
+    if (path === "/api/v1/settings") return Response.json(settings);
+    if (
+      path === "/api/v1/workspaces/ws/threads" &&
+      options?.method === "POST"
+    ) {
+      createBody = JSON.parse(String(options.body));
+      return Response.json(thread);
+    }
+    if (path.startsWith("/api/v1/workspaces/ws/threads"))
+      return Response.json({ items: [], next_cursor: "" });
+    if (path.startsWith("/api/v1/threads/new-thread?"))
+      return Response.json({
+        thread,
+        messages: { items: [], next_cursor: "" },
+        runs: [],
+        sources: [],
+      });
+    if (path === "/api/v1/threads/new-thread/routing-preview")
+      return Response.json({
+        routing: { decision: "discuss", clarification: "等待确认", targets: [] },
+      });
+    return Response.json({ items: [] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<App />);
+  const user = userEvent.setup();
+  const draft = "先写好的问题，不能因打开设置丢失";
+  await user.type(await screen.findByLabelText("输入问题"), draft);
+  await screen.findByText("协调者：one");
+  await user.click(screen.getByRole("button", { name: "设置" }));
+  await user.click(screen.getByRole("tab", { name: "协作" }));
+  await chooseOption(user, screen.getByLabelText("默认协调者"), "three");
+  await chooseOption(user, screen.getByLabelText("研究"), "three");
+  await user.click(screen.getByRole("button", { name: "保存协作默认" }));
+  await screen.findByText("协作默认已保存，新会话会使用这些选择。");
+  await screen.findByText("协调者：three");
+  const saved = fetcher.mock.calls.find(
+    ([path, options]) =>
+      path === "/api/v1/settings" &&
+      (options as RequestInit | undefined)?.method === "PATCH",
+  );
+  expect(JSON.parse(String((saved?.[1] as RequestInit).body))).toMatchObject({
+    default_coordinator_id: "three",
+    assignments: { research: { researcher: "three" } },
+  });
+  await user.click(screen.getByRole("button", { name: "关闭窗口" }));
+  expect(screen.getByLabelText("输入问题")).toHaveValue(draft);
+  await user.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(createBody).toBeTruthy());
+  expect(createBody?.agent_ids).toEqual(["three", "one", "two"]);
+  // Omitting the coordinator lets the server apply the saved default.
+  expect(createBody).not.toHaveProperty("coordinator_id");
+});
+
+it("shows a visible coordinator fallback when the global default is unavailable", async () => {
+  const agents: Agent[] = ["one", "two"].map((id) => ({
+    id,
+    workspace_id: "ws",
+    display_name: id,
+    handle: id,
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "codex",
+    tools: ["publish_artifact"],
+    disabled: false,
+    revision: 1,
+  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "工作空间" }] });
+      if (path === "/api/v1/workspaces/ws/agents")
+        return Response.json({ items: agents });
+      if (path === "/api/v1/agents") return Response.json({ items: agents });
+      if (path === "/api/v1/settings")
+        return Response.json({
+          revision: 1,
+          default_coordinator_id: "gone",
+          assignments: {},
+        });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [], next_cursor: "" });
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  expect(
+    await screen.findByText("默认协调者不可用，使用two"),
+  ).toBeVisible();
+});
+
 it.each([
   { search: "configured", question: "比较协作的取舍" },
   { search: "not_configured", question: "比较协作的取舍" },
@@ -320,7 +460,7 @@ it.each([
       role_description: "",
       model: "default",
       executor: "codex",
-      tools: [],
+      tools: ["publish_artifact"],
       disabled: id === "disabled",
       revision: 1,
     }));
@@ -334,7 +474,7 @@ it.each([
       revision: 1,
       updated_at: "",
     };
-    let previewInput: RunInput | undefined;
+    const previewInputs: RunInput[] = [];
     const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
       if (path === "/api/v1/system")
         return Response.json({ ...system, search_status: search });
@@ -352,9 +492,19 @@ it.each([
           sources: [],
         });
       if (path === "/api/v1/threads/two/routing-preview") {
-        previewInput = JSON.parse(String(options?.body));
+        previewInputs.push(JSON.parse(String(options?.body)));
         return Response.json({
-          routing: { clarification: "保留问题等待确认" },
+          routing: {
+            decision: "assign",
+            workflow: "research",
+            targets: [],
+            assignments: {
+              researcher: "one",
+              critic: "two",
+              coordinator: "two",
+            },
+            clarification: "保留问题等待确认",
+          },
         });
       }
       return Response.json({ items: [] });
@@ -369,30 +519,32 @@ it.each([
     expect(screen.getByLabelText("工作方式")).toHaveValue("research");
     expect(screen.getByLabelText("质疑")).toHaveValue("two");
     expect(screen.getByLabelText("汇总")).toHaveValue("two");
-    await chooseOption(user, screen.getByLabelText("工作方式"), "discussion");
     await user.type(screen.getByLabelText("输入问题"), question);
     await user.click(screen.getByRole("button", { name: "发送" }));
-    await waitFor(() =>
-      expect(fetcher).toHaveBeenCalledWith(
-        "/api/v1/threads/two/routing-preview",
-        expect.objectContaining({ body: expect.any(String) }),
-      ),
-    );
-    expect(previewInput?.targets).toEqual([]);
-    expect(previewInput?.research_scope).toBe("auto");
-    expect(previewInput?.message).toBe(question);
-    expect(previewInput?.source_urls).toEqual([]);
+    await waitFor(() => expect(previewInputs).toHaveLength(1));
+    const previewInput = previewInputs[0];
+    expect(previewInput.targets).toEqual([]);
+    expect(previewInput.research_scope).toBe("auto");
+    expect(previewInput.message).toBe(question);
+    expect(previewInput.source_urls).toEqual([]);
     expect(screen.queryByLabelText("资料链接")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("研究范围")).not.toBeInTheDocument();
-    expect(previewInput?.assignments).toMatchObject({
-      coordinator: "two",
-      researcher: "one",
-      critic: "two",
-    });
-    expect(Object.values(previewInput?.assignments ?? {})).not.toContain(
+    // Saved defaults are not sent as manual overrides; the server resolves them.
+    expect(previewInput.assignments).toEqual({});
+    // The accepted preview's effective roles are what the composer reports.
+    expect(screen.getByLabelText(/^成员与分工/)).toHaveAccessibleName(
+      "成员与分工：研究：one · 质疑：two · 汇总：two",
+    );
+
+    // Manual role overrides still travel; omitted roles stay server-resolved.
+    await chooseOption(user, screen.getByLabelText("研究"), "two");
+    await user.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => expect(previewInputs).toHaveLength(2));
+    expect(previewInputs[1].assignments).toEqual({ researcher: "two" });
+    expect(Object.values(previewInputs[1].assignments ?? {})).not.toContain(
       "disabled",
     );
-    expect(Object.values(previewInput?.assignments ?? {})).not.toContain(
+    expect(Object.values(previewInputs[1].assignments ?? {})).not.toContain(
       "outside",
     );
   },
@@ -525,6 +677,78 @@ it("loads persisted handoffs and stops their whole collaboration with the compos
   expect(
     await screen.findByRole("list", { name: "协作任务" }),
   ).toHaveTextContent("研究成员");
+});
+
+it("uses the run's member snapshot for message avatars, not the current profile", async () => {
+  history.replaceState({}, "", "/w/ws/t/thread");
+  const current: Agent = {
+    id: "one",
+    workspace_id: "ws",
+    display_name: "布偶猫",
+    handle: "ragdoll",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "codex",
+    tools: [],
+    disabled: false,
+    revision: 2,
+    avatar: "🐱",
+  };
+  const thread = {
+    id: "thread",
+    workspace_id: "ws",
+    title: "头像快照",
+    agent_ids: ["one"],
+    coordinator_id: "one",
+    workflow: "free",
+    revision: 1,
+    updated_at: "",
+  };
+  const run = {
+    id: "run",
+    input: { workflow: "free" },
+    agents: [{ ...current, avatar: "🦊", revision: 1 }],
+    status: "succeeded",
+    created_at: "2026-10-24T00:00:00Z",
+  } as Run;
+  const message = {
+    id: "message",
+    thread_id: "thread",
+    run_id: "run",
+    step_id: "step",
+    agent_id: "one",
+    agent_name: "布偶猫",
+    role: "assistant",
+    content: "历史回复",
+    status: "completed",
+    created_at: "2026-10-24T00:00:01Z",
+  } as Message;
+  const fetcher = vi.fn(async (path: string) => {
+    if (path === "/api/v1/system") return Response.json(system);
+    if (path === "/api/v1/workspaces")
+      return Response.json({ items: [{ id: "ws", name: "协作空间" }] });
+    if (path === "/api/v1/workspaces/ws/agents")
+      return Response.json({ items: [current] });
+    if (path.startsWith("/api/v1/workspaces/ws/threads"))
+      return Response.json({ items: [thread], next_cursor: "" });
+    if (path.startsWith("/api/v1/threads/thread?"))
+      return Response.json({
+        thread,
+        messages: { items: [message], next_cursor: "" },
+        runs: [run],
+        sources: [],
+      });
+    if (path === "/api/v1/runs/run")
+      return Response.json({ run, steps: [], attempts: [] });
+    return Response.json({ items: [] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<App />);
+  const timeline = await screen.findByTestId("conversation-timeline");
+  expect(await within(timeline).findByText("历史回复")).toBeVisible();
+  expect(within(timeline).getByText("🦊")).toBeVisible();
+  expect(within(timeline).queryByText("🐱")).toBeNull();
 });
 
 it("sends workspace skill selections to the API when editing", async () => {

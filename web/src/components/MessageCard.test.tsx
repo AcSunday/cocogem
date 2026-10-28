@@ -55,6 +55,18 @@ it("shows a short message without full-text controls", () => {
   ).not.toBeInTheDocument();
 });
 
+it("shows the avatar supplied by the run snapshot or the name initial", () => {
+  const { container, rerender } = render(
+    <MessageCard message={message()} index={0} avatar="🦊" />,
+  );
+  expect(screen.getByText("🦊")).toBeVisible();
+  rerender(<MessageCard message={message()} index={0} avatar="not-allowed" />);
+  expect(screen.getByText("研")).toBeVisible();
+  expect(container.querySelector('[aria-hidden="true"]')).not.toHaveTextContent(
+    "not-allowed",
+  );
+});
+
 it("keeps member identity colors when names or roster positions change", () => {
   const { container, rerender } = render(
     <MessageCard message={message()} index={0} />,

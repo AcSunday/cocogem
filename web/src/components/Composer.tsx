@@ -8,21 +8,20 @@ import {
 } from "react";
 import type { Agent, Artifact, Routing } from "../api/client";
 import { cx } from "../styles/classes";
-import { memberLabel, roleLabel, workflows } from "../lib/presentation";
+import {
+  canServeRole,
+  memberLabel,
+  roleLabel,
+  workflowRoles,
+  workflows,
+} from "../lib/presentation";
 import { applyMention, mentionAt, mentionMatches } from "../lib/mention";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 
 export type WorkflowKey = keyof typeof workflows;
 
-const rolesFor = (workflow: WorkflowKey) =>
-  workflow === "discussion"
-    ? ["coordinator"]
-    : workflow === "research"
-      ? ["researcher", "critic", "coordinator"]
-      : workflow === "code_analysis"
-        ? ["analyst", "reviewer"]
-        : [];
+const rolesFor = (workflow: WorkflowKey) => workflowRoles[workflow] ?? [];
 
 export function Composer({
   agents,
@@ -37,6 +36,7 @@ export function Composer({
   setAssignment,
   artifactRef,
   clearArtifactRef,
+  coordinator,
   routing,
   active,
   canceling,
@@ -58,6 +58,7 @@ export function Composer({
   setAssignment: (role: string, id: string) => void;
   artifactRef?: Artifact;
   clearArtifactRef: () => void;
+  coordinator?: { name: string; fallback: boolean };
   routing?: Routing;
   active: boolean;
   canceling: boolean;
@@ -111,6 +112,12 @@ export function Composer({
   const placeholder = disabled
     ? "先创建一个工作空间，再开始提问"
     : "描述任务或贴上链接，输入 @ 邀请成员协作";
+  // The accepted preview owns the actual roles; local picks are only a preview
+  // until the server resolves defaults and permissions.
+  const shownAssignments =
+    routing?.assignments && Object.keys(routing.assignments).length
+      ? routing.assignments
+      : assignments;
   const recipientSummary = selected.length
     ? agents
         .filter((agent) => selected.includes(agent.id))
@@ -120,10 +127,13 @@ export function Composer({
         ...(workflow === "discussion"
           ? [agents.map((agent) => agent.display_name).join("、")]
           : []),
-        ...rolesFor(workflow).map(
-          (role) =>
-            `${roleLabel(role)}：${agents.find((agent) => agent.id === assignments[role])?.display_name || "请选择"}`,
-        ),
+        ...rolesFor(workflow).map((role) => {
+          const id = shownAssignments[role];
+          const member =
+            agents.find((agent) => agent.id === id) ??
+            allAgents.find((agent) => agent.id === id);
+          return `${roleLabel(role)}：${member?.display_name || "请选择"}`;
+        }),
       ].join(" · ");
   return (
     <form
@@ -180,7 +190,12 @@ export function Composer({
                 pick(agent);
               }}
             >
-              <Avatar name={agent.display_name} id={agent.id} small />
+              <Avatar
+                name={agent.display_name}
+                id={agent.id}
+                avatar={agent.avatar}
+                small
+              />
               {memberLabel(agent)}
             </li>
           ))}
@@ -290,7 +305,12 @@ export function Composer({
                       )}
                       onClick={() => toggleSelected(agent.id)}
                     >
-                      <Avatar name={agent.display_name} id={agent.id} small />
+                      <Avatar
+                        name={agent.display_name}
+                        id={agent.id}
+                        avatar={agent.avatar}
+                        small
+                      />
                       {agent.display_name}
                     </button>
                   ))}
@@ -303,11 +323,13 @@ export function Composer({
                       onChange={(selected) => setAssignment(role, selected)}
                     >
                       <option value="">请选择</option>
-                      {agents.map((agent) => (
-                        <option value={agent.id} key={agent.id}>
-                          {agent.display_name}
-                        </option>
-                      ))}
+                      {agents
+                        .filter((agent) => canServeRole(agent, role))
+                        .map((agent) => (
+                          <option value={agent.id} key={agent.id}>
+                            {agent.display_name}
+                          </option>
+                        ))}
                     </Select>
                   </label>
                 ))}
@@ -345,6 +367,21 @@ export function Composer({
             ? "本次协作结束后可以继续发送"
             : "Enter 发送 · Shift + Enter 换行"}
         </small>
+        {coordinator && (
+          <span
+            className={cx("route-chip")}
+            role="status"
+            title={
+              coordinator.fallback
+                ? "全局默认协调者不在当前工作空间或已停用，已回退到本会话成员"
+                : "本次会话的协调者"
+            }
+          >
+            {coordinator.fallback
+              ? `默认协调者不可用，使用${coordinator.name}`
+              : `协调者：${coordinator.name}`}
+          </span>
+        )}
         {routeLabel && (
           <span
             className={cx("route-chip")}

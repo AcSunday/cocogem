@@ -150,6 +150,15 @@ it("keeps workflow roles in a dismissible panel and accepts links in the message
   expect(input).toHaveValue("研究 https://example.org/");
 });
 
+it("shows the actual coordinator and when the default fell back", () => {
+  const { rerender } = render(
+    <Example coordinator={{ name: "布偶猫", fallback: false }} />,
+  );
+  expect(screen.getByText("协调者：布偶猫")).toBeVisible();
+  rerender(<Example coordinator={{ name: "缅因猫", fallback: true }} />);
+  expect(screen.getByText("默认协调者不可用，使用缅因猫")).toBeVisible();
+});
+
 it("renders only an accessible stop icon while running", async () => {
   const stop = vi.fn();
   const { rerender } = render(<Example active onStop={stop} />);
