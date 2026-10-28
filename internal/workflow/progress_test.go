@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +70,7 @@ func TestLivenessWarningSnapshotAndActivityClear(t *testing.T) {
 		if cleared.LivenessWarning != nil || cleared.LastProgress == before {
 			return errors.New("explicit native activity did not clear the warning and refresh progress")
 		}
-		return nil
+		return observe("text", map[string]any{"text": "liveness check complete"})
 	})
 	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}}
 	cancel, wait := startEngine(t, &e)
@@ -134,7 +135,10 @@ func TestUsageTurnAccumulatesAndNativeAssigns(t *testing.T) {
 			defer s.Close()
 			run := seedCustomRun(t, s, []customStepSpec{{Agent: 0, Role: "responder", Instruction: "usage"}})
 			runner := nativeRunnerFunc(func(_ context.Context, _ model.Request, _ agent.Execute, observe agent.Observe) error {
-				return tc.observe(observe)
+				if err := tc.observe(observe); err != nil {
+					return err
+				}
+				return observe("text", map[string]any{"text": "usage recorded"})
 			})
 			e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}}
 			cancel, wait := startEngine(t, &e)
@@ -213,8 +217,9 @@ func TestWhitespaceTextIsSavedWithoutActivity(t *testing.T) {
 	defer wait()
 	got := awaitRun(t, s, run.ID)
 	_ = cancel
-	if got.Status != "succeeded" {
-		t.Fatalf("blank text run failed: %+v", got)
+	// Whitespace-only output is persisted as-is but is not a visible delivery.
+	if got.Status != "failed" || got.FailureKind != failureArtifactContract || !strings.Contains(got.Error, "no committed message or artifact") {
+		t.Fatalf("blank text run did not fail the delivery contract: %+v", got)
 	}
 	previews, err := previewsOf(t, s, run.ThreadID)
 	if err != nil {

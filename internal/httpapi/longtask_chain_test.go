@@ -384,8 +384,8 @@ func longTaskHandoff(prompt string) (workflow.Handoff, error) {
 	if !ok || json.NewDecoder(strings.NewReader(raw)).Decode(&handoff) != nil {
 		return handoff, errors.New("exact upstream handoff missing")
 	}
-	if len(handoff.MessageRefs) == 0 || len(handoff.ArtifactRefs) == 0 || len(handoff.SourceIDs) == 0 {
-		return handoff, errors.New("handoff exact references are missing")
+	if len(handoff.MessageRefs) == 0 || len(handoff.ArtifactRefs) != 0 || len(handoff.Artifacts) != 0 || len(handoff.SourceIDs) == 0 {
+		return handoff, errors.New("handoff exact references are missing or leaked an intermediate artifact")
 	}
 	return handoff, nil
 }
@@ -419,23 +419,6 @@ func longTaskResearch(call func(string, any, any, string) error, record func(str
 		return errors.New("source tail evidence was not recovered through later pages")
 	}
 	record("evidence", fmt.Sprintf("source_total=%d tail_page=%d", len(content), tailPage))
-	payload := map[string]any{
-		"type":       "note",
-		"title":      "长任务研究笔记",
-		"body":       "# 长任务研究笔记\n\n" + longTaskEvidence,
-		"findings":   []any{map[string]any{"title": "尾部反证已取回", "detail": longTaskEvidence, "status": "supported", "source_ids": []string{first.SourceID}}},
-		"source_ids": []string{first.SourceID},
-		"limitations": []string{
-			"合成测试资料，不代表真实模型质量。",
-		},
-	}
-	var receipt map[string]any
-	if err := call("publish_artifact", payload, &receipt, "note"); err != nil {
-		return err
-	}
-	if receipt["publication"] != "after_step_success" {
-		return errors.New("artifact was not staged for terminal publication")
-	}
 	return nil
 }
 
@@ -459,14 +442,6 @@ func longTaskCritic(call func(string, any, any, string) error, record func(strin
 	}
 	if tailPage < 1 {
 		return errors.New("critic did not page to the tail evidence")
-	}
-	artifact := handoff.ArtifactRefs[0]
-	artifactBody, _, err := longTaskReadContextPages(call, "artifact", artifact.ID, artifact.Version)
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(artifactBody, longTaskEvidence) {
-		return errors.New("exact artifact version lost the staged evidence")
 	}
 	source, sourceTail, err := longTaskReadSourcePages(call, handoff.SourceIDs[0])
 	if err != nil {
@@ -507,10 +482,6 @@ func longTaskCoordinator(call func(string, any, any, string) error, record func(
 	}
 	if body != longTaskBody()+"\n" || tailPage < 1 {
 		return errors.New("coordinator did not page the exact research message to its tail")
-	}
-	artifact := handoff.ArtifactRefs[0]
-	if _, _, err := longTaskReadContextPages(call, "artifact", artifact.ID, artifact.Version); err != nil {
-		return err
 	}
 	source, sourceTail, err := longTaskReadSourcePages(call, handoff.SourceIDs[0])
 	if err != nil {
@@ -725,20 +696,12 @@ func TestLongTaskEvidenceThroughAuthenticatedAPI(t *testing.T) {
 
 	var artifacts Page[w.Artifact]
 	call("GET", "/api/v1/threads/"+thread.ID+"/artifacts", nil, nil, 200, &artifacts)
-	if len(artifacts.Items) != 2 {
+	if len(artifacts.Items) != 1 || artifacts.Items[0].Type != "research_report" {
 		t.Fatalf("published artifacts=%+v", artifacts.Items)
 	}
-	var report *w.Artifact
-	for i, artifact := range artifacts.Items {
-		if artifact.Type == "research_report" {
-			report = &artifacts.Items[i]
-		}
-		if artifact.Version != 1 || len(artifact.SourceIDs) != 1 {
-			t.Fatalf("artifact version or source attribution lost: %+v", artifact)
-		}
-	}
-	if report == nil {
-		t.Fatalf("research report missing: %+v", artifacts.Items)
+	report := &artifacts.Items[0]
+	if report.Version != 1 || len(report.SourceIDs) != 1 {
+		t.Fatalf("artifact version or source attribution lost: %+v", report)
 	}
 	reportText, _ := json.Marshal(report)
 	for _, token := range []string{"否定条件", "2026-10-27", "3.25 USD/kg", "冲突输入", "4.10 USD/kg", "证据不足"} {

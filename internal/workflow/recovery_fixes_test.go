@@ -143,8 +143,8 @@ func TestConcurrentResumeCreatesOneDispatch(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	runner := nativeRunnerFunc(func(_ context.Context, _ model.Request, _ agent.Execute, _ agent.Observe) error {
-		return nil
+	runner := nativeRunnerFunc(func(_ context.Context, _ model.Request, _ agent.Execute, observe agent.Observe) error {
+		return observe("text", map[string]any{"text": "resumed result"})
 	})
 	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}}
 	var wg sync.WaitGroup

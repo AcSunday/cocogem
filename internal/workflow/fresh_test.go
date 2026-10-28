@@ -24,11 +24,11 @@ func TestContextFreshReplayIsBlockedUntilInputsChange(t *testing.T) {
 	}
 	defer s.Close()
 	run := seedCustomRun(t, s, []customStepSpec{{Agent: 0, Role: "responder", Instruction: "answer"}})
-	runner := &testRunner{run: func(_ context.Context, _ model.Request, call int, _ agent.Execute, _ agent.Observe) error {
+	runner := &testRunner{run: func(_ context.Context, _ model.Request, call int, _ agent.Execute, observe agent.Observe) error {
 		if call <= 2 {
 			return &nativecli.Failure{Kind: nativecli.FailureContextOverflow, Reason: "context window exhausted"}
 		}
-		return nil
+		return observe("text", map[string]any{"text": "recovered after the input plan changed"})
 	}}
 	first := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Limits: Limits{FirstResponse: time.Minute, Stall: 2 * time.Minute, StallAction: "warn"}}
 	cancel, wait := startEngine(t, &first)

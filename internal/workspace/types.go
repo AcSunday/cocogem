@@ -159,6 +159,7 @@ type Run struct {
 	DeadlineAt      string            `json:"deadline_at,omitempty"`
 	PolicyAdoptedAt string            `json:"policy_adopted_at,omitempty"`
 	FinishedAt      string            `json:"finished_at"`
+	Delivery        *Delivery         `json:"delivery,omitempty"`
 }
 
 // Step describes one member's work and the exact upstream results it can consume.

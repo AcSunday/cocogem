@@ -615,6 +615,13 @@ export interface components {
     DeleteReply: {
       id: string;
     };
+    Delivery: {
+      artifact_refs: {
+        id: string;
+        version: number;
+      }[];
+      message_ids: string[];
+    };
     DirectoryListing: {
       items: {
         name: string;
@@ -793,6 +800,8 @@ export interface components {
       coordinator_id?: string;
       created_at: string;
       deadline_at?: string;
+      /** @description Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps. */
+      delivery?: components["schemas"]["Delivery"] | null;
       error: string;
       execution_policy?: {
         first_response_ns: number;
@@ -847,6 +856,12 @@ export interface components {
         usage_known: boolean;
         workflow: string;
       };
+        reason?: string;
+        selected_at: string;
+        step_id: string;
+        targets: string[] | null;
+        workflow: string;
+      } | null;
       skill_snapshot?: string;
       skill_versions?: {
         [key: string]: string;
@@ -1007,6 +1022,8 @@ export interface components {
         coordinator_id?: string;
         created_at: string;
         deadline_at?: string;
+        /** @description Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps. */
+        delivery?: components["schemas"]["Delivery"] | null;
         error: string;
         execution_policy?: {
           first_response_ns: number;
@@ -1060,6 +1077,12 @@ export interface components {
           usage_known: boolean;
           workflow: string;
         };
+          reason?: string;
+          selected_at: string;
+          step_id: string;
+          targets: string[] | null;
+          workflow: string;
+        } | null;
         skill_snapshot?: string;
         skill_versions?: {
           [key: string]: string;
@@ -1289,6 +1312,8 @@ export interface components {
         coordinator_id?: string;
         created_at: string;
         deadline_at?: string;
+        /** @description Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps. */
+        delivery?: components["schemas"]["Delivery"] | null;
         error: string;
         execution_policy?: {
           first_response_ns: number;
@@ -1342,6 +1367,12 @@ export interface components {
           usage_known: boolean;
           workflow: string;
         };
+          reason?: string;
+          selected_at: string;
+          step_id: string;
+          targets: string[] | null;
+          workflow: string;
+        } | null;
         skill_snapshot?: string;
         skill_versions?: {
           [key: string]: string;

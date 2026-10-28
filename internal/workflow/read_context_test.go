@@ -96,6 +96,15 @@ func TestReadContextFrozenScopePagingAndRevocation(t *testing.T) {
 		if err := tx.SaveArtifact(otherArtifact); err != nil {
 			return err
 		}
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		// Historical intermediate artifacts stay readable; new intermediate
+		// steps cannot publish a formal artifact.
+		if err := tx.SaveArtifact(w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[0].ID, Type: "note", Title: "Researcher note", Body: "researcher artifact body", Feedback: "unreviewed"}); err != nil {
+			return err
+		}
 		return tx.SaveMessage(siblingHalf)
 	}); err != nil {
 		t.Fatal(err)
@@ -109,9 +118,7 @@ func TestReadContextFrozenScopePagingAndRevocation(t *testing.T) {
 			if err := observe("text", map[string]any{"text": longText}); err != nil {
 				return err
 			}
-			payload, _ := json.Marshal(map[string]any{"type": "note", "title": "Researcher note", "body": "researcher artifact body", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-			_, err := execute(ctx, "publish_artifact", payload)
-			return err
+			return nil
 		case strings.Contains(request.System, "role=critic"):
 			if !containsString(request.RequiredTools, "read_context") {
 				return errors.New("read_context was not required for referenced inputs")

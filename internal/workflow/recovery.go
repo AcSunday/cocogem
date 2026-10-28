@@ -350,6 +350,24 @@ func (e *Engine) recoverRun(ctx context.Context, id string) error {
 			return tx.AppendEvent(id, "", "", "run_finished", current)
 		}
 		if !unfinished {
+			// A recovered legacy run recorded no delivery, so it keeps nil. A
+			// run under the delivery contract must prove every final target
+			// before it may settle succeeded; otherwise it fails here instead
+			// of remaining active with incomplete metadata.
+			if current.Delivery != nil {
+				delivery, err := buildDelivery(tx, current)
+				if err != nil {
+					current.Status = "failed"
+					current.FailureKind = failureArtifactContract
+					current.Error = "final delivery is incomplete: " + err.Error()
+					current.FinishedAt = w.Now()
+					if err := tx.SaveRun(current); err != nil {
+						return err
+					}
+					return tx.AppendEvent(id, "", "", "run_finished", current)
+				}
+				current.Delivery = delivery
+			}
 			current.Status = "succeeded"
 			current.Error = ""
 			current.FinishedAt = w.Now()

@@ -728,6 +728,41 @@
         ],
         "type": "object"
       },
+      "Delivery": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_refs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "version"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "message_ids",
+          "artifact_refs"
+        ],
+        "type": "object"
+      },
       "DirectoryListing": {
         "additionalProperties": false,
         "properties": {
@@ -1464,6 +1499,17 @@
           },
           "deadline_at": {
             "type": "string"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Delivery"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps."
           },
           "error": {
             "type": "string"
@@ -2375,6 +2421,17 @@
               },
               "deadline_at": {
                 "type": "string"
+              },
+              "delivery": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Delivery"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps."
               },
               "error": {
                 "type": "string"
@@ -3550,6 +3607,17 @@
                 },
                 "deadline_at": {
                   "type": "string"
+                },
+                "delivery": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Delivery"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps."
                 },
                 "error": {
                   "type": "string"

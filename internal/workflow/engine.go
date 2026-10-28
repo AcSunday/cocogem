@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -291,6 +292,13 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 			}
 		}
 		run = current
+		if run.Delivery == nil {
+			// A queued run accepted under the delivery contract starts with an
+			// explicit empty delivery. A failure before it succeeds must not
+			// look like legacy history that exposes draft artifacts. Legacy
+			// runs already succeeded stay nil and are settled by recovery.
+			run.Delivery = &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}
+		}
 		if run.SkillSnapshot != "" {
 			hash, skillErr := skills.SnapshotHash(run.Workspace.SkillIDs)
 			if skillErr != nil || hash != run.SkillSnapshot {
@@ -644,6 +652,24 @@ func (e *Engine) finish(parent context.Context, run w.Run, status string, cause 
 		} else {
 			current.Error = ""
 		}
+		if status == "succeeded" {
+			// Delivery and the terminal run state commit together; a run can
+			// never be observed succeeded without its authoritative references.
+			// Incomplete final results fail the run in this same transaction
+			// instead of returning an error that leaves it running forever.
+			delivery, deliveryErr := buildDelivery(tx, current)
+			if deliveryErr != nil {
+				status = "failed"
+				current.Status = "failed"
+				current.FailureKind = failureArtifactContract
+				current.Error = "final delivery is incomplete: " + deliveryErr.Error()
+				if current.Delivery == nil {
+					current.Delivery = &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}
+				}
+			} else {
+				current.Delivery = delivery
+			}
+		}
 		if err := tx.SaveRun(current); err != nil {
 			return err
 		}
@@ -680,6 +706,137 @@ func transitionMessages(tx *store.Tx, runID, threadID string, from map[string]bo
 		}
 	}
 	return nil
+}
+
+// buildDelivery reconstructs the terminal delivery from the persisted plan and
+// message lifecycle, never from timestamps or model self-descriptions. It is
+// called only inside the transaction that commits a successful run. Every
+// designated final target must be complete and contribute at least one actual
+// committed reference; an incomplete delivery is an error, never a nil success.
+func buildDelivery(tx *store.Tx, run w.Run) (*w.Delivery, error) {
+	steps, err := tx.Steps(run.ID)
+	if err != nil {
+		return nil, err
+	}
+	finals := finalSteps(run.Input, steps)
+	if len(finals) == 0 {
+		return nil, errors.New("no final delivery target")
+	}
+	messages, err := tx.MessagesMetadata(run.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	artifacts, err := tx.ArtifactsMetadata(run.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	delivery := &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}
+	for _, step := range finals {
+		if step.Status != "succeeded" {
+			return nil, fmt.Errorf("final target %s (%s) is %s", step.AgentName, step.Role, step.Status)
+		}
+		committed := 0
+		for _, message := range messages {
+			// A retry leaves earlier failed attempts in history; only a completed
+			// message from the designated final step is a delivery reference.
+			if message.RunID != run.ID || message.StepID != step.ID || message.Status != "completed" {
+				continue
+			}
+			visible, err := messageHasVisibleText(tx, message)
+			if err != nil {
+				return nil, err
+			}
+			// A runner that finishes without emitting text leaves an empty
+			// completed message; it is not a final result. A final artifact can
+			// still carry the delivery on its own.
+			if !visible {
+				continue
+			}
+			delivery.MessageIDs = append(delivery.MessageIDs, message.ID)
+			committed++
+		}
+		for _, artifact := range artifacts {
+			if artifact.RunID == run.ID && artifact.StepID == step.ID {
+				delivery.ArtifactRefs = append(delivery.ArtifactRefs, w.ArtifactRef{ID: artifact.ID, Version: artifact.Version})
+				committed++
+			}
+		}
+		if committed == 0 {
+			return nil, fmt.Errorf("final target %s (%s) has no committed message or artifact", step.AgentName, step.Role)
+		}
+	}
+	return delivery, nil
+}
+
+// messageHasVisibleText reports whether a completed message carries at least
+// one non-whitespace byte. The metadata projection never includes the body, so
+// a bounded preview decides the common case and paging handles a body whose
+// visible text starts after the preview.
+func messageHasVisibleText(tx *store.Tx, message w.Message) (bool, error) {
+	preview, err := tx.MessagePreview(message.ID, 6000)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(preview.Content) != "" {
+		return true, nil
+	}
+	if preview.ContentBytes <= len(preview.Content) {
+		return false, nil
+	}
+	// shortcut: only the first 2 MiB of a body is inspected, so an all-blank
+	// prefix longer than that is treated as empty; raise the budget if model
+	// output of that shape becomes real.
+	const scanBudget = 2 << 20
+	scanned, cursor := len(preview.Content), ""
+	for scanned < scanBudget {
+		page, err := tx.MessageContent(message.ID, cursor, store.MaxContentChunks)
+		if err != nil {
+			return false, err
+		}
+		if strings.TrimSpace(page.Content) != "" {
+			return true, nil
+		}
+		if !page.HasMore || page.Content == "" {
+			return false, nil
+		}
+		scanned += len(page.Content)
+		cursor = page.NextCursor
+	}
+	return false, nil
+}
+
+// mayPublish reports whether this step may submit a formal artifact. Built-ins
+// reserve publication for the designated final role. A free run allows its roots
+// and the final continuation of each root chain; delegated tasks and earlier
+// continuations are rejected before a draft can be created. A root's artifact
+// is kept as an attempt draft if the root later delegates.
+func (e *Engine) mayPublish(ctx context.Context, run w.Run, step w.Step) (bool, error) {
+	if RequiredArtifact(step, run.Input) != "" {
+		return true, nil
+	}
+	if run.Input.Workflow != "" && run.Input.Workflow != "free" {
+		return false, nil
+	}
+	if step.Kind == "" {
+		return true, nil
+	}
+	if step.Kind != "continuation" {
+		return false, nil
+	}
+	var allowed bool
+	err := e.Store.Read(ctx, func(tx *store.Tx) error {
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		// Only the root chain's final continuation may publish; an inner
+		// continuation belongs to a delegated task and stays a draft.
+		allowed = slices.ContainsFunc(finalSteps(run.Input, steps), func(final w.Step) bool {
+			return final.ID == step.ID
+		})
+		return nil
+	})
+	return allowed, err
 }
 
 // suspend persists a recoverable checkpoint without pretending the run ended.
@@ -1119,6 +1276,13 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		if name != "publish_artifact" {
 			return tools.Execute(callCtx, name, input, tools.Scope{Root: run.Workspace.Root, Web: e.Web, Capture: capture})
 		}
+		allowedPublisher, permissionErr := e.mayPublish(callCtx, run, step)
+		if permissionErr != nil {
+			return "", permissionErr
+		}
+		if !allowedPublisher {
+			return "", errors.New("intermediate steps cannot publish a formal artifact; finish this step and let the final delivery step publish")
+		}
 		stateMu.Lock()
 		if publishAttempts >= 4 {
 			stateMu.Unlock()
@@ -1451,7 +1615,15 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	saveErr := e.Store.Write(cleanup, func(tx *store.Tx) error {
-		if publishedCopy != nil && step.Status == "succeeded" {
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		formal := map[string]bool{}
+		for _, final := range finalSteps(run.Input, steps) {
+			formal[final.ID] = true
+		}
+		if publishedCopy != nil && step.Status == "succeeded" && formal[step.ID] {
 			if len(run.Input.ArtifactRefs) > 0 {
 				ref := run.Input.ArtifactRefs[0]
 				previous, err := tx.Artifact(ref.ID, ref.Version)
@@ -1477,6 +1649,12 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			if err := tx.AppendEvent(run.ID, step.ID, a.ID, "artifact_published", publishedCopy); err != nil {
 				return err
 			}
+		}
+		if publishedCopy != nil && step.Status == "succeeded" && !formal[step.ID] {
+			// A root that delegated, or a superseded continuation, keeps its
+			// submission as attempt evidence; it must never become formal.
+			draft := *publishedCopy
+			attempt.DraftArtifact = &draft
 		}
 		if stored, readErr := tx.Attempt(attempt.ID); readErr == nil {
 			stored.Status = attempt.Status

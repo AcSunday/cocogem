@@ -599,6 +599,15 @@ func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
 				return err
 			}
 		}
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		// A historical intermediate artifact stays readable in the handoff, but
+		// new intermediate steps may not publish formal artifacts.
+		if err := tx.SaveArtifact(w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[0].ID, Type: "note", Title: "Structured finding", Body: "upstream-only-structured-finding", Feedback: "unreviewed"}); err != nil {
+			return err
+		}
 		return tx.SaveRun(run)
 	}); err != nil {
 		t.Fatal(err)
@@ -615,11 +624,10 @@ func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
 			criticSawArtifact = true
 			return observe("text", map[string]any{"text": "Independent critique preserves insufficient evidence."})
 		}
-		kind := "note"
-		if strings.Contains(r.System, "role=coordinator") {
-			kind = "research_report"
+		if !strings.Contains(r.System, "role=coordinator") {
+			return observe("text", map[string]any{"text": "intermediate result"})
 		}
-		payload := map[string]any{"type": kind, "title": "Structured result", "body": "upstream-only-structured-finding", "source_ids": []string{}, "limitations": []string{"fixture only"}, "findings": []any{map[string]any{"title": "Uncertain claim", "detail": "upstream-only-structured-finding", "status": "insufficient_evidence", "source_ids": []string{}}}}
+		payload := map[string]any{"type": "research_report", "title": "Structured result", "body": "upstream-only-structured-finding", "source_ids": []string{}, "limitations": []string{"fixture only"}, "findings": []any{map[string]any{"title": "Uncertain claim", "detail": "upstream-only-structured-finding", "status": "insufficient_evidence", "source_ids": []string{}}}}
 		raw, _ := json.Marshal(payload)
 		_, err := execute(ctx, "publish_artifact", raw)
 		return err

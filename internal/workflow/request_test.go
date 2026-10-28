@@ -80,7 +80,7 @@ func TestResearchScopeControlsDiscoveryAndMessageLinks(t *testing.T) {
 			if err := s.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveRun(run) }); err != nil {
 				t.Fatal(err)
 			}
-			runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, _ agent.Observe) error {
+			runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
 				if !slices.Equal(request.NativeTools, tc.native) {
 					return fmt.Errorf("native tools = %v, want %v", request.NativeTools, tc.native)
 				}
@@ -106,7 +106,10 @@ func TestResearchScopeControlsDiscoveryAndMessageLinks(t *testing.T) {
 					}
 				}
 				_, err := execute(ctx, "fetch_url", json.RawMessage(`{"url":"`+testutil.Sources[0]+`"}`))
-				return err
+				if err != nil {
+					return err
+				}
+				return observe("text", map[string]any{"text": "research result"})
 			})
 			e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: optionalSearchWeb{enabled: tc.search}}
 			cancel, wait := startEngine(t, &e)
@@ -388,9 +391,9 @@ func TestNativeFirstGuidanceNamesActualToolsAndMarksOnlyTheirFallbacks(t *testin
 				t.Fatal(err)
 			}
 			var got model.Request
-			runner := nativeRunnerFunc(func(_ context.Context, request model.Request, _ agent.Execute, _ agent.Observe) error {
+			runner := nativeRunnerFunc(func(_ context.Context, request model.Request, _ agent.Execute, observe agent.Observe) error {
 				got = request
-				return nil
+				return observe("text", map[string]any{"text": "native guidance reply"})
 			})
 			e := Engine{Store: s, Runners: map[string]agent.Runner{tc.executor: runner}, Web: testutil.Web{}}
 			cancel, wait := startEngine(t, &e)

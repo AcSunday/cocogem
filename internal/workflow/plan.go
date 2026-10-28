@@ -137,6 +137,39 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 	return out, nil
 }
 
+// finalSteps selects the steps whose replies form the run delivery. A built-in
+// has one fixed final role. A free run keeps every root responder and follows
+// its continuation chain to the last return, because a delegated task's reply
+// belongs to the delegating root and is never itself the final answer.
+func finalSteps(in w.RunInput, steps []w.Step) []w.Step {
+	out := []w.Step{}
+	if in.Workflow == "" || in.Workflow == "free" {
+		for _, root := range steps {
+			if root.Kind != "" {
+				continue
+			}
+			final := root
+			for range len(steps) {
+				next := slices.IndexFunc(steps, func(s w.Step) bool {
+					return s.Kind == "continuation" && s.FromStepID == final.ID
+				})
+				if next < 0 {
+					break
+				}
+				final = steps[next]
+			}
+			out = append(out, final)
+		}
+		return out
+	}
+	for _, step := range steps {
+		if RequiredArtifact(step, in) != "" {
+			out = append(out, step)
+		}
+	}
+	return out
+}
+
 // RequiredArtifact determines whether success requires a validated deliverable.
 func RequiredArtifact(step w.Step, in w.RunInput) string {
 	if step.Kind != "" && (in.Workflow == "free" || in.Workflow == "") {

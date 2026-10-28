@@ -951,7 +951,10 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 			limits := s.engine.Limits
 			policy = &w.ExecutionPolicy{RunTimeout: limits.RunTimeout, StepTimeout: limits.StepTimeout, FirstResponse: limits.FirstResponse, Stall: limits.Stall, StallAction: limits.StallAction}
 		}
-		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: p.Routing, ExecutionPolicy: policy, Status: "queued", CreatedAt: w.Now(), CoordinatorID: th.CoordinatorID, SkillVersions: map[string]string{}}
+		// A new run is explicitly under the delivery contract from acceptance,
+		// so a queued cancellation or early failure never looks like legacy
+		// history that exposes drafts. Only a successful finish fills it.
+		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: p.Routing, ExecutionPolicy: policy, Status: "queued", CreatedAt: w.Now(), CoordinatorID: th.CoordinatorID, SkillVersions: map[string]string{}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
 		for _, skill := range skills.List() {
 			if ws.SkillIDs == nil || slices.Contains(ws.SkillIDs, skill.ID) {
 				run.SkillVersions[skill.ID] = skill.Version
@@ -1195,7 +1198,28 @@ func (s *Server) source(rw http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) artifacts(rw http.ResponseWriter, r *http.Request) {
 	var artifacts []w.Artifact
-	err := s.store.Read(r.Context(), func(tx *store.Tx) error { var err error; artifacts, err = tx.Artifacts(r.PathValue("id")); return err })
+	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+		var err error
+		artifacts, err = tx.Artifacts(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		runs, err := tx.Runs(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		byRun := make(map[string]w.Run, len(runs))
+		for _, run := range runs {
+			byRun[run.ID] = run
+		}
+		// Only the run's authoritative delivery is a formal artifact. Drafts
+		// stay reachable through the exact id/version endpoint and run events.
+		artifacts = slices.DeleteFunc(artifacts, func(artifact w.Artifact) bool {
+			run, ok := byRun[artifact.RunID]
+			return !ok || !w.IsDeliveredArtifact(run, artifact)
+		})
+		return nil
+	})
 	respond(rw, r, map[string]any{"items": artifacts}, err)
 }
 func artifactVersion(r *http.Request) (int, error) {

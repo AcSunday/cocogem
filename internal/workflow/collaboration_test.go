@@ -1038,8 +1038,11 @@ func TestRestartInterruptsDynamicChildrenAndContinuations(t *testing.T) {
 		}
 	})
 	called := false
-	e = Engine{Store: s, Model: collaborationInspectModel(func(context.Context, model.Request, func(string) error) (model.Response, error) {
+	e = Engine{Store: s, Model: collaborationInspectModel(func(_ context.Context, _ model.Request, emit func(string) error) (model.Response, error) {
 		called = true
+		if err := emit("resumed dynamic result"); err != nil {
+			return model.Response{}, err
+		}
 		return model.Response{StopReason: "end_turn"}, nil
 	}), AllowedModels: []string{"test"}, Web: testutil.Web{}}
 	ctx, cancel := context.WithCancel(t.Context())

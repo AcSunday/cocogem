@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -215,8 +214,8 @@ func runNativeHTTPFixture() error {
 		if !ok || json.NewDecoder(strings.NewReader(rawHandoff)).Decode(&handoff) != nil || len(handoff.SourceIDs) == 0 {
 			return errors.New("exact upstream handoff missing")
 		}
-		if len(handoff.Artifacts) != 1 || handoff.Artifacts[0].Version != 1 || handoff.Artifacts[0].Body != "artifact-only research conclusion" || len(handoff.Artifacts[0].Findings) != 1 {
-			return errors.New("structured upstream finding was not handed off")
+		if len(handoff.Artifacts) != 0 {
+			return errors.New("an intermediate step's artifact leaked into the handoff")
 		}
 		wantMessages := 1
 		if role == "coordinator" {
@@ -233,9 +232,8 @@ func runNativeHTTPFixture() error {
 				return errors.New("handoff message preview or digest is invalid")
 			}
 		}
-		ref := handoff.ArtifactRefs[0]
-		if handoff.Digests[fmt.Sprintf("artifact:%s@%d", ref.ID, ref.Version)] == "" || handoff.Digests["source:"+handoff.SourceIDs[0]] == "" {
-			return errors.New("handoff artifact or source digest is missing")
+		if handoff.Digests["source:"+handoff.SourceIDs[0]] == "" {
+			return errors.New("handoff source digest is missing")
 		}
 		type contextPage struct {
 			Kind          string   `json:"kind"`
@@ -290,10 +288,6 @@ func runNativeHTTPFixture() error {
 				return errors.New("committed upstream message was not readable through read_context")
 			}
 		}
-		artifactBody, artifactPage, err := readContext("artifact", ref.ID, ref.Version)
-		if err != nil || artifactBody != "artifact-only research conclusion" || !slices.Contains(artifactPage.SourceIDs, handoff.SourceIDs[0]) {
-			return errors.New("exact artifact version or its source attribution was not readable through read_context")
-		}
 		if err := callTool("read_source", map[string]any{"source_id": handoff.SourceIDs[0]}, &source); err != nil {
 			return err
 		}
@@ -304,12 +298,8 @@ func runNativeHTTPFixture() error {
 	if source.ID == "" || source.Content != nativeCapturedEvidence {
 		return errors.New("captured evidence did not survive the real tool boundary")
 	}
-	if role != "critic" {
-		kind, body := "note", "artifact-only research conclusion"
-		if role == "coordinator" {
-			kind, body = "research_report", "# Research report\n\nThe critique preserves the original source and its limits."
-		}
-		payload := map[string]any{"type": kind, "title": "Native CLI fixture report", "body": body, "findings": []any{map[string]any{"title": "Preserved source custody", "detail": "Public fixture evidence survived independent review.", "status": "supported", "source_ids": []string{source.ID}}}, "source_ids": []string{source.ID}, "limitations": []string{"Process fixture only; no real model quality evidence."}}
+	if role == "coordinator" {
+		payload := map[string]any{"type": "research_report", "title": "Native CLI fixture report", "body": "# Research report\n\nThe critique preserves the original source and its limits.", "findings": []any{map[string]any{"title": "Preserved source custody", "detail": "Public fixture evidence survived independent review.", "status": "supported", "source_ids": []string{source.ID}}}, "source_ids": []string{source.ID}, "limitations": []string{"Process fixture only; no real model quality evidence."}}
 		var publication map[string]any
 		if err := callTool("publish_artifact", payload, &publication); err != nil {
 			return err
@@ -451,11 +441,11 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 	}
 	var artifacts Page[w.Artifact]
 	call("GET", "/api/v1/threads/"+thread.ID+"/artifacts", nil, nil, 200, &artifacts)
-	if len(artifacts.Items) != 2 || artifacts.Items[1].Type != "research_report" || len(artifacts.Items[1].SourceIDs) != 1 || len(artifacts.Items[1].Findings) != 1 {
+	if len(artifacts.Items) != 1 || artifacts.Items[0].Type != "research_report" || len(artifacts.Items[0].SourceIDs) != 1 || len(artifacts.Items[0].Findings) != 1 {
 		t.Fatalf("published artifacts=%+v", artifacts.Items)
 	}
 	var captured w.Source
-	call("GET", "/api/v1/sources/"+artifacts.Items[1].SourceIDs[0], nil, nil, 200, &captured)
+	call("GET", "/api/v1/sources/"+artifacts.Items[0].SourceIDs[0], nil, nil, 200, &captured)
 	if captured.Kind != "file" || captured.Content != nativeCapturedEvidence || captured.SHA256 == "" {
 		t.Fatalf("captured source=%+v", captured)
 	}
@@ -494,10 +484,10 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 				if err := json.Unmarshal(event.Data, &handoff); err != nil {
 					return err
 				}
-				if len(handoff.Artifacts) != 1 || len(handoff.SourceIDs) != 1 || handoff.Artifacts[0].Version != 1 {
-					return errors.New("persisted handoff lost exact versions or evidence")
+				if len(handoff.Artifacts) != 0 || len(handoff.SourceIDs) != 1 {
+					return errors.New("persisted handoff leaked an intermediate artifact or lost evidence")
 				}
-				if len(handoff.MessageRefs) == 0 || len(handoff.ArtifactRefs) != 1 || len(handoff.Digests) < len(handoff.MessageRefs)+2 {
+				if len(handoff.MessageRefs) == 0 || len(handoff.ArtifactRefs) != 0 || len(handoff.Digests) < len(handoff.MessageRefs)+1 {
 					return errors.New("persisted handoff lost exact refs or digests")
 				}
 				handoffs++
@@ -508,15 +498,19 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 				if err := json.Unmarshal(event.Data, &step); err != nil {
 					return err
 				}
-				if step.Status != "succeeded" || (step.Role != "critic" && published[step.ID] != 1) {
-					return errors.New("artifact publication was not tied to successful terminal write")
+				wantPublished := 0
+				if step.Role == "coordinator" {
+					wantPublished = 1
+				}
+				if step.Status != "succeeded" || published[step.ID] != wantPublished {
+					return errors.New("only the final step may publish an artifact")
 				}
 			}
 		}
 		// researcher reads a file; critic and coordinator page the exact captured
-		// source. Each dependent also reads committed messages/artifact versions
-		// through read_context, never from the inline preview alone.
-		if len(sessions) != 3 || toolReads != 3 || contextReads != 5 || handoffs != 2 {
+		// source. Each dependent also reads committed messages through
+		// read_context, never from the inline preview alone.
+		if len(sessions) != 3 || toolReads != 3 || contextReads != 3 || handoffs != 2 {
 			return fmt.Errorf("sessions=%d reads=%d context_reads=%d handoffs=%d", len(sessions), toolReads, contextReads, handoffs)
 		}
 		return nil

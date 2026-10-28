@@ -52,7 +52,7 @@ func schema(t reflect.Type) map[string]any {
 func ref(name string) map[string]any { return map[string]any{"$ref": "#/components/schemas/" + name} }
 func main() {
 	schemas := map[string]any{}
-	for _, value := range []any{w.Workspace{}, w.Agent{}, w.WorkspaceMember{}, w.Settings{}, w.Thread{}, w.RunInput{}, w.Run{}, w.Step{}, w.Attempt{}, w.ProcessRef{}, w.Message{}, w.Source{}, w.Artifact{}, w.Event{}, w.Finding{}, w.ArtifactRef{}, skills.Info{}, httpapi.SystemInfo{}, httpapi.ThreadView{}, httpapi.RunView{}, httpapi.RoutingPreview{}, httpapi.WorkspaceInput{}, httpapi.SettingsInput{}, httpapi.ThreadUpdate{}, httpapi.AuthStatus{}, httpapi.PasswordInput{}, httpapi.SessionReply{}, httpapi.FeedbackInput{}, httpapi.VerifyReply{}, httpapi.VerifyInput{}, httpapi.ExecutorInfo{}, httpapi.DeleteReply{}, httpapi.DirectoryListing{}, workflow.Routing{}, store.MessageContentPage{}, store.EventPage{}} {
+	for _, value := range []any{w.Workspace{}, w.Agent{}, w.WorkspaceMember{}, w.Settings{}, w.Thread{}, w.RunInput{}, w.Run{}, w.Delivery{}, w.Step{}, w.Attempt{}, w.ProcessRef{}, w.Message{}, w.Source{}, w.Artifact{}, w.Event{}, w.Finding{}, w.ArtifactRef{}, skills.Info{}, httpapi.SystemInfo{}, httpapi.ThreadView{}, httpapi.RunView{}, httpapi.RoutingPreview{}, httpapi.WorkspaceInput{}, httpapi.SettingsInput{}, httpapi.ThreadUpdate{}, httpapi.AuthStatus{}, httpapi.PasswordInput{}, httpapi.SessionReply{}, httpapi.FeedbackInput{}, httpapi.VerifyReply{}, httpapi.VerifyInput{}, httpapi.ExecutorInfo{}, httpapi.DeleteReply{}, httpapi.DirectoryListing{}, workflow.Routing{}, store.MessageContentPage{}, store.EventPage{}} {
 		t := reflect.TypeOf(value)
 		schemas[t.Name()] = schema(t)
 	}
@@ -78,6 +78,30 @@ func main() {
 	}
 	for _, name := range []string{"runs", "sources"} {
 		props("ThreadView")[name].(map[string]any)["type"] = "array"
+	}
+	for _, name := range []string{"message_ids", "artifact_refs"} {
+		props("Delivery")[name].(map[string]any)["type"] = "array"
+	}
+	// Run is inlined inside RunView and ThreadView; point every copy at the one
+	// named Delivery schema so clients do not get incompatible duplicate types.
+	var normalizeDelivery func(any)
+	normalizeDelivery = func(value any) {
+		switch node := value.(type) {
+		case map[string]any:
+			if _, ok := node["delivery"]; ok {
+				node["delivery"] = map[string]any{"anyOf": []any{ref("Delivery"), map[string]any{"type": "null"}}, "description": "Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps."}
+			}
+			for _, child := range node {
+				normalizeDelivery(child)
+			}
+		case []any:
+			for _, child := range node {
+				normalizeDelivery(child)
+			}
+		}
+	}
+	for _, value := range schemas {
+		normalizeDelivery(value)
 	}
 	props("ThreadView")["messages"].(map[string]any)["properties"].(map[string]any)["items"].(map[string]any)["type"] = "array"
 	props("EventPage")["items"].(map[string]any)["type"] = "array"
