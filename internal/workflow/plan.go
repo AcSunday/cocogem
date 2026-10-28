@@ -58,15 +58,45 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 				return nil, errors.New("duplicate discussion member")
 			}
 			seen[id] = true
-			if err := add(id, "discussant", "Give an independent view. State assumptions, tradeoffs and uncertainties.", nil); err != nil {
+		}
+		last := func() string { return out[len(out)-1].ID }
+		// Independent views share one snapshot and depend on nothing, so no
+		// sibling reply is in their handoff or readable scope.
+		views := make([]string, 0, len(in.Targets))
+		for _, id := range in.Targets {
+			if err := add(id, "discussant", "Give an independent view on the original user task. Use the shared input and prior history only; do not read or assume other members' replies in this discussion. State assumptions, tradeoffs and uncertainties. Do not publish an artifact. Match the answer length to the task; no fixed report template.", nil); err != nil {
 				return nil, err
 			}
+			views = append(views, last())
 		}
-		deps := []string{}
-		for _, step := range out {
-			deps = append(deps, step.ID)
+		// Serial cross-critique: each critic sees every view and every earlier
+		// critique, so later challenges can answer points already raised.
+		critiques := make([]string, 0, len(in.Targets))
+		for _, id := range in.Targets {
+			deps := append(slices.Clone(views), critiques...)
+			if err := add(id, "critic", "Read the other members' independent views and any completed critiques in the exact upstream handoff. Challenge or extend specific arguments by quoting or referencing them; do not restate the whole discussion. Do not publish an artifact. Match the answer length to the task.", deps); err != nil {
+				return nil, err
+			}
+			critiques = append(critiques, last())
 		}
-		if err := add(in.Assignments["coordinator"], "coordinator", "Summarize all views, preserve disagreements and publish a note.", deps); err != nil {
+		// The draft is deliberately not a coordinator: only the final step has
+		// a publication obligation.
+		draftDeps := append(slices.Clone(views), critiques...)
+		if err := add(in.Assignments["coordinator"], "synthesizer", "Draft a concise synthesis of the independent views and completed critiques: agreements, real disagreements, corrections and open questions. Do not invent consensus or treat agreement as evidence. This is an intermediate draft, not the final deliverable; return it as your step reply and do not publish an artifact.", draftDeps); err != nil {
+			return nil, err
+		}
+		draft := last()
+		checks := make([]string, 0, len(in.Targets))
+		for i, id := range in.Targets {
+			// Your own critique carries your revised position, so the check
+			// must not fall back to the version your critique corrected.
+			if err := add(id, "checker", "Check the draft synthesis against your own independent view and your own critique in the handoff; where they differ, your critique states your revised position and prevails. Reply with only one JSON object, no prose or code fence: {\"status\":\"confirmed\",\"correction\":\"\"} when the draft accurately represents your revised position, or {\"status\":\"disputed\",\"correction\":\"the specific correction\"} when it misreads you or a real disagreement remains (at most 4096 UTF-8 bytes in total). Do not rewrite the synthesis or publish an artifact.", []string{draft, views[i], critiques[i]}); err != nil {
+				return nil, err
+			}
+			checks = append(checks, last())
+		}
+		finalDeps := append([]string{draft}, checks...)
+		if err := add(in.Assignments["coordinator"], "coordinator", "Deliver the final answer to the original user task from the draft synthesis and the contributor checks in the handoff. The check messages are JSON records with status and correction: apply every correction, keep every disputed item visible as a genuine disagreement, and never present agreement or confirmation as verified evidence. Publish exactly one discussion note with this final content; match its length to the task.", finalDeps); err != nil {
 			return nil, err
 		}
 	case "research":

@@ -149,6 +149,13 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 		raw, _ := json.Marshal(handoff)
 		contextText.WriteString("\nExact upstream handoff (messages, artifact versions, findings and source IDs; bodies are bounded previews, use read_context with the exact id/version for more):\n" + string(raw) + "\n")
 	}
+	if run.Input.Workflow == "discussion" && step.Role == "coordinator" {
+		record, err := e.discussionCheckRecord(ctx, run, step, handoff)
+		if err != nil {
+			return request, err
+		}
+		contextText.WriteString(record)
+	}
 	pointerBytes := 0
 	for _, s := range sourceSnapshot[max(0, len(sourceSnapshot)-30):] {
 		pointer := fmt.Sprintf("\nCaptured source pointer %s (%s): %s %s %s. Re-read exact capture with read_source.\n", s.ID, s.Kind, shortPointer(s.Title), shortPointer(s.Path), shortPointer(s.URL))
@@ -236,9 +243,13 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 		}
 	}
 	if required != "" {
-		request.System += " You MUST call publish_artifact exactly once with type=" + required + " before finishing. Include the required scope, methods, findings, disagreements, limitations and next steps sections. Read actual sources through the available tools; never invent source IDs."
+		sections := "Include the required scope, methods, findings, disagreements, limitations and next steps sections."
+		if required == "note" {
+			sections = "Answer the task directly and keep real disagreements visible; use only the sections the task needs."
+		}
+		request.System += " You MUST call publish_artifact exactly once with type=" + required + " before finishing. " + sections + " Read actual sources through the available tools; never invent source IDs."
 	} else {
-		request.System += " You are not the final publisher. You may publish a note only; leave research_report/code_analysis to the designated coordinator/reviewer."
+		request.System += " You are not the final publisher."
 	}
 	publishType := required
 	if publishType == "" {

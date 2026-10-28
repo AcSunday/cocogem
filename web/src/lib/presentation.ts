@@ -62,6 +62,8 @@ export const roleLabel = labels({
   analyst: "分析",
   reviewer: "复核",
   discussant: "讨论",
+  synthesizer: "综合草案",
+  checker: "原作者复查",
   responder: "回复",
 });
 export const skillLabel = labels({

@@ -48,3 +48,19 @@ func TestFixtureRolesReadDifferentSourcesAndReplyDifferently(t *testing.T) {
 		t.Fatal("members repeat the same reply")
 	}
 }
+
+func TestFixtureChecksReturnStructuredCorrections(t *testing.T) {
+	for _, handle := range []string{"ragdoll", "maine", "orange"} {
+		resp := fixtureStep(t, "(@"+handle+") role=checker workflow=discussion")
+		var check struct {
+			Status     string `json:"status"`
+			Correction string `json:"correction"`
+		}
+		if err := json.Unmarshal([]byte(resp.Blocks[0].Text), &check); err != nil {
+			t.Fatal(err)
+		}
+		if check.Status != "confirmed" && check.Status != "disputed" || check.Status == "disputed" && check.Correction == "" {
+			t.Fatalf("invalid contributor check: %+v", check)
+		}
+	}
+}

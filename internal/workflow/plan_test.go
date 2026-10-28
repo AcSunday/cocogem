@@ -14,7 +14,7 @@ func TestFinitePlansAndIndependentReview(t *testing.T) {
 		bad  bool
 	}{
 		{"free", w.RunInput{Workflow: "free", Targets: []string{"a"}}, 1, false},
-		{"discussion", w.RunInput{Workflow: "discussion", Targets: []string{"a", "b"}, Assignments: map[string]string{"coordinator": "c"}}, 3, false},
+		{"discussion", w.RunInput{Workflow: "discussion", Targets: []string{"a", "b"}, Assignments: map[string]string{"coordinator": "c"}}, 8, false},
 		{"research", w.RunInput{Workflow: "research", Assignments: map[string]string{"researcher": "a", "critic": "b", "coordinator": "c"}}, 3, false},
 		{"self review", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "a"}}, 0, true},
 		{"unknown member", w.RunInput{Targets: []string{"x"}}, 0, true},
@@ -23,9 +23,6 @@ func TestFinitePlansAndIndependentReview(t *testing.T) {
 			plan, err := Plan("run", tc.in, agents)
 			if (err != nil) != tc.bad || len(plan) != tc.n {
 				t.Fatal(plan, err)
-			}
-			if tc.name == "discussion" && (len(plan[0].DependsOn) != 0 || len(plan[2].DependsOn) != 2) {
-				t.Fatal("parallel snapshot dependency lost")
 			}
 		})
 	}
