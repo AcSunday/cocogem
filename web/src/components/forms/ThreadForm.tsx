@@ -1,3 +1,4 @@
+import { Select } from "../Select";
 import { useState } from "react";
 import type { Thread, Agent } from "../../api/client";
 import { cx } from "../../styles/classes";
@@ -88,10 +89,10 @@ export function ThreadForm({
         </fieldset>
         <label>
           协调者
-          <select
+          <Select
             value={value.coordinator_id}
-            onChange={(event) =>
-              setValue({ ...value, coordinator_id: event.target.value })
+            onChange={(selected) =>
+              setValue({ ...value, coordinator_id: selected })
             }
           >
             {agents
@@ -101,22 +102,20 @@ export function ThreadForm({
                   {memberLabel(agent)}
                 </option>
               ))}
-          </select>
+          </Select>
         </label>
         <label>
           默认工作方式
-          <select
+          <Select
             value={value.workflow}
-            onChange={(event) =>
-              setValue({ ...value, workflow: event.target.value })
-            }
+            onChange={(selected) => setValue({ ...value, workflow: selected })}
           >
             {Object.entries(workflows).map(([key, name]) => (
               <option key={key} value={key}>
                 {name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {error && (
           <p role="alert" className={cx("error")}>

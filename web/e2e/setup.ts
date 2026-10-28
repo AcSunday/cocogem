@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,16 @@ import { createServer } from "node:net";
 
 export default async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "cocogem-e2e-"));
+  const binary = join(dir, "httpapi.test");
+  try {
+    execFileSync("go", ["test", "-c", "-o", binary, "./internal/httpapi"], {
+      cwd: join(process.cwd(), ".."),
+      stdio: "pipe",
+    });
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
   const probe = createServer();
   await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
   const address = probe.address();
@@ -13,19 +23,17 @@ export default async function setup() {
   const port = address.port;
   await new Promise<void>((resolve) => probe.close(() => resolve()));
   const child = spawn(
-    "../dist/cocogem-server",
-    [
-      "--demo",
-      "--demo-pace",
-      "0",
-      "--listen",
-      `127.0.0.1:${port}`,
-      "--web-dir",
-      "dist",
-    ],
+    binary,
+    ["-test.run=^TestBrowserServer$", "-test.timeout=0"],
     {
       cwd: process.cwd(),
-      env: { ...process.env, COCOGEM_DATA_DIR: dir },
+      env: {
+        ...process.env,
+        COCOGEM_E2E: "1",
+        COCOGEM_DATA_DIR: dir,
+        COCOGEM_E2E_LISTEN: `127.0.0.1:${port}`,
+        COCOGEM_E2E_WEB_DIR: join(process.cwd(), "dist"),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -44,7 +52,7 @@ export default async function setup() {
     stderr += data.toString();
   });
   try {
-    const token = await new Promise<string>((resolve, reject) => {
+    await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("Server startup timeout: " + stderr)),
         15000,
@@ -58,14 +66,13 @@ export default async function setup() {
         reject(error);
       });
       child.stdout.on("data", (data) => {
-        const match = data.toString().match(/#bootstrap=([^\s]+)/);
+        const match = data.toString().match(/Cocogem: (http:\/\/[^\s]+)/);
         if (match) {
           clearTimeout(timer);
           resolve(match[1]);
         }
       });
     });
-    process.env.COCOGEM_TEST_TOKEN = token;
     process.env.COCOGEM_TEST_BASE = `http://127.0.0.1:${port}`;
     for (let count = 0; count < 30; count++) {
       try {

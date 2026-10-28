@@ -1,10 +1,12 @@
 import { cx } from "../styles/classes";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 export function Markdown({ text }: { text: string }) {
   return (
     <div className={cx("markdown")}>
       <ReactMarkdown
         skipHtml
+        remarkPlugins={[remarkGfm]}
         components={{
           a: (props) => (
             <a

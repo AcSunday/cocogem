@@ -1,13 +1,16 @@
+import { Select } from "./Select";
+import { useEffect, useState } from "react";
 import type { Agent, Artifact, Event, Run, Source } from "../api/client";
-import { statusText } from "../api/client";
+import { EVENT_WINDOW, statusText } from "../api/client";
 import { cx } from "../styles/classes";
 import {
-  artifactTypeLabel,
   formatDateTime,
   latestSources,
   sourceKindLabel,
 } from "../lib/presentation";
 import { Avatar } from "./Avatar";
+import { ArtifactCard } from "./ArtifactCard";
+import { EventHistory } from "./EventHistory";
 import { Icon } from "./Icon";
 import { ToolTimeline } from "./ToolTimeline";
 
@@ -29,6 +32,8 @@ export function ContextPanel({
   onManage,
   sources,
   source,
+  sourceID,
+  sourceLoading,
   onSource,
   artifacts,
   onArtifact,
@@ -46,6 +51,8 @@ export function ContextPanel({
   onManage: () => void;
   sources: Source[];
   source?: Source;
+  sourceID?: string;
+  sourceLoading?: boolean;
   onSource: (source: Source | string) => void;
   artifacts: Artifact[];
   onArtifact: (artifact: Artifact) => void;
@@ -55,6 +62,8 @@ export function ContextPanel({
   events: Event[];
 }) {
   const shownSources = latestSources(sources);
+  const [historyAfter, setHistoryAfter] = useState<number | null>(null);
+  useEffect(() => setHistoryAfter(null), [inspectedRun?.id]);
   const counts: Partial<Record<PanelTab, number>> = {
     sources: shownSources.length,
     artifacts: artifacts.length,
@@ -62,6 +71,8 @@ export function ContextPanel({
   return (
     <aside
       className={cx(`context-panel ${open ? "open" : ""}`)}
+      id="collaboration-panel"
+      inert={!open}
       aria-label="协作资料"
     >
       <div className={cx("panel-head")}>
@@ -99,7 +110,7 @@ export function ContextPanel({
         </div>
         <button
           className={cx("icon-button panel-close")}
-          aria-label="关闭资料面板"
+          aria-label="关闭协作面板"
           onClick={close}
         >
           <Icon name="close" size={18} />
@@ -113,9 +124,9 @@ export function ContextPanel({
       >
         {tab === "members" && (
           <>
-            {agents.map((agent, index) => (
+            {agents.map((agent) => (
               <article className={cx("member-card")} key={agent.id}>
-                <Avatar name={agent.display_name} index={index} />
+                <Avatar name={agent.display_name} id={agent.id} />
                 <div>
                   <strong>{agent.display_name}</strong>
                   <small>
@@ -125,11 +136,7 @@ export function ContextPanel({
                   {agent.role_description && <p>{agent.role_description}</p>}
                   <span className={cx("model-label")}>
                     {agent.executor ? `${agent.executor} · ` : ""}
-                    {agent.model === "default"
-                      ? "CLI 默认模型"
-                      : agent.model === "demo"
-                        ? "离线演示模型"
-                        : agent.model}
+                    {agent.model === "default" ? "CLI 默认模型" : agent.model}
                   </span>
                 </div>
               </article>
@@ -157,15 +164,19 @@ export function ContextPanel({
             {shownSources.map((item) => (
               <button
                 className={cx(
-                  `source-card ${source?.id === item.id ? "selected" : ""}`,
+                  `source-card ${sourceID === item.id ? "selected" : ""}`,
                 )}
                 key={item.id}
-                aria-pressed={source?.id === item.id}
+                aria-pressed={sourceID === item.id}
                 onClick={() => onSource(item)}
               >
                 <span className={cx("card-kicker")}>
                   <Icon
-                    name={item.kind === "file" ? "file" : "globe"}
+                    name={
+                      item.kind === "file" || item.kind === "native_file"
+                        ? "file"
+                        : "globe"
+                    }
                     size={12}
                   />
                   {sourceKindLabel(item)}
@@ -174,6 +185,11 @@ export function ContextPanel({
                 <small>{item.path || item.url}</small>
               </button>
             ))}
+            {sourceLoading && (
+              <p className={cx("muted")} role="status">
+                正在读取来源正文…
+              </p>
+            )}
             {source && (
               <section
                 data-testid="source-detail"
@@ -183,6 +199,7 @@ export function ContextPanel({
                 <small>
                   {formatDateTime(source.captured_at)}
                   {source.path &&
+                    source.end_line > 0 &&
                     ` · 第 ${source.start_line}–${source.end_line} 行`}
                 </small>
                 <pre className={cx("pre")} tabIndex={0}>
@@ -208,24 +225,11 @@ export function ContextPanel({
               </p>
             )}
             {artifacts.map((item) => (
-              <button
-                className={cx("artifact-card")}
+              <ArtifactCard
                 key={`${item.id}:${item.version}`}
-                onClick={() => onArtifact(item)}
-              >
-                <span className={cx("card-kicker")}>
-                  <Icon name="report" size={12} />
-                  {artifactTypeLabel(item.type)} · v{item.version}
-                </span>
-                <strong>{item.title}</strong>
-                <small>
-                  {item.feedback === "accepted"
-                    ? "已接受"
-                    : item.feedback === "dismissed"
-                      ? "已搁置"
-                      : "待查看"}
-                </small>
-              </button>
+                artifact={item}
+                onOpen={onArtifact}
+              />
             ))}
           </>
         )}
@@ -234,17 +238,44 @@ export function ContextPanel({
             {runs.length > 1 && (
               <label className={cx("panel-select")}>
                 历史协作
-                <select
+                <Select
                   value={inspectedRun?.id ?? ""}
-                  onChange={(event) => onInspect(event.target.value)}
+                  onChange={(selected) => onInspect(selected)}
                 >
                   {runs.map((run, index) => (
                     <option key={run.id} value={run.id}>
                       第 {index + 1} 次 · {statusText[run.status]}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
+            )}
+            {inspectedRun && (
+              <div className={cx("history-actions")}>
+                <button
+                  type="button"
+                  className={cx("ghost small")}
+                  onClick={() => setHistoryAfter(0)}
+                >
+                  浏览历史事件
+                </button>
+                {events.length >= EVENT_WINDOW && (
+                  <small className={cx("muted")}>
+                    仅保留最近 {EVENT_WINDOW} 条事件
+                  </small>
+                )}
+              </div>
+            )}
+            {historyAfter !== null && inspectedRun && (
+              <EventHistory
+                key={`${inspectedRun.id}:${historyAfter}`}
+                runID={inspectedRun.id}
+                after={historyAfter}
+                agents={inspectedRun.agents ?? []}
+                sources={sources}
+                onSource={onSource}
+                close={() => setHistoryAfter(null)}
+              />
             )}
             {!events.length && (
               <p className={cx("panel-empty")}>
@@ -256,6 +287,8 @@ export function ContextPanel({
               agents={inspectedRun?.agents ?? []}
               sources={sources}
               onSource={onSource}
+              runStatus={inspectedRun?.status}
+              onHistory={(after) => setHistoryAfter(after ?? 0)}
             />
           </>
         )}

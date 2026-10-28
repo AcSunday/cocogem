@@ -56,9 +56,11 @@ func TestOpenAPIDescribesMutationAndStreamingRequirements(t *testing.T) {
 	if submit["responses"].(map[string]any)["202"] == nil {
 		t.Fatal("missing accepted status")
 	}
-	bootstrap := paths["/bootstrap"].(map[string]any)["post"].(map[string]any)
-	if len(bootstrap["security"].([]any)) != 0 {
-		t.Fatal("bootstrap requires an existing session")
+	for path, method := range map[string]string{"/auth/status": "get", "/auth/setup": "post", "/auth/login": "post"} {
+		operation := paths[path].(map[string]any)[method].(map[string]any)
+		if len(operation["security"].([]any)) != 0 {
+			t.Fatalf("%s requires an existing session", path)
+		}
 	}
 	headers := map[string]bool{}
 	for _, param := range submit["parameters"].([]any) {

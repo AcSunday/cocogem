@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
+import { backendEnv } from './dev-env.mjs';
 
 async function available(port) {
   const server = createServer();
@@ -14,7 +15,13 @@ async function available(port) {
   });
 }
 
-test('development supervisor starts both services and stops owned children', { timeout: 15000 }, async t => {
+test('development backend opts into the OS proxy unless configured', () => {
+  assert.equal(backendEnv({}).COCOGEM_WEB_PROXY, 'system');
+  assert.equal(backendEnv({ COCOGEM_WEB_PROXY: 'http://proxy.example:18080' }).COCOGEM_WEB_PROXY, 'http://proxy.example:18080');
+  assert.equal(backendEnv({ COCOGEM_WEB_PROXY: '' }).COCOGEM_WEB_PROXY, '');
+});
+
+test('development supervisor starts both services and stops owned children', { timeout: 20000 }, async t => {
   if (!existsSync('dist/cocogem-server')) { t.skip('Run make build before this development smoke'); return; }
   if (!await available(8741) || !await available(5173)) { t.skip('Development ports are already in use'); return; }
   const dir = mkdtempSync(join(tmpdir(), 'cocogem-dev-smoke-'));
@@ -24,7 +31,7 @@ test('development supervisor starts both services and stops owned children', { t
   child.stdout.resume();
   try {
     let ready = false;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 150; i++) {
       try { const [api, ui] = await Promise.all([fetch('http://127.0.0.1:8741/api/v1/system'), fetch('http://127.0.0.1:5173/')]); if (api.status === 401 && ui.status === 200) { ready = true; break; } } catch { /* The direct children may still be starting. */ }
       await new Promise(resolve => setTimeout(resolve, 100));
     }

@@ -5,13 +5,21 @@ import {
   setCSRF,
   terminal,
   mergeEvents,
-  loadAllThreadPages,
+  mergeMessage,
+  loadThreadPage,
+  applyMessageDelta,
+  eventMessage,
+  eventHistory,
+  EVENT_WINDOW,
   type Agent,
   type Artifact,
+  type Attempt,
   type Event,
+  type Message,
   type Routing,
   type Run,
   type RunInput,
+  type RunView,
   type Source,
   type Step,
   type System,
@@ -19,7 +27,11 @@ import {
   type ThreadView,
   type Workspace,
 } from "../api/client";
+import { AuthScreen } from "../components/AuthScreen";
 import { ArtifactReader } from "../components/ArtifactReader";
+import { ArtifactCard } from "../components/ArtifactCard";
+import type { Appearance } from "../components/AppearanceSelect";
+import { Avatar } from "../components/Avatar";
 import { Composer, type WorkflowKey } from "../components/Composer";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
@@ -28,13 +40,18 @@ import { MessageCard } from "../components/MessageCard";
 import { RunDivider } from "../components/RunDivider";
 import { SettingsDialog, SnapshotDialog } from "../components/SettingsDialog";
 import { Sidebar } from "../components/Sidebar";
-import { MembersForm } from "../components/forms/MembersForm";
+import { MembersSettings } from "../components/forms/MembersSettings";
 import { ThreadForm } from "../components/forms/ThreadForm";
 import { WorkspaceForm } from "../components/forms/WorkspaceForm";
 import {
   defaultAssignments,
   errorText,
+  livenessFromAttempts,
+  mergeAttemptLiveness,
+  nextLiveness,
+  seedLiveness,
   threadTitle,
+  workflows,
 } from "../lib/presentation";
 import { cx } from "../styles/classes";
 
@@ -75,8 +92,225 @@ type ModalState =
   | { kind: "delete-thread"; thread: Thread }
   | { kind: "delete-workspace"; workspace: Workspace };
 
+const stepTerminal = new Set([
+  "succeeded",
+  "failed",
+  "canceled",
+  "interrupted",
+  "skipped",
+]);
+const attemptTerminal = new Set([
+  "succeeded",
+  "failed",
+  "canceled",
+  "interrupted",
+  "uncertain",
+  "blocked",
+]);
+
+/** A persisted run only moves forward; a stale HTTP snapshot must not revive it. */
+function mergeRun(current: Run, incoming: Run): Run {
+  return terminal(current.status) && !terminal(incoming.status)
+    ? current
+    : incoming;
+}
+
+function mergeStep(current: Step, incoming: Step): Step {
+  return stepTerminal.has(current.status) && !stepTerminal.has(incoming.status)
+    ? current
+    : incoming;
+}
+
+function mergeAttempt(current: Attempt, incoming: Attempt): Attempt {
+  return attemptTerminal.has(current.status) &&
+    !attemptTerminal.has(incoming.status)
+    ? current
+    : incoming;
+}
+
+/**
+ * Steps and attempts are append-only within a run, and an event-history page
+ * can be a partial window. Merge into the known items instead of replacing
+ * them, so a bounded seed or a stale snapshot never drops or repeats records.
+ */
+function mergeByID<T extends { id: string }>(
+  current: T[] | undefined,
+  incoming: T[],
+  merge: (current: T, incoming: T) => T,
+) {
+  const items = new Map<string, T>();
+  for (const item of current ?? []) if (item.id) items.set(item.id, item);
+  for (const item of incoming) {
+    if (!item.id) continue;
+    const previous = items.get(item.id);
+    items.set(item.id, previous ? merge(previous, item) : item);
+  }
+  return [...items.values()];
+}
+
+function withRunWarnings(
+  current: Record<string, Event[]>,
+  runID: string,
+  warnings: Event[],
+) {
+  if (!warnings.length) {
+    if (!(runID in current)) return current;
+    const copy = { ...current };
+    delete copy[runID];
+    return copy;
+  }
+  return current[runID] === warnings
+    ? current
+    : { ...current, [runID]: warnings };
+}
+
+/**
+ * A refresh may return a snapshot started before the last SSE frame. Merge
+ * message bodies by id and keep runs terminal, so a reload cannot move the
+ * loaded page backwards.
+ */
+function mergeThreadView(
+  current: ThreadView | undefined,
+  loaded: ThreadView,
+  samePage: boolean,
+  startConfirmed: Record<string, number>,
+  messageWatermark: Record<string, number>,
+): ThreadView {
+  if (!current || current.thread.id !== loaded.thread.id) return loaded;
+  const known = new Map(current.messages.items.map((item) => [item.id, item]));
+  const seen = new Set<string>();
+  const items = loaded.messages.items.map((message) => {
+    seen.add(message.id);
+    const previous = known.get(message.id);
+    if (!previous) return message;
+    // Only a message event that landed after this request started can be
+    // newer than the consistent snapshot the server just returned.
+    const applied = messageWatermark[message.id] ?? 0;
+    const base = startConfirmed[message.run_id] ?? 0;
+    return applied > base ? mergeMessage(previous, message) : message;
+  });
+  if (samePage)
+    for (const message of current.messages.items) {
+      if (seen.has(message.id)) continue;
+      const applied = messageWatermark[message.id] ?? 0;
+      const base = startConfirmed[message.run_id] ?? 0;
+      if (applied > base) items.push(message);
+    }
+  return {
+    ...loaded,
+    messages: { ...loaded.messages, items },
+    runs: loaded.runs.map((run) => {
+      const previous = current.runs.find((item) => item.id === run.id);
+      return previous ? mergeRun(previous, run) : run;
+    }),
+  };
+}
+
+const eventObject = (event: Event) =>
+  event.data && typeof event.data === "object"
+    ? (event.data as Record<string, unknown>)
+    : {};
+
+function eventRun(event: Event) {
+  if (!event.type.startsWith("run_")) return undefined;
+  const data = eventObject(event);
+  return typeof data.id === "string" && typeof data.status === "string"
+    ? (data as unknown as Run)
+    : undefined;
+}
+
+function eventStep(event: Event) {
+  if (!event.type.startsWith("step_")) return undefined;
+  const data = eventObject(event);
+  return typeof data.id === "string" &&
+    data.id !== "" &&
+    typeof data.status === "string"
+    ? (data as unknown as Step)
+    : undefined;
+}
+
+function eventAttempt(event: Event) {
+  if (!event.type.startsWith("attempt_")) return undefined;
+  const data = eventObject(event);
+  return typeof data.id === "string" &&
+    data.id !== "" &&
+    typeof data.status === "string"
+    ? (data as unknown as Attempt)
+    : undefined;
+}
+
 export function App() {
   const [system, setSystem] = useState<System>();
+  const [required, setRequired] = useState(false);
+  const [error, setError] = useState("");
+  const connect = useCallback(async () => {
+    setError("");
+    try {
+      const info = await api<System>("/api/v1/system");
+      setCSRF(info.csrf_token);
+      setSystem(info);
+      setRequired(false);
+    } catch (error) {
+      if (error instanceof APIError && error.status === 401) setRequired(true);
+      else setError(errorText(error));
+    }
+  }, []);
+  useEffect(() => {
+    const lock = () => {
+      setCSRF("");
+      setSystem(undefined);
+      setRequired(true);
+      try {
+        sessionStorage.removeItem("cocogem-drafts");
+      } catch {
+        // Nothing to clear when browser storage is unavailable.
+      }
+    };
+    window.addEventListener("cocogem:unauthorized", lock);
+    void connect();
+    return () => window.removeEventListener("cocogem:unauthorized", lock);
+  }, [connect]);
+  if (!system)
+    return <AuthScreen required={required} error={error} connect={connect} />;
+  return (
+    <WorkspaceApp
+      initialSystem={system}
+      lock={async () => {
+        await api("/api/v1/auth/logout", "POST", {});
+        setCSRF("");
+        setSystem(undefined);
+        setRequired(true);
+        try {
+          sessionStorage.removeItem("cocogem-drafts");
+        } catch {
+          // Nothing to clear when browser storage is unavailable.
+        }
+      }}
+    />
+  );
+}
+
+function WorkspaceApp({
+  initialSystem,
+  lock,
+}: {
+  initialSystem: System;
+  lock: () => Promise<void>;
+}) {
+  const [appearance, setAppearance] = useState<Appearance>(
+    () =>
+      (document.documentElement.dataset.appearance as Appearance) || "system",
+  );
+  const changeAppearance = (value: Appearance) => {
+    setAppearance(value);
+    document.documentElement.dataset.appearance = value;
+    try {
+      localStorage.setItem("cocogem-appearance", value);
+    } catch {
+      // The current choice still applies if browser storage is unavailable.
+    }
+  };
+  const [system, setSystem] = useState<System>(initialSystem);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceID, setWorkspaceID] = useState(pathSelection().workspace);
   const [threadID, setThreadID] = useState(pathSelection().thread);
@@ -85,12 +319,32 @@ export function App() {
   const [view, setView] = useState<ThreadView>();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [stepsByRun, setStepsByRun] = useState<Record<string, Step[]>>({});
+  const [attemptsByRun, setAttemptsByRun] = useState<
+    Record<string, Attempt[]>
+  >({});
   const [events, setEvents] = useState<Event[]>([]);
+  const [livenessByRun, setLivenessByRun] = useState<Record<string, Event[]>>(
+    {},
+  );
+  const [messageCursor, setMessageCursor] = useState("");
+  const [messagePaging, setMessagePaging] = useState(false);
+  const [sourceID, setSourceID] = useState("");
+  const [sourceLoading, setSourceLoading] = useState(false);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [modal, setModal] = useState<ModalState | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => {
+    try {
+      const stored = sessionStorage.getItem("cocogem-drafts");
+      const parsed = stored ? (JSON.parse(stored) as unknown) : null;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, string>)
+        : {};
+    } catch {
+      return {};
+    }
+  });
   const [workflowChoices, setWorkflowChoices] = useState<
     Record<string, WorkflowKey>
   >({});
@@ -98,10 +352,8 @@ export function App() {
   const [assignmentChoices, setAssignmentChoices] = useState<
     Record<string, Record<string, string>>
   >({});
-  const [urls, setURLs] = useState("");
-  const [scope, setScope] = useState("given_sources");
   const [routing, setRouting] = useState<Routing>();
-  const [tab, setTab] = useState<PanelTab>("members");
+  const [tab, setTab] = useState<PanelTab>("artifacts");
   const [source, setSource] = useState<Source>();
   const [artifact, setArtifact] = useState<Artifact>();
   const [artifactRef, setArtifactRef] = useState<Artifact>();
@@ -111,6 +363,8 @@ export function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [inspectedRunID, setInspectedRunID] = useState("");
+  // Live streaming waits until the selected run's recent window is seeded.
+  const [seededRunID, setSeededRunID] = useState("");
   const timeline = useRef<HTMLDivElement>(null);
   const follows = useRef(true);
   const currentThread = useRef(threadID);
@@ -118,6 +372,17 @@ export function App() {
   currentWorkspace.current = workspaceID;
   currentThread.current = threadID;
   const refreshGeneration = useRef(0);
+  const sourceGeneration = useRef(0);
+  // Page browsing replaces the page instead of accumulating all history.
+  const messageCursorRef = useRef("");
+  const viewCursor = useRef("");
+  // These stay outside the bounded event window so reconnect/eviction cannot
+  // reorder SSE or erase a liveness warning.
+  const confirmedSeq = useRef<Record<string, number>>({});
+  const appliedDelta = useRef<Record<string, number>>({});
+  const snapshotSeq = useRef<Record<string, number>>({});
+  // Sequence of the last message event actually merged, per message id.
+  const messageWatermark = useRef<Record<string, number>>({});
   // Steps of finished runs never change, so they are fetched once per run.
   const settledSteps = useRef(new Set<string>());
   const pendingSubmission = useRef(
@@ -128,6 +393,9 @@ export function App() {
   const currentRun = runs.at(-1);
   const inspectedRun =
     runs.find((run) => run.id === inspectedRunID) ?? currentRun;
+  const latestLiveness = inspectedRun
+    ? livenessByRun[inspectedRun.id]
+    : undefined;
   const active = runs.some((run) => !terminal(run.status));
   const available = agents.filter((agent) => !agent.disabled);
   const draftKey = threadID || `new:${workspaceID}`;
@@ -167,14 +435,29 @@ export function App() {
     setThreadID(th);
     setView(undefined);
     setEvents([]);
+    setLivenessByRun({});
     setInspectedRunID("");
+    setSeededRunID("");
     setStepsByRun({});
+    setAttemptsByRun({});
     settledSteps.current.clear();
     setArtifacts([]);
     setSource(undefined);
+    setSourceID("");
+    setSourceLoading(false);
+    sourceGeneration.current++;
     setArtifactRef(undefined);
     setRouting(undefined);
     setSelected([]);
+    messageCursorRef.current = "";
+    viewCursor.current = "";
+    setMessageCursor("");
+    setMessagePaging(false);
+    follows.current = true;
+    confirmedSeq.current = {};
+    appliedDelta.current = {};
+    snapshotSeq.current = {};
+    messageWatermark.current = {};
     if (push)
       history.pushState({}, "", ws ? `/w/${ws}${th ? `/t/${th}` : ""}` : "/");
   }, []);
@@ -201,52 +484,87 @@ export function App() {
     } while (cursor);
     if (currentWorkspace.current === id) setThreads(items);
   }, []);
-  const refreshThread = useCallback(async (id: string) => {
-    const generation = ++refreshGeneration.current;
-    const result = await loadAllThreadPages(id);
-    const deliverables = await api<{ items: Artifact[] }>(
-      `/api/v1/threads/${id}/artifacts`,
-    );
-    if (
-      currentThread.current !== id ||
-      generation !== refreshGeneration.current
-    )
-      return;
-    setView(result);
-    setArtifacts(deliverables.items ?? []);
-    const stale = result.runs.filter(
-      (run) => !settledSteps.current.has(run.id),
-    );
-    const loaded = await Promise.all(
-      stale.map((run) =>
-        api<{ run: Run; steps: Step[] }>(`/api/v1/runs/${run.id}`),
-      ),
-    );
-    if (currentThread.current !== id) return;
-    for (const item of loaded)
-      if (terminal(item.run.status)) settledSteps.current.add(item.run.id);
-    setStepsByRun((current) => ({
-      ...current,
-      ...Object.fromEntries(
-        loaded.map((item) => [item.run.id, item.steps ?? []]),
-      ),
-    }));
-  }, []);
+  const refreshThread = useCallback(
+    async (id: string, cursor = messageCursorRef.current) => {
+      const generation = ++refreshGeneration.current;
+      // Anything applied after this point is newer than the HTTP snapshot.
+      const startConfirmed = { ...confirmedSeq.current };
+      const result = await loadThreadPage(id, cursor);
+      const deliverables = await api<{ items: Artifact[] }>(
+        `/api/v1/threads/${id}/artifacts`,
+      );
+      if (
+        currentThread.current !== id ||
+        generation !== refreshGeneration.current
+      )
+        return;
+      const samePage = cursor === viewCursor.current;
+      setView((current) =>
+        mergeThreadView(
+          current,
+          result,
+          samePage,
+          startConfirmed,
+          messageWatermark.current,
+        ),
+      );
+      viewCursor.current = cursor;
+      setArtifacts(deliverables.items ?? []);
+      const stale = result.runs.filter(
+        (run) => !settledSteps.current.has(run.id),
+      );
+      const loaded = await Promise.all(
+        stale.map((run) => api<RunView>(`/api/v1/runs/${run.id}`)),
+      );
+      if (
+        currentThread.current !== id ||
+        generation !== refreshGeneration.current
+      )
+        return;
+      for (const item of loaded) {
+        if (terminal(item.run.status)) settledSteps.current.add(item.run.id);
+        // A run view's attempt snapshots are the current liveness truth; the
+        // bounded event window may no longer contain the warning.
+        const attempts = item.attempts ?? [];
+        if (attempts.length)
+          setLivenessByRun((current) =>
+            withRunWarnings(
+              current,
+              item.run.id,
+              mergeAttemptLiveness(
+                current[item.run.id] ?? [],
+                attempts,
+                item.run.id,
+              ),
+            ),
+          );
+      }
+      setStepsByRun((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          loaded.map((item) => [
+            item.run.id,
+            mergeByID(current[item.run.id], item.steps ?? [], mergeStep),
+          ]),
+        ),
+      }));
+      setAttemptsByRun((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          loaded.map((item) => [
+            item.run.id,
+            mergeByID(current[item.run.id], item.attempts ?? [], mergeAttempt),
+          ]),
+        ),
+      }));
+    },
+    [],
+  );
 
   useEffect(() => {
     let canceled = false;
     async function initialize() {
       try {
-        const params = new URLSearchParams(location.hash.slice(1));
-        const token = params.get("bootstrap");
-        if (token) {
-          history.replaceState({}, "", location.pathname);
-          await api("/bootstrap", "POST", { token });
-        }
-        const info = await api<System>("/api/v1/system");
-        if (canceled) return;
-        setSystem(info);
-        setCSRF(info.csrf_token);
         const spaces = await loadSpaces();
         if (!workspaceID && spaces.length) navigate(spaces[0].id);
         setReady(true);
@@ -258,7 +576,7 @@ export function App() {
     return () => {
       canceled = true;
     };
-    // Bootstrap is a one-time mount operation, not a workspace-dependent request.
+    // Initialization runs once for each unlocked session.
   }, []);
   useEffect(() => {
     const pop = () => {
@@ -274,11 +592,26 @@ export function App() {
       if (event.key === "Escape" && !document.querySelector("dialog[open]")) {
         setNavOpen(false);
         setPanelOpen(false);
+        if (panelOpen) document.getElementById("context-toggle")?.focus();
       }
     };
     addEventListener("keydown", escape);
     return () => removeEventListener("keydown", escape);
   }, [navOpen, panelOpen]);
+  useEffect(() => {
+    try {
+      const kept = Object.fromEntries(
+        Object.entries(drafts).filter(([, value]) => value !== ""),
+      );
+      if (Object.keys(kept).length) {
+        sessionStorage.setItem("cocogem-drafts", JSON.stringify(kept));
+      } else {
+        sessionStorage.removeItem("cocogem-drafts");
+      }
+    } catch {
+      // Drafts still work in memory when browser storage is unavailable.
+    }
+  }, [drafts]);
   useEffect(() => {
     if (ready && workspaceID) {
       void Promise.all([
@@ -301,14 +634,252 @@ export function App() {
     if (!inspectedRun) return;
     const id = inspectedRun.id;
     const thread = threadID;
+    let canceled = false;
+    async function seed() {
+      // The run view cursor is the end of the replay window, not proof that the
+      // loaded message page already contains those deltas. Apply the seed
+      // snapshots first and only then advance the confirmed high-water mark.
+      let cursor = 0;
+      let snapshotWarnings: Event[] | undefined;
+      try {
+        const detail = await api<RunView>(`/api/v1/runs/${id}`);
+        if (typeof detail.cursor === "number")
+          cursor = Math.max(cursor, detail.cursor);
+        if (canceled) return;
+        if (detail.run?.id === id) {
+          const snapshot = detail.run;
+          setView((current) => {
+            if (!current || current.thread.id !== thread) return current;
+            const runs = current.runs.map((run) =>
+              run.id === id ? mergeRun(run, snapshot) : run,
+            );
+            return runs.every((run, index) => run === current.runs[index])
+              ? current
+              : { ...current, runs };
+          });
+          if (terminal(snapshot.status)) settledSteps.current.add(id);
+        }
+        if (Array.isArray(detail.steps))
+          setStepsByRun((current) => ({
+            ...current,
+            [id]: mergeByID(current[id], detail.steps ?? [], mergeStep),
+          }));
+        const detailAttempts = detail.attempts ?? [];
+        if (Array.isArray(detail.attempts)) {
+          setAttemptsByRun((current) => ({
+            ...current,
+            [id]: mergeByID(current[id], detailAttempts, mergeAttempt),
+          }));
+          // Snapshots restore warnings older than the recent event window and
+          // a missing warning is the backend's clear signal.
+          if (detailAttempts.length) {
+            snapshotWarnings = livenessFromAttempts(detailAttempts, id);
+            setLivenessByRun((current) =>
+              withRunWarnings(
+                current,
+                id,
+                mergeAttemptLiveness(current[id] ?? [], detailAttempts, id),
+              ),
+            );
+          }
+        }
+      } catch (error) {
+        if (canceled) return;
+        setError(errorText(error));
+      }
+      if (canceled) return;
+      // Seed only the recent window; full history stays in EventHistory.
+      const after = Math.max(0, cursor - EVENT_WINDOW);
+      try {
+        const page = await eventHistory(
+          id,
+          after ? String(after) : "",
+          EVENT_WINDOW,
+        );
+        if (canceled) return;
+        const items = [...(page.items ?? [])].sort((a, b) => a.seq - b.seq);
+        let newest = 0;
+        let seeded: Event[] = [];
+        const messages: { seq: number; message: Message }[] = [];
+        const steps = new Map<string, Step>();
+        const attempts = new Map<string, Attempt>();
+        let runSnapshot: Run | undefined;
+        for (const event of items) {
+          newest = Math.max(newest, event.seq);
+          seeded = mergeEvents(seeded, event);
+          if (event.run_id !== id) continue;
+          const message = eventMessage(event);
+          if (message && message.run_id === id)
+            messages.push({ seq: event.seq, message });
+          const run = eventRun(event);
+          if (run?.id === id)
+            runSnapshot = runSnapshot
+              ? mergeRun(runSnapshot, run)
+              : run;
+          const step = eventStep(event);
+          if (step?.run_id === id) {
+            const previous = steps.get(step.id);
+            steps.set(step.id, previous ? mergeStep(previous, step) : step);
+          }
+          const attempt = eventAttempt(event);
+          if (attempt?.run_id === id) {
+            const previous = attempts.get(attempt.id);
+            attempts.set(
+              attempt.id,
+              previous ? mergeAttempt(previous, attempt) : attempt,
+            );
+          }
+        }
+        setEvents(seeded);
+        const warningsSnapshot = snapshotWarnings;
+        setLivenessByRun((current) => {
+          const runEvents = items.filter((event) => event.run_id === id);
+          // Attempt snapshots were taken at cursor; older warnings in the
+          // replay window are already reflected (or cleared) there.
+          const warnings =
+            warningsSnapshot !== undefined
+              ? seedLiveness(
+                  warningsSnapshot,
+                  runEvents.filter((event) => event.seq > cursor),
+                )
+              : seedLiveness(current[id] ?? [], runEvents);
+          return withRunWarnings(current, id, warnings);
+        });
+        if (messages.length)
+          setView((current) => {
+            if (!current || current.thread.id !== thread) return current;
+            const index = new Map(
+              current.messages.items.map((message, at) => [message.id, at]),
+            );
+            const next = current.messages.items.slice();
+            for (const { message } of messages) {
+              const at = index.get(message.id);
+              if (at !== undefined) next[at] = mergeMessage(next[at], message);
+              else if (messageCursorRef.current === "") {
+                index.set(message.id, next.length);
+                next.push(message);
+              }
+            }
+            const changed =
+              next.length !== current.messages.items.length ||
+              next.some((message, at) => message !== current.messages.items[at]);
+            return changed
+              ? { ...current, messages: { ...current.messages, items: next } }
+              : current;
+          });
+        for (const { seq, message } of messages)
+          messageWatermark.current[message.id] = Math.max(
+            messageWatermark.current[message.id] ?? 0,
+            seq,
+          );
+        if (runSnapshot)
+          setView((current) => {
+            if (!current || current.thread.id !== thread) return current;
+            const runs = current.runs.map((run) =>
+              run.id === id ? mergeRun(run, runSnapshot) : run,
+            );
+            return runs.every((run, index) => run === current.runs[index])
+              ? current
+              : { ...current, runs };
+          });
+        if (steps.size)
+          setStepsByRun((current) => ({
+            ...current,
+            [id]: mergeByID(current[id], [...steps.values()], mergeStep),
+          }));
+        if (attempts.size)
+          setAttemptsByRun((current) => ({
+            ...current,
+            [id]: mergeByID(current[id], [...attempts.values()], mergeAttempt),
+          }));
+        confirmedSeq.current[id] = Math.max(
+          confirmedSeq.current[id] ?? 0,
+          cursor,
+          newest,
+        );
+        // Only events actually merged into the loaded page may suppress later
+        // deltas; the run view cursor alone is not a message watermark.
+        snapshotSeq.current[id] = Math.max(
+          snapshotSeq.current[id] ?? 0,
+          newest,
+        );
+      } catch (error) {
+        if (canceled) return;
+        // Streaming still starts from the snapshot high-water mark; older
+        // events remain available through the on-demand history panel.
+        setError(errorText(error));
+        confirmedSeq.current[id] = Math.max(
+          confirmedSeq.current[id] ?? 0,
+          cursor,
+        );
+      } finally {
+        if (!canceled) {
+          setSeededRunID(id);
+          // One bounded refresh makes the thread snapshot agree with the run
+          // view without polling; later frames still merge by message id.
+          void refreshThread(thread).catch((error) =>
+            setError(errorText(error)),
+          );
+        }
+      }
+    }
+    void seed();
+    return () => {
+      canceled = true;
+    };
+  }, [inspectedRun?.id, threadID, refreshThread]);
+  useEffect(() => {
+    if (!inspectedRun || seededRunID !== inspectedRun.id) return;
+    // Finished runs have nothing to stream; their history stays paged.
+    if (terminal(inspectedRun.status)) return;
+    const id = inspectedRun.id;
+    const thread = threadID;
+    const after = confirmedSeq.current[id] ?? 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const stream = new EventSource(`/api/v1/runs/${id}/events`);
+    const stream = new EventSource(
+      `/api/v1/runs/${id}/events${after ? `?after=${after}` : ""}`,
+    );
     setConnection("正在连接");
     stream.onopen = () => setConnection("实时连接");
     stream.onmessage = (message) => {
       const event = JSON.parse(message.data) as Event;
+      // Replayed or cross-run frames must not move the cursor, apply a delta,
+      // clear a warning, or trigger a reload.
+      if (
+        event.run_id !== id ||
+        event.seq <= (confirmedSeq.current[id] ?? 0)
+      )
+        return;
+      confirmedSeq.current[id] = event.seq;
       setEvents((current) => mergeEvents(current, event));
-      if (!terminal(inspectedRun.status) && !timer)
+      setLivenessByRun((current) => {
+        const previous = current[event.run_id];
+        const next = nextLiveness(previous ?? [], event);
+        return withRunWarnings(current, event.run_id, next);
+      });
+      // Replayed deltas predate the loaded snapshot; only newer ones update it.
+      if (
+        event.type === "message_delta" &&
+        event.seq > (appliedDelta.current[event.run_id] ?? 0) &&
+        event.seq > (snapshotSeq.current[event.run_id] ?? Number.MAX_SAFE_INTEGER)
+      ) {
+        appliedDelta.current[event.run_id] = event.seq;
+        const data =
+          event.data && typeof event.data === "object"
+            ? (event.data as Record<string, unknown>)
+            : {};
+        const messageID =
+          typeof data.message_id === "string" ? data.message_id : "";
+        if (messageID) messageWatermark.current[messageID] = event.seq;
+        setView((current) => {
+          if (!current) return current;
+          const items = applyMessageDelta(current.messages.items, event);
+          return items === current.messages.items
+            ? current
+            : { ...current, messages: { ...current.messages, items } };
+        });
+      }
+      if (!timer)
         timer = setTimeout(() => {
           timer = undefined;
           void refreshThread(thread).catch((error) =>
@@ -322,7 +893,13 @@ export function App() {
         void loadThreads(workspaceID);
       }
     };
-    stream.onerror = () => setConnection("连接中断，正在重新连接");
+    stream.onerror = () => {
+      setConnection("连接中断，正在重新连接");
+      void api<System>("/api/v1/system").catch((error) => {
+        if (!(error instanceof APIError && error.status === 401))
+          setError(errorText(error));
+      });
+    };
     return () => {
       stream.close();
       if (timer) clearTimeout(timer);
@@ -330,6 +907,7 @@ export function App() {
   }, [
     inspectedRun?.id,
     inspectedRun?.status,
+    seededRunID,
     threadID,
     workspaceID,
     refreshThread,
@@ -341,7 +919,7 @@ export function App() {
     if (follows.current) {
       element.scrollTop = element.scrollHeight;
       setNewMessages(false);
-    } else setNewMessages(true);
+    } else if (!messageCursorRef.current) setNewMessages(true);
   }, [view?.messages.items, stepsByRun]);
 
   async function createThread(text: string) {
@@ -386,17 +964,13 @@ export function App() {
         : {
             message: text,
             workflow: workflow === "free" ? "" : workflow,
-            targets:
-              workflow === "free" || workflow === "discussion" ? selected : [],
+            targets: workflow === "discussion" ? selected : [],
             assignments: workflow === "free" ? {} : assignments,
-            source_urls: urls
-              .split("\n")
-              .map((s) => s.trim())
-              .filter(Boolean),
+            source_urls: [],
             artifact_refs: artifactRef
               ? [{ id: artifactRef.id, version: artifactRef.version }]
               : [],
-            research_scope: scope,
+            research_scope: "auto",
             proposal_id: "",
             retry_of_run_id: "",
           };
@@ -441,8 +1015,13 @@ export function App() {
         [id]: current[id] === input.message ? "" : current[id],
       }));
       setEvents([]);
+      setLivenessByRun({});
       setInspectedRunID("");
+      setSeededRunID("");
       setArtifactRef(undefined);
+      messageCursorRef.current = "";
+      viewCursor.current = "";
+      setMessageCursor("");
       follows.current = true;
       await refreshThread(id);
       await loadThreads(workspaceID);
@@ -465,6 +1044,25 @@ export function App() {
       setError(errorText(error));
     }
   }
+  async function resume(runID: string) {
+    if (busy || active) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/v1/runs/${runID}/resume`, "POST", {});
+      settledSteps.current.delete(runID);
+      follows.current = true;
+      messageCursorRef.current = "";
+      viewCursor.current = "";
+      setMessageCursor("");
+      await refreshThread(threadID);
+      await loadThreads(workspaceID);
+    } catch (error) {
+      setError(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function saveFeedback(value: string) {
     if (!artifact) return;
     try {
@@ -483,11 +1081,43 @@ export function App() {
   const openSource = (value: Source | string) => {
     setTab("sources");
     setPanelOpen(true);
-    if (typeof value !== "string") return setSource(value);
-    void api<Source>(`/api/v1/sources/${value}`)
-      .then(setSource)
-      .catch((error) => setError(errorText(error)));
+    const id = typeof value === "string" ? value : value.id;
+    setSourceID(id);
+    // The list only carries metadata; always read the captured body here.
+    const generation = ++sourceGeneration.current;
+    setSource(undefined);
+    setSourceLoading(true);
+    void api<Source>(`/api/v1/sources/${id}`)
+      .then((loaded) => {
+        if (generation === sourceGeneration.current) setSource(loaded);
+      })
+      .catch((error) => {
+        if (generation === sourceGeneration.current)
+          setError(errorText(error));
+      })
+      .finally(() => {
+        if (generation === sourceGeneration.current) setSourceLoading(false);
+      });
   };
+  async function browseMessages(cursor: string) {
+    if (!threadID || messagePaging) return;
+    const previous = messageCursorRef.current;
+    const latest = cursor === "";
+    if (latest) follows.current = true;
+    else follows.current = false;
+    messageCursorRef.current = cursor;
+    setMessageCursor(cursor);
+    setMessagePaging(true);
+    try {
+      await refreshThread(threadID, cursor);
+    } catch (error) {
+      messageCursorRef.current = previous;
+      setMessageCursor(previous);
+      setError(errorText(error));
+    } finally {
+      setMessagePaging(false);
+    }
+  }
   const close = () => setModal(null);
 
   if (!ready)
@@ -501,7 +1131,7 @@ export function App() {
           <p role="alert" className={cx("error")}>
             {error}
             <br />
-            请打开终端中包含启动令牌的本地链接。
+            请确认本地服务仍在运行。
           </p>
         ) : (
           <p>正在连接本地工作空间…</p>
@@ -523,9 +1153,10 @@ export function App() {
         跳到输入框
       </a>
       <Sidebar
+        appearance={appearance}
+        onAppearance={changeAppearance}
         open={navOpen}
         close={() => setNavOpen(false)}
-        demo={!!system?.demo}
         workspaces={workspaces}
         workspaceID={workspaceID}
         workspace={workspace}
@@ -559,11 +1190,20 @@ export function App() {
             <Icon name="menu" size={20} />
           </button>
           <div className={cx("breadcrumb")}>
-            <strong>{workspace?.name ?? "Cocogem"}</strong>
-            {view && <span>/ {view.thread.title}</span>}
+            {view ? (
+              <>
+                <span>
+                  {workspace?.name} /{" "}
+                  {workflows[view.thread.workflow as WorkflowKey] ||
+                    workflows.free}
+                </span>
+                <h1>{view.thread.title}</h1>
+              </>
+            ) : (
+              <strong>{workspace?.name ?? "Cocogem"}</strong>
+            )}
           </div>
           <div className={cx("top-actions")}>
-            {system?.demo && <span className={cx("demo-badge")}>离线演示</span>}
             {threadID && (
               <button
                 className={cx("icon-button")}
@@ -575,20 +1215,33 @@ export function App() {
               </button>
             )}
             <button
-              className={cx("desktop-only")}
+              className={cx("ghost desktop-only")}
               onClick={() => setModal({ kind: "agents" })}
               disabled={!workspace}
+              aria-label={`成员 ${agents.length}`}
             >
-              <Icon name="users" size={16} /> 成员
-              <span className={cx("count")}>{agents.length}</span>
+              <span className={cx("avatar-stack")}>
+                {agents.slice(0, 4).map((agent) => (
+                  <Avatar
+                    key={agent.id}
+                    name={agent.display_name}
+                    id={agent.id}
+                    small
+                  />
+                ))}
+              </span>
+              {agents.length} 位成员
             </button>
             <button
-              className={cx("icon-button panel-toggle")}
-              aria-label="打开资料面板"
+              className={cx("ghost panel-toggle")}
+              id="context-toggle"
+              aria-label={panelOpen ? "收起协作面板" : "打开协作面板"}
               aria-expanded={panelOpen}
-              onClick={() => setPanelOpen(true)}
+              aria-controls="collaboration-panel"
+              onClick={() => setPanelOpen((current) => !current)}
             >
-              <Icon name="panel" size={20} />
+              <Icon name="panel" size={16} />
+              <span>协作</span>
             </button>
           </div>
         </header>
@@ -606,14 +1259,10 @@ export function App() {
         )}
         <div className={cx("workspace-columns")}>
           <main className={cx("conversation")}>
-            {view && (
-              <div className={cx("conversation-heading")}>
-                <h1>{view.thread.title}</h1>
-              </div>
-            )}
             <div className={cx("timeline-wrap")}>
               <div
                 className={cx("timeline")}
+                data-testid="conversation-timeline"
                 ref={timeline}
                 onScroll={(event) => {
                   const el = event.currentTarget;
@@ -635,16 +1284,75 @@ export function App() {
                   />
                 )}
                 <div className={cx("timeline-inner")}>
+                  {view &&
+                    (messageCursor || view.messages.next_cursor) && (
+                      <div
+                        className={cx("timeline-paging")}
+                        role="group"
+                        aria-label="消息分页"
+                      >
+                        {messageCursor && (
+                          <button
+                            type="button"
+                            className={cx("ghost small")}
+                            disabled={messagePaging}
+                            onClick={() => void browseMessages("")}
+                          >
+                            回到最新消息
+                          </button>
+                        )}
+                        {view.messages.next_cursor && (
+                          <button
+                            type="button"
+                            className={cx("ghost small")}
+                            disabled={messagePaging}
+                            onClick={() =>
+                              void browseMessages(
+                                view.messages.next_cursor,
+                              )
+                            }
+                          >
+                            加载更早的消息
+                          </button>
+                        )}
+                        {messagePaging && (
+                          <small className={cx("muted")} role="status">
+                            正在加载消息…
+                          </small>
+                        )}
+                      </div>
+                    )}
                   {runs.map((run, index) => {
                     const own = messages.filter((m) => m.run_id === run.id);
                     return (
                       <div className={cx("run-segment")} key={run.id}>
+                        {own
+                          .filter((message) => message.role === "user")
+                          .map((message) => (
+                            <MessageCard
+                              key={message.id}
+                              message={message}
+                              index={0}
+                            />
+                          ))}
                         <RunDivider
                           run={run}
                           index={index + 1}
                           steps={stepsByRun[run.id]}
+                          attempts={attemptsByRun[run.id]}
+                          messages={messages}
+                          sources={view?.sources ?? []}
+                          artifacts={artifacts}
                           connection={
                             run.id === inspectedRun?.id ? connection : ""
+                          }
+                          liveness={
+                            run.id === inspectedRun?.id
+                              ? latestLiveness
+                              : undefined
+                          }
+                          events={
+                            run.id === inspectedRun?.id ? events : undefined
                           }
                           latest={run.id === currentRun?.id}
                           busy={busy}
@@ -652,15 +1360,40 @@ export function App() {
                           onRetry={() =>
                             void send({ ...run.input, retry_of_run_id: run.id })
                           }
+                          onResume={() => void resume(run.id)}
+                          onSource={openSource}
+                          onArtifact={(selected) => {
+                            setArtifact(selected);
+                            setModal({ kind: "artifact" });
+                          }}
                         />
-                        {own.map((message) => (
-                          <MessageCard
-                            key={message.id}
-                            message={message}
-                            index={agentIndex(message.agent_id)}
-                            role={stepRole(run.id, message.step_id)}
-                          />
-                        ))}
+                        {own
+                          .filter((message) => message.role !== "user")
+                          .map((message) => (
+                            <MessageCard
+                              key={message.id}
+                              message={message}
+                              index={agentIndex(message.agent_id)}
+                              role={stepRole(run.id, message.step_id)}
+                            />
+                          ))}
+                        <div
+                          className={cx("run-artifacts")}
+                          aria-label={`第 ${index + 1} 次协作产物`}
+                        >
+                          {artifacts
+                            .filter((item) => item.run_id === run.id)
+                            .map((item) => (
+                              <ArtifactCard
+                                key={`${item.id}:${item.version}`}
+                                artifact={item}
+                                onOpen={(selected) => {
+                                  setArtifact(selected);
+                                  setModal({ kind: "artifact" });
+                                }}
+                              />
+                            ))}
+                        </div>
                       </div>
                     );
                   })}
@@ -703,10 +1436,6 @@ export function App() {
                   [draftKey]: { ...current[draftKey], [role]: id },
                 }))
               }
-              urls={urls}
-              setURLs={setURLs}
-              scope={scope}
-              setScope={setScope}
               artifactRef={artifactRef}
               clearArtifactRef={() => setArtifactRef(undefined)}
               routing={routing}
@@ -714,7 +1443,6 @@ export function App() {
               canceling={currentRun?.status === "canceling"}
               busy={busy}
               disabled={!workspace}
-              demo={!!system?.demo}
               pending={
                 pendingRequest && (
                   <p className={cx("notice")} role="status">
@@ -740,7 +1468,10 @@ export function App() {
           </main>
           <ContextPanel
             open={panelOpen}
-            close={() => setPanelOpen(false)}
+            close={() => {
+              setPanelOpen(false);
+              document.getElementById("context-toggle")?.focus();
+            }}
             tab={tab}
             setTab={setTab}
             agents={agents}
@@ -748,6 +1479,8 @@ export function App() {
             onManage={() => setModal({ kind: "agents" })}
             sources={view?.sources ?? []}
             source={source}
+            sourceID={sourceID}
+            sourceLoading={sourceLoading}
             onSource={openSource}
             artifacts={artifacts}
             onArtifact={(item) => {
@@ -758,6 +1491,8 @@ export function App() {
             inspectedRun={inspectedRun}
             onInspect={(id) => {
               setEvents([]);
+              confirmedSeq.current[id] = 0;
+              appliedDelta.current[id] = 0;
               setInspectedRunID(id);
             }}
             events={events}
@@ -785,21 +1520,22 @@ export function App() {
                   name: value.name,
                   description: value.description,
                   root: value.root,
-                  consent_version: value.consent_version,
+                  skill_ids: value.skill_ids,
                 },
                 value.id ? { "If-Match": String(value.revision) } : {},
               );
               await loadSpaces();
               close();
-              navigate(saved.id, value.id ? threadID : "");
+              if (!value.id) navigate(saved.id);
             }}
           />
         )}
       {modal?.kind === "agents" && system && (
-        <MembersForm
+        <MembersSettings
           agents={agents}
           system={system}
           workspaceID={workspaceID}
+          refresh={() => loadMembers(workspaceID)}
           close={close}
           save={async (value) => {
             const saved = await api<Agent>(
@@ -835,9 +1571,15 @@ export function App() {
                 [th.id]: th.workflow as WorkflowKey,
               }));
               setAssignmentChoices((current) => ({ ...current, [th.id]: {} }));
+              if (value.id)
+                setView((current) =>
+                  current?.thread.id === th.id
+                    ? { ...current, thread: th }
+                    : current,
+                );
               close();
               await loadThreads(workspaceID);
-              navigate(workspaceID, th.id);
+              if (!value.id) navigate(workspaceID, th.id);
             }}
           />
         )}
@@ -845,7 +1587,12 @@ export function App() {
         <SnapshotDialog run={modal.run} close={close} />
       )}
       {modal?.kind === "settings" && system && (
-        <SettingsDialog system={system} setSystem={setSystem} close={close} />
+        <SettingsDialog
+          system={system}
+          setSystem={setSystem}
+          close={close}
+          lock={lock}
+        />
       )}
       {modal?.kind === "artifact" && artifact && (
         <ArtifactReader
@@ -901,7 +1648,7 @@ export function App() {
         >
           <p>
             “{modal.workspace.name}”及其中的 {threads.length}{" "}
-            个会话、成员、来源和产物会被永久删除，无法恢复。
+            个会话、成员关联、来源和产物会被永久删除，无法恢复。全局成员档案会保留。
           </p>
         </ConfirmDialog>
       )}
@@ -928,7 +1675,7 @@ function Welcome({
         <div className={cx("onboarding")}>
           <p>Cocogem 让几位成员分工研究、互相质疑，再汇总成有来源的结论。</p>
           <ol>
-            <li>创建一个工作空间，会自带三位默认成员</li>
+            <li>创建工作空间，选择可以跨空间复用的成员</li>
             <li>选择讨论、Research 或代码分析，提出问题</li>
             <li>查看过程、来源和报告，继续追问</li>
           </ol>
@@ -942,7 +1689,7 @@ function Welcome({
     <div className={cx("welcome")}>
       <h1>把问题交给一个团队。</h1>
       <p className={cx("intro")}>
-        研究一个主题、比较不同观点，或读懂一份代码。每位成员各展所长，每个结论有据可查。
+        直接提出问题，也可以附上链接。成员会主动查证、交流与复核，把过程和结论留在这里。
       </p>
       <div className={cx("scenario-grid")}>
         {scenarios.map((item) => (
@@ -960,8 +1707,7 @@ function Welcome({
         ))}
       </div>
       <p className={cx("welcome-note")}>
-        {members} 位成员已就位。也可以直接写“布偶猫帮我研究……”，或输入 @
-        指定成员。
+        {members} 位成员已就位。可以描述你需要的分工，或输入 @ 指定成员。
       </p>
     </div>
   );

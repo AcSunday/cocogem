@@ -5,20 +5,20 @@
   overflow: hidden;
 }
 .sidebar {
-  width: 248px;
+  width: 224px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px 12px 12px;
-  background: var(--surface-2);
+  padding: 18px 14px 16px;
   border-right: 1px solid var(--border);
+  background: var(--surface-2);
 }
 .sidebar-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 .brand {
   display: flex;
@@ -26,8 +26,10 @@
   gap: 8px;
   padding: 4px;
   color: var(--text);
-  font-size: 17px;
-  font-weight: 650;
+  font-size: 20px;
+  font-family: Georgia, "Songti SC", serif;
+  font-weight: 500;
+  letter-spacing: -0.03em;
   text-decoration: none;
 }
 .brand-mark {
@@ -36,28 +38,25 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-}
-.version {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--surface-3);
-  color: var(--text-3);
-  font-size: 12px;
-  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--accent-text);
 }
 .sidebar-close {
   display: none;
 }
-.sidebar > select {
+.sidebar > .select-wrap .select {
   width: 100%;
-  background: var(--surface);
+  border-color: var(--border);
+  background: transparent;
+  padding-left: 8px;
+  font-size: 13px;
 }
 .new-thread {
   justify-content: flex-start;
   width: 100%;
-  font-weight: 600;
+  border-color: transparent;
+  min-height: 38px;
+  font-weight: 500;
 }
 .search {
   display: flex;
@@ -87,7 +86,7 @@
   padding: 4px 8px 0;
   color: var(--text-3);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
 }
 .thread-list {
   flex: 1;
@@ -109,7 +108,7 @@
   background: var(--surface-3);
 }
 .thread-item.selected {
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 2px 0 var(--accent);
 }
 .thread {
   flex: 1;
@@ -161,10 +160,33 @@
   border-color: transparent;
   background: transparent;
   color: var(--text-2);
+  padding-left: 8px;
+  font-size: 12px;
 }
 .sidebar-footer p {
   margin: 6px 8px 0;
   color: var(--text-3);
+  font-size: 11px;
+}
+.appearance-select {
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 4px 0 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.appearance-select .select-wrap {
+  flex: 1;
+  width: auto;
+}
+.appearance-select .select {
+  flex: 1;
+  min-height: 30px;
+  padding: 4px;
+  border-color: transparent;
+  background: transparent;
   font-size: 12px;
 }
 .workspace-main {
@@ -179,28 +201,43 @@
   gap: 10px;
   height: var(--topbar);
   flex-shrink: 0;
-  padding: 0 16px 0 24px;
-  background: var(--surface);
+  padding: 0 28px;
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
 .breadcrumb {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
   overflow: hidden;
-  font-size: 14px;
+  font-size: 12px;
+  color: var(--text-3);
   white-space: nowrap;
 }
 .breadcrumb strong {
   overflow: hidden;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   text-overflow: ellipsis;
 }
 .breadcrumb span {
+  max-width: 100%;
+  font-size: 10px;
   overflow: hidden;
   color: var(--text-3);
+  text-overflow: ellipsis;
+}
+.breadcrumb h1 {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
   text-overflow: ellipsis;
 }
 .top-actions {
@@ -211,6 +248,20 @@
 }
 .top-actions .count {
   color: var(--text-3);
+}
+.top-actions button {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.avatar-stack {
+  display: flex;
+  padding-left: 6px;
+}
+.avatar-stack > span {
+  margin-left: -6px;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  box-sizing: content-box;
 }
 .mobile-only {
   display: none;
@@ -229,13 +280,7 @@
   }
 }
 .panel-toggle {
-  display: none;
-}
-/* Below 900px the context panel becomes a drawer opened from the top bar. */
-@media (max-width: 900px) {
-  .panel-toggle {
-    display: inline-flex;
-  }
+  display: inline-flex;
 }
 /* Below 700px the sidebar becomes a full drawer as well. */
 @media (max-width: 700px) {
@@ -283,7 +328,7 @@
     display: block;
     border: 0;
     border-radius: 0;
-    background: rgb(20 28 20 / 35%);
+    background: rgb(0 0 0 / 40%);
   }
 }
 .bootstrap {
@@ -302,4 +347,55 @@
   width: 48px;
   height: 48px;
   border-radius: 12px;
+}
+.auth-card {
+  width: min(100%, 400px);
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  text-align: left;
+}
+.auth-card h1 {
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+.auth-card p {
+  margin: 0;
+}
+.auth-brand {
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+.auth-card form {
+  width: 100%;
+  display: grid;
+  gap: 16px;
+  margin-top: 12px;
+}
+.auth-card label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+.auth-card input {
+  width: 100%;
+}
+.auth-card form > button {
+  margin-top: 4px;
+}
+.auth-footer {
+  margin-top: 20px !important;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.settings-security {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 20px;
+}
+.settings-security button {
+  justify-self: start;
 }

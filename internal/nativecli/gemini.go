@@ -72,47 +72,44 @@ func prepareGemini(request model.Request, workdir string, gate *bridge) ([]strin
 	return args, map[string]string{"GEMINI_CLI_TRUST_WORKSPACE": "true", "GEMINI_SYSTEM_MD": "", "GEMINI_WRITE_SYSTEM_MD": ""}, nil
 }
 
-func parseGemini(reader io.Reader, gate *bridge) error {
+func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
 	initialized, finished := false, false
 	sessionID := ""
-	bytesRead, events, textBytes := 0, 0, 0
+	activity := newActivityTracker()
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
 		}
-		bytesRead += len(line)
-		events++
-		if bytesRead > 8*1024*1024 || events > 2048 {
-			return errors.New("native CLI event budget exceeded")
-		}
 		var event struct {
 			Type      string `json:"type"`
+			ID        string `json:"id"`
 			SessionID string `json:"session_id"`
 			Role      string `json:"role"`
 			Content   string `json:"content"`
 			Status    string `json:"status"`
 			ToolName  string `json:"tool_name"`
 			Error     struct {
+				Type    string `json:"type"`
 				Message string `json:"message"`
 			} `json:"error"`
 			Stats tokenUsage `json:"stats"`
 		}
 		if json.Unmarshal(line, &event) != nil || event.Type == "" {
-			return errors.New("malformed native CLI event")
+			return newFailure(FailureProtocol, "native CLI emitted a malformed event")
 		}
 		if finished {
-			return errors.New("native CLI emitted data after its terminal result")
+			return newFailure(FailureProtocol, "native CLI emitted data after its terminal result")
 		}
 		if initialized && event.SessionID != "" && event.SessionID != sessionID {
-			return errors.New("native CLI changed its session identity")
+			return newFailure(FailureProtocol, "native CLI changed its session identity")
 		}
 		switch event.Type {
 		case "init":
 			if initialized || !sessionPattern.MatchString(event.SessionID) {
-				return errors.New("native CLI session initialization is invalid")
+				return newFailure(FailureProtocol, "native CLI session initialization is invalid")
 			}
 			initialized, sessionID = true, event.SessionID
 			if err := gate.emit("native_session", map[string]any{"executor": "gemini", "session_id": sessionID, "mode": "fresh", "cwd": "isolated"}); err != nil {
@@ -120,45 +117,79 @@ func parseGemini(reader io.Reader, gate *bridge) error {
 			}
 		case "message":
 			if !initialized {
-				return errors.New("native CLI replied before session initialization")
+				return newFailure(FailureProtocol, "native CLI replied before session initialization")
 			}
-			if event.Role == "assistant" && event.Content != "" {
-				textBytes += len(event.Content)
-				if textBytes > 256*1024 {
-					return errors.New("native CLI visible output exceeds budget")
-				}
-				if err := gate.emit("text", map[string]any{"text": event.Content}); err != nil {
+			// User echoes and empty frames carry no assistant output. Non-empty
+			// assistant content is kept even when whitespace-only, because it may
+			// be a meaningful delta; only non-whitespace text proves progress.
+			// With an identity only an exact frame replay is deduped; without one
+			// a retransmission cannot be distinguished, so the text is kept.
+			if event.Role != "assistant" || event.Content == "" {
+				break
+			}
+			if event.ID != "" && activity.duplicate(event.ID, line) {
+				break
+			}
+			visible := strings.TrimSpace(event.Content) != ""
+			if visible {
+				if err := gate.requireTools(); err != nil {
 					return err
 				}
+				live.valid("text")
+			}
+			if err := gate.emit("text", map[string]any{"text": event.Content, "activity": visible}); err != nil {
+				return err
 			}
 		case "tool_use":
 			name := strings.TrimPrefix(event.ToolName, gate.nativePrefix)
 			if !initialized || gate.nativePrefix == "" || !strings.HasPrefix(event.ToolName, gate.nativePrefix) || gate.schemas[name] == nil {
-				return errors.New("native CLI requested an unapproved native tool")
+				return newFailure(FailureProtocol, "native CLI requested an unapproved native tool")
+			}
+			item := event.ID
+			if item == "" {
+				item = event.ToolName
+			}
+			if activity.newTool(item, "") {
+				live.valid("tool_call")
 			}
 		case "tool_result":
 			if !initialized {
-				return errors.New("native CLI returned a tool result before initialization")
+				return newFailure(FailureProtocol, "native CLI returned a tool result before initialization")
 			}
 		case "result":
-			if !initialized || event.Status != "success" {
-				return nativeFailure("result_error", event.Error.Message)
-			}
-			finished = true
 			if err := gate.recordUsage(event.Stats); err != nil {
 				return err
 			}
+			if !initialized || event.Status != "success" {
+				return classifiedNativeFailure(event.Error.Type, "result_error", event.Error.Message)
+			}
+			if err := gate.requireTools(); err != nil {
+				return err
+			}
+			finished = true
 		case "error":
-			return nativeFailure("reported_error", event.Error.Message)
+			if err := gate.recordUsage(event.Stats); err != nil {
+				return err
+			}
+			return classifiedNativeFailure(event.Error.Type, "reported_error", event.Error.Message)
 		default:
-			return errors.New("native CLI emitted an unsupported event")
+			if strings.Contains(strings.ToLower(event.Type), "tool") || suspiciousToolAction(line) {
+				return newFailure(FailureProtocol, "native CLI emitted an unknown tool action")
+			}
+			live.notice(event.Type)
+			if err := gate.notice(event.Type, "ignored unknown non-terminal notification"); err != nil {
+				return err
+			}
 		}
 	}
-	if scanner.Err() != nil {
-		return errors.New("native CLI output could not be read within budget")
+	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			return newFailure(FailureProtocol, "native CLI output frame exceeds the 4 MiB frame limit")
+		}
+		return newFailure(FailureProtocol, "native CLI output could not be read")
 	}
 	if !finished {
-		return errors.New("native CLI ended without a confirmed terminal result")
+		return newFailure(FailureProtocol, "native CLI ended without a confirmed terminal result")
 	}
 	return nil
 }

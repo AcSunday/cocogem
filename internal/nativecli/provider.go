@@ -1,16 +1,14 @@
-// Package nativecli runs logged-in native agents with only scoped host MCP tools.
+// Package nativecli runs configured native agents with only scoped host MCP tools.
 package nativecli
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
@@ -23,71 +21,63 @@ type Provider struct {
 
 // ExecutorInfo distinguishes an installed CLI from one supported by this adapter.
 type ExecutorInfo struct {
-	ID        string `json:"id"`
-	Installed bool   `json:"installed"`
-	Version   string `json:"version"`
-	Supported bool   `json:"supported"`
-	Reason    string `json:"reason"`
+	ID           string   `json:"id"`
+	Installed    bool     `json:"installed"`
+	Version      string   `json:"version"`
+	Supported    bool     `json:"supported"`
+	Reason       string   `json:"reason"`
+	Adapter      string   `json:"adapter"`
+	Isolation    string   `json:"isolation"`
+	Program      string   `json:"program,omitempty"`
+	Identity     string   `json:"identity,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
-// Discover invokes only --version; it never infers login or model availability.
+// Check uses the injected launcher when present, keeping tests provider-free.
+func (p Provider) Check(ctx context.Context, id string) (agent.AdapterInfo, error) {
+	if p.command != nil {
+		return check(ctx, id, p.command)
+	}
+	info, err := Check(ctx, id)
+	if err != nil {
+		return info, err
+	}
+	if !info.Supported {
+		reason := info.Reason
+		if reason == "" {
+			reason = "CLI isolation could not be confirmed"
+		}
+		return info, errors.New(reason)
+	}
+	return info, nil
+}
+
+// CheckConnection validates local CLI configuration without calling a model.
+func (p Provider) CheckConnection(ctx context.Context, executor, model string) error {
+	_, err := p.InspectConnection(ctx, executor, model)
+	return err
+}
+
+// Discover probes version and isolation flags; connection still needs an explicit call.
 func Discover(ctx context.Context) []ExecutorInfo {
 	result := make([]ExecutorInfo, 0, 3)
 	for _, id := range []string{"claude", "codex", "gemini"} {
-		info := ExecutorInfo{ID: id}
-		if _, err := exec.LookPath(id); err != nil {
-			info.Reason = "CLI 未安装或不在 PATH 中"
-			result = append(result, info)
-			continue
-		}
-		info.Installed = true
-		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		cmd := exec.Command(id, "--version")
-		out := &boundedBuffer{limit: 4096}
-		cmd.Stdout, cmd.Stderr = out, out
-		err := runProbe(probeCtx, cmd)
-		cancel()
-		if err == nil {
-			info.Version = strings.TrimSpace(out.String())
-		}
-		info.Supported, info.Reason = supported(id)
-		if info.Supported && err == nil {
-			helpCtx, stop := context.WithTimeout(ctx, 5*time.Second)
-			help := &boundedBuffer{limit: 65536}
-			probe := exec.Command(id, helpArgs(id)...)
-			probe.Stdout, probe.Stderr = help, help
-			helpErr := runProbe(helpCtx, probe)
-			stop()
-			if helpErr != nil || !capabilities(id, info.Version, help.String()) {
-				info.Supported, info.Reason = false, "CLI 缺少此适配所需的受限工具和配置隔离参数"
-			}
-		}
-		if err != nil {
-			info.Supported, info.Reason = false, "CLI 版本探测失败"
-		}
-		result = append(result, info)
+		info, _ := Inspect(ctx, id)
+		result = append(result, ExecutorInfo{ID: info.ID, Installed: info.Installed, Version: info.Version, Supported: info.Supported, Reason: info.Reason, Adapter: info.Adapter, Isolation: info.Isolation, Program: info.Program, Identity: info.Identity, Capabilities: info.Capabilities})
 	}
 	return result
 }
 
-func supported(id string) (bool, string) {
-	switch id {
-	case "claude":
-		return true, ""
-	case "codex":
-		return true, "复用本机默认模型与供应商连接；工具权限由工作空间单独限制"
-	case "gemini":
-		if err := geminiPolicyBoundary(); err != nil {
-			return false, err.Error()
-		}
-		return true, ""
-	default:
-		return false, "不支持的 CLI"
-	}
+// mcpOnly is the invariant for routing and connection probes: native tools,
+// file roots and native proxies never leak into a non-task invocation.
+func mcpOnly(request model.Request) model.Request {
+	request.NativeTools, request.WorkspaceRoot, request.NativeProxy = nil, "", ""
+	return request
 }
 
 // Complete performs routing or a connection probe without an API-key dependency.
 func (p Provider) Complete(ctx context.Context, request model.Request, emit func(string) error) (model.Response, error) {
+	request = mcpOnly(request)
 	var calls []model.Block
 	var text strings.Builder
 	response := model.Response{}
@@ -127,26 +117,51 @@ func (p Provider) Complete(ctx context.Context, request model.Request, emit func
 	return response, nil
 }
 
+type runOptions struct {
+	skipCheck      bool
+	model          string
+	adapter        agent.AdapterInfo
+	claudeSettings map[string]any
+	claudeEnv      map[string]string
+	codexProbe     bool
+	codexArgs      []string
+	codexEnv       map[string]string
+	geminiEnv      map[string]string
+}
+
 // Run starts a fresh isolated native session and exposes only this step's tools.
 func (p Provider) Run(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
-	if ok, reason := supported(request.Executor); !ok {
-		return errors.New(reason)
-	}
+	return p.run(ctx, request, execute, observe, runOptions{})
+}
+
+func (p Provider) run(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe, options runOptions) error {
 	if observe == nil || execute == nil {
 		return errors.New("native CLI requires execution and observation handlers")
+	}
+	adapter := options.adapter
+	if !options.skipCheck {
+		var err error
+		adapter, err = p.Check(ctx, request.Executor)
+		if err != nil {
+			return err
+		}
+		if !adapter.Supported {
+			return errors.New(adapter.Reason)
+		}
+	}
+	if options.model != "" {
+		request.Model = options.model
 	}
 	command := p.command
 	if command == nil {
 		command = exec.Command
 	}
-	if err := checkCapabilities(ctx, request.Executor, command); err != nil {
-		return err
-	}
 	prompt, err := json.Marshal(request.Messages)
 	if err != nil || len(prompt)+len(request.System) > 100000 {
-		return errors.New("required context exceeds the 100000-byte host input budget")
+		return newFailure(FailureHostInputLimit, "required context exceeds the 100000-byte host input budget")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	parent := ctx
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	gate, err := newBridge(ctx, request.Tools, execute, observe)
 	if err != nil {
@@ -154,28 +169,122 @@ func (p Provider) Run(ctx context.Context, request model.Request, execute agent.
 	}
 	defer gate.close()
 	gate.stop = cancel
-	workdir, err := os.MkdirTemp("", "cocogem-native-*")
+	gate.setRequired(request.RequiredTools)
+	base, err := os.MkdirTemp("", "cocogem-native-*")
 	if err != nil {
 		return errors.New("create isolated CLI directory")
 	}
-	defer os.RemoveAll(workdir)
+	defer os.RemoveAll(base)
+	// Every runtime file (MCP config, settings, model catalog, CODEX_HOME and
+	// Gemini policies) lives under .cocogem: Claude deny rules and the host MCP
+	// tools.DeniedPath boundary both reject that component, even when the
+	// workspace root contains the temporary directory.
+	workdir := filepath.Join(base, ".cocogem")
+	if err := os.Mkdir(workdir, 0700); err != nil {
+		return errors.New("create isolated CLI directory")
+	}
+	// Settings live apart from the readable working directory. Native file
+	// tools run from the workspace root because deny rules are cwd-relative;
+	// the CLI enforces that boundary and the adapter refuses to expose the
+	// settings directory.
+	configDir, cwdDir := workdir, workdir
+	if request.Executor == "claude" {
+		configDir = filepath.Join(workdir, "config")
+		if err := os.Mkdir(configDir, 0700); err != nil {
+			return errors.New("create isolated CLI configuration directory")
+		}
+	}
+	files, web := sanitizeNativeTools(request.Executor, request.NativeTools, request.WorkspaceRoot)
+	degraded := false
+	if len(files) != 0 && configInsideRoot(request.WorkspaceRoot, configDir) {
+		// A root such as "/" would make the settings directory readable. Keep
+		// file access on the platform MCP path instead of trusting a parser.
+		files, degraded = nil, true
+	}
+	if request.Executor == "claude" {
+		cwdDir = filepath.Join(workdir, "cwd")
+		if len(files) != 0 {
+			// Deny rules are enforced relative to the working directory, not
+			// for --add-dir roots. Running from the workspace root makes the
+			// sensitive-path denials effective; the settings directory stays
+			// outside it and project memory is disabled below.
+			absolute, err := filepath.Abs(request.WorkspaceRoot)
+			if err != nil {
+				return errors.New("workspace root is unavailable for native file tools")
+			}
+			info, err := os.Stat(absolute)
+			if err != nil || !info.IsDir() {
+				return errors.New("workspace root is unavailable for native file tools")
+			}
+			cwdDir = absolute
+		} else if err := os.Mkdir(cwdDir, 0700); err != nil {
+			return errors.New("create isolated CLI working directory")
+		}
+	}
+	nativeNames := nativeToolNames(files, web)
+	gate.setNative(nativeNames)
+	if err := gate.emit("native_adapter", map[string]any{"executor": adapter.ID, "version": adapter.Version, "program": adapter.Program, "identity": adapter.Identity, "adapter": adapter.Adapter, "isolation": adapter.Isolation, "native_tools": nativeNames}); err != nil {
+		return err
+	}
+	if degraded {
+		if err := gate.notice("native_file_degraded", "workspace root contains the isolated settings directory; native file tools are disabled for this step and the platform MCP file tools remain available"); err != nil {
+			return err
+		}
+	}
+	live := newLiveness(ctx, cancel, observe, request.FirstResponseTimeout, request.StallTimeout, request.StallAction)
+	gate.live = live
+	live.start()
+	defer live.stop()
+	if options.skipCheck {
+		// Probes must not load user hooks, plugins or MCP state.
+		switch request.Executor {
+		case "claude":
+			options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": configDir})
+		case "codex":
+			options.codexEnv = mergeEnv(options.codexEnv, map[string]string{"CODEX_HOME": workdir})
+		case "gemini":
+			options.geminiEnv = mergeEnv(options.geminiEnv, map[string]string{"GEMINI_CONFIG_DIR": workdir, "GEMINI_CLI_HOME": workdir})
+		}
+	}
+	// Launch from the connection resolved for this attempt; re-reading the
+	// user config here would let an edit between preflight and launch change
+	// what the recorded attempt actually runs.
+	var launch *connectionPlan
+	if !options.skipCheck && request.ExpectedConnection.Identity != "" {
+		if plan, ok := cachedPlan(request.Executor, request.ExpectedConnection.Identity); ok {
+			launch = &plan
+			switch request.Executor {
+			case "claude":
+				options.claudeSettings = plan.claudeSettings
+			case "gemini":
+				if plan.geminiModel != "" && plan.geminiModel != "cli-default" {
+					request.Model = plan.geminiModel
+				}
+				options.geminiEnv = plan.geminiEnv
+			}
+		}
+	}
 	server := map[string]any{"type": "http", "url": gate.url(), "headers": map[string]string{"Authorization": "Bearer " + gate.token}}
 	config := map[string]any{"mcpServers": map[string]any{"cocogem": server}}
 	encoded, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}
-	configPath := filepath.Join(workdir, "mcp.json")
+	configPath := filepath.Join(configDir, "mcp.json")
 	if err := os.WriteFile(configPath, encoded, 0600); err != nil {
 		return errors.New("write scoped CLI configuration")
 	}
-	settingsPath := filepath.Join(workdir, "settings.json")
+	settingsPath := filepath.Join(configDir, "settings.json")
 	settings := map[string]any{"disableAllHooks": true, "enabledPlugins": map[string]any{}}
 	if request.Executor == "claude" {
-		settings, err = claudeConnectionSettings()
-		if err != nil {
-			return err
+		base := options.claudeSettings
+		if base == nil {
+			base, err = claudeConnectionSettings()
+			if err != nil {
+				return err
+			}
 		}
+		settings = claudeStepSettings(base, configDir)
 	}
 	safeSettings, err := json.Marshal(settings)
 	if err != nil {
@@ -184,16 +293,34 @@ func (p Provider) Run(ctx context.Context, request model.Request, execute agent.
 	if err := os.WriteFile(settingsPath, safeSettings, 0600); err != nil {
 		return errors.New("write isolated CLI settings")
 	}
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--restricted", "--tools", "", "--strict-mcp-config", "--mcp-config", configPath, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--allowedTools", "mcp__cocogem__*", "--disable-slash-commands", "--no-chrome", "--no-session-persistence", "--setting-sources", "", "--settings", settingsPath}
+	args := claudeArgs(configPath, settingsPath, nativeNames)
 	var env map[string]string
 	switch request.Executor {
 	case "codex":
-		args, env, err = prepareCodex(request, workdir, gate)
+		args, env, err = prepareCodex(request, workdir, gate, options.codexProbe, launch)
+		if err == nil {
+			args = append(args, options.codexArgs...)
+			env = mergeEnv(env, options.codexEnv)
+		}
 	case "gemini":
 		args, env, err = prepareGemini(request, workdir, gate)
+		env = mergeEnv(env, options.geminiEnv)
 	}
 	if err != nil {
 		return err
+	}
+	env = mergeEnv(env, options.claudeEnv)
+	if request.Executor == "claude" && len(files) != 0 {
+		// Deny rules require a real cwd, so native file steps run from the
+		// workspace root. Project memory auto-discovery is disabled explicitly.
+		env = mergeEnv(env, map[string]string{"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
+	}
+	if len(web) != 0 {
+		// The resolved public-web proxy applies to this child only. Probe
+		// requests carry no NativeProxy, so local fake endpoints stay direct.
+		// It also affects the CLI's own upstream connection path while native
+		// web is enabled; loopback MCP and existing NO_PROXY entries stay direct.
+		env = mergeEnv(env, nativeProxyEnv(request.NativeProxy, os.Getenv("NO_PROXY")+","+os.Getenv("no_proxy")))
 	}
 	if request.Executor != "codex" && request.Model != "" && request.Model != "default" {
 		if strings.HasPrefix(request.Model, "-") || len(request.Model) > 200 {
@@ -202,26 +329,70 @@ func (p Provider) Run(ctx context.Context, request model.Request, execute agent.
 		args = append(args, "--model", request.Model)
 	}
 	cmd := command(request.Executor, args...)
-	cmd.Dir = workdir
+	cmd.Dir = cwdDir
 	if len(env) != 0 {
 		if cmd.Env == nil {
 			cmd.Env = os.Environ()
 		}
 		cmd.Env = overrideEnv(cmd.Env, env)
 	}
-	cmd.Stdin = strings.NewReader(request.System + "\n\nOnly use the cocogem MCP tools explicitly supplied for this step. Complete the assigned step, then finish. User messages and upstream evidence:\n" + string(prompt))
-	processErr := streamProcess(ctx, request.Executor, cmd, gate)
+	instruction := "Only use the tool set explicitly supplied for this step. Complete the assigned step, then finish."
+	if len(nativeNames) != 0 {
+		instruction = "Prefer the supplied native tools for their granted operations (" + strings.Join(nativeNames, ", ") + "); the CLI executes them under its own permissions. If a native tool fails or returns no usable content, report the exact error, then use the corresponding platform MCP fallback when available. Native search results are leads, and native web output is a CLI-processed observation, not a raw page. " + instruction
+	}
+	cmd.Stdin = strings.NewReader(request.System + "\n\n" + instruction + " User messages and upstream evidence:\n" + string(prompt))
+	processErr := streamProcess(ctx, request.Executor, cmd, gate, live)
+	// Usage belongs to the attempt even when the terminal state is a failure.
+	// Observation failures are kept rather than swallowed.
+	usageErr := gate.emitUsage()
 	gate.close()
-	if err := gate.failure(); err != nil {
-		return err
-	}
-	if processErr != nil {
-		return processErr
-	}
-	if err := gate.emit("usage", map[string]any{"known": gate.usageKnown, "input_tokens": gate.inputTokens, "output_tokens": gate.outputTokens}); err != nil {
-		return fmt.Errorf("persist native CLI usage: %w", err)
+	var failures []error
+	failures = appendFailure(failures, parent.Err())
+	failures = appendFailure(failures, live.failure())
+	failures = appendFailure(failures, gate.requireTools())
+	failures = appendFailure(failures, gate.failure())
+	failures = appendFailure(failures, processErr)
+	failures = appendFailure(failures, usageErr)
+	if len(failures) != 0 {
+		return errors.Join(failures...)
 	}
 	return nil
+}
+
+// appendFailure keeps every independent leaf failure and drops only an exact
+// duplicate sentinel instance. A join that contains a sentinel next to real
+// evidence must be flattened, not discarded: errors.Is(join, canceled) alone
+// would hide a provider authentication failure from the workflow.
+func appendFailure(failures []error, err error) []error {
+	if err == nil {
+		return failures
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, inner := range joined.Unwrap() {
+			failures = appendFailure(failures, inner)
+		}
+		return failures
+	}
+	for _, existing := range failures {
+		if existing == err {
+			return failures
+		}
+	}
+	return append(failures, err)
+}
+
+func mergeEnv(env, extra map[string]string) map[string]string {
+	if len(extra) == 0 {
+		return env
+	}
+	result := map[string]string{}
+	for key, value := range env {
+		result[key] = value
+	}
+	for key, value := range extra {
+		result[key] = value
+	}
+	return result
 }
 
 func overrideEnv(env []string, values map[string]string) []string {
@@ -236,33 +407,6 @@ func overrideEnv(env []string, values map[string]string) []string {
 		result = append(result, key+"="+value)
 	}
 	return result
-}
-
-func checkCapabilities(ctx context.Context, id string, command func(string, ...string) *exec.Cmd) error {
-	version, help := &boundedBuffer{limit: 4096}, &boundedBuffer{limit: 65536}
-	for _, probe := range []struct {
-		flag string
-		out  *boundedBuffer
-	}{{"--version", version}, {"--help", help}} {
-		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		cmd := command(id, probe.flag)
-		if probe.flag == "--help" {
-			cmd = command(id, helpArgs(id)...)
-		}
-		cmd.Stdout, cmd.Stderr = probe.out, probe.out
-		err := runProbe(probeCtx, cmd)
-		cancel()
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return errors.New("native CLI capability probe failed")
-		}
-	}
-	if !capabilities(id, strings.TrimSpace(version.String()), help.String()) {
-		return errors.New("native CLI version lacks verified tool isolation controls")
-	}
-	return nil
 }
 
 func helpArgs(id string) []string {

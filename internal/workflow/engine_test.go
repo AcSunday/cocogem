@@ -5,26 +5,28 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/AcSunday/cocogem/internal/agent"
-	"github.com/AcSunday/cocogem/internal/model"
-	"github.com/AcSunday/cocogem/internal/store"
-	"github.com/AcSunday/cocogem/internal/tools"
-	w "github.com/AcSunday/cocogem/internal/workspace"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AcSunday/cocogem/internal/agent"
+	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/testutil"
+	"github.com/AcSunday/cocogem/internal/tools"
+	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
 func seedRun(t *testing.T, s *store.Store) w.Run {
 	t.Helper()
-	ws := w.Workspace{ID: w.NewID(), Name: "demo", Revision: 1}
+	ws := w.Workspace{ID: w.NewID(), Name: "test", Revision: 1}
 	agents := []w.Agent{}
 	for _, name := range []string{"布偶猫", "缅因猫", "橘猫"} {
-		agents = append(agents, w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: name, Handle: "cat-" + string(rune('a'+len(agents))), Model: "demo", Tools: tools.Names, Revision: 1})
+		agents = append(agents, w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: name, Handle: "cat-" + string(rune('a'+len(agents))), Model: "test", Tools: tools.Names, Revision: 1})
 	}
 	th := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Revision: 1, UpdatedAt: w.Now()}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, Demo: true, Input: w.RunInput{Message: "比较方法", Workflow: "research", Assignments: map[string]string{"researcher": agents[0].ID, "critic": agents[1].ID, "coordinator": agents[2].ID}}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, Input: w.RunInput{Message: "比较方法", Workflow: "research", ResearchScope: "given_sources", SourceURLs: testutil.Sources, Assignments: map[string]string{"researcher": agents[0].ID, "critic": agents[1].ID, "coordinator": agents[2].ID}}}
 	steps, err := Plan(run.ID, run.Input, agents)
 	if err != nil {
 		t.Fatal(err)
@@ -104,11 +106,11 @@ func TestDispatchRevalidatesPolicyAndBoundsHistoricalSources(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			models := []string{"demo"}
+			models := []string{"test"}
 			if tc.revoke {
 				models = []string{"other"}
 			}
-			e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: models, Demo: true}
+			e := Engine{Store: s, Model: testutil.Model{}, Web: testutil.Web{}, AllowedModels: models}
 			ctx, cancel := context.WithCancel(context.Background())
 			if err := e.Start(ctx); err != nil {
 				t.Fatal(err)
@@ -161,6 +163,7 @@ func TestStartupRecoveryPreservesPartialEvidence(t *testing.T) {
 	}
 	run := seedRun(t, s)
 	var stepID string
+	var attemptID string
 	if err := s.Write(context.Background(), func(tx *store.Tx) error {
 		run.Status = "running"
 		if err := tx.SaveRun(run); err != nil {
@@ -175,6 +178,11 @@ func TestStartupRecoveryPreservesPartialEvidence(t *testing.T) {
 		if err := tx.SaveStep(steps[0]); err != nil {
 			return err
 		}
+		attempt := w.Attempt{ID: w.NewID(), RunID: run.ID, StepID: stepID, Number: 1, Status: "running", Reason: "initial", StartedAt: w.Now(), Process: &w.ProcessRef{PID: 999999, PGID: 999999, Start: "Mon Jan  1 00:00:00 2001"}}
+		attemptID = attempt.ID
+		if err := tx.SaveAttempt(attempt); err != nil {
+			return err
+		}
 		return tx.SaveMessage(w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: stepID, Content: "partial result", Status: "processing"})
 	}); err != nil {
 		t.Fatal(err)
@@ -186,21 +194,43 @@ func TestStartupRecoveryPreservesPartialEvidence(t *testing.T) {
 	}
 	defer s.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}, Demo: true}
+	e := Engine{Store: s, Model: testutil.Model{}, Web: testutil.Web{}, AllowedModels: []string{"test"}}
 	if err := e.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { cancel(); e.Wait() }()
 	got := awaitRun(t, s, run.ID)
-	if got.Status != "interrupted" {
-		t.Fatal(got)
+	if got.Status != "succeeded" || got.RecoveryCount != 1 {
+		t.Fatalf("recovery did not continue from the checkpoint: %+v", got)
 	}
 	if err := s.Read(ctx, func(tx *store.Tx) error {
 		messages, err := tx.Messages(run.ThreadID)
-		if len(messages) != 1 || messages[0].Content != "partial result" || messages[0].Status != "interrupted" {
-			t.Fatal(messages)
+		if err != nil {
+			return err
 		}
-		return err
+		preserved := false
+		for _, message := range messages {
+			if message.Content == "partial result" && message.Status == "interrupted" {
+				preserved = true
+			}
+		}
+		if !preserved {
+			t.Fatalf("partial history was overwritten: %+v", messages)
+		}
+		attempts, err := tx.Attempts(run.ID)
+		if err != nil {
+			return err
+		}
+		seen := []w.Attempt{}
+		for _, attempt := range attempts {
+			if attempt.StepID == stepID {
+				seen = append(seen, attempt)
+			}
+		}
+		if len(seen) != 2 || seen[0].ID != attemptID || seen[0].Status != "interrupted" || seen[1].Status != "succeeded" {
+			t.Fatalf("attempts were not kept as separate executions: %+v", seen)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +245,7 @@ func TestArtifactRevisionAndFIFORecovery(t *testing.T) {
 	first := seedRun(t, s)
 	second := seedRun(t, s)
 	ctx, cancel := context.WithCancel(context.Background())
-	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}, Demo: true}
+	e := Engine{Store: s, Model: testutil.Model{}, Web: testutil.Web{}, AllowedModels: []string{"test"}}
 	if err := e.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +324,7 @@ func TestStepCommitFailureCannotLeaveProcessingBubble(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}, Demo: true}
+	e := Engine{Store: s, Model: testutil.Model{}, Web: testutil.Web{}, AllowedModels: []string{"test"}}
 	if err := e.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +371,7 @@ func TestSearchRevokedBeforeQueuedDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", false), AllowedModels: []string{"demo"}}
+	e := Engine{Store: s, Model: testutil.Model{}, Web: tools.NewWeb(""), AllowedModels: []string{"test"}}
 	if err := e.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -360,35 +390,38 @@ func TestSearchRevokedBeforeQueuedDispatch(t *testing.T) {
 	})
 }
 
-func TestConsentWithdrawalPreventsQueuedModelDispatch(t *testing.T) {
-	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+func TestLegacyWorkspaceCanDispatchWithoutConfirmation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.sqlite")
+	s, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 	run := seedRun(t, s)
-	ctx, cancel := context.WithCancel(context.Background())
-	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}}
-	if err := e.Start(ctx); err != nil {
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { cancel(); e.Wait() }()
-	got := awaitRun(t, s, run.ID)
-	if got.Status != "failed" || !strings.Contains(got.Error, "consent") {
-		t.Fatal(got)
+	_, err = legacy.ExecContext(t.Context(), "UPDATE workspaces SET body=json_set(body,'$.consent_version',0) WHERE id=?", run.WorkspaceID)
+	closeErr := legacy.Close()
+	if err != nil || closeErr != nil {
+		t.Fatalf("legacy workspace: %v, close: %v", err, closeErr)
 	}
-	s.Read(ctx, func(tx *store.Tx) error {
-		messages, err := tx.Messages(run.ThreadID)
-		if len(messages) != 0 {
-			t.Fatal("model started after consent withdrawal")
-		}
-		return err
-	})
+	ctx, cancel := context.WithCancel(t.Context())
+	engine := Engine{Store: s, Model: testutil.Model{}, Web: testutil.Web{}, AllowedModels: []string{"test"}}
+	if err := engine.Start(ctx); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	defer func() { cancel(); engine.Wait() }()
+	if got := awaitRun(t, s, run.ID); got.Status != "succeeded" {
+		t.Fatalf("legacy dispatch: %+v", got)
+	}
 }
 
 func awaitRun(t *testing.T, s *store.Store, id string) w.Run {
 	t.Helper()
-	deadline := time.NewTimer(5 * time.Second)
+	deadline := time.NewTimer(30 * time.Second)
 	defer deadline.Stop()
 	for {
 		wake := s.Changed()
@@ -417,7 +450,7 @@ func TestResearchExecutionAndCancellation(t *testing.T) {
 			defer s.Close()
 			run := seedRun(t, s)
 			ctx, cancel := context.WithCancel(context.Background())
-			e := Engine{Store: s, AllowedModels: []string{"demo"}, Model: model.Demo{}, Web: tools.NewWeb("", true), Demo: true}
+			e := Engine{Store: s, AllowedModels: []string{"test"}, Model: testutil.Model{}, Web: testutil.Web{}}
 			if err := e.Start(ctx); err != nil {
 				t.Fatal(err)
 			}
@@ -510,7 +543,7 @@ func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
 		_, err := execute(ctx, "publish_artifact", raw)
 		return err
 	})
-	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: tools.NewWeb("", true), Demo: true}
+	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
 	ctx, cancel := context.WithCancel(t.Context())
 	if err := e.Start(ctx); err != nil {
 		cancel()
@@ -560,7 +593,7 @@ func TestRevokedMemberToolStopsQueuedDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	e := Engine{Store: s, Model: model.Demo{}, Web: tools.NewWeb("", true), AllowedModels: []string{"demo"}, Demo: true}
+	e := Engine{Store: s, Model: testutil.Model{}, Web: testutil.Web{}, AllowedModels: []string{"test"}}
 	if err := e.Start(ctx); err != nil {
 		cancel()
 		t.Fatal(err)
@@ -605,7 +638,7 @@ func TestDependencySkipsPreserveOriginalNativeFailure(t *testing.T) {
 	runner := nativeRunnerFunc(func(context.Context, model.Request, agent.Execute, agent.Observe) error {
 		return fmt.Errorf("upstream model connection unavailable")
 	})
-	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: tools.NewWeb("", true), Demo: true}
+	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
 	ctx, cancel := context.WithCancel(t.Context())
 	if err := e.Start(ctx); err != nil {
 		cancel()

@@ -16,9 +16,12 @@ cocogem/
 │   ├── cli/               # 原生 CLI 参数、事件、进程、会话及测试
 │   ├── agent/             # 有界工具循环
 │   ├── httpapi/           # REST、SSE、本地认证与契约
-│   ├── model/             # 执行协议类型与离线模型
-│   ├── nativecli/         # 网页 CLI 执行、受限 MCP 和进程生命周期
+│   ├── model/             # 内部执行协议类型
+│   ├── nativecli/         # 网页 CLI 执行、受限 MCP、兼容探测和进程生命周期
+│   ├── proc/              # 进程身份、归属核实与受限终止
+│   ├── skills/            # 单一源共享技能、索引、版本和按需读取
 │   ├── store/             # SQLite、事务与迁移
+│   ├── testutil/          # 仅测试的模型与网页 fixtures
 │   ├── tools/             # 只读文件、公共网页与来源工具
 │   ├── workflow/          # 路由、流程和运行调度
 │   └── workspace/         # 领域类型与校验
@@ -35,17 +38,21 @@ cocogem/
 │   │   └── main.tsx       # React 挂载
 │   └── e2e/               # 浏览器端到端测试
 ├── scripts/               # 开发进程和第三方许可工具
-├── examples/              # 可公开的演示资料
+├── examples/              # 可公开的人工评测资料
 └── docs/                  # 产品、架构、验证及截图
 ```
 
-CLI 使用 `go run ./cmd/cocogem`，Web 演示使用 `make demo`。
+CLI 使用 `go run ./cmd/cocogem`，Web 开发使用 `make dev`；任务执行直接调用本机已可用的 CLI，复用现有连接与模型配置，无需重新登录。
 原先的 `go run .` 入口已迁移；已编译 CLI 的参数、退出码和工作目录中的
 `.cocogem/` 会话文件格式保持兼容。
 
 `make test` 包含原生 CLI 的进程集成测试；单独运行使用
 `go test -race -tags=integration ./cmd/cocogem`。测试只使用临时替身进程，
 不需要 CLI 登录或付费模型。
+
+浏览器通过隔离的 Go 测试服务使用合成 fixtures；该服务仅由测试启动，
+不打包进 Web 应用，也不作为运行模式提供。HTTP smoke 验证正式服务的
+启动、工作空间持久化和备份恢复，不调用模型。
 
 `dist/`、`web/dist/`、`web/node_modules/` 和浏览器测试输出由工具生成并被
 Git 忽略。运行数据保存在配置目录，不能混入源码或提交到仓库。

@@ -1,29 +1,31 @@
-package model
+package testutil
 
 import (
 	"context"
+
 	"encoding/json"
+	"github.com/AcSunday/cocogem/internal/model"
 	"strings"
 	"testing"
 )
 
-func demoStep(t *testing.T, system string, tools ...string) Response {
+func fixtureStep(t *testing.T, system string, tools ...string) model.Response {
 	t.Helper()
-	r := Request{System: system}
+	r := model.Request{System: system}
 	for _, name := range tools {
-		r.Tools = append(r.Tools, Tool{Name: name})
+		r.Tools = append(r.Tools, model.Tool{Name: name})
 	}
-	resp, err := Demo{Delay: 1}.Complete(context.Background(), r, func(string) error { return nil })
+	resp, err := Model{Delay: 1}.Complete(context.Background(), r, func(string) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 	return resp
 }
 
-func TestDemoRolesReadDifferentSourcesAndReplyDifferently(t *testing.T) {
+func TestFixtureRolesReadDifferentSourcesAndReplyDifferently(t *testing.T) {
 	urls := map[string]bool{}
 	for _, role := range []string{"researcher", "critic", "coordinator"} {
-		resp := demoStep(t, "You are x (@ragdoll). Current role="+role+" workflow=research.", "fetch_url")
+		resp := fixtureStep(t, "You are x (@ragdoll). Current role="+role+" workflow=research.", "fetch_url")
 		var in struct{ URL string }
 		if err := json.Unmarshal(resp.Blocks[0].Input, &in); err != nil {
 			t.Fatal(err)
@@ -36,7 +38,7 @@ func TestDemoRolesReadDifferentSourcesAndReplyDifferently(t *testing.T) {
 	texts := map[string]bool{}
 	for _, system := range []string{"(@ragdoll) role=researcher", "(@maine) role=critic", "(@ragdoll) role=discussant", "(@maine) role=discussant"} {
 		var streamed strings.Builder
-		resp, err := Demo{Delay: 1}.Complete(context.Background(), Request{System: system}, func(s string) error { streamed.WriteString(s); return nil })
+		resp, err := Model{Delay: 1}.Complete(context.Background(), model.Request{System: system}, func(s string) error { streamed.WriteString(s); return nil })
 		if err != nil || resp.Blocks[0].Text != streamed.String() {
 			t.Fatal("stream does not match final text", err)
 		}

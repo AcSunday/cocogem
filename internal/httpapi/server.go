@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/skills"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
 	"github.com/AcSunday/cocogem/internal/workflow"
@@ -28,14 +29,17 @@ import (
 // Config contains public capabilities and server-only dependencies.
 type Config struct {
 	Host             string
+	AuthFile         string
 	WebDir           string
 	Models           []string
 	Roots            []string
-	Demo             bool
 	ModelConfigured  bool
 	SearchConfigured bool
+	SearchProvider   string
 	Model            model.Model
 	Executors        []ExecutorInfo
+	Discover         func(context.Context) []ExecutorInfo
+	Limits           map[string]int
 }
 type proposal struct {
 	ThreadID string
@@ -48,14 +52,15 @@ type proposal struct {
 
 // Server owns routing previews and local authentication, never provider credentials.
 type Server struct {
-	config      Config
-	store       *store.Store
-	engine      *workflow.Engine
-	auth        *authentication
-	mu          sync.Mutex
-	proposals   map[string]proposal
-	routerSlots chan struct{}
-	verified    map[string]string
+	config          Config
+	store           *store.Store
+	engine          *workflow.Engine
+	auth            *authentication
+	mu              sync.Mutex
+	proposals       map[string]proposal
+	routerSlots     chan struct{}
+	verified        map[string]string
+	verifiedProgram map[string]string
 }
 
 // New validates static resources and configures the finite API surface.
@@ -63,24 +68,34 @@ func New(config Config, db *store.Store, engine *workflow.Engine) (*Server, erro
 	if _, err := os.Stat(filepath.Join(config.WebDir, "index.html")); err != nil {
 		return nil, errors.New("frontend build missing: run make build")
 	}
-	s := &Server{config: config, store: db, engine: engine, auth: newAuthentication(), proposals: map[string]proposal{}, routerSlots: make(chan struct{}, 2), verified: map[string]string{}}
+	auth, err := newAuthentication(config.AuthFile)
+	if err != nil {
+		return nil, fmt.Errorf("initialize local authentication: %w", err)
+	}
+	s := &Server{config: config, store: db, engine: engine, auth: auth, proposals: map[string]proposal{}, routerSlots: make(chan struct{}, 2), verified: map[string]string{}, verifiedProgram: map[string]string{}}
 	return s, nil
 }
-
-// BootstrapToken is shown only in the local startup URL fragment.
-func (s *Server) BootstrapToken() string { return s.auth.bootstrap }
 
 // Handler serves the API and SPA from the same origin.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /bootstrap", s.bootstrap)
+	mux.HandleFunc("GET /auth/status", s.authStatus)
+	mux.HandleFunc("POST /auth/setup", s.authenticate)
+	mux.HandleFunc("POST /auth/login", s.authenticate)
+	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/v1/system", s.system)
+	mux.HandleFunc("GET /api/v1/directories", s.directories)
 	mux.HandleFunc("POST /api/v1/system/verify", s.verify)
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspaces)
 	mux.HandleFunc("POST /api/v1/workspaces", s.createWorkspace)
 	mux.HandleFunc("PATCH /api/v1/workspaces/{id}", s.updateWorkspace)
 	mux.HandleFunc("DELETE /api/v1/workspaces/{id}", s.deleteWorkspace)
+	mux.HandleFunc("GET /api/v1/agents", s.globalAgents)
+	mux.HandleFunc("POST /api/v1/agents", s.createGlobalAgent)
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/agents", s.agents)
+	mux.HandleFunc("PUT /api/v1/workspaces/{id}/members/{agentID}", s.linkMember)
+	mux.HandleFunc("PATCH /api/v1/workspaces/{id}/members/{agentID}", s.updateMember)
+	mux.HandleFunc("DELETE /api/v1/workspaces/{id}/members/{agentID}", s.unlinkMember)
 	mux.HandleFunc("POST /api/v1/workspaces/{id}/agents", s.createAgent)
 	mux.HandleFunc("PATCH /api/v1/agents/{id}", s.updateAgent)
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/threads", s.threads)
@@ -92,7 +107,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/threads/{id}/runs", s.submit)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", s.cancel)
+	mux.HandleFunc("POST /api/v1/runs/{id}/resume", s.resume)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", s.events)
+	mux.HandleFunc("GET /api/v1/runs/{id}/event-history", s.eventHistory)
+	mux.HandleFunc("GET /api/v1/runs/{id}/messages/{messageID}/content", s.messageContent)
 	mux.HandleFunc("GET /api/v1/sources/{id}", s.source)
 	mux.HandleFunc("GET /api/v1/threads/{id}/artifacts", s.artifacts)
 	mux.HandleFunc("GET /api/v1/artifacts/{id}/versions/{version}", s.artifact)
@@ -159,6 +177,18 @@ func respond(rw http.ResponseWriter, r *http.Request, value any, err error) {
 	if errors.Is(err, w.ErrConflict) {
 		status, code = 409, "conflict"
 	}
+	if errors.Is(err, workflow.ErrRecoveryUncertain) {
+		status, code = 409, "recovery_uncertain"
+	}
+	if strings.Contains(err.Error(), "capability_blocked:") {
+		status, code = 503, "capability_blocked"
+	}
+	if strings.Contains(err.Error(), "connection_blocked:") {
+		status, code = 503, "connection_blocked"
+	}
+	if strings.Contains(err.Error(), "connection_changed:") {
+		status, code = 409, "connection_changed"
+	}
 	if errors.Is(err, errRevision) {
 		status, code = 412, "revision_conflict"
 	}
@@ -189,26 +219,69 @@ func digest(v any) string {
 }
 
 func (s *Server) system(rw http.ResponseWriter, r *http.Request) {
-	cookie, _ := r.Cookie("cocogem_session")
 	s.auth.mu.Lock()
-	csrf := s.auth.sessions[cookie.Value]
+	session, _ := s.auth.session(r)
 	s.auth.mu.Unlock()
 	state := func(configured bool) string {
-		if s.config.Demo {
-			return "demo"
-		}
 		if configured {
 			return "configured"
 		}
 		return "not_configured"
 	}
+	executors := s.refreshExecutors(r.Context())
 	s.mu.Lock()
+	filterVerifications(s.verified, s.verifiedProgram, executors)
 	verified := map[string]string{}
 	for k, v := range s.verified {
 		verified[k] = v
 	}
+	limits := map[string]int{"members": 4, "queued_runs": 20, "handoffs": 12, "steps": 32, "handoff_depth": 4}
+	if s.engine != nil {
+		limits["run_seconds"] = int(s.engine.Limits.RunTimeout.Seconds())
+		limits["step_seconds"] = int(s.engine.Limits.StepTimeout.Seconds())
+		limits["first_response_seconds"] = int(s.engine.Limits.FirstResponse.Seconds())
+		limits["stall_seconds"] = int(s.engine.Limits.Stall.Seconds())
+	}
+	for key, value := range s.config.Limits {
+		// tool_calls is retired; an older overlay must not advertise it again.
+		if key == "tool_calls" {
+			continue
+		}
+		limits[key] = value
+	}
+	executorCopy := append([]ExecutorInfo{}, executors...)
+	for i := range executorCopy {
+		for key := range verified {
+			if strings.HasPrefix(key, executorCopy[i].ID+":") {
+				executorCopy[i].Protocol = "verified"
+			}
+		}
+	}
 	s.mu.Unlock()
-	writeJSON(rw, 200, SystemInfo{Demo: s.config.Demo, Models: append([]string{}, s.config.Models...), Roots: append([]string{}, s.config.Roots...), ModelStatus: state(s.config.ModelConfigured), SearchStatus: state(s.config.SearchConfigured), Verified: verified, CSRFToken: csrf, Limits: map[string]int{"members": 4, "queued_runs": 20, "tool_calls": 30, "step_seconds": 300}, Executors: s.config.Executors})
+	writeJSON(rw, 200, SystemInfo{Models: append([]string{}, s.config.Models...), Roots: append([]string{}, s.config.Roots...), ModelStatus: state(s.modelConfigured(executorCopy)), SearchStatus: state(s.config.SearchConfigured), SearchProvider: s.config.SearchProvider, Verified: verified, CSRFToken: session.csrf, Limits: limits, Executors: executorCopy, Skills: skills.List()})
+}
+
+func (s *Server) refreshExecutors(ctx context.Context) []ExecutorInfo {
+	if s.config.Discover == nil {
+		return s.executorSnapshot()
+	}
+	discovered := s.config.Discover(ctx)
+	s.mu.Lock()
+	s.config.Executors = discovered
+	s.mu.Unlock()
+	return discovered
+}
+
+func (s *Server) modelConfigured(executors []ExecutorInfo) bool {
+	if s.config.ModelConfigured {
+		return true
+	}
+	for _, executor := range executors {
+		if executor.Installed && executor.Supported {
+			return true
+		}
+	}
+	return false
 }
 func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
 	var in VerifyInput
@@ -222,7 +295,8 @@ func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
 	if in.Model == "" {
 		in.Model = "default"
 	}
-	if len(s.config.Executors) > 0 {
+	s.refreshExecutors(r.Context())
+	if len(s.executorSnapshot()) > 0 {
 		if err := s.validateExecutor(in.Executor); err != nil {
 			respond(rw, r, nil, err)
 			return
@@ -241,16 +315,62 @@ func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
 	}
 	at := w.Now()
 	s.mu.Lock()
+	if s.verified == nil {
+		s.verified = map[string]string{}
+	}
+	if s.verifiedProgram == nil {
+		s.verifiedProgram = map[string]string{}
+	}
 	s.verified[key] = at
+	s.verifiedProgram[key] = ""
+	for i := range s.config.Executors {
+		if s.config.Executors[i].ID == in.Executor {
+			s.config.Executors[i].Protocol = "verified"
+			s.config.Executors[i].Reason = ""
+			s.verifiedProgram[key] = executorSignature(s.config.Executors[i])
+		}
+	}
+	executors := append([]ExecutorInfo{}, s.config.Executors...)
 	s.mu.Unlock()
-	writeJSON(rw, 200, VerifyReply{Executor: in.Executor, Model: in.Model, VerifiedAt: at})
+	writeJSON(rw, 200, VerifyReply{Executor: in.Executor, Model: in.Model, VerifiedAt: at, Executors: executors})
+}
+
+func executorSignature(item ExecutorInfo) string {
+	return item.Version + "|" + item.Adapter + "|" + item.Isolation + "|" + item.Identity
+}
+
+// filterVerifications drops a connection result once its program or adapter changes.
+func filterVerifications(verified, programs map[string]string, executors []ExecutorInfo) {
+	current := map[string]string{}
+	for _, item := range executors {
+		current[item.ID] = executorSignature(item)
+	}
+	for key := range verified {
+		executor, _, ok := strings.Cut(key, ":")
+		if !ok {
+			continue
+		}
+		signature, exists := current[executor]
+		stored := programs[key]
+		if !exists || (stored != "" && stored != signature) {
+			delete(verified, key)
+			delete(programs, key)
+		}
+	}
+}
+
+func (s *Server) executorSnapshot() []ExecutorInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]ExecutorInfo{}, s.config.Executors...)
 }
 
 func (s *Server) validateExecutor(id string) error {
-	if len(s.config.Executors) == 0 {
+	executors := s.executorSnapshot()
+	if len(executors) == 0 {
 		return nil
 	}
-	for _, executor := range s.config.Executors {
+	for _, executor := range executors {
 		if executor.ID == id {
 			if !executor.Installed {
 				return &RequestError{503, "executor_unavailable", "所选 CLI 尚未安装"}
@@ -269,22 +389,11 @@ func (s *Server) workspaces(rw http.ResponseWriter, r *http.Request) {
 	err := s.store.Read(r.Context(), func(tx *store.Tx) error { var err error; values, err = tx.Workspaces(); return err })
 	respond(rw, r, map[string]any{"items": values}, err)
 }
-func (s *Server) validateRoot(root string) error {
-	if root == "" {
-		return nil
-	}
-	if !slices.Contains(s.config.Roots, root) {
-		return errors.New("资料目录不在服务端允许范围内")
-	}
-	return nil
+func (s *Server) validateRoot(root string) (string, error) {
+	return tools.ResolveSourceRoot(root, s.config.Roots)
 }
 func (s *Server) createWorkspace(rw http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name           string `json:"name"`
-		Description    string `json:"description"`
-		Root           string `json:"root"`
-		ConsentVersion int    `json:"consent_version"`
-	}
+	var in WorkspaceInput
 	if !decode(rw, r, &in) {
 		return
 	}
@@ -292,49 +401,26 @@ func (s *Server) createWorkspace(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, errors.New("工作空间名称或说明无效"))
 		return
 	}
-	if err := s.validateRoot(in.Root); err != nil {
+	root, err := s.validateRoot(in.Root)
+	if err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
-	ws := w.Workspace{ID: w.NewID(), Name: in.Name, Description: in.Description, Root: in.Root, ConsentVersion: in.ConsentVersion, Revision: 1, CreatedAt: w.Now()}
-	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
+	if _, err := skills.Catalogue(in.SkillIDs); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	ws := w.Workspace{ID: w.NewID(), Name: in.Name, Description: in.Description, Root: root, SkillIDs: in.SkillIDs, Revision: 1, CreatedAt: w.Now()}
+	err = s.store.Write(r.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {
 			return err
 		}
-		for i, name := range []string{"布偶猫", "缅因猫", "橘猫"} {
-			handles := []string{"ragdoll", "maine", "orange"}
-			roles := []string{"研究资料，整理证据与不确定性。", "独立质疑结论，核对依据与遗漏。", "组织讨论，汇总观点并保留分歧。"}
-			a := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: name, Handle: handles[i], Aliases: []string{}, RoleDescription: roles[i], Model: s.config.Models[0], Tools: tools.Names, Revision: 1}
-			available := []string{}
-			for _, executor := range s.config.Executors {
-				if executor.Installed && executor.Supported {
-					available = append(available, executor.ID)
-				}
-			}
-			if len(available) > 0 {
-				a.Executor = available[0]
-				a.Model = "default"
-			}
-			if len(s.config.Executors) > 0 && len(available) == 0 {
-				a.Executor = "claude"
-				a.Model = "default"
-			}
-
-			if err := tx.SaveAgent(a); err != nil {
-				return err
-			}
-		}
-		return nil
+		return s.initializeMembers(tx, ws.ID)
 	})
 	respond(rw, r, ws, err)
 }
 func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Name           string `json:"name"`
-		Description    string `json:"description"`
-		Root           string `json:"root"`
-		ConsentVersion int    `json:"consent_version"`
-	}
+	var in WorkspaceInput
 	if !decode(rw, r, &in) {
 		return
 	}
@@ -351,10 +437,11 @@ func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(in.Name) == "" || len([]rune(in.Name)) > 100 || len(in.Description) > 4000 {
 			return errors.New("工作空间名称或说明无效")
 		}
-		if err := s.validateRoot(in.Root); err != nil {
+		root, err := s.validateRoot(in.Root)
+		if err != nil {
 			return err
 		}
-		if ws.Root != in.Root || ws.ConsentVersion != in.ConsentVersion {
+		if ws.Root != root {
 			active, err := tx.Active()
 			if err != nil {
 				return err
@@ -365,80 +452,27 @@ func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
 		}
 		ws.Name = in.Name
 		ws.Description = in.Description
-		ws.Root = in.Root
-		ws.ConsentVersion = in.ConsentVersion
+		ws.Root = root
+		if _, err := skills.Catalogue(in.SkillIDs); err != nil {
+			return err
+		}
+		ws.SkillIDs = in.SkillIDs
 		ws.Revision++
 		return tx.SaveWorkspace(ws)
 	})
 	respond(rw, r, ws, err)
 }
-func (s *Server) agents(rw http.ResponseWriter, r *http.Request) {
-	var agents []w.Agent
-	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
-		if _, err := tx.Workspace(r.PathValue("id")); err != nil {
-			return err
-		}
-		var err error
-		agents, err = tx.Agents(r.PathValue("id"))
-		return err
-	})
-	respond(rw, r, map[string]any{"items": agents}, err)
-}
-func (s *Server) createAgent(rw http.ResponseWriter, r *http.Request) {
-	var a w.Agent
-	if !decode(rw, r, &a) {
-		return
+
+func queryLimit(r *http.Request, fallback, maximum int) (int, error) {
+	text := r.URL.Query().Get("limit")
+	if text == "" {
+		return fallback, nil
 	}
-	a.ID = w.NewID()
-	a.WorkspaceID = r.PathValue("id")
-	a.Revision = 1
-	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
-		if _, err := tx.Workspace(a.WorkspaceID); err != nil {
-			return err
-		}
-		peers, err := tx.Agents(a.WorkspaceID)
-		if err != nil {
-			return err
-		}
-		if err := s.validateExecutor(a.Executor); err != nil {
-			return err
-		}
-		if err := w.ValidateAgent(a, peers, s.config.Models, tools.Names); err != nil {
-			return err
-		}
-		return tx.SaveAgent(a)
-	})
-	respond(rw, r, a, err)
-}
-func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
-	var a w.Agent
-	if !decode(rw, r, &a) {
-		return
+	value, err := strconv.Atoi(text)
+	if err != nil || value < 1 || value > maximum {
+		return 0, errors.New("每页数量无效")
 	}
-	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
-		old, err := tx.Agent(r.PathValue("id"))
-		if err != nil {
-			return err
-		}
-		if err := revision(r, old.Revision); err != nil {
-			return err
-		}
-		a.ID = old.ID
-		a.WorkspaceID = old.WorkspaceID
-		a.Revision = old.Revision + 1
-		peers, err := tx.Agents(old.WorkspaceID)
-		if err != nil {
-			return err
-		}
-		if err := s.validateExecutor(a.Executor); err != nil {
-			return err
-		}
-		if err := w.ValidateAgent(a, peers, s.config.Models, tools.Names); err != nil {
-			return err
-		}
-		return tx.SaveAgent(a)
-	})
-	respond(rw, r, a, err)
+	return value, nil
 }
 
 func paginate[T any](r *http.Request, values []T) (map[string]any, error) {
@@ -561,8 +595,25 @@ func (s *Server) updateThread(rw http.ResponseWriter, r *http.Request) {
 // errRunActive keeps deletion from racing a queued or running collaboration.
 var errRunActive = &RequestError{409, "run_active", "有协作正在进行，请先停止再删除"}
 
+// errOwnedProcess keeps a recorded child's ownership evidence until it is settled.
+var errOwnedProcess = &RequestError{409, "owned_process_alive", "本平台记录的 CLI 进程可能仍在运行，请先继续或核实该任务再删除"}
+
+func (s *Server) ownedProcessAlive(r *http.Request, threadID string) (bool, error) {
+	if s.engine == nil {
+		return false, nil
+	}
+	return s.engine.OwnedProcessAlive(r.Context(), threadID)
+}
+
 func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if live, liveErr := s.ownedProcessAlive(r, id); liveErr != nil {
+		respond(rw, r, nil, liveErr)
+		return
+	} else if live {
+		respond(rw, r, nil, errOwnedProcess)
+		return
+	}
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
 		if _, err := tx.Thread(id); err != nil {
 			return err
@@ -584,6 +635,26 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if s.engine != nil {
+		var list []w.Thread
+		if err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+			var err error
+			list, err = tx.Threads(id)
+			return err
+		}); err != nil {
+			respond(rw, r, nil, err)
+			return
+		}
+		for _, thread := range list {
+			if live, liveErr := s.ownedProcessAlive(r, thread.ID); liveErr != nil {
+				respond(rw, r, nil, liveErr)
+				return
+			} else if live {
+				respond(rw, r, nil, errOwnedProcess)
+				return
+			}
+		}
+	}
 	threads := map[string]bool{}
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
 		if _, err := tx.Workspace(id); err != nil {
@@ -622,33 +693,35 @@ func (s *Server) dropProposals(match func(proposal) bool) {
 }
 
 func (s *Server) thread(rw http.ResponseWriter, r *http.Request) {
-	var th w.Thread
-	var messages []w.Message
-	var runs []w.Run
-	var sources []w.Source
-	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
-		var err error
-		th, err = tx.Thread(r.PathValue("id"))
-		if err != nil {
-			return err
-		}
-		messages, err = tx.Messages(th.ID)
-		if err != nil {
-			return err
-		}
-		runs, err = tx.Runs(th.ID)
-		if err != nil {
-			return err
-		}
-		sources, err = tx.Sources(th.ID)
-		return err
-	})
+	limit, err := queryLimit(r, store.DefaultMessagePage, store.MaxMessagePage)
 	if err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
-	page, err := paginate(r, messages)
-	respond(rw, r, map[string]any{"thread": th, "messages": page, "runs": runs, "sources": sources}, err)
+	var view ThreadView
+	err = s.store.Read(r.Context(), func(tx *store.Tx) error {
+		var err error
+		view.Thread, err = tx.Thread(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		page, err := tx.PagedMessages(view.Thread.ID, r.URL.Query().Get("cursor"), limit)
+		if err != nil {
+			return err
+		}
+		view.Messages = Page[w.Message]{Items: page.Items, NextCursor: page.NextCursor}
+		view.Runs, err = tx.Runs(view.Thread.ID)
+		if err != nil {
+			return err
+		}
+		view.Sources, err = tx.SourceMetadata(view.Thread.ID)
+		return err
+	})
+	if errors.Is(err, store.ErrInvalidCursor) {
+		writeError(rw, r, 400, "invalid_cursor", "分页 cursor 无效")
+		return
+	}
+	respond(rw, r, view, err)
 }
 
 func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
@@ -675,12 +748,9 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		ws, err := tx.Workspace(thread.WorkspaceID)
+		_, err = tx.Workspace(thread.WorkspaceID)
 		if err != nil {
 			return err
-		}
-		if !s.config.Demo && ws.ConsentVersion < 1 {
-			return &RequestError{403, "consent_required", "请先在工作空间设置确认资料外发范围"}
 		}
 		agents, err = tx.Agents(thread.WorkspaceID)
 		return err
@@ -689,7 +759,7 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, err)
 		return
 	}
-	route, err := workflow.ResolveRouting(r.Context(), s.config.Model, s.config.Demo, in, thread, agents)
+	route, err := workflow.ResolveRouting(r.Context(), s.config.Model, in, thread, agents)
 	if err != nil {
 		respond(rw, r, nil, err)
 		return
@@ -726,6 +796,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, errors.New("有效的 Idempotency-Key 是必需的"))
 		return
 	}
+	executors := s.refreshExecutors(r.Context())
 	hash := digest(in)
 	var run w.Run
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
@@ -760,13 +831,10 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if !ok || p.ThreadID != th.ID || time.Now().After(p.Expires) || p.Digest != digest(original) || p.Catalog != digest(agents) {
 			return &RequestError{409, "routing_proposal_stale", "路由建议已失效，请重新解析收件人"}
 		}
-		if !s.config.Demo && !s.config.ModelConfigured {
-			return &RequestError{503, "model_unavailable", "没有可用的本机 CLI，请先安装并登录受支持的 CLI"}
+		if !s.modelConfigured(executors) {
+			return &RequestError{503, "model_unavailable", "没有可用的本机 CLI，请检查 CLI 安装和现有连接配置"}
 		}
-		if !s.config.Demo && ws.ConsentVersion < 1 {
-			return &RequestError{403, "consent_required", "工作空间尚未确认资料外发范围"}
-		}
-		if p.Routing.Workflow == "research" && in.ResearchScope == "web_discovery" && !s.engine.Web.SearchEnabled() {
+		if in.ResearchScope == "web_discovery" && !s.engine.Web.SearchEnabled() {
 			return &RequestError{503, "search_unavailable", "在线搜索尚未配置"}
 		}
 		if p.Routing.Workflow == "code_analysis" && ws.Root == "" {
@@ -799,7 +867,17 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		in.Workflow = p.Routing.Workflow
 		in.Targets = p.Routing.Targets
 		in.Assignments = p.Routing.Assignments
-		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: p.Routing, Status: "queued", CreatedAt: w.Now(), Demo: s.config.Demo}
+		var policy *w.ExecutionPolicy
+		if s.engine != nil {
+			limits := s.engine.Limits
+			policy = &w.ExecutionPolicy{RunTimeout: limits.RunTimeout, StepTimeout: limits.StepTimeout, FirstResponse: limits.FirstResponse, Stall: limits.Stall, StallAction: limits.StallAction}
+		}
+		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: p.Routing, ExecutionPolicy: policy, Status: "queued", CreatedAt: w.Now(), CoordinatorID: th.CoordinatorID, SkillVersions: map[string]string{}}
+		for _, skill := range skills.List() {
+			if ws.SkillIDs == nil || slices.Contains(ws.SkillIDs, skill.ID) {
+				run.SkillVersions[skill.ID] = skill.Version
+			}
+		}
 		steps, err := workflow.Plan(run.ID, in, agents)
 		if err != nil {
 			return err
@@ -821,6 +899,17 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		}
 		if len(th.AgentIDs) > 4 {
 			return errors.New("会话不能超过四个成员")
+		}
+		if in.Workflow == "free" || in.Workflow == "" {
+			for _, a := range agents {
+				if !a.Disabled && slices.Contains(th.AgentIDs, a.ID) && !slices.ContainsFunc(run.Agents, func(x w.Agent) bool { return x.ID == a.ID }) {
+					run.Agents = append(run.Agents, a)
+				}
+			}
+			run.SkillSnapshot, err = skills.SnapshotHash(ws.SkillIDs)
+			if err != nil {
+				return err
+			}
 		}
 		th.UpdatedAt = w.Now()
 		th.Revision++
@@ -851,6 +940,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 func (s *Server) run(rw http.ResponseWriter, r *http.Request) {
 	var run w.Run
 	var steps []w.Step
+	var attempts []w.Attempt
 	var cursor int64
 	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
 		var err error
@@ -862,14 +952,26 @@ func (s *Server) run(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		attempts, err = tx.Attempts(run.ID)
+		if err != nil {
+			return err
+		}
 		cursor, err = tx.Cursor(run.ID)
 		return err
 	})
-	respond(rw, r, map[string]any{"run": run, "steps": steps, "cursor": cursor}, err)
+	respond(rw, r, RunView{Run: run, Steps: steps, Attempts: attempts, Cursor: cursor}, err)
 }
 func (s *Server) cancel(rw http.ResponseWriter, r *http.Request) {
 	result, err := s.engine.Cancel(r.Context(), r.PathValue("id"))
 	respond(rw, r, result, err)
+}
+func (s *Server) resume(rw http.ResponseWriter, r *http.Request) {
+	result, err := s.engine.Resume(r.Context(), r.PathValue("id"))
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	writeJSON(rw, 202, result)
 }
 func (s *Server) events(rw http.ResponseWriter, r *http.Request) {
 	afterText := r.URL.Query().Get("after")
@@ -896,6 +998,12 @@ func (s *Server) events(rw http.ResponseWriter, r *http.Request) {
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
+		s.auth.mu.Lock()
+		_, authenticated := s.auth.session(r)
+		s.auth.mu.Unlock()
+		if !authenticated {
+			return
+		}
 		wake := s.store.Changed()
 		var events []w.Event
 		var terminal bool
@@ -941,6 +1049,64 @@ func (s *Server) events(rw http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (s *Server) eventHistory(rw http.ResponseWriter, r *http.Request) {
+	after := int64(0)
+	if text := r.URL.Query().Get("after"); text != "" {
+		value, err := strconv.ParseInt(text, 10, 64)
+		if err != nil || value < 0 {
+			respond(rw, r, nil, errors.New("事件 cursor 无效"))
+			return
+		}
+		after = value
+	}
+	limit, err := queryLimit(r, store.DefaultEventLimit, store.MaxEventLimit)
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	var page store.EventPage
+	err = s.store.Read(r.Context(), func(tx *store.Tx) error {
+		run, err := tx.Run(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		page, err = tx.EventPage(run.ID, after, limit)
+		return err
+	})
+	respond(rw, r, page, err)
+}
+
+func (s *Server) messageContent(rw http.ResponseWriter, r *http.Request) {
+	limit, err := queryLimit(r, store.DefaultContentChunks, store.MaxContentChunks)
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	var page store.MessageContentPage
+	err = s.store.Read(r.Context(), func(tx *store.Tx) error {
+		run, err := tx.Run(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		message, err := tx.Message(r.PathValue("messageID"))
+		if err != nil {
+			return err
+		}
+		// A message is addressable only through its own run and thread; never
+		// let a cursor or an ID reach another run's body.
+		if message.RunID != run.ID || message.ThreadID != run.ThreadID {
+			return store.ErrNotFound
+		}
+		page, err = tx.MessageContent(message.ID, r.URL.Query().Get("cursor"), limit)
+		return err
+	})
+	if errors.Is(err, store.ErrInvalidCursor) {
+		writeError(rw, r, 400, "invalid_cursor", "正文 cursor 无效")
+		return
+	}
+	respond(rw, r, page, err)
 }
 
 func (s *Server) source(rw http.ResponseWriter, r *http.Request) {
@@ -1014,7 +1180,7 @@ func (s *Server) export(rw http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-			sources, err = tx.Sources(a.ThreadID)
+			sources, err = tx.SourceMetadata(a.ThreadID)
 			return err
 		})
 	}
@@ -1025,9 +1191,6 @@ func (s *Server) export(rw http.ResponseWriter, r *http.Request) {
 	rw.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	rw.Header().Set("Content-Disposition", `attachment; filename="cocogem-report.md"`)
 	fmt.Fprintf(rw, "# %s\n\nVersion: %d · %s · Feedback: %s\n\n", a.Title, a.Version, a.CreatedAt, a.Feedback)
-	if a.Demo {
-		fmt.Fprint(rw, "> 离线演示：未验证真实模型效果。\n\n")
-	}
 	fmt.Fprintf(rw, "## 原始问题\n%s\n\n%s\n\n## 成员\n", run.Input.Message, a.Body)
 	if len(a.Findings) > 0 {
 		fmt.Fprint(rw, "\n## 结构化发现\n")

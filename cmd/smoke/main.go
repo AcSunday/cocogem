@@ -1,4 +1,4 @@
-// Command smoke verifies a built server and its persisted demo through real HTTP.
+// Command smoke verifies a built server and its persisted workspaces through real HTTP.
 package main
 
 import (
@@ -28,7 +28,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Println("PASS: real HTTP Research, evidence, export, process shutdown, backup and restore")
+	fmt.Println("PASS: production HTTP workspaces, process shutdown, backup and restore (no model calls)")
 }
 
 func smoke(binary, web string) error {
@@ -39,7 +39,8 @@ func smoke(binary, web string) error {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	client, stop, err := start(ctx, binary, web, dir)
+	data := filepath.Join(dir, "data")
+	client, stop, err := start(ctx, binary, web, data)
 	if err != nil {
 		return err
 	}
@@ -48,16 +49,10 @@ func smoke(binary, web string) error {
 			_ = stop()
 		}
 	}()
-	var system struct {
-		Roots []string `json:"roots"`
-	}
-	if err := client.call("GET", "/api/v1/system", nil, &system); err != nil {
-		return err
-	}
 	var ws struct {
 		ID string `json:"id"`
 	}
-	if err := client.call("POST", "/api/v1/workspaces", map[string]any{"name": "Public smoke", "root": system.Roots[0]}, &ws); err != nil {
+	if err := client.call("POST", "/api/v1/workspaces", map[string]any{"name": "Smoke workspace"}, &ws); err != nil {
 		return err
 	}
 	var members struct {
@@ -75,77 +70,38 @@ func smoke(binary, web string) error {
 	var thread struct {
 		ID string `json:"id"`
 	}
-	if err := client.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", map[string]any{"title": "Smoke research", "agent_ids": ids, "coordinator_id": ids[2], "workflow": "research"}, &thread); err != nil {
+	if err := client.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", map[string]any{"title": "Smoke conversation", "agent_ids": ids, "coordinator_id": ids[2], "workflow": "research"}, &thread); err != nil {
 		return err
-	}
-	input := map[string]any{"message": "Research the public demo and preserve uncertainty.", "workflow": "research", "assignments": map[string]string{"researcher": ids[0], "critic": ids[1], "coordinator": ids[2]}, "research_scope": "given_sources"}
-	var preview struct {
-		ID string `json:"proposal_id"`
-	}
-	if err := client.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, &preview); err != nil {
-		return err
-	}
-	input["proposal_id"] = preview.ID
-	var run struct {
-		ID string `json:"id"`
-	}
-	if err := client.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, &run); err != nil {
-		return err
-	}
-	if err := client.finished(ctx, run.ID); err != nil {
-		return err
-	}
-	var artifacts struct {
-		Items []struct {
-			ID        string   `json:"id"`
-			Body      string   `json:"body"`
-			SourceIDs []string `json:"source_ids"`
-		} `json:"items"`
-	}
-	if err := client.call("GET", "/api/v1/threads/"+thread.ID+"/artifacts", nil, &artifacts); err != nil {
-		return err
-	}
-	if len(artifacts.Items) != 1 || len(artifacts.Items[0].SourceIDs) == 0 {
-		return errors.New("report evidence missing")
-	}
-	export, err := client.http.Get(client.base + "/api/v1/artifacts/" + artifacts.Items[0].ID + "/versions/1/export")
-	if err != nil {
-		return err
-	}
-	content, err := io.ReadAll(export.Body)
-	export.Body.Close()
-	if err != nil || !bytes.Contains(content, []byte("离线演示")) {
-		return errors.New("export is not labeled")
 	}
 	if err := stop(); err != nil {
 		return err
 	}
 	stop = nil
 	backup := filepath.Join(dir, "backup")
-	if err := copyDirectory(filepath.Join(dir, "demo"), backup); err != nil {
+	if err := copyDirectory(data, backup); err != nil {
 		return err
 	}
 	restored := filepath.Join(dir, "restored")
-	if err := copyDirectory(backup, filepath.Join(restored, "demo")); err != nil {
+	if err := copyDirectory(backup, restored); err != nil {
 		return err
 	}
 	client, stop, err = start(ctx, binary, web, restored)
 	if err != nil {
 		return err
 	}
-	var restoredArtifacts struct {
-		Items []struct {
-			Body string `json:"body"`
-		} `json:"items"`
+	var restoredThread struct {
+		Thread struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"thread"`
 	}
-	if err := client.call("GET", "/api/v1/threads/"+thread.ID+"/artifacts", nil, &restoredArtifacts); err != nil {
+	if err := client.call("GET", "/api/v1/threads/"+thread.ID, nil, &restoredThread); err != nil {
 		return err
 	}
-	if len(restoredArtifacts.Items) != 1 || restoredArtifacts.Items[0].Body != artifacts.Items[0].Body {
-		return errors.New("backup restore changed the report")
+	if restoredThread.Thread.ID != thread.ID || restoredThread.Thread.Title != "Smoke conversation" {
+		return errors.New("backup restore changed the conversation")
 	}
-	var source map[string]any
-	return client.call("GET", "/api/v1/sources/"+artifacts.Items[0].SourceIDs[0], nil, &source)
+	return nil
 }
 
 type apiClient struct {
@@ -177,44 +133,9 @@ func (c *apiClient) call(method, path string, input, out any) error {
 	}
 	return json.NewDecoder(response.Body).Decode(out)
 }
-func (c *apiClient) finished(ctx context.Context, id string) error {
-	request, err := http.NewRequestWithContext(ctx, "GET", c.base+"/api/v1/runs/"+id+"/events", nil)
-	if err != nil {
-		return err
-	}
-	response, err := c.http.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		var event struct {
-			Type string `json:"type"`
-			Data struct {
-				Status string `json:"status"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
-			return err
-		}
-		if event.Type == "run_finished" {
-			if event.Data.Status != "succeeded" {
-				return fmt.Errorf("run ended %s", event.Data.Status)
-			}
-			return nil
-		}
-	}
-	return errors.New("event stream ended without run completion")
-}
 
 func start(ctx context.Context, binary, web, data string) (*apiClient, func() error, error) {
-	cmd := exec.CommandContext(ctx, binary, "--demo", "--demo-pace", "0", "--listen", "127.0.0.1:18745", "--web-dir", web)
+	cmd := exec.CommandContext(ctx, binary, "--listen", "127.0.0.1:18745", "--web-dir", web)
 	cmd.Env = append(os.Environ(), "COCOGEM_DATA_DIR="+data)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -254,18 +175,23 @@ func start(ctx context.Context, binary, web, data string) (*apiClient, func() er
 		_ = stop()
 		return nil, nil, errors.New("missing startup link")
 	}
-	parts := strings.SplitN(startup, "#bootstrap=", 2)
-	if len(parts) != 2 {
-		_ = stop()
-		return nil, nil, errors.New("invalid startup link")
-	}
 	jar, _ := cookiejar.New(nil)
-	client := &apiClient{http: &http.Client{Jar: jar, Timeout: 20 * time.Second}, base: strings.TrimSuffix(parts[0], "/")}
+	client := &apiClient{http: &http.Client{Jar: jar, Timeout: 20 * time.Second}, base: strings.TrimSuffix(startup, "/")}
 	var response struct {
 		Token string `json:"csrf_token"`
 	}
 	for attempts := 0; attempts < 30; attempts++ {
-		err = client.call("POST", "/bootstrap", map[string]string{"token": parts[1]}, &response)
+		var status struct {
+			Initialized bool `json:"initialized"`
+		}
+		err = client.call("GET", "/auth/status", nil, &status)
+		if err == nil {
+			path := "/auth/setup"
+			if status.Initialized {
+				path = "/auth/login"
+			}
+			err = client.call("POST", path, map[string]string{"password": "isolated-smoke-password"}, &response)
+		}
 		if err == nil {
 			client.csrf = response.Token
 			return client, stop, nil

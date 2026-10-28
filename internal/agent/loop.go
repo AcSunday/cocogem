@@ -32,15 +32,13 @@ type Loop struct {
 
 // Run executes tools with exact identities and never treats missing termination as success.
 func (l Loop) Run(ctx context.Context, request model.Request, execute Execute, observe Observe) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
 	rounds := l.MaxRounds
 	if rounds == 0 {
 		rounds = 12
 	}
 	toolLimit := l.MaxTools
 	if toolLimit == 0 {
-		toolLimit = 30
+		toolLimit = model.MaxToolCalls
 	}
 	calls := 0
 	seen := map[string]bool{}
@@ -60,7 +58,9 @@ func (l Loop) Run(ctx context.Context, request model.Request, execute Execute, o
 		if err != nil {
 			return err
 		}
-		if err := observe("usage", map[string]any{"input_tokens": response.InputTokens, "output_tokens": response.OutputTokens, "known": response.UsageKnown}); err != nil {
+		// Each response is one turn; the workflow accumulates turns, while the
+		// native adapter reports one cumulative total per attempt.
+		if err := observe("usage", map[string]any{"input_tokens": response.InputTokens, "output_tokens": response.OutputTokens, "known": response.UsageKnown, "semantics": "turn"}); err != nil {
 			return err
 		}
 		if response.StopReason != "tool_use" {

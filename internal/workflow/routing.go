@@ -20,7 +20,7 @@ var mention = regexp.MustCompile(`(?:^|[\s，。,:：])@([a-z][a-z0-9-]{1,31})\b
 type Routing = w.Routing
 
 // ResolveRouting uses deterministic explicit recipients before optional semantic parsing.
-func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunInput, thread w.Thread, agents []w.Agent) (Routing, error) {
+func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread w.Thread, agents []w.Agent) (Routing, error) {
 	r := Routing{Decision: "assign", Targets: input.Targets, Workflow: input.Workflow, Assignments: input.Assignments, Explanation: "使用明确选择的成员与流程"}
 	clean := fenced.ReplaceAllString(input.Message, "")
 	byHandle := map[string]w.Agent{}
@@ -71,9 +71,6 @@ func ResolveRouting(ctx context.Context, m model.Model, demo bool, input w.RunIn
 			return r, nil
 		}
 		return Routing{Decision: "discuss", Workflow: "free", Targets: []string{thread.CoordinatorID}, Explanation: "没有明确收件人，交给会话协调者"}, nil
-	}
-	if demo {
-		return reconcileRouting(demoRouting(clean, thread, candidates), input, thread, candidates, clean), nil
 	}
 	if m == nil {
 		return Routing{}, errors.New("semantic routing requires a configured model")
@@ -234,38 +231,6 @@ func sameIDs(a, b []string) bool {
 	slices.Sort(x)
 	slices.Sort(y)
 	return slices.Equal(x, y)
-}
-func demoRouting(text string, thread w.Thread, candidates []w.Agent) Routing {
-	r := Routing{Decision: "discuss", Workflow: "free", Targets: []string{thread.CoordinatorID}, Explanation: "离线示例路由：普通讨论交给协调者"}
-	if hasNegation(text) {
-		return r
-	}
-	for _, word := range []string{"不要", "如果", "假如", "我觉得", "怎么样", "会有什么"} {
-		if strings.Contains(text, word) {
-			return r
-		}
-	}
-	assigned := false
-	for _, word := range []string{"帮我", "请", "研究", "调查", "查资料", "复核", "汇总", "分别"} {
-		if strings.Contains(text, word) {
-			assigned = true
-		}
-	}
-	if !assigned {
-		return r
-	}
-	r.Decision = "assign"
-	r.Targets = nil
-	r.Explanation = "离线示例路由：按明确出现的成员称呼指派"
-	for _, a := range candidates {
-		r.Targets = append(r.Targets, a.ID)
-	}
-	if len(candidates) == 3 && strings.Contains(text, "复核") && strings.Contains(text, "汇总") {
-		r.Workflow = "research"
-		r.Targets = nil
-		r.Assignments = map[string]string{"researcher": candidates[0].ID, "critic": candidates[1].ID, "coordinator": candidates[2].ID}
-	}
-	return r
 }
 
 // namedCandidates matches normalized names at the longest non-overlapping span.

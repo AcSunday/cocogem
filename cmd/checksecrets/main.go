@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -35,6 +36,9 @@ func main() {
 			continue
 		}
 		b, err := os.ReadFile(string(path))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			failed = true

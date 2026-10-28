@@ -46,11 +46,19 @@ func claudeConnectionSettings() (map[string]any, error) {
 		}
 		dir = filepath.Join(base, ".claude")
 	}
+	allowed := []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"}
+	env := map[string]string{}
+	for _, key := range allowed {
+		if value, exists := os.LookupEnv(key); exists {
+			env[key] = value
+		}
+	}
 	b, err := readConnectionConfig(filepath.Join(dir, "settings.json"))
 	if err != nil {
 		return nil, err
 	}
 	if b == nil {
+		settings["env"] = env
 		return settings, nil
 	}
 	var input struct {
@@ -62,13 +70,11 @@ func claudeConnectionSettings() (map[string]any, error) {
 	if json.Unmarshal(b, &input) != nil {
 		return nil, errors.New("local Claude settings JSON is invalid")
 	}
-	allowed := []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"}
-	env := map[string]string{}
 	for _, key := range allowed {
-		if value, exists := os.LookupEnv(key); exists {
-			env[key] = value
-		} else if value, exists := input.Env[key]; exists {
-			env[key] = value
+		if _, exists := env[key]; !exists {
+			if value, exists := input.Env[key]; exists {
+				env[key] = value
+			}
 		}
 	}
 	var helper string

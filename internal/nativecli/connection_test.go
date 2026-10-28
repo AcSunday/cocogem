@@ -23,6 +23,13 @@ func TestMain(m *testing.M) {
 func TestClaudePreservesOnlyConnectionSettings(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	// Keep the assertion independent of the developer's live CLI environment.
+	for _, key := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
+		if value, ok := os.LookupEnv(key); ok {
+			_ = os.Unsetenv(key)
+			t.Cleanup(func() { _ = os.Setenv(key, value) })
+		}
+	}
 	settings := map[string]any{
 		"model": "configured-model", "effortLevel": "high",
 		"env":   map[string]string{"ANTHROPIC_AUTH_TOKEN": "test-only-secret", "ANTHROPIC_BASE_URL": "https://example.invalid", "ANTHROPIC_MODEL": "custom-model", "UNSAFE_CUSTOM_SETTING": "not-inherited"},

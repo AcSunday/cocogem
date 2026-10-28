@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -108,6 +109,9 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 
 // RequiredArtifact determines whether success requires a validated deliverable.
 func RequiredArtifact(step w.Step, in w.RunInput) string {
+	if step.Kind != "" && (in.Workflow == "free" || in.Workflow == "") {
+		return ""
+	}
 	if step.Role == "coordinator" {
 		if in.Workflow == "research" {
 			return "research_report"
@@ -118,6 +122,14 @@ func RequiredArtifact(step w.Step, in w.RunInput) string {
 		return "code_analysis"
 	}
 	return ""
+}
+
+// findingStatuses is the publication contract shared by the publish_artifact
+// schema and ValidateArtifact so the visible enum cannot contradict validation.
+var findingStatuses = map[string][]string{
+	"note":            {"supported", "confirmed", "disputed", "insufficient_evidence"},
+	"research_report": {"supported", "disputed", "insufficient_evidence"},
+	"code_analysis":   {"confirmed", "disputed", "insufficient_evidence"},
 }
 
 // ValidateArtifact verifies source custody and typed report findings.
@@ -144,17 +156,22 @@ func ValidateArtifact(a w.Artifact, required string, sources []w.Source) error {
 		return errors.New("report exceeds item limits")
 	}
 	for _, f := range a.Findings {
-		if f.Title == "" || f.Detail == "" || !slices.Contains([]string{"supported", "confirmed", "disputed", "insufficient_evidence"}, f.Status) {
-			return errors.New("invalid finding")
+		if f.Title == "" || f.Detail == "" {
+			return errors.New("invalid finding: title and detail are required")
+		}
+		statuses := findingStatuses[a.Type]
+		if !slices.Contains(statuses, f.Status) {
+			kind := "finding"
+			switch a.Type {
+			case "research_report":
+				kind = "research finding"
+			case "code_analysis":
+				kind = "code finding"
+			}
+			return fmt.Errorf("invalid %s status %q; allowed statuses: %s", kind, f.Status, strings.Join(statuses, ", "))
 		}
 		if a.Type == "code_analysis" && !slices.Contains([]string{"high", "medium", "low"}, f.Severity) {
 			return errors.New("code finding requires severity")
-		}
-		if a.Type == "research_report" && !slices.Contains([]string{"supported", "disputed", "insufficient_evidence"}, f.Status) {
-			return errors.New("invalid research finding status")
-		}
-		if a.Type == "code_analysis" && !slices.Contains([]string{"confirmed", "disputed", "insufficient_evidence"}, f.Status) {
-			return errors.New("invalid code finding status")
 		}
 		if a.Type == "code_analysis" && len(f.SourceIDs) == 0 {
 			return errors.New("every code finding requires file evidence")
@@ -162,6 +179,7 @@ func ValidateArtifact(a w.Artifact, required string, sources []w.Source) error {
 		if len(f.SourceIDs) == 0 && f.Status != "insufficient_evidence" {
 			return errors.New("supported finding requires captured evidence")
 		}
+		hasOriginal := false
 		for _, id := range f.SourceIDs {
 			if !slices.Contains(a.SourceIDs, id) {
 				return errors.New("artifact source_ids must include finding references")
@@ -170,9 +188,15 @@ func ValidateArtifact(a w.Artifact, required string, sources []w.Source) error {
 			if !ok {
 				return errors.New("finding cites an unavailable source")
 			}
-			if a.Type == "code_analysis" && s.Kind != "file" {
+			if evidenceStrength(s.Kind) != "lead" && !tools.IsSearchResultURL(s.URL) {
+				hasOriginal = true
+			}
+			if a.Type == "code_analysis" && s.Kind != "file" && s.Kind != "native_file" {
 				return fmt.Errorf("code finding requires file evidence: %s", id)
 			}
+		}
+		if (f.Status == "supported" || f.Status == "confirmed") && !hasOriginal {
+			return errors.New("supported or confirmed finding requires a read original source; search snippets and search result pages are leads, not evidence. Fetch the linked original or mark the finding insufficient_evidence")
 		}
 	}
 	return nil

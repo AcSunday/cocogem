@@ -1,0 +1,220 @@
+{
+  "recorded_at": "2026-10-26",
+  "scope": "Local macOS arm64 verification for long tasks, restart recovery and CLI upgrade compatibility",
+  "automated_tests": {
+    "commands": [
+      "make test (Go vet, go test -race -shuffle=on ./..., native CLI integration, frontend lint/typecheck/54 tests)",
+      "go test -race -shuffle=on -timeout 300s ./...",
+      "go run ./cmd/contract && npm --prefix web run generate (stable on repeated generation)",
+      "review counterexample tests (overlay, race) now pass in nativecli/proc/workflow"
+    ],
+    "results": [
+      "Long-task defaults and separate run/step/first-response/stall reasons",
+      "Graceful stop leaves a running checkpoint; restart creates a new attempt and keeps partial history",
+      "Canceled runs do not revive; duplicate engines dispatch each step once",
+      "Crash window does not repeat completed steps or republish artifacts",
+      "Failed delegation still returns to the coordinator after restart, matching normal scheduling",
+      "Parallel partial completion retries only the incomplete step",
+      "Owned residual process group is verified and fully terminated; identity mismatch is not signaled and blocks resume; live ownership blocks thread deletion",
+      "Capability, connection-config or changed resolved-model/upstream blocks preserve a checkpoint; explicit resume rechecks and continues only when safe",
+      "Connection identity records resolved model, provider/endpoint identity and program identity without secrets; legacy attempts without identity require a new run",
+      "CLI version/identity change between attempts is re-detected and recorded",
+      "Dependency waiting does not consume a running step's deadline",
+      "Unknown optional CLI notifications are recorded; unknown tool actions, missing terminal results and session identity changes fail closed",
+      "Claude status/idle notifications do not reset the stall deadline",
+      "A stale liveness warning is cleared by subsequent tool or message progress in the UI",
+      "Artifact publication retries replace the staged, not-yet-committed version; only one artifact is committed"
+    ]
+  },
+  "provider_free_cli_probes": {
+    "note": "Installed binaries were run against local fake model endpoints with a scoped MCP bridge. No provider credentials were used and no real model was called.",
+    "claude": {
+      "version": "2.1.310 (Claude Code)",
+      "command": "make probe-cli (Claude case)",
+      "result": "passed",
+      "verified": [
+        "stream-json session initialization",
+        "scoped MCP tool inventory and required read_file preflight",
+        "MCP tool call and model continuation",
+        "terminal result"
+      ]
+    },
+    "codex": {
+      "version": "codex-cli 0.164.0",
+      "command": "make probe-cli (Codex case)",
+      "result": "passed",
+      "verified": [
+        "isolated exec configuration",
+        "scoped MCP tool inventory and required read_file preflight",
+        "MCP tool call and continuation",
+        "terminal turn.completed"
+      ]
+    },
+    "gemini": {
+      "version": "0.65.0",
+      "command": "make probe-cli (Gemini case)",
+      "result": "passed",
+      "verified": [
+        "scoped policy/settings launch",
+        "scoped MCP tool inventory and required read_file preflight",
+        "MCP tool call and continuation",
+        "terminal result"
+      ]
+    },
+    "not_claimed": "These probes prove binary/configuration/protocol/tool-boundary compatibility only; they do not prove live account or model quality.",
+    "isolation_probe": {
+      "command": "make probe-isolation",
+      "result": "passed",
+      "verified": [
+        "actual installed binary launched with scoped MCP and isolation flags",
+        "required tool inventory handshake",
+        "synthetic model requested and the host probe tool executed",
+        "session initialization, visible text and terminal event",
+        "help-only inspection is reported as candidate, never as enforced"
+      ],
+      "versions": {
+        "claude": "2.1.310 (Claude Code)",
+        "codex": "codex-cli 0.164.0",
+        "gemini": "0.65.0"
+      }
+    }
+  },
+  "real_cli_restart": {
+    "cli": "claude",
+    "cli_version": "2.1.310 (Claude Code)",
+    "execution_mode": "Production server, installed Claude CLI, scoped MCP bridge, synthetic local text files only",
+    "workspace": "Temporary isolated synthetic workspace with two text fixtures; no private data",
+    "workflow": "code_analysis (analyst then reviewer)",
+    "restart_point": "First analyst attempt had started: process ownership and native session were persisted, and the server was SIGKILLed",
+    "residual_process": {
+      "child_alive_after_server_crash": true,
+      "verification": "PID plus process start time matched the persisted attempt ownership; the whole recorded process group was then verified",
+      "action": "verified and terminated the entire platform-owned process group after the leader exited"
+    },
+    "recovery": {
+      "run_status_after_restart": "succeeded",
+      "recovery_count": 1,
+      "first_attempt": {
+        "status": "interrupted",
+        "recovery": "owned_process_reclaimed",
+        "session_mode": "fresh",
+        "recorded_cli_version": "2.1.310 (Claude Code)",
+        "error": "service restarted; the owned process group was stopped and its result is unknown; continuing from saved context"
+      },
+      "second_analyst_attempt": {
+        "status": "succeeded",
+        "recovery": "new_attempt_from_context",
+        "session_mode": "fresh",
+        "recorded_cli_version": "2.1.310 (Claude Code)",
+        "note": "No native session was replayed; the platform used persisted task context and committed inputs."
+      },
+      "reviewer_attempt": {
+        "status": "succeeded",
+        "recorded_cli_version": "2.1.310 (Claude Code)"
+      },
+      "artifacts": [
+        "note",
+        "code_analysis"
+      ],
+      "history": "The interrupted first attempt remained in the attempt history. The reviewer ran once after the resumed analyst. Completed-step and artifact non-repetition are covered separately by automated crash-window tests because this restart point had no completed step yet.",
+      "connection_identity": "recorded resolved model and non-secret upstream identity; matched after restart (no provider/model switch)"
+    },
+    "result": "passed (Claude); see real_cli_restart_matrix for Claude/Codex/Gemini"
+  },
+  "remaining_limits": [
+    "Owned-process reclamation verifies the recorded PID, process start time and process group. A descendant that creates a new session/process group outside that group is not reaped; the adapters restrict native tools so this path should not normally occur.",
+    "The adapters use ephemeral isolated native sessions. A new attempt continues from persisted context and never claims to have resumed the old native session.",
+    "Stall detection warns by default; operators may opt into termination with COCOGEM_STALL_ACTION=stop. Run and step limits remain finite in either mode."
+  ],
+  "not_executed": [
+    "An actual CLI package upgrade during a live run; upgrade/replacement is covered by automated identity and recheck tests, not by a package-manager upgrade.",
+    "Any claim that all future CLI versions are compatible; compatibility and isolation are re-probed per program identity and unknown capabilities fail closed.",
+    "Gemini live model success: its existing upstream rejects the native API protocol; no credentials were changed.",
+    "GitHub-hosted CI, Linux runtime, and real-provider quality evaluation."
+  ],
+  "review_remediation": {
+    "date": "2026-10-26",
+    "issues": [
+      {
+        "id": "P1-1",
+        "fix": "Attempt records resolved model and non-secret connection identity; recovery/resume compares it and blocks changed default model/provider/endpoint while preserving a checkpoint."
+      },
+      {
+        "id": "P1-2",
+        "fix": "Recovery no longer settles a run merely because a delegated step failed; pending continuations are scheduled and can consume the failure result, matching non-restart behavior."
+      },
+      {
+        "id": "P1-3",
+        "fix": "Terminate verifies and waits for the entire recorded process group, escalates to SIGKILL, and reconciliation/deletion treats any surviving group member as owned/uncertain."
+      },
+      {
+        "id": "P1-4",
+        "fix": "Check is help/installation candidate only. Production dispatch/recovery runs an actual installed-CLI protocol and tool-boundary probe against a local fake model; failure blocks the call and the page shows candidate/unavailable instead of confirmed."
+      },
+      {
+        "id": "P1-5",
+        "fix": "Unknown events are structurally inspected for tool/command/permission/action keys and types; unknown actions fail closed while confirmable optional notifications remain allowed."
+      },
+      {
+        "id": "P2-6",
+        "fix": "Claude system status/idle notifications update diagnostics only, not progress; they cannot suppress stall detection."
+      },
+      {
+        "id": "P2-7",
+        "fix": "Active liveness is derived from warning plus subsequent progress events; tool completion, text, step/attempt/recovery transitions clear stale warnings."
+      }
+    ],
+    "regression_tests": [
+      "TestFailedDelegationReturnsToCoordinatorAfterRestart",
+      "TestResumeBlocksChangedResolvedModelOrUpstream",
+      "TestCodexConnectionIdentityTracksModelProviderAndEndpoint",
+      "TestTerminateStopsEntireOwnedProcessGroup",
+      "TestUnknownToolActionsAreRejected",
+      "TestClaudeStatusNoticeDoesNotResetStall",
+      "TestPublishArtifactRetryReplacesStagedContent",
+      "App test: clears a stale tool-wait warning after confirmed progress"
+    ]
+  },
+  "real_cli_restart_matrix": {
+    "date": "2026-10-26",
+    "harness": "Production server, installed CLIs, isolated synthetic fixture (17+25=42), scoped MCP, code_analysis analyst then reviewer; SIGKILL after native process/session persisted, restart on same temporary SQLite. The review harness set a 90s first-response window; one Codex retry hit that harness limit, so the successful retry used a 5m harness window (product default remains 10m).",
+    "claude": {
+      "version": "2.1.310 (Claude Code)",
+      "result": "succeeded",
+      "recovery_count": 1,
+      "attempts": "analyst attempt 1 interrupted by owned_process_reclaimed; attempt 2 succeeded from context; reviewer succeeded once",
+      "artifacts": [
+        "note",
+        "code_analysis"
+      ],
+      "old_owned_process_gone": true,
+      "resolved_model_recorded": true,
+      "connection_identity_recorded": true,
+      "connection_identity_matched": true
+    },
+    "codex": {
+      "version": "codex-cli 0.164.0",
+      "result": "succeeded",
+      "recovery_count": 1,
+      "attempts": "analyst attempt 1 interrupted by owned_process_reclaimed; attempt 2 succeeded from context; reviewer succeeded once; one earlier retry hit the review harness's 90s first-response window, then passed with a 5m harness window",
+      "artifacts": [
+        "code_analysis"
+      ],
+      "old_owned_process_gone": true,
+      "resolved_model_recorded": true,
+      "connection_identity_recorded": true,
+      "connection_identity_matched": true,
+      "transient_observation": "One real retry timed out after 90s with last event turn.started; it was not treated as unsupported, and a later retry with a 5m window passed. This demonstrates why first-response time is configurable and separate from version/isolation."
+    },
+    "gemini": {
+      "version": "0.65.0",
+      "result": "failed",
+      "recovery_count": 1,
+      "attempts": "analyst attempt 1 interrupted after its process group exited; attempt 2 failed",
+      "artifacts": [],
+      "error": "native CLI did not confirm success (category=connection); no credentials were changed and the existing upstream/native API configuration remains incompatible",
+      "classification": "not a version-unsupported decision and no credential or login change was requested"
+    },
+    "not_claimed": "All restart points are before the first step completed; completed-step and artifact non-repetition remain covered by automated crash-window tests. Gemini real success is not claimed."
+  }
+}

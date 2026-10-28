@@ -2,10 +2,13 @@
 .context-panel {
   width: 320px;
   flex-shrink: 0;
-  display: flex;
+  display: none;
   flex-direction: column;
   background: var(--surface);
   border-left: 1px solid var(--border);
+}
+.context-panel.open {
+  display: flex;
 }
 .panel-head {
   display: flex;
@@ -16,7 +19,7 @@
   flex: 1;
   display: flex;
   gap: 2px;
-  padding: 6px 8px 0;
+  padding: 12px 8px 0;
 }
 .panel-tabs button {
   flex: 1;
@@ -33,9 +36,9 @@
   color: var(--text);
 }
 .panel-tabs button[aria-selected="true"] {
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--accent-text);
   color: var(--accent-text);
-  font-weight: 600;
+  font-weight: 500;
 }
 .panel-tabs .count {
   color: var(--text-3);
@@ -43,12 +46,13 @@
   font-weight: 400;
 }
 .panel-close {
-  display: none;
+  display: inline-flex;
+  margin-right: 6px;
 }
 .panel-body {
   flex: 1;
   overflow: auto;
-  padding: 16px;
+  padding: 20px;
 }
 .panel-body > h2 {
   margin-bottom: 12px;
@@ -94,8 +98,7 @@
   width: 100%;
   margin-top: 8px;
 }
-.source-card,
-.artifact-card {
+.source-card {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
@@ -106,8 +109,34 @@
   text-align: left;
   overflow-wrap: anywhere;
 }
+.artifact-card {
+  transition: border-color 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.artifact-card > svg {
+  flex-shrink: 0;
+  color: var(--accent-text);
+}
+.artifact-card-content {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.artifact-card-content small {
+  font-size: 11px;
+}
 .source-card.selected {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   background: var(--accent-soft);
 }
 .card-kicker {
@@ -190,6 +219,26 @@
   color: var(--text-2);
   font-size: 12px;
 }
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 10px;
+}
+.event-history {
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.event-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 dialog {
   width: min(560px, calc(100vw - 24px));
   max-height: min(86dvh, 860px);
@@ -198,13 +247,13 @@ dialog {
   border-radius: var(--radius-lg);
   background: var(--surface);
   color: inherit;
-  box-shadow: 0 24px 80px rgb(20 28 20 / 25%);
+  box-shadow: var(--shadow);
 }
 dialog.wide {
   width: min(880px, calc(100vw - 24px));
 }
 dialog::backdrop {
-  background: rgb(20 28 20 / 40%);
+  background: rgb(0 0 0 / 45%);
 }
 .modal-inner {
   padding: 18px 22px 22px;
@@ -238,6 +287,74 @@ dialog label {
 }
 dialog label.check-label {
   display: flex;
+  font-weight: 400;
+}
+.workspace-skills {
+  grid-template-columns: 1fr;
+}
+.directory-location {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  min-width: 0;
+}
+.directory-location > label {
+  flex: 1;
+  min-width: 0;
+}
+.directory-location > button {
+  flex-shrink: 0;
+  min-height: 36px;
+}
+.directory-picker {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  min-width: 0;
+}
+.directory-navigation {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.directory-current {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.directory-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.directory-list button {
+  width: 100%;
+  min-height: 38px;
+  justify-content: flex-start;
+  text-align: left;
+}
+.directory-list button > span {
+  flex: 1;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.directory-list svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.workspace-skills p {
+  margin-bottom: 2px;
+}
+.workspace-skills small {
+  display: block;
+  margin-top: 2px;
   font-weight: 400;
 }
 dialog p,
@@ -379,7 +496,7 @@ dialog dd ul {
     padding: 12px 8px 8px 16px;
   }
   dialog input,
-  dialog select,
+  dialog .select,
   dialog textarea {
     font-size: 16px;
   }

@@ -1,6 +1,27 @@
-# Security scan — 2026-10-18
+# Security scan — 2026-10-28
 
-The project now requires Go 1.26.9, the current 1.26 patch listed by
+The pre-merge scan found reachable
+[GO-2026-6860](https://pkg.go.dev/vuln/GO-2026-6860) in the `golang.org/x/net/html`
+parser used by `internal/tools/web.go`. Upgraded `golang.org/x/net` from
+v0.58.0 to the fixed v0.62.0 and synchronized its required indirect dependencies
+and third-party notices. The project remains on Go 1.26.10.
+
+Local `GOFLAGS=-p=1 make security` passed: the tracked-file credential scan
+passed, `govulncheck` reported no vulnerabilities, and the frontend production
+dependency audit reported zero findings. `go mod verify` also passed. These
+results describe the local build and vulnerability database on this date;
+real-provider checks and remote CI remain separate verification.
+
+## Historical scan — 2026-10-24
+
+Current minimum toolchain is Go 1.26.10. The 2026-10-24 scan found reachable
+GO-2026-6809 in Go 1.26.9 crypto/x509; the fixed 1.26.10 patch stays within the
+project's approved Go 1.26 line. Current verification is recorded in
+`development-progress.md`. Historical scan results below describe their dates.
+
+## Historical scan — 2026-10-18
+
+At that scan the project required Go 1.26.9, the current 1.26 patch listed by
 [the official downloads API](https://go.dev/dl/?mode=json). The user approved
 the move from Go 1.25 on 2026-10-18. Both Go modules and CI use the new baseline.
 

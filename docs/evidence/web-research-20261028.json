@@ -1,0 +1,116 @@
+{
+  "recorded_at": "2026-10-27T17:34:04.410918+00:00",
+  "environment": "isolated make dev, existing CLI connection settings, public company research",
+  "runs": [
+    {
+      "status": "succeeded",
+      "wall_seconds": 519.325,
+      "first_visible_text_seconds": 519.0,
+      "tool_counts": {
+        "web_search": 17,
+        "fetch_url": 157,
+        "publish_artifact": 1
+      },
+      "tool_errors": 53,
+      "empty_sources": 0,
+      "source_kinds": {
+        "search_snippet": 167,
+        "web": 104
+      },
+      "artifacts": [
+        {
+          "type": "note",
+          "version": 1,
+          "findings": {
+            "supported": 5,
+            "insufficient_evidence": 3
+          },
+          "limitations_count": 7,
+          "missing_source_ids": 0,
+          "supported_source_kinds": [
+            [
+              "web",
+              "web"
+            ],
+            [
+              "web",
+              "web"
+            ],
+            [
+              "web"
+            ],
+            [
+              "web"
+            ],
+            [
+              "web",
+              "web"
+            ]
+          ]
+        }
+      ],
+      "executor": {
+        "executor": "claude",
+        "model": "default",
+        "resolved_model": "deepseek-flash[1M]",
+        "cli_version": "2.1.311 (Claude Code)"
+      }
+    },
+    {
+      "status": "succeeded",
+      "wall_seconds": 190.502,
+      "first_visible_text_seconds": 1.81,
+      "tool_counts": {
+        "web_search": 3,
+        "fetch_url": 36,
+        "read_source": 1,
+        "publish_artifact": 1
+      },
+      "tool_errors": 28,
+      "empty_sources": 0,
+      "source_kinds": {
+        "search_snippet": 30,
+        "web": 5,
+        "search_results": 3
+      },
+      "artifacts": [
+        {
+          "type": "note",
+          "version": 1,
+          "findings": {
+            "supported": 1,
+            "insufficient_evidence": 4
+          },
+          "limitations_count": 7,
+          "missing_source_ids": 0,
+          "supported_source_kinds": [
+            [
+              "web",
+              "search_snippet"
+            ]
+          ]
+        }
+      ],
+      "executor": {
+        "executor": "claude",
+        "model": "default",
+        "resolved_model": "deepseek-flash[1M]",
+        "cli_version": "2.1.311 (Claude Code)"
+      }
+    }
+  ],
+  "checks": {
+    "make_test": "pass; Go vet/race/shuffle/integration + frontend lint/types/118 unit tests; dev supervisor executed without skips",
+    "chrome_e2e": "7 passed, built application, HTTP/backup/restore smoke",
+    "contract_regeneration": "unchanged",
+    "secrets": "pass",
+    "browser_since_final_run": "no warning or error entries"
+  },
+  "limits": [
+    "两次调用不是受控性能实验，不能据此承诺稳定提速。",
+    "常见搜索页的类型与来源归属检查不证明正文真实、当前或足以支持结论。",
+    "无密钥搜索存在重复/无关结果；登录墙、验证码、JS页面与网络错误仍可能阻止取证。",
+    "用户后续提供的终端日志已精确对应 native-45：Gate 网页抓取在 15ms 内因 DNS 返回含非公网/保留地址被拒绝，约 0.58 秒后收到独立取消事件；历史记录未保存当时的具体 DNS 地址，不能确定解析异常的网络来源。",
+    "未改写历史产物或用户数据库；未 commit/push，未发布。"
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "recorded_at": "2026-10-28",
+  "scope": "CLI native read and web tools; isolated real-provider product acceptance, no user database writes",
+  "credentials": "existing CLI provider, key, endpoint and default model retained; no login or system proxy changes",
+  "versions": {
+    "go": "1.26.10",
+    "claude": "2.1.312",
+    "codex": "0.164.0",
+    "gemini": "0.65.0"
+  },
+  "real_product_cases": [
+    {
+      "case": "file",
+      "run_id": "57ecd408-1ce8-4406-9665-2a667f50e99e",
+      "status": "succeeded",
+      "seconds": 120.44,
+      "sources": 11,
+      "artifacts": 2,
+      "bad_source_refs": [],
+      "native_tool_counts": {
+        "Glob": 1,
+        "Read": 4,
+        "Grep": 6
+      },
+      "source_kinds": {
+        "native_search": 7,
+        "native_file": 4
+      },
+      "native_results_with_source_id": 11,
+      "host_tool_counts": {
+        "list_sources": 4,
+        "publish_artifact": 3,
+        "read_skill": 1,
+        "read_source": 3
+      },
+      "tail_evidence_preserved": true
+    },
+    {
+      "case": "codex_web",
+      "run_id": "b73f4ac8-4285-4c58-a973-5c482f00ce23",
+      "status": "succeeded",
+      "seconds": 116.46,
+      "sources": 11,
+      "artifacts": 1,
+      "bad_source_refs": [],
+      "native_tool_counts": {
+        "WebSearch": 2
+      },
+      "source_kinds": {
+        "search_snippet": 10,
+        "web": 1
+      },
+      "native_results_with_source_id": 0,
+      "host_tool_counts": {
+        "list_sources": 2,
+        "web_search": 1,
+        "fetch_url": 2,
+        "publish_artifact": 1
+      }
+    },
+    {
+      "case": "debank",
+      "run_id": "416323bc-2ba5-428d-8932-da702a695742",
+      "status": "succeeded",
+      "seconds": 293.16,
+      "sources": 49,
+      "artifacts": 1,
+      "bad_source_refs": [],
+      "native_tool_counts": {
+        "WebSearch": 18,
+        "WebFetch": 31
+      },
+      "source_kinds": {
+        "native_search": 18,
+        "native_web": 31
+      },
+      "native_results_with_source_id": 49,
+      "host_tool_counts": {
+        "fetch_url": 1,
+        "list_sources": 4,
+        "publish_artifact": 1
+      },
+      "first_tool_started_seconds": 3.593
+    }
+  ],
+  "native_first_counterexample": {
+    "run_id": "58cfdff5-0393-4fd2-9df8-7327c7c82dff",
+    "status": "succeeded",
+    "seconds": 355.56,
+    "native_tool_calls": 0,
+    "conclusion": "Generic native-first wording was ignored; explicit runtime names, mappings and fallback descriptions fixed the observed behavior in the next unmodified user-question run. This is model guidance, not a hard execution policy."
+  },
+  "evidence_integrity": {
+    "final_debank_all_references_resolve": true,
+    "final_debank_artifact_cites_native_web": 20,
+    "final_debank_supported_findings_based_only_on_search_leads": 0,
+    "native_summary_disclosure_in_final_artifact": true,
+    "complete_fact_audit_of_research": false
+  },
+  "independent_review": {
+    "counterexample_tests": 9,
+    "result": "passed",
+    "fixes": [
+      "Private runtime configuration protected from native and MCP file tools",
+      "Resolve physical path aliases before deciding file degradation",
+      "Preserve actual Read content and line completeness metadata",
+      "No blank web sources or unsupported search-only conclusions",
+      "Byte-bounded metadata pagination, valid cursor continuation",
+      "Cancel native process after permission revocation, even on disconnected HTTP request",
+      "No file body leakage into UI metadata event",
+      "Track unresolved Codex web calls before accepting terminal success",
+      "Show missing native tool duration without undefined or fabricated zero"
+    ]
+  },
+  "checks": {
+    "main_make_test": "passed with GOFLAGS=-p=1; vet/race/shuffle, terminal integration, 122 frontend tests",
+    "isolated_make_test": "passed; 121 frontend tests",
+    "contract_regeneration": "passed, API and generated schema hashes unchanged",
+    "installed_claude_file_boundary": "passed on merged main workspace; real installed CLI with local fake model and synthetic secret markers",
+    "chrome_e2e_isolated": "4 passed, 3 failed; all three reproduced unchanged in pre-implementation baseline",
+    "chrome_e2e_main": "passed, 7/7 plus production build, dev supervisor, production HTTP/backup/restore smoke",
+    "browser_real_provider": "passed; completed state, native activities, source labels, source content, artifact and summary disclosure inspected",
+    "secrets_scan": "passed",
+    "source_manifest": "final real DeBank run binary and frontend match final production source; tests/docs-only edits followed",
+    "installed_tool_registry": "passed on merged main workspace for Claude, Codex and Gemini against local fake endpoints",
+    "installed_isolation_probes": "passed on merged main workspace for Claude, Codex and Gemini against local fake endpoints"
+  },
+  "limits": [
+    "Claude native-first is prompt and tool-description guidance; a model can still prefer MCP.",
+    "Codex final real run called native web but returned no usable content; no native source was manufactured, MCP fallback completed the note.",
+    "Gemini native results are not exposed faithfully in the installed CLI protocol, so Gemini retains MCP tools.",
+    "Native web follows the CLI/provider network path, not host Go SSRF transport validation; genuine 403 or website access failures can remain.",
+    "No Linux verification, arbitrary shell/write grant, commit, push or deployment.",
+    "Research facts, dates, ratings and salary freshness are not fully independently audited."
+  ],
+  "cleanup": "two owned isolated backend process groups stopped; agent-created browser tab closed; user services and existing CLI credentials unchanged"
+}

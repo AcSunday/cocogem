@@ -118,7 +118,7 @@ func TestPrepareCodexUsesResolvedDefaultInCatalogAndArguments(t *testing.T) {
 	}
 	request := testRequest()
 	request.Executor = "codex"
-	args, _, err := prepareCodex(request, t.TempDir(), &bridge{addr: "127.0.0.1:1234", token: "fixture"})
+	args, _, err := prepareCodex(request, t.TempDir(), &bridge{addr: "127.0.0.1:1234", token: "fixture"}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,6 @@
+import { Select } from "../Select";
 import { useState } from "react";
-import type { Agent, System } from "../../api/client";
+import type { Agent, System, WorkspaceMember } from "../../api/client";
 import { cx } from "../../styles/classes";
 import { errorText, memberLabel } from "../../lib/presentation";
 import { Modal } from "../Modal";
@@ -13,17 +14,32 @@ const allTools = [
   "read_source",
   "publish_artifact",
 ];
+const names = (value: string) =>
+  value
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 
 export function MembersForm({
   agents,
   system,
   workspaceID,
+  catalog,
+  saveMembership,
+  unlink,
   close,
   save,
 }: {
   agents: Agent[];
   system: System;
   workspaceID: string;
+  catalog?: Agent[];
+  saveMembership?: (
+    agent: Agent,
+    member: WorkspaceMember | undefined,
+    value: { enabled: boolean; tools: string[] },
+  ) => Promise<void>;
+  unlink?: (member: WorkspaceMember) => Promise<void>;
   close: () => void;
   save: (value: Agent) => Promise<Agent>;
 }) {
@@ -37,44 +53,67 @@ export function MembersForm({
     handle: "",
     aliases: [],
     role_description: "",
-    executor: system.demo ? undefined : executor,
-    model: system.demo ? system.models[0] : "default",
+    executor,
+    model: "default",
     tools: allTools,
     disabled: false,
     revision: 1,
   });
-  const initial = agents[0] ?? blank();
+  const initial =
+    catalog?.find((agent) => agent.id === agents[0]?.id) ??
+    agents[0] ??
+    catalog?.[0] ??
+    blank();
   const editable = (agent: Agent) =>
-    system.demo ||
-    (agent.executor && ["claude", "codex", "gemini"].includes(agent.executor))
+    agent.executor && ["claude", "codex", "gemini"].includes(agent.executor)
       ? agent
       : { ...agent, executor: "", model: "default" };
   const [value, setValue] = useState<Agent>(editable(initial));
+  const [aliases, setAliases] = useState((initial.aliases ?? []).join(","));
+  const [capabilities, setCapabilities] = useState(
+    (initial.capabilities ?? []).join(","),
+  );
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const executorInfo = system.executors?.find(
     (item) => item.id === value.executor,
   );
+  const membership =
+    agents.find((agent) => agent.id === value.id)?.membership ?? undefined;
   return (
     <Modal title="成员与称呼" close={close}>
+      {catalog && (
+        <p>
+          成员档案在所有工作空间共享。职责、能力、CLI
+          与全局权限修改后，各工作空间会使用同一份配置；本空间权限可在下方单独限制。
+        </p>
+      )}
       <div className={cx("member-picker")}>
-        {agents.map((agent) => (
+        {(catalog ?? agents).map((agent) => (
           <button
             key={agent.id}
             onClick={() => {
               setValue(editable(agent));
+              setAliases((agent.aliases ?? []).join(","));
+              setCapabilities((agent.capabilities ?? []).join(","));
               setSaved(false);
               setError("");
             }}
             disabled={saving}
           >
             {memberLabel(agent)}
+            {catalog &&
+              (agents.some((item) => item.id === agent.id)
+                ? " · 已加入"
+                : " · 可加入")}
           </button>
         ))}
         <button
           onClick={() => {
             setValue(blank());
+            setAliases("");
+            setCapabilities("");
             setSaved(false);
             setError("");
           }}
@@ -88,7 +127,11 @@ export function MembersForm({
           event.preventDefault();
           setError("");
           setSaving(true);
-          void save(value)
+          void save({
+            ...value,
+            aliases: names(aliases),
+            ...(catalog ? { capabilities: names(capabilities) } : {}),
+          })
             .then((agent) => {
               setValue(agent);
               setSaved(true);
@@ -123,16 +166,10 @@ export function MembersForm({
         <label>
           别名（用逗号分隔）
           <input
-            value={(value.aliases ?? []).join(",")}
+            value={aliases}
             onChange={(event) => {
               setSaved(false);
-              setValue({
-                ...value,
-                aliases: event.target.value
-                  .split(/[,，]/)
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              });
+              setAliases(event.target.value);
             }}
           />
         </label>
@@ -146,86 +183,80 @@ export function MembersForm({
             }}
           />
         </label>
-        {!system.demo && (
+        {catalog && (
           <label>
-            执行 CLI
-            <select
-              required
-              value={value.executor}
+            能力标签（用逗号分隔）
+            <input
+              value={capabilities}
               onChange={(event) => {
                 setSaved(false);
-                setValue({
-                  ...value,
-                  executor: event.target.value,
-                  model: "default",
-                });
+                setCapabilities(event.target.value);
               }}
-            >
-              <option value="">请选择本机 CLI</option>
-              {["claude", "codex", "gemini"].map((id) => {
-                const info = system.executors?.find((item) => item.id === id);
-                return (
-                  <option key={id} value={id}>
-                    {id} ·{" "}
-                    {!info?.installed
-                      ? "未检测到"
-                      : info.supported === false
-                        ? "当前版本不支持"
-                        : "已安装"}
-                  </option>
-                );
-              })}
-            </select>
+            />
           </label>
         )}
         <label>
-          {system.demo ? "模型" : "模型（留空使用 CLI 默认）"}
-          {system.demo ? (
-            <select
-              value={value.model}
-              onChange={(event) => {
-                setSaved(false);
-                setValue({ ...value, model: event.target.value });
-              }}
-            >
-              {system.models.map((model) => (
-                <option key={model}>{model}</option>
-              ))}
-            </select>
-          ) : (
-            <input
-              value={value.model === "default" ? "" : value.model}
-              placeholder="CLI 默认模型"
-              onChange={(event) => {
-                setSaved(false);
-                setValue({ ...value, model: event.target.value || "default" });
-              }}
-            />
-          )}
+          执行 CLI
+          <Select
+            required
+            value={value.executor}
+            onChange={(selected) => {
+              setSaved(false);
+              setValue({
+                ...value,
+                executor: selected,
+                model: "default",
+              });
+            }}
+          >
+            <option value="">请选择本机 CLI</option>
+            {["claude", "codex", "gemini"].map((id) => {
+              const info = system.executors?.find((item) => item.id === id);
+              return (
+                <option key={id} value={id}>
+                  {id} ·{" "}
+                  {!info?.installed
+                    ? "未检测到"
+                    : info.supported === false
+                      ? "当前版本不支持"
+                      : "已安装"}
+                </option>
+              );
+            })}
+          </Select>
         </label>
-        {!system.demo && (
-          <p>
-            复用本机 CLI
-            的模型、供应商与认证配置。已安装不代表连接或模型可用，请在“服务与设置”验证。
-            下列权限仅控制 Cocogem 的资料工具，不授予原生命令或写文件权限。
-          </p>
-        )}
-        {!system.demo && !value.executor && (
+        <label>
+          模型（留空使用 CLI 默认）
+          <input
+            value={value.model === "default" ? "" : value.model}
+            placeholder="CLI 默认模型"
+            onChange={(event) => {
+              setSaved(false);
+              setValue({ ...value, model: event.target.value || "default" });
+            }}
+          />
+        </label>
+        <p>
+          复用本机 CLI
+          的模型、供应商与认证配置。已安装不代表连接或模型可用，请在“服务与设置”验证。
+          下列权限仅控制 Cocogem 的资料工具，不授予原生命令或写文件权限。
+        </p>
+        {!value.executor && (
           <p role="status">
             此成员尚未绑定本机 CLI。请选择执行 CLI；原 API
             模型配置不会自动沿用。
           </p>
         )}
-        {!system.demo && executorInfo?.reason && (
+        {executorInfo?.reason && (
           <p role="status">
             {executorInfo.supported === false
               ? "此 CLI 当前不可执行："
-              : "使用限制："}
+              : "说明："}
             {executorInfo.reason}
           </p>
         )}
         <fieldset>
-          <legend>允许工具</legend>
+          <legend>{catalog ? "全局允许工具" : "允许工具"}</legend>
           {allTools.map((tool) => (
             <label className={cx("check-label")} key={tool}>
               <input
@@ -254,7 +285,7 @@ export function MembersForm({
               setValue({ ...value, disabled: event.target.checked });
             }}
           />
-          停用此成员
+          {catalog ? "在所有工作空间停用此成员" : "停用此成员"}
         </label>
         {error && (
           <p className={cx("error")} role="alert">
@@ -268,6 +299,100 @@ export function MembersForm({
           </button>
         </div>
       </form>
+      {catalog && value.id && saveMembership && unlink && (
+        <WorkspaceMembershipForm
+          key={`${value.id}:${membership?.revision ?? 0}`}
+          agent={value}
+          membership={membership}
+          save={(grant) => saveMembership(value, membership, grant)}
+          unlink={() => (membership ? unlink(membership) : Promise.resolve())}
+        />
+      )}
     </Modal>
+  );
+}
+
+function WorkspaceMembershipForm({
+  agent,
+  membership,
+  save,
+  unlink,
+}: {
+  agent: Agent;
+  membership?: WorkspaceMember;
+  save: (value: { enabled: boolean; tools: string[] }) => Promise<void>;
+  unlink: () => Promise<void>;
+}) {
+  const [enabled, setEnabled] = useState(membership?.enabled ?? true);
+  const [tools, setTools] = useState(membership?.tools ?? agent.tools ?? []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const submit = (action: () => Promise<void>) => {
+    setBusy(true);
+    setError("");
+    void action()
+      .then(() => setSaved(true))
+      .catch((error) => setError(errorText(error)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit(() => save({ enabled, tools }));
+      }}
+    >
+      <fieldset disabled={busy}>
+        <legend>本工作空间权限</legend>
+        <label className={cx("check-label")}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => {
+              setEnabled(event.target.checked);
+              setSaved(false);
+            }}
+          />
+          在本工作空间启用
+        </label>
+        {allTools.map((tool) => (
+          <label className={cx("check-label")} key={tool}>
+            <input
+              type="checkbox"
+              checked={tools.includes(tool)}
+              onChange={(event) => {
+                setTools(
+                  event.target.checked
+                    ? [...tools, tool]
+                    : tools.filter((item) => item !== tool),
+                );
+                setSaved(false);
+              }}
+            />
+            {tool}
+          </label>
+        ))}
+      </fieldset>
+      <p>
+        实际权限取本空间与全局配置的交集。移出仅撤销本空间访问，保留成员档案和历史记录。
+      </p>
+      {error && (
+        <p role="alert" className={cx("error")}>
+          {error}
+        </p>
+      )}
+      {saved && <p role="status">本空间成员配置已保存。</p>}
+      <div className={cx("form-actions")}>
+        {membership && (
+          <button type="button" disabled={busy} onClick={() => submit(unlink)}>
+            移出本工作空间
+          </button>
+        )}
+        <button className={cx("primary")} disabled={busy}>
+          {busy ? "保存中…" : membership ? "保存本空间权限" : "加入本工作空间"}
+        </button>
+      </div>
+    </form>
   );
 }

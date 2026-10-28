@@ -8,18 +8,16 @@ Cocogem 的目标是一个由 Go 驱动、带交互式 Web 前端的多 Agent �
 
 已实现本地工作空间、可命名的 Agent 成员、共享会话、自然语言指派、有限协作流程、只读工具、来源捕获和版本化报告。页面支持实时记录、取消、历史重放、报告导出和人工标记。支持协作讨论、Research 和代码分析。
 
-![Cocogem 离线演示工作空间](docs/screenshots/workspace-demo.jpg)
+[真实 CLI 协作验收与修正记录](docs/alignment-review.md)区分隔离测试、原生协议测试和实际模型运行，并保留历史页面截图。
 
-[真实 CLI 协作验收与修正记录](docs/alignment-review.md)区分演示、原生协议测试和实际模型运行。
-
-开发需要 Go 1.26.9+、Node.js 22.12+（建议 24 LTS）与 npm。发布包运行无需 Node.js。
+开发需要 Go 1.26.10+、Node.js 22.12+（建议 24 LTS）与 npm。发布包运行无需 Node.js。
 
 ```sh
 make setup
-make demo
+make dev
 ```
 
-打开终端打印的本地链接，建立浏览器会话。演示模式无需密钥，使用确定性模型与随包公开资料，不能证明真实模型效果。创建空间时绑定列表中的演示目录即可尝试代码分析。
+打开开发页面 `http://127.0.0.1:5173`，首次使用时设置并确认工作空间密码；之后输入该密码解锁。任务直接调用本机已可用的 CLI，复用其现有连接与模型配置，无需重新登录或为 Cocogem 另配模型密钥；CLI 不可用时仍可查看历史和设置。
 
 ```sh
 make test
@@ -27,39 +25,61 @@ make build
 make e2e
 ```
 
-`make e2e` 首次需要在 `web/` 下运行 `npx playwright install chromium`。已有 Chrome 时可以使用 `PLAYWRIGHT_CHANNEL=chrome make e2e`。`make dev` 启动 Vite 与 Go 服务；开发页面位于 `http://127.0.0.1:5173`，先用服务端启动链接建立同主机的本地会话。
+`make e2e` 首次需要在 `web/` 下运行 `npx playwright install chromium`。已有 Chrome 时可以使用 `PLAYWRIGHT_CHANNEL=chrome make e2e`。浏览器自动化通过仅供测试的隔离 fixture 服务验证 HTTP/SSE 和用户流程；smoke 验证正式服务启动、工作空间持久化和备份恢复，均不调用真实供应商。
 
-真实模式使用本机 CLI，无需为 Cocogem 额外设置模型 API Key：
+`make probe-cli` 使用已安装的 Claude/Codex/Gemini 对本地假模型端点验证会话初始化、受限 MCP 工具清单、必需工具、工具调用和终态，不需要账户凭证；`make probe-isolation` 进一步验证生产隔离判定（help 只作为候选，必须实际完成受限协议/工具探测才算通过）。它们不证明真实模型质量。真实 Claude/Codex 崩溃/重启恢复记录、Gemini 的未通过原因见[长任务恢复证据](docs/evidence/restart-recovery-20261026.json)。
+
+发布包使用本机 CLI，无需为 Cocogem 额外设置模型 API Key：
 
 ```sh
 make build
-# 在对应 CLI 内完成登录，先确认它能实际回复。
+# 直接复用本机 CLI 的现有连接配置，无需重新登录。
 # 启动后在网页成员设置选择 CLI，模型默认沿用 CLI 默认值。
-./dist/cocogem-server --allow-root /absolute/path/to/public-sources
+./dist/cocogem-server
 # 可选：BRAVE_SEARCH_API_KEY，仅用于在线发现资料
+# 需要代理访问公共网页时：COCOGEM_WEB_PROXY=env（复用 HTTPS_PROXY）、system（复用 macOS 系统代理）或显式代理地址
+# make dev 未设置时自动使用 system；COCOGEM_WEB_PROXY= 强制直连
 ```
 
-网页在“服务与设置”中显示 CLI 的安装、版本、受限适配支持和按 CLI/模型
-记录的验证时间。“已安装”和 CLI 的登录状态查询都不能替代一次真实调用。
-三种 CLI 都有受限适配；当前 Codex 适配限制为 0.162.x，Gemini 为 0.64.x，
-其它版本或存在无法兼容的系统策略时会明确阻止执行。成员的 `default` 使用
-本机 CLI 的模型/供应商连接配置；可显式指定其它可用模型。
+在“创建/编辑工作空间”中点击“浏览目录”，可逐层进入文件夹、返回上级，点击“选择此目录”后保存工作空间即可生效；取消不会更改原绑定。也可在“本地资料目录 → 输入目录路径…”中填写完整路径，支持 `~/`，或选“暂不绑定”取消绑定。保存时检查存在和可读，并保存真实绝对路径。可选启动参数 `--allow-root /absolute/path/to/public-sources`（可重复）将可浏览及绑定范围限制为这些目录及其子目录；不设置时从本机主目录开始浏览，由已解锁的本机用户选择。协作运行期间不能更改目录绑定。
+
+网页在“服务与设置”中分别显示 CLI 安装、版本、调用方式、工具隔离状态和
+按 CLI/模型记录的连接验证时间。安装和版本探测不能替代一次真实调用。
+适配按实际参数、MCP 工具清单握手、会话初始化和终止事件判断，不再依赖
+固定版本白名单；版本仅用于诊断、兼容规则和已知不兼容拦截。每次执行尝试
+和重启恢复前都会重新检查程序身份（路径、大小、修改时间和 inode），CLI
+在运行期间升级或被替换后不会复用旧结论。无法确认关键隔离能力时阻止执行
+并保留检查点，不会放宽原生工具、hooks、插件或外部 MCP 权限。
+成员的 `default` 使用本机 CLI 的模型/供应商连接配置；可显式指定其它可用模型。
 适配与实际验收的差异见[对齐审查](docs/alignment-review.md)。
 
 每个网页步骤使用新 CLI 会话与隔离目录，Go 提供其所需的共享消息和确切
 上游产物；不复用本机交互会话的 `latest`。CLI 管理模型和工具循环，通过
-本步专用 MCP 调用 Go 的只读工具。普通 shell、原生文件工具、外部 MCP
-和扩展不会因接入 CLI 自动获准。CLI 的认证和模型访问仍由对应供应商管理。宿主仅按白名单转交本机连接配置；不会继承其中的 hooks、插件、外部 MCP 或通用工具权限。
+本步专用 MCP 调用 Go 的只读工具。CLI 原生只读工具只从成员现有授权派生
+（`Read`/`Glob`/`Grep` 及发现范围下的 `WebSearch`/`WebFetch`），不新增开关；
+普通 shell、编辑/写文件、内置任务/技能工具、外部 MCP 和扩展不会因接入 CLI
+自动获准。原生联网由 CLI/供应商网络策略负责，并非 Go 的 URL/DNS/SSRF 保证；
+配置的公共网页代理只传给启用原生联网的子进程，并保留 loopback MCP 直连。
+Codex 的合并 web 工具在两项联网授权同时存在时启用，并声明 Responses web 能力；上游不支持时显示实际错误，
+Gemini 因 stream-json 不暴露实际工具结果正文而保持 MCP 联网能力缺口。
+CLI 的认证和模型访问仍由对应供应商管理。宿主仅按白名单转交本机连接配置；不会继承其中的 hooks、插件、外部 MCP 或通用工具权限。
 
 旧 API 模式创建的成员需要在成员设置明确选择 CLI，历史记录保留；不会
 静默迁移旧模型 ID。`.env.example` 仅有配置说明，程序不自动加载 `.env`。
-首次使用需确认问题与实际读取的资料可以通过 CLI 发送给模型服务。
 
-默认监听 `127.0.0.1:8741`，首版拒绝公网监听；需要浏览器本地会话和 CSRF 校验。启动 token 一次使用、十五分钟过期，通过地址片段交换后移除。服务重启需重新打开新的启动链接。
+默认监听 `127.0.0.1:8741`，首版拒绝公网监听。首次打开页面设置 12–128 字符的工作空间密码，之后通过密码解锁；服务重启后密码保留，浏览器需重新解锁。无需终端令牌或特殊启动链接。本机 CLI 继续复用现有配置。
 
-数据默认位于 `os.UserConfigDir()/cocogem`，可通过 `COCOGEM_DATA_DIR` 指定；演示数据独立放在其 `demo/` 子目录。停止服务后整体备份该目录，恢复时停止服务再复制回原位置；不要只复制正在使用的 SQLite 主文件而遗漏 WAL。历史捕获可能包含资料正文，应按敏感本地数据管理。
+密码以随机盐和 PBKDF2-HMAC-SHA256（600,000 次迭代）派生值保存在数据目录的 `auth.json`，文件权限为 0600；不保存明文。会话采用 HttpOnly、SameSite=Strict cookie，24 小时过期；变更请求继续校验 CSRF、Host 和 Origin。连续 5 次密码错误暂停尝试 1 分钟。“服务与设置”可锁定当前浏览器，后台协作继续执行。
 
-模型和工具执行有时间、轮数、来源大小和队列限制。未配置搜索时可以研究给定 URL 或本地文本；不能访问登录网页、执行 shell、修改文件或上传 Office/PDF。自然语言路由仍可能误判；页面提供解释与明确选人入口，歧义时不会执行。
+备份和恢复时包含 `auth.json`。忘记密码时，停止服务并确认本机数据目录后，可将 `auth.json` 移到安全的备份位置，再启动服务重新设置；工作空间数据库保留。此操作仅限可信的本机文件访问，页面不提供免密码重置。
+
+数据默认位于 `os.UserConfigDir()/cocogem`，可通过 `COCOGEM_DATA_DIR` 指定。停止服务后整体备份该目录，恢复时停止服务再复制回原位置；不要只复制正在使用的 SQLite 主文件而遗漏 WAL。历史捕获可能包含资料正文，应按敏感本地数据管理。
+
+模型和工具执行有时间、来源大小和队列限制。长时间任务默认不设单次协作或单步骤总期限（`COCOGEM_RUN_TIMEOUT`/`COCOGEM_STEP_TIMEOUT` 为 `0` 表示关闭）；等待首个有效响应默认 10 分钟、无进展默认 15 分钟且只发出可见告警，不会仅因暂时没有文本输出就停止工具执行。通过 `COCOGEM_FIRST_RESPONSE_TIMEOUT`、`COCOGEM_STALL_TIMEOUT` 显式设为 `0` 可关闭对应检测，负数或非法值会使服务拒绝启动；`COCOGEM_STALL_ACTION=stop` 才会终止停滞步骤。等待工具、等待上游成员和真正的停滞分别标记。 长正文分页、显式恢复及本轮真实模型验收见[长任务实现与验收](docs/long-task-implementation.md)。
+
+服务停止或异常退出后，新的执行尝试可从未完成步骤继续：已完成步骤不重复执行，历史消息、来源和产物不被覆盖；失败委派仍可回传给协调者处理。恢复前会重新核对 CLI 程序身份、工具隔离探测、权限范围和实际解析模型/上游连接；默认模型、供应商或服务地址变化时保留检查点并要求新 Run，不会静默切换。正在执行的尝试、CLI 版本/程序身份、原生会话 ID 和进程归属独立保存；服务重启时先核实旧进程归属，只终止本平台记录且身份匹配的进程。无法核实的结果保留为“待核实”并要求人工确认，不会盲目重跑；用户取消的协作不会自动复活。页面提供“继续执行”以显式恢复被能力检查阻塞的检查点。
+
+在线发现资料优先使用 `BRAVE_SEARCH_API_KEY`；未配置时默认使用无密钥公共搜索回退（Bing RSS，失败后 DuckDuckGo HTML），可用 `COCOGEM_SEARCH_PROVIDER=auto|brave|bing|duckduckgo|public|off` 控制。未配置或搜索全部失败时会明确报告，不用模型记忆冒充网页证据。搜索查询会发送给对应搜索服务。不能访问登录网页、执行 shell、修改文件或上传 Office/PDF。自然语言路由仍可能误判；页面提供解释与明确选人入口，歧义时不会执行。
 
 真实 CLI/搜索 smoke、平台证据及远端 CI 状态见[验证进度](docs/development-progress.md)，工具链升级与扫描结果见[安全扫描记录](docs/security-scan.md)。本地功能测试通过不等于公开发布验收完成。
 
@@ -73,9 +93,13 @@ make build
 
 对应[原作业](https://github.com/zts212653/cat-cafe-tutorials/blob/main/docs/lessons/01-homework.md)：启动 Claude、Codex 或 Gemini CLI、逐行读取 NDJSON、打印回复文本、处理子进程退出。只使用 Go 标准库，无需第三方 Go 依赖。
 
+## 成员与技能协作
+
+全局成员可以复用于多个工作空间，空间单独设置启用与工具权限。自由协作通过本轮成员名册和受控 MCP 工具交接任务，再由平台回传结果；共享技能只描述角色和方法，不绑定具体成员。配置、边界与验证命令见[协作说明](docs/collaboration.md)。
+
 ## 运行
 
-需要 Go 1.26.9+，以及你要使用的、已经安装并登录的 CLI：Claude Code（`claude --version`）、Codex（`codex --version`）或 Gemini（`gemini --version`）。Claude 未登录时运行 `claude`；Codex 未登录时运行 `codex login`；Gemini 未登录时运行 `gemini` 完成认证。
+需要 Go 1.26.10+，以及可直接调用的本机 CLI：Claude Code（`claude --version`）、Codex（`codex --version`）或 Gemini（`gemini --version`）。沿用 CLI 已有的 API Key、服务地址、供应商和模型配置，无需额外登录或另配模型密钥。
 
 默认使用 Claude：
 
@@ -214,4 +238,4 @@ go vet ./...
 
 ## 范围
 
-Claude/Codex 按完整消息输出，Gemini 按增量片段输出。没有加入重试或超时；每个目录、每种 CLI 只记录最近一次成功会话。登录和模型选择沿用本机 CLI 配置；Claude 的工具权限沿用本机配置，Codex 显式使用只读沙箱，Gemini 使用 plan 模式。
+Claude/Codex 按完整消息输出，Gemini 按增量片段输出。没有加入重试或超时；每个目录、每种 CLI 只记录最近一次成功会话。连接和模型选择沿用本机 CLI 配置；Claude 的工具权限沿用本机配置，Codex 显式使用只读沙箱，Gemini 使用 plan 模式。

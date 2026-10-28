@@ -46,6 +46,36 @@ func TestArtifactSourceCustody(t *testing.T) {
 	}
 }
 
+func TestSupportedFindingRequiresReadOriginal(t *testing.T) {
+	sources := []w.Source{
+		{ID: "serp", Kind: "search_results"},
+		{ID: "snippet", Kind: "search_snippet"},
+		{ID: "legacy", Kind: "web", URL: "https://www.so.com/s?q=DeBank"},
+		{ID: "page", Kind: "web", URL: "https://example.org/article?q=DeBank"},
+	}
+	artifact := func(ids ...string) w.Artifact {
+		return w.Artifact{Type: "research_report", Title: "report", Body: "body", SourceIDs: ids, Findings: []w.Finding{{Title: "claim", Detail: "detail", Status: "supported", SourceIDs: ids}}}
+	}
+	for _, ids := range [][]string{{"serp"}, {"snippet"}, {"legacy"}} {
+		if err := ValidateArtifact(artifact(ids...), "research_report", sources); err == nil {
+			t.Fatalf("search leads counted as read evidence: %v", ids)
+		}
+	}
+	if err := ValidateArtifact(artifact("serp", "page"), "research_report", sources); err != nil {
+		t.Fatalf("finding backed by a read original was refused: %v", err)
+	}
+	leadOnly := artifact("serp")
+	leadOnly.Findings[0].Status = "insufficient_evidence"
+	if err := ValidateArtifact(leadOnly, "research_report", sources); err != nil {
+		t.Fatalf("insufficient evidence with a search lead was refused: %v", err)
+	}
+	note := artifact("serp")
+	note.Type = "note"
+	if err := ValidateArtifact(note, "", sources); err == nil {
+		t.Fatal("note supported finding counted search leads as evidence")
+	}
+}
+
 func TestRequiredPublicationCannotGrantRevokedPermission(t *testing.T) {
 	agents := []w.Agent{{ID: "a", Tools: []string{"read_file"}}, {ID: "b", Tools: []string{"read_file"}}}
 	_, err := Plan("run", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}}, agents)

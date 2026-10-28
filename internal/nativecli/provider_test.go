@@ -42,7 +42,7 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 	if os.Args[len(os.Args)-1] == "--version" {
 		switch executor {
 		case "codex":
-			fmt.Println("codex-cli 0.162.1")
+			fmt.Println("codex-cli 0.163.0")
 		case "gemini":
 			fmt.Println("0.64.0")
 		default:
@@ -90,8 +90,10 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 	}
 	cwd, _ := os.Getwd()
 	configDir, _ := filepath.EvalSymlinks(filepath.Dir(configPath))
+	expectedCwd, _ := filepath.EvalSymlinks(filepath.Join(filepath.Dir(configDir), "cwd"))
 	info, _ := os.Stat(configPath)
-	if cwd != configDir || info == nil || info.Mode().Perm() != 0600 {
+	dirInfo, _ := os.Stat(configDir)
+	if cwd != expectedCwd || info == nil || info.Mode().Perm() != 0600 || dirInfo == nil || dirInfo.Mode().Perm()&0077 != 0 {
 		os.Exit(25)
 	}
 	prompt, _ := io.ReadAll(os.Stdin)
@@ -143,6 +145,13 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 		fmt.Fprintln(os.Stdout, "not JSON")
 		os.Exit(0)
 	}
+	if mode == "notice" {
+		fmt.Fprintln(os.Stdout, `{"type":"status","status":"compacting"}`)
+	}
+	if mode == "unknown_tool" {
+		fmt.Fprintln(os.Stdout, `{"type":"future","payload":{"tool_use":{"name":"Bash"}}}`)
+		os.Exit(0)
+	}
 	if mode == "call" || mode == "routing" {
 		name, args := "read_file", map[string]any{"path": "README.md"}
 		if mode == "routing" {
@@ -154,6 +163,18 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 		}
 	}
 	fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"public fixture answer"}]}}`)
+	if mode == "overflow" {
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","is_error":false,"terminal_reason":"prompt_too_long","usage":{"input_tokens":5,"output_tokens":6}}`)
+		os.Exit(0)
+	}
+	if mode == "failed_usage" {
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error_during_execution","is_error":true,"usage":{"input_tokens":5,"output_tokens":6}}`)
+		os.Exit(0)
+	}
+	if mode == "usage_exit" {
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":7,"output_tokens":11}}`)
+		os.Exit(8)
+	}
 	if mode == "exit" {
 		os.Exit(8)
 	}
@@ -183,7 +204,8 @@ func TestRunNativeToolLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(names, ",") != "read_file" || len(events) != 5 || !strings.Contains(strings.Join(events, ","), "tool_started,tool_finished") {
+	joined := strings.Join(events, ",")
+	if strings.Join(names, ",") != "read_file" || !strings.Contains(joined, "tool_started,tool_finished") || !strings.Contains(joined, "native_process") || !strings.Contains(joined, "native_session") {
 		t.Fatalf("tools=%v events=%v", names, events)
 	}
 }
@@ -260,9 +282,106 @@ func TestCompletePreservesNativeUsage(t *testing.T) {
 	}
 }
 
+func collectUsage(t *testing.T, mode string) (error, []map[string]any) {
+	t.Helper()
+	var usage []map[string]any
+	err := fakeProvider(mode).Run(context.Background(), testRequest(), func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(kind string, data map[string]any) error {
+		if kind == "usage" {
+			usage = append(usage, data)
+		}
+		return nil
+	})
+	return err, usage
+}
+
+func TestNativeTerminalOverflowFailsDespiteSuccessSubtype(t *testing.T) {
+	t.Parallel()
+	err, usage := collectUsage(t, "overflow")
+	if FailureKindOf(err) != FailureContextOverflow || !strings.Contains(err.Error(), "prompt_too_long") {
+		t.Fatalf("terminal overflow was accepted: %v", err)
+	}
+	if len(usage) != 1 || usage[0]["known"] != true || usage[0]["input_tokens"] != 5 || usage[0]["output_tokens"] != 6 {
+		t.Fatalf("known usage was dropped on failure: %v", usage)
+	}
+}
+
+func TestNativeFailurePreservesKnownUsage(t *testing.T) {
+	t.Parallel()
+	err, usage := collectUsage(t, "failed_usage")
+	if err == nil || FailureKindOf(err) == "" {
+		t.Fatalf("failed attempt was not a typed failure: %v", err)
+	}
+	if len(usage) != 1 || usage[0]["known"] != true || usage[0]["input_tokens"] != 5 || usage[0]["output_tokens"] != 6 {
+		t.Fatalf("usage was lost after the terminal failure: %v", usage)
+	}
+}
+
+func TestNativeFailureRecordsUnknownUsage(t *testing.T) {
+	t.Parallel()
+	err, usage := collectUsage(t, "failed")
+	if err == nil {
+		t.Fatal("failed attempt succeeded")
+	}
+	if len(usage) != 1 || usage[0]["known"] != false {
+		t.Fatalf("unknown usage was not recorded as unknown: %v", usage)
+	}
+	if usage[0]["input_tokens"] != 0 || usage[0]["output_tokens"] != 0 {
+		t.Fatalf("unknown usage was reported as known values: %v", usage)
+	}
+}
+
+func TestNativeUsageObservationFailureIsNotSwallowed(t *testing.T) {
+	t.Parallel()
+	want := errors.New("usage store unavailable")
+	err := fakeProvider("ok").Run(context.Background(), testRequest(), func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(kind string, _ map[string]any) error {
+		if kind == "usage" {
+			return want
+		}
+		return nil
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("usage observation failure was swallowed: %v", err)
+	}
+}
+
+func TestNativeUsageSurvivesPostCheckFailure(t *testing.T) {
+	t.Parallel()
+	var usage []map[string]any
+	err := fakeProvider("usage_exit").Run(context.Background(), testRequest(), func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(kind string, data map[string]any) error {
+		if kind == "usage" {
+			usage = append(usage, data)
+		}
+		return nil
+	})
+	if err == nil || FailureKindOf(err) != FailureProcess {
+		t.Fatalf("post-terminal process failure was not reported: %v", err)
+	}
+	if len(usage) != 1 || usage[0]["known"] != true || usage[0]["input_tokens"] != 7 || usage[0]["output_tokens"] != 11 {
+		t.Fatalf("post-check failure dropped terminal usage: %v", usage)
+	}
+}
+
+func TestNativeHostInputLimitIsTyped(t *testing.T) {
+	t.Parallel()
+	request := testRequest()
+	request.System = strings.Repeat("x", 100001)
+	err := fakeProvider("ok").Run(context.Background(), request, func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(string, map[string]any) error { return nil })
+	if FailureKindOf(err) != FailureHostInputLimit {
+		t.Fatalf("host input limit kind=%q error=%v", FailureKindOf(err), err)
+	}
+}
+
 func TestCapabilitiesFailClosed(t *testing.T) {
 	t.Parallel()
-	if capabilities("claude", "2.1.301", "--tools") || capabilities("gemini", "0.64.0", "--tools") || capabilities("codex", "1", "--tools") {
+	if capabilityError("claude", "2.1.301", "--tools") == nil || capabilityError("gemini", "0.64.0", "--tools") == nil || capabilityError("codex", "1", "--tools") == nil {
 		t.Fatal("uninspected CLI capabilities were accepted")
 	}
 }
@@ -345,36 +464,165 @@ func TestBridgeSecurityAndSerialization(t *testing.T) {
 	}
 }
 
-func TestBridgeLimitsAndPersistFailures(t *testing.T) {
+func TestBridgePersistFailureStopsExecution(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []string{"budget", "output", "persist"} {
-		t.Run(mode, func(t *testing.T) {
-			t.Parallel()
-			b, err := newBridge(context.Background(), testRequest().Tools, func(context.Context, string, json.RawMessage) (string, error) {
-				if mode == "output" {
-					return strings.Repeat("x", 65537), nil
-				}
-				return "ok", nil
-			}, func(string, map[string]any) error {
-				if mode == "persist" {
-					return errors.New("persist failure")
-				}
-				return nil
-			})
-			if err != nil {
+	b, err := newBridge(context.Background(), testRequest().Tools, func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(string, map[string]any) error { return errors.New("persist failure") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.close()
+	b.call(json.RawMessage(`{"name":"read_file","arguments":{"path":"README.md"}}`))
+	if b.failure() == nil {
+		t.Fatal("persistence failure was not retained")
+	}
+}
+
+func TestDiscoverDistinguishesVersionAndIsolationFailures(t *testing.T) {
+	for _, test := range []struct {
+		name, version, help, reason string
+		supported                   bool
+	}{
+		{name: "compatible", version: "codex-cli 0.163.0", help: "--ignore-user-config --ignore-rules --ephemeral --sandbox --json", supported: true},
+		{name: "newer capability-compatible version", version: "codex-cli 0.164.0", help: "--ignore-user-config --ignore-rules --ephemeral --sandbox --json", supported: true},
+		{name: "known incompatible", version: "codex-cli 0.99.0", help: "--ignore-user-config --ignore-rules --ephemeral --sandbox --json", reason: "低于已验证的协议基线"},
+		{name: "missing isolation", version: "codex-cli 0.164.0", help: "--json", reason: "缺少受限执行参数 --ignore-user-config"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			script := "#!/bin/sh\ncase \"$1\" in\n--version) printf '%s\\n' '" + test.version + "';;\nexec) printf '%s\\n' '" + test.help + "';;\nesac\n"
+			if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
-			defer b.close()
-			count := 1
-			if mode == "budget" {
-				count = 31
-			}
-			for range count {
-				b.call(json.RawMessage(`{"name":"read_file","arguments":{"path":"README.md"}}`))
-			}
-			if b.failure() == nil {
-				t.Fatal("limit or persistence failure was not retained")
+			t.Setenv("PATH", dir)
+			for _, info := range Discover(t.Context()) {
+				if info.ID == "codex" && (!info.Installed || info.Version != test.version || info.Supported != test.supported || !strings.Contains(info.Reason, test.reason)) {
+					t.Fatalf("discovery=%+v", info)
+				}
 			}
 		})
+	}
+}
+
+func TestRequiredToolsPreflight(t *testing.T) {
+	t.Parallel()
+	request := testRequest()
+	request.RequiredTools = []string{"publish_artifact"}
+	err := fakeProvider("call").Run(context.Background(), request, func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(string, map[string]any) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "required_tools_unavailable") {
+		t.Fatalf("missing required tool was not blocked: %v", err)
+	}
+}
+
+func TestUnknownOptionalNotificationIsCompatible(t *testing.T) {
+	t.Parallel()
+	events := []string{}
+	err := fakeProvider("notice").Run(context.Background(), testRequest(), func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(kind string, _ map[string]any) error { events = append(events, kind); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(events, ","), "native_notice") {
+		t.Fatalf("optional notification was not recorded: %v", events)
+	}
+}
+
+func TestUnknownToolActionFailsClosed(t *testing.T) {
+	t.Parallel()
+	err := fakeProvider("unknown_tool").Run(context.Background(), testRequest(), func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(string, map[string]any) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "unknown tool action") {
+		t.Fatalf("unknown tool action was ignored: %v", err)
+	}
+}
+
+func TestProgramIdentityChangesWhenExecutableChanges(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "cli")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := programIdentity(path, info)
+	time.Sleep(10 * time.Millisecond)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := programIdentity(path, info)
+	if first == second {
+		t.Fatalf("program identity ignored a binary replacement: %q", first)
+	}
+}
+
+func TestProviderCheckUsesInjectedLauncher(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if _, err := (fakeProvider("call")).Check(context.Background(), "claude"); err != nil {
+		t.Fatalf("injected launcher was ignored: %v", err)
+	}
+}
+
+func TestCheckConnectionValidatesLocalConfiguration(t *testing.T) {
+	claudeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(`{"env":{"ANTHROPIC_AUTH_TOKEN":"private-value"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	err := (Provider{}).CheckConnection(context.Background(), "claude", "default")
+	if err == nil || strings.Contains(err.Error(), "private-value") {
+		t.Fatalf("invalid Claude config not diagnosed safely: %v", err)
+	}
+	codexDir := t.TempDir()
+	t.Setenv("CODEX_HOME", codexDir)
+	if err := (Provider{}).CheckConnection(context.Background(), "codex", "default"); err == nil {
+		t.Fatal("missing Codex default model was accepted")
+	}
+	if err := (Provider{}).CheckConnection(context.Background(), "gemini", "default"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBridgeHasNoCumulativeToolBudget(t *testing.T) {
+	t.Parallel()
+	tools := append(testRequest().Tools, model.Tool{Name: "publish_artifact", Description: "Publish", Schema: map[string]any{"type": "object", "properties": map[string]any{"body": map[string]any{"type": "string"}}, "required": []string{"body"}, "additionalProperties": false}})
+	executions := 0
+	b, err := newBridge(context.Background(), tools, func(_ context.Context, name string, _ json.RawMessage) (string, error) {
+		executions++
+		if name == "publish_artifact" {
+			return `{"accepted":true,"publication":"after_step_success"}`, nil
+		}
+		return "ok", nil
+	}, func(string, map[string]any) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.close()
+	call := json.RawMessage(`{"name":"read_file","arguments":{"path":"README.md"}}`)
+	for range 120 {
+		result, _ := b.call(call).(map[string]any)
+		if failed, _ := result["isError"].(bool); failed {
+			t.Fatal("a healthy tool call was refused")
+		}
+	}
+	published, _ := b.call(json.RawMessage(`{"name":"publish_artifact","arguments":{"body":"public fixture"}}`)).(map[string]any)
+	if failed, _ := published["isError"].(bool); failed {
+		t.Fatalf("artifact publication was blocked after 120 calls: %v", published)
+	}
+	if err := b.failure(); err != nil {
+		t.Fatalf("cumulative tool count failed the step: %v", err)
+	}
+	if executions != 121 {
+		t.Fatalf("executions=%d", executions)
 	}
 }

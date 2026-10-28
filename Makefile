@@ -1,4 +1,4 @@
-.PHONY: setup dev test build demo contract check-contract e2e security release notices
+.PHONY: setup dev test probe-cli probe-isolation build contract check-contract e2e security release notices
 
 setup:
 	cd web && npm ci
@@ -10,9 +10,15 @@ contract:
 check-contract: contract
 	git diff --exit-code -- api/openapi.yaml web/src/api/schema.ts
 
+probe-cli:
+	COCOGEM_CHECK_INSTALLED_CLAUDE=1 COCOGEM_CHECK_INSTALLED_CODEX=1 COCOGEM_CHECK_INSTALLED_GEMINI=1 go test -run 'TestInstalled(Claude|Codex|Gemini)ToolRegistry' -v ./internal/nativecli
+
+probe-isolation:
+	COCOGEM_CHECK_INSTALLED_ISOLATION=1 go test -run TestInstalledIsolationProbes -v ./internal/nativecli
+
 test:
 	node --test scripts/*.test.mjs
-	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
+	test -z "$$(gofmt -l $$(find cmd internal -type f -name '*.go'))"
 	go vet ./...
 	go test -race -shuffle=on ./...
 	go test -race -shuffle=on -tags=integration ./cmd/cocogem
@@ -25,9 +31,6 @@ build:
 	go build -trimpath -o dist/cocogem ./cmd/cocogem
 	go build -trimpath -o dist/cocogem-server ./cmd/cocogem-server
 	cp -R web/dist/. dist/web/
-
-demo: build
-	./dist/cocogem-server --demo
 
 dev: build
 	node scripts/dev.mjs

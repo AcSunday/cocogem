@@ -50,9 +50,6 @@ export function ArtifactReader({
           <span className={cx("role-chip")}>
             {artifactTypeLabel(artifact.type)} · v{artifact.version}
           </span>
-          {artifact.demo && (
-            <span className={cx("demo-badge")}>离线演示产物</span>
-          )}
           <small>{formatDateTime(artifact.created_at)}</small>
         </div>
         <div className={cx("artifact-actions")}>

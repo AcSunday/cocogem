@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     strictPort: true,
     proxy: Object.fromEntries(
-      ["/api", "/bootstrap"].map((path) => [
+      ["/api", "/auth"].map((path) => [
         path,
         {
           target: "http://127.0.0.1:8741",

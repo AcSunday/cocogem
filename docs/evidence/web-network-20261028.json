@@ -1,0 +1,118 @@
+{
+  "recorded_at": "2026-10-28T02:24:46.082953+00:00",
+  "environment": {
+    "data": "isolated copy of prior agent-created test data; real user database untouched",
+    "entry": "production scripts/dev.mjs and dev-env.mjs with only temporary verification port/config overrides; no manual proxy address",
+    "proxy": "existing macOS system proxy selected at startup; no system settings modified",
+    "observed_backend_proxy_connections": 7,
+    "native_cli_connection": "existing configuration, unchanged"
+  },
+  "diagnosis": {
+    "system_dns": "returned a public A plus reserved Teredo AAAA for Gate; encrypted DNS comparison returned different Akamai A records and no terminal AAAA",
+    "direct_gate": "curl connect timeout at 5 seconds; production guard rejected a reserved DNS answer before this patch",
+    "existing_proxy_gate": "TLS-verified HTTP 403 in approximately 0.4 seconds",
+    "existing_proxy_official_docs": "TLS-verified HTTP 200; production tool captures verified below"
+  },
+  "runs": [
+    {
+      "scenario": "official_docs_and_original_failed_url",
+      "status": "succeeded",
+      "seconds": 95.808,
+      "first_visible_text_seconds": 95.497,
+      "tools": {
+        "fetch_url": 24,
+        "web_search": 1,
+        "publish_artifact": 2
+      },
+      "tool_failures": 13,
+      "dns_nonpublic_failures": 0,
+      "source_kinds": {
+        "web": 12,
+        "search_snippet": 10
+      },
+      "empty_sources": 0,
+      "official_doc_captures": 12,
+      "v2ex_recruitment_originals": 0,
+      "gate_results": [
+        {
+          "status": "error",
+          "result": "Tool error: source returned HTTP 403",
+          "duration_ms": 363
+        }
+      ],
+      "artifacts": [
+        {
+          "type": "note",
+          "version": 1,
+          "findings": {
+            "supported": 3
+          },
+          "limitations": 6,
+          "unavailable_source_ids": 0
+        }
+      ],
+      "executor": {
+        "executor": "claude",
+        "model": "default",
+        "resolved_model": "deepseek-flash[1M]",
+        "cli_version": "2.1.312 (Claude Code)"
+      }
+    },
+    {
+      "scenario": "original_question_fresh_thread",
+      "status": "succeeded",
+      "seconds": 230.949,
+      "first_visible_text_seconds": 1.48,
+      "tools": {
+        "web_search": 24,
+        "fetch_url": 25,
+        "read_source": 3,
+        "publish_artifact": 2
+      },
+      "tool_failures": 10,
+      "dns_nonpublic_failures": 0,
+      "source_kinds": {
+        "search_snippet": 236,
+        "web": 16
+      },
+      "empty_sources": 0,
+      "official_doc_captures": 0,
+      "v2ex_recruitment_originals": 8,
+      "gate_results": [],
+      "artifacts": [
+        {
+          "type": "note",
+          "version": 1,
+          "findings": {
+            "supported": 9,
+            "insufficient_evidence": 1
+          },
+          "limitations": 6,
+          "unavailable_source_ids": 0
+        }
+      ],
+      "executor": {
+        "executor": "claude",
+        "model": "default",
+        "resolved_model": "deepseek-flash[1M]",
+        "cli_version": "2.1.312 (Claude Code)"
+      }
+    }
+  ],
+  "checks": {
+    "go_and_web": "GOFLAGS=-p=1 make test passed, including vet/race/shuffle/native integration and 118 frontend tests",
+    "default_parallel_runs": "two failures near the existing 5-second CLI capability probe boundary; reproduced intermittently with concurrent packages, isolated packages passed; no native timeout code changed",
+    "development_supervisor": "passed on default ports during final serial suite, no skip",
+    "chrome_e2e": "7 passed, production build and HTTP/backup/restore smoke passed",
+    "contract_regeneration": "unchanged",
+    "secrets": "passed"
+  },
+  "limits": [
+    "Public DNS injection source is not attributed to a specific router, ISP or application. System network settings were only read.",
+    "The explicitly selected proxy resolves and connects to remote targets; local URL and redirect checks remain, but remote IP validation is delegated to that proxy.",
+    "Gate returned 403 and DuckDuckGo returned a challenge page; no login, CAPTCHA or access-control bypass was performed.",
+    "Recruitment originals are dated 2021-2024; they do not verify 2026 pay or open positions. The model report was not a complete factual audit.",
+    "Default concurrent test execution can still hit the existing capability probe timeout under some host conditions; final full suite passed with one Go package at a time.",
+    "No Linux machine verification, PAC support or automatic adoption of model credentials; no commit, push or release."
+  ]
+}

@@ -1,0 +1,402 @@
+{
+  "recorded_at": "2026-10-27",
+  "scope": "Local macOS arm64 implementation verification for native long tasks, bounded output and explicit fresh-attempt recovery",
+  "reference_commits": {
+    "clowder": "5941b402ed273eb9f3e6e1c0d5ee4cf3839c71dd",
+    "multica": "c11b3375f50682ce497ea0851aeeb10a5bf997a0"
+  },
+  "toolchains": {
+    "go": "go1.26.10",
+    "node": "v22.23.3"
+  },
+  "execution_policy": {
+    "run_timeout_default": "0",
+    "step_timeout_default": "0",
+    "first_response_default": "10m",
+    "stall_default": "15m",
+    "stall_action_default": "warn",
+    "automatic_provider_retry": false,
+    "native_original_session_resume": false
+  },
+  "automated_gates": [
+    {
+      "name": "final-contract-1",
+      "returncode": 0,
+      "seconds": 1.13
+    },
+    {
+      "name": "final-contract-2",
+      "returncode": 0,
+      "seconds": 0.91
+    },
+    {
+      "name": "final-make-test",
+      "returncode": 0,
+      "seconds": 47.83
+    },
+    {
+      "name": "final-e2e",
+      "returncode": 0,
+      "seconds": 36.2
+    },
+    {
+      "name": "final-probe-cli",
+      "returncode": 0,
+      "seconds": 9.37
+    },
+    {
+      "name": "final-probe-isolation",
+      "returncode": 0,
+      "seconds": 7.77
+    },
+    {
+      "name": "final-checksecrets",
+      "returncode": 0,
+      "seconds": 0.21
+    }
+  ],
+  "additional_workflow_check": {
+    "command": "go test -race -shuffle=on -count=1 -timeout=300s ./internal/workflow",
+    "result": "passed"
+  },
+  "web": {
+    "unit_test_files": 17,
+    "unit_tests": 112,
+    "chrome_e2e_tests": 7,
+    "fresh_build": true
+  },
+  "provider_free_cli_probes": {
+    "claude": "2.1.311",
+    "codex": "0.164.0",
+    "gemini": "0.65.0",
+    "tool_registry": "passed",
+    "isolation": "passed",
+    "note": "Installed binaries against local synthetic model endpoints; these probes do not establish real-provider success."
+  },
+  "earlier_live_samples": {
+    "claude_longtask": {
+      "elapsed_seconds": 189.56,
+      "result": "passed",
+      "evidence": {
+        "cli": "claude",
+        "cli_version": "2.1.311 (Claude Code)",
+        "adapter": "claude-stream-json",
+        "isolation": "enforced",
+        "run_id": "e5b5f456-7c16-4850-8df5-37b2b0dd2d41",
+        "run_status": "succeeded",
+        "attempts": [
+          {
+            "step_role": "researcher",
+            "number": 1,
+            "status": "succeeded",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "dab150fb-dce6-4dac-aba9-d24a38cc1dd0",
+            "session_mode": "fresh"
+          },
+          {
+            "step_role": "critic",
+            "number": 1,
+            "status": "succeeded",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "4b5d7ffe-ee89-4a38-b490-af3de8ca5be8",
+            "session_mode": "fresh"
+          },
+          {
+            "step_role": "coordinator",
+            "number": 1,
+            "status": "succeeded",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "065bd8b5-4470-42c4-82b3-006229601f2b",
+            "session_mode": "fresh"
+          }
+        ],
+        "tool_counts": {
+          "coordinator": {
+            "publish_artifact": 2,
+            "read_context": 5,
+            "read_skill": 1,
+            "read_source": 6
+          },
+          "critic": {
+            "list_files": 1,
+            "publish_artifact": 1,
+            "read_context": 2,
+            "read_file": 1,
+            "read_skill": 1,
+            "read_source": 4,
+            "search_content": 3
+          },
+          "researcher": {
+            "list_files": 1,
+            "publish_artifact": 1,
+            "read_file": 65,
+            "read_source": 2,
+            "search_content": 4
+          }
+        },
+        "read_file_windows": 65,
+        "researcher_tools": 73,
+        "researcher_reads": 67,
+        "researcher_published": true,
+        "context_complete": {
+          "coordinator": true,
+          "critic": true
+        },
+        "source_tail": {
+          "coordinator": true,
+          "critic": true,
+          "researcher": true
+        }
+      }
+    },
+    "mixed_claude_codex": {
+      "result": "passed",
+      "elapsed_seconds": 64.51,
+      "steps": 5,
+      "handoffs": 2,
+      "coordinator_continuations": 2,
+      "reviewer_executor": "codex"
+    },
+    "mixed_with_gemini": {
+      "result": "failed",
+      "elapsed_seconds": 78.29,
+      "blocker": "Existing upstream rejects Gemini native API protocol; connection settings and credentials were not changed."
+    }
+  },
+  "final_live_samples": {
+    "status": "completed",
+    "pre_fix_longtask": {
+      "result": "failed",
+      "elapsed_seconds": 364.44,
+      "root_cause": "publish_artifact schema offered confirmed for research_report; validator rejected it without naming the accepted states; four invalid submissions exhausted the publication retry guard.",
+      "evidence": {
+        "cli": "claude",
+        "cli_version": "2.1.311 (Claude Code)",
+        "adapter": "claude-stream-json",
+        "isolation": "enforced",
+        "run_id": "cc04b542-6440-45b8-9189-f88d2b793949",
+        "run_status": "failed",
+        "failure_kind": "artifact_contract",
+        "attempts": [
+          {
+            "step_role": "researcher",
+            "number": 1,
+            "status": "succeeded",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "0c2bae39-d26d-4bde-9aba-a64532091054",
+            "session_mode": "fresh"
+          },
+          {
+            "step_role": "critic",
+            "number": 1,
+            "status": "succeeded",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "7b454971-df77-4723-a80f-5ffe2e65210a",
+            "session_mode": "fresh"
+          },
+          {
+            "step_role": "coordinator",
+            "number": 1,
+            "status": "failed",
+            "failure_kind": "artifact_contract",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "99621258-80f7-416a-ab94-90274dca2f0b",
+            "session_mode": "fresh"
+          }
+        ],
+        "tool_counts": {
+          "coordinator": {
+            "list_files": 1,
+            "publish_artifact": 6,
+            "read_context": 5,
+            "read_file": 1,
+            "read_skill": 2,
+            "read_source": 8,
+            "search_content": 1
+          },
+          "critic": {
+            "list_files": 1,
+            "publish_artifact": 1,
+            "read_context": 2,
+            "read_file": 4,
+            "read_skill": 1,
+            "read_source": 6,
+            "search_content": 14
+          },
+          "researcher": {
+            "list_files": 1,
+            "publish_artifact": 1,
+            "read_file": 65,
+            "read_skill": 1,
+            "read_source": 1,
+            "search_content": 3
+          }
+        },
+        "read_file_windows": 65,
+        "researcher_tools": 72,
+        "researcher_reads": 66,
+        "researcher_published": true,
+        "context_complete": {
+          "coordinator": true,
+          "critic": true
+        },
+        "source_tail": {
+          "coordinator": true,
+          "critic": true,
+          "researcher": true
+        }
+      }
+    },
+    "mixed_claude_codex": {
+      "result": "passed",
+      "elapsed_seconds": 91.81,
+      "steps": 5,
+      "handoffs": 2,
+      "coordinator_continuations": 2,
+      "skill_read_members": 3,
+      "note": "Verified after long-task integration; before the research-only status schema correction, which does not change note states."
+    },
+    "post_fix_longtask": {
+      "result": "passed",
+      "elapsed_seconds": 167.34,
+      "source_unchanged_during_verification": true,
+      "evidence": {
+        "cli": "claude",
+        "cli_version": "2.1.311 (Claude Code)",
+        "adapter": "claude-stream-json",
+        "isolation": "enforced",
+        "run_id": "03346d88-7ac3-4735-be68-6cc6d9370f40",
+        "run_status": "succeeded",
+        "attempts": [
+          {
+            "step_role": "researcher",
+            "number": 1,
+            "status": "succeeded",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "bcb788f7-0385-45f3-aa8c-44dba92811ae",
+            "session_mode": "fresh"
+          },
+          {
+            "step_role": "critic",
+            "number": 1,
+            "status": "succeeded",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "4c7b140c-c80f-468d-b4ea-8a0dc701fe9b",
+            "session_mode": "fresh"
+          },
+          {
+            "step_role": "coordinator",
+            "number": 1,
+            "status": "succeeded",
+            "executor": "claude",
+            "model": "default",
+            "resolved_model": "deepseek-flash[1M]",
+            "cli_version": "2.1.311 (Claude Code)",
+            "session_id": "ab66fac4-6e5f-4e33-9024-a85eb1689815",
+            "session_mode": "fresh"
+          }
+        ],
+        "tool_counts": {
+          "coordinator": {
+            "publish_artifact": 1,
+            "read_context": 4,
+            "read_skill": 1,
+            "read_source": 2
+          },
+          "critic": {
+            "publish_artifact": 1,
+            "read_context": 2,
+            "read_file": 1,
+            "read_skill": 1,
+            "read_source": 7,
+            "search_content": 5
+          },
+          "researcher": {
+            "list_files": 1,
+            "publish_artifact": 1,
+            "read_file": 65,
+            "read_source": 1,
+            "search_content": 3
+          }
+        },
+        "read_file_windows": 65,
+        "researcher_tools": 71,
+        "researcher_reads": 66,
+        "researcher_published": true,
+        "context_complete": {
+          "coordinator": true,
+          "critic": true
+        },
+        "source_tail": {
+          "coordinator": true,
+          "critic": true,
+          "researcher": true
+        }
+      },
+      "content_review": {
+        "final_report_reviewed": true,
+        "report_sha256": "901459ced1a375a13cc99233e7e102e01dcd3923d9ef6b660649bc5424cf5845",
+        "facts_preserved": [
+          "negative applicability condition",
+          "2026-10-27 date with undefined semantics",
+          "3.25 USD/kg as conditional statement",
+          "4.10 USD/kg as another-source conflict",
+          "unknown sample basis",
+          "full-coverage dispute"
+        ],
+        "limitation": "65 successful read_file captures prove the requested tool path passed the former quota, not that the model viewed every captured byte. The critic and coordinator explicitly retained the incomplete-coverage dispute.",
+        "coordinator_publication_submissions": 1,
+        "quality_is_not_guaranteed_by_succeeded": true
+      }
+    }
+  },
+  "boundaries": [
+    "Only temporary synthetic acceptance data was used; no existing user database was migrated.",
+    "Claude Code reused the existing deepseek-flash[1M] backend; the CLI brand does not identify the model provider.",
+    "No credentials, endpoints, provider selections, or model settings were changed.",
+    "Default unlimited cumulative duration and tool count can grow cost, disk usage, and single-worker FIFO queue time.",
+    "Fresh attempts rebuild from persisted context; old native session resume remains unsupported.",
+    "No commit, push, production deployment, Linux runtime, or multi-day soak acceptance was performed."
+  ],
+  "post_contract_automated_gates": [
+    {
+      "name": "post-contract-make-test",
+      "returncode": 0,
+      "seconds": 47.3
+    },
+    {
+      "name": "post-contract-e2e",
+      "returncode": 0,
+      "seconds": 33.17
+    },
+    {
+      "name": "post-contract-checksecrets",
+      "returncode": 0,
+      "seconds": 0.23
+    }
+  ]
+}

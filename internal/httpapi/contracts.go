@@ -1,30 +1,40 @@
 package httpapi
 
 import (
+	"github.com/AcSunday/cocogem/internal/skills"
+	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
 // SystemInfo exposes capabilities and verification without server credentials.
 type SystemInfo struct {
-	Demo         bool              `json:"demo"`
-	Models       []string          `json:"models"`
-	Roots        []string          `json:"roots"`
-	ModelStatus  string            `json:"model_status"`
-	SearchStatus string            `json:"search_status"`
-	Verified     map[string]string `json:"verified"`
-	CSRFToken    string            `json:"csrf_token"`
-	Limits       map[string]int    `json:"limits"`
-	Executors    []ExecutorInfo    `json:"executors,omitempty"`
+	Models         []string          `json:"models"`
+	Roots          []string          `json:"roots"`
+	ModelStatus    string            `json:"model_status"`
+	SearchStatus   string            `json:"search_status"`
+	SearchProvider string            `json:"search_provider,omitempty"`
+	Verified       map[string]string `json:"verified"`
+	CSRFToken      string            `json:"csrf_token"`
+	Limits         map[string]int    `json:"limits"`
+	Executors      []ExecutorInfo    `json:"executors,omitempty"`
+	Skills         []skills.Info     `json:"skills,omitempty"`
 }
 
-// ExecutorInfo distinguishes a CLI installation from a verified invocation.
+// ExecutorInfo distinguishes installation, adapter/isolation, and model connection.
 type ExecutorInfo struct {
-	ID        string `json:"id"`
-	Installed bool   `json:"installed"`
-	Version   string `json:"version"`
-	Supported bool   `json:"supported"`
-	Reason    string `json:"reason"`
+	ID           string   `json:"id"`
+	Installed    bool     `json:"installed"`
+	Version      string   `json:"version"`
+	Supported    bool     `json:"supported"`
+	Reason       string   `json:"reason"`
+	Adapter      string   `json:"adapter"`
+	Isolation    string   `json:"isolation"`
+	Protocol     string   `json:"protocol"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	CheckedAt    string   `json:"checked_at,omitempty"`
+	// Identity binds a verification to the exact installed program, not just a version.
+	Identity string `json:"-"`
 }
 
 // VerifyInput names the precise CLI and model to verify using a public prompt.
@@ -47,11 +57,18 @@ type ThreadView struct {
 	Sources  []w.Source      `json:"sources"`
 }
 
-// RunView associates the plan with its exact event cursor.
+// MessageContentPage is one bounded slice of a message body.
+type MessageContentPage = store.MessageContentPage
+
+// EventPage is one bounded slice of a run's persisted event history.
+type EventPage = store.EventPage
+
+// RunView associates the plan, execution attempts and exact event cursor.
 type RunView struct {
-	Run    w.Run    `json:"run"`
-	Steps  []w.Step `json:"steps"`
-	Cursor int64    `json:"cursor"`
+	Run      w.Run       `json:"run"`
+	Steps    []w.Step    `json:"steps"`
+	Attempts []w.Attempt `json:"attempts"`
+	Cursor   int64       `json:"cursor"`
 }
 
 // RoutingPreview describes dispatch intent without starting execution.
@@ -63,19 +80,24 @@ type RoutingPreview struct {
 
 // WorkspaceInput contains only user-editable fields.
 type WorkspaceInput struct {
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	Root           string `json:"root"`
-	ConsentVersion int    `json:"consent_version"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Root        string   `json:"root"`
+	SkillIDs    []string `json:"skill_ids"`
 }
 
-// BootstrapInput exchanges a single-use startup token for a local session.
-type BootstrapInput struct {
-	Token string `json:"token"`
+// AuthStatus exposes whether the local workspace password has been initialized.
+type AuthStatus struct {
+	Initialized bool `json:"initialized"`
 }
 
-// BootstrapReply returns the session CSRF token; the session secret stays HttpOnly.
-type BootstrapReply struct {
+// PasswordInput sets or verifies the local workspace password.
+type PasswordInput struct {
+	Password string `json:"password"`
+}
+
+// SessionReply returns the session CSRF token; the session secret stays HttpOnly.
+type SessionReply struct {
 	CSRFToken string `json:"csrf_token"`
 }
 
@@ -86,9 +108,10 @@ type FeedbackInput struct {
 
 // VerifyReply records explicit provider verification time.
 type VerifyReply struct {
-	Executor   string `json:"executor,omitempty"`
-	Model      string `json:"model"`
-	VerifiedAt string `json:"verified_at"`
+	Executor   string         `json:"executor,omitempty"`
+	Model      string         `json:"model"`
+	VerifiedAt string         `json:"verified_at"`
+	Executors  []ExecutorInfo `json:"executors,omitempty"`
 }
 
 // DeleteReply confirms which object was permanently removed.

@@ -40,6 +40,9 @@ const paths = {
   file: (
     <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8ZM14 3v5h5" />
   ),
+  folder: (
+    <path d="M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z" />
+  ),
   globe: (
     <>
       <circle cx="12" cy="12" r="9" />
@@ -73,6 +76,14 @@ const paths = {
     <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L3 17.8V21h3.2l6.3-6.3a4 4 0 0 0 5.2-5.4l-2.6 2.6-2.4-.6-.6-2.4Z" />
   ),
   layers: <path d="m12 3 9 5-9 5-9-5ZM3 13l9 5 9-5" />,
+  appearance: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5" />
+    </>
+  ),
+  chevron: <path d="m6 9 6 6 6-6" />,
+  open: <path d="m7 17 10-10M7 7h10v10" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

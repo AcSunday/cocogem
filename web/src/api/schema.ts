@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+  "/api/v1/agents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["globalAgents"];
+    put?: never;
+    post: operations["createGlobalAgent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/agents/{id}": {
     parameters: {
       query?: never;
@@ -52,6 +68,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/auth/logout": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["logout"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/directories": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["directories"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{id}": {
     parameters: {
       query?: never;
@@ -84,6 +132,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{id}/event-history": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["runEventHistory"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/runs/{id}/events": {
     parameters: {
       query?: never;
@@ -94,6 +158,38 @@ export interface paths {
     get: operations["runEvents"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{id}/messages/{messageID}/content": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["runMessageContent"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{id}/resume": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["resumeRun"];
     delete?: never;
     options?: never;
     head?: never;
@@ -260,6 +356,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/workspaces/{id}/members/{agentID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["linkMember"];
+    post?: never;
+    delete: operations["unlinkMember"];
+    options?: never;
+    head?: never;
+    patch: operations["updateMember"];
+    trace?: never;
+  };
   "/api/v1/workspaces/{id}/threads": {
     parameters: {
       query?: never;
@@ -276,7 +388,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/bootstrap": {
+  "/auth/login": {
     parameters: {
       query?: never;
       header?: never;
@@ -285,7 +397,39 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    post: operations["bootstrap"];
+    post: operations["login"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/auth/setup": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["setupPassword"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/auth/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["authStatus"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -298,11 +442,19 @@ export interface components {
   schemas: {
     Agent: {
       aliases: string[] | null;
+      capabilities?: string[] | null;
       disabled: boolean;
       display_name: string;
       executor?: string;
       handle: string;
       id: string;
+      membership?: {
+        agent_id: string;
+        enabled: boolean;
+        revision: number;
+        tools: string[] | null;
+        workspace_id: string;
+      } | null;
       model: string;
       revision: number;
       role_description: string;
@@ -311,11 +463,19 @@ export interface components {
     };
     AgentInput: {
       aliases?: string[] | null;
+      capabilities?: string[] | null;
       disabled?: boolean;
       display_name: string;
       executor?: string;
       handle: string;
       id?: string;
+      membership?: {
+        agent_id: string;
+        enabled: boolean;
+        revision: number;
+        tools: string[] | null;
+        workspace_id: string;
+      } | null;
       model: string;
       revision?: number;
       role_description?: string;
@@ -329,7 +489,6 @@ export interface components {
     Artifact: {
       body: string;
       created_at: string;
-      demo: boolean;
       feedback: string;
       feedback_at: string;
       findings:
@@ -360,14 +519,92 @@ export interface components {
       id: string;
       version: number;
     };
-    BootstrapInput: {
-      token: string;
+    Attempt: {
+      adapter?: string;
+      checkpoint_digest?: string;
+      checkpoint_start_digest?: string;
+      cli_identity?: string;
+      cli_program?: string;
+      cli_version?: string;
+      connection_identity?: string;
+      draft_artifact?: {
+        body: string;
+        created_at: string;
+        feedback: string;
+        feedback_at: string;
+        findings:
+          | {
+              detail: string;
+              severity?: string;
+              source_ids: string[] | null;
+              status: string;
+              title: string;
+            }[]
+          | null;
+        id: string;
+        limitations: string[] | null;
+        revision: number;
+        run_id: string;
+        source_ids: string[] | null;
+        step_id: string;
+        thread_id: string;
+        title: string;
+        type: string;
+        version: number;
+      } | null;
+      error?: string;
+      executor?: string;
+      failure_kind?: string;
+      finished_at?: string;
+      id: string;
+      input_plan_digest?: string;
+      input_tokens?: number;
+      last_progress_at?: string;
+      liveness_warning?: {
+        last_event_type: string;
+        observed_at: string;
+        process_alive: boolean;
+        silence_seconds: number;
+        state: string;
+        tool_active: boolean;
+      } | null;
+      model?: string;
+      number: number;
+      output_tokens?: number;
+      process?: {
+        executable?: string;
+        pgid?: number;
+        pid: number;
+        start?: string;
+      } | null;
+      reason?: string;
+      recovered_from?: string;
+      recovery?: string;
+      resolved_model?: string;
+      run_id: string;
+      session_id?: string;
+      session_mode?: string;
+      source_ids?: string[] | null;
+      started_at: string;
+      status: string;
+      step_id: string;
+      usage_completeness?: string;
+      usage_known?: boolean;
     };
-    BootstrapReply: {
-      csrf_token: string;
+    AuthStatus: {
+      initialized: boolean;
     };
     DeleteReply: {
       id: string;
+    };
+    DirectoryListing: {
+      items: {
+        name: string;
+        path: string;
+      }[];
+      parent: string;
+      path: string;
+      truncated: boolean;
     };
     EmptyInput: Record<string, never>;
     Error: {
@@ -389,9 +626,27 @@ export interface components {
       step_id?: string;
       type: string;
     };
+    EventPage: {
+      items: {
+        agent_id?: string;
+        data: unknown;
+        occurred_at: string;
+        run_id: string;
+        schema_version: number;
+        seq: number;
+        step_id?: string;
+        type: string;
+      }[];
+      next_cursor: string;
+    };
     ExecutorInfo: {
+      adapter: string;
+      capabilities?: string[] | null;
+      checked_at?: string;
       id: string;
       installed: boolean;
+      isolation: string;
+      protocol: string;
       reason: string;
       supported: boolean;
       version: string;
@@ -406,10 +661,19 @@ export interface components {
       status: string;
       title: string;
     };
+    Info: {
+      description: string;
+      id: string;
+      name: string;
+      version: string;
+    };
     Message: {
       agent_id: string;
       agent_name: string;
       content: string;
+      content_bytes?: number;
+      content_format?: string;
+      content_truncated?: boolean;
       created_at: string;
       id: string;
       role: string;
@@ -417,6 +681,24 @@ export interface components {
       status: string;
       step_id: string;
       thread_id: string;
+    };
+    MessageContentPage: {
+      content: string;
+      content_bytes: number;
+      content_format: string;
+      content_truncated: boolean;
+      has_more: boolean;
+      message_id: string;
+      next_cursor?: string;
+    };
+    PasswordInput: {
+      password: string;
+    };
+    ProcessRef: {
+      executable?: string;
+      pgid?: number;
+      pid: number;
+      start?: string;
     };
     Routing: {
       assignments: {
@@ -466,11 +748,19 @@ export interface components {
       agents:
         | {
             aliases: string[] | null;
+            capabilities?: string[] | null;
             disabled: boolean;
             display_name: string;
             executor?: string;
             handle: string;
             id: string;
+            membership?: {
+              agent_id: string;
+              enabled: boolean;
+              revision: number;
+              tools: string[] | null;
+              workspace_id: string;
+            } | null;
             model: string;
             revision: number;
             role_description: string;
@@ -478,9 +768,18 @@ export interface components {
             workspace_id: string;
           }[]
         | null;
+      coordinator_id?: string;
       created_at: string;
-      demo: boolean;
+      deadline_at?: string;
       error: string;
+      execution_policy?: {
+        first_response_ns: number;
+        run_timeout_ns: number;
+        stall_action: string;
+        stall_ns: number;
+        step_timeout_ns: number;
+      } | null;
+      failure_kind?: string;
       finished_at: string;
       id: string;
       input: {
@@ -495,12 +794,17 @@ export interface components {
         } | null;
         message: string;
         proposal_id: string;
+        /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
         research_scope: string;
         retry_of_run_id: string;
         source_urls: string[] | null;
         targets: string[] | null;
         workflow: string;
       };
+      policy_adopted_at?: string;
+      recovered_at?: string;
+      recovery_count?: number;
+      recovery_note?: string;
       routing: {
         assignments: {
           [key: string]: string;
@@ -521,16 +825,21 @@ export interface components {
         usage_known: boolean;
         workflow: string;
       };
+      skill_snapshot?: string;
+      skill_versions?: {
+        [key: string]: string;
+      } | null;
+      started_at?: string;
       status: string;
       thread_id: string;
       workspace: {
-        consent_version: number;
         created_at: string;
         description: string;
         id: string;
         name: string;
         revision: number;
         root: string;
+        skill_ids: string[] | null;
       };
       workspace_id: string;
     };
@@ -546,6 +855,7 @@ export interface components {
       } | null;
       message: string;
       proposal_id: string;
+      /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope: string;
       retry_of_run_id: string;
       source_urls: string[] | null;
@@ -564,6 +874,7 @@ export interface components {
       } | null;
       message: string;
       proposal_id?: string;
+      /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope?: string;
       retry_of_run_id?: string;
       source_urls?: string[] | null;
@@ -571,16 +882,98 @@ export interface components {
       workflow?: string;
     };
     RunView: {
+      attempts:
+        | {
+            adapter?: string;
+            checkpoint_digest?: string;
+            checkpoint_start_digest?: string;
+            cli_identity?: string;
+            cli_program?: string;
+            cli_version?: string;
+            connection_identity?: string;
+            draft_artifact?: {
+              body: string;
+              created_at: string;
+              feedback: string;
+              feedback_at: string;
+              findings:
+                | {
+                    detail: string;
+                    severity?: string;
+                    source_ids: string[] | null;
+                    status: string;
+                    title: string;
+                  }[]
+                | null;
+              id: string;
+              limitations: string[] | null;
+              revision: number;
+              run_id: string;
+              source_ids: string[] | null;
+              step_id: string;
+              thread_id: string;
+              title: string;
+              type: string;
+              version: number;
+            } | null;
+            error?: string;
+            executor?: string;
+            failure_kind?: string;
+            finished_at?: string;
+            id: string;
+            input_plan_digest?: string;
+            input_tokens?: number;
+            last_progress_at?: string;
+            liveness_warning?: {
+              last_event_type: string;
+              observed_at: string;
+              process_alive: boolean;
+              silence_seconds: number;
+              state: string;
+              tool_active: boolean;
+            } | null;
+            model?: string;
+            number: number;
+            output_tokens?: number;
+            process?: {
+              executable?: string;
+              pgid?: number;
+              pid: number;
+              start?: string;
+            } | null;
+            reason?: string;
+            recovered_from?: string;
+            recovery?: string;
+            resolved_model?: string;
+            run_id: string;
+            session_id?: string;
+            session_mode?: string;
+            source_ids?: string[] | null;
+            started_at: string;
+            status: string;
+            step_id: string;
+            usage_completeness?: string;
+            usage_known?: boolean;
+          }[]
+        | null;
       cursor: number;
       run: {
         agents:
           | {
               aliases: string[] | null;
+              capabilities?: string[] | null;
               disabled: boolean;
               display_name: string;
               executor?: string;
               handle: string;
               id: string;
+              membership?: {
+                agent_id: string;
+                enabled: boolean;
+                revision: number;
+                tools: string[] | null;
+                workspace_id: string;
+              } | null;
               model: string;
               revision: number;
               role_description: string;
@@ -588,9 +981,18 @@ export interface components {
               workspace_id: string;
             }[]
           | null;
+        coordinator_id?: string;
         created_at: string;
-        demo: boolean;
+        deadline_at?: string;
         error: string;
+        execution_policy?: {
+          first_response_ns: number;
+          run_timeout_ns: number;
+          stall_action: string;
+          stall_ns: number;
+          step_timeout_ns: number;
+        } | null;
+        failure_kind?: string;
         finished_at: string;
         id: string;
         input: {
@@ -611,6 +1013,10 @@ export interface components {
           targets: string[] | null;
           workflow: string;
         };
+        policy_adopted_at?: string;
+        recovered_at?: string;
+        recovery_count?: number;
+        recovery_note?: string;
         routing: {
           assignments: {
             [key: string]: string;
@@ -631,16 +1037,21 @@ export interface components {
           usage_known: boolean;
           workflow: string;
         };
+        skill_snapshot?: string;
+        skill_versions?: {
+          [key: string]: string;
+        } | null;
+        started_at?: string;
         status: string;
         thread_id: string;
         workspace: {
-          consent_version: number;
           created_at: string;
           description: string;
           id: string;
           name: string;
           revision: number;
           root: string;
+          skill_ids: string[] | null;
         };
         workspace_id: string;
       };
@@ -648,19 +1059,36 @@ export interface components {
         | {
             agent_id: string;
             agent_name: string;
+            attempt_count?: number;
+            context_refs?: string[] | null;
+            continuation_id?: string;
+            deadline_at?: string;
             depends_on: string[] | null;
+            depth?: number;
             error: string;
+            failure_kind?: string;
+            from_agent_id?: string;
+            from_attempt_id?: string;
+            from_step_id?: string;
             id: string;
             instruction: string;
+            kind?: string;
+            request_id?: string;
             role: string;
             run_id: string;
+            started_at?: string;
             status: string;
           }[]
         | null;
     };
+    SessionReply: {
+      csrf_token: string;
+    };
     Source: {
+      capture_step_id?: string;
       captured_at: string;
       content: string;
+      content_digest?: string;
       end_line: number;
       id: string;
       kind: string;
@@ -677,21 +1105,37 @@ export interface components {
     Step: {
       agent_id: string;
       agent_name: string;
+      attempt_count?: number;
+      context_refs?: string[] | null;
+      continuation_id?: string;
+      deadline_at?: string;
       depends_on: string[] | null;
+      depth?: number;
       error: string;
+      failure_kind?: string;
+      from_agent_id?: string;
+      from_attempt_id?: string;
+      from_step_id?: string;
       id: string;
       instruction: string;
+      kind?: string;
+      request_id?: string;
       role: string;
       run_id: string;
+      started_at?: string;
       status: string;
     };
     SystemInfo: {
       csrf_token: string;
-      demo: boolean;
       executors?:
         | {
+            adapter: string;
+            capabilities?: string[] | null;
+            checked_at?: string;
             id: string;
             installed: boolean;
+            isolation: string;
+            protocol: string;
             reason: string;
             supported: boolean;
             version: string;
@@ -703,7 +1147,16 @@ export interface components {
       model_status: string;
       models: string[];
       roots: string[];
+      search_provider?: string;
       search_status: string;
+      skills?:
+        | {
+            description: string;
+            id: string;
+            name: string;
+            version: string;
+          }[]
+        | null;
       verified: {
         [key: string]: string;
       };
@@ -738,6 +1191,9 @@ export interface components {
           agent_id: string;
           agent_name: string;
           content: string;
+          content_bytes?: number;
+          content_format?: string;
+          content_truncated?: boolean;
           created_at: string;
           id: string;
           role: string;
@@ -752,11 +1208,19 @@ export interface components {
         agents:
           | {
               aliases: string[] | null;
+              capabilities?: string[] | null;
               disabled: boolean;
               display_name: string;
               executor?: string;
               handle: string;
               id: string;
+              membership?: {
+                agent_id: string;
+                enabled: boolean;
+                revision: number;
+                tools: string[] | null;
+                workspace_id: string;
+              } | null;
               model: string;
               revision: number;
               role_description: string;
@@ -764,9 +1228,18 @@ export interface components {
               workspace_id: string;
             }[]
           | null;
+        coordinator_id?: string;
         created_at: string;
-        demo: boolean;
+        deadline_at?: string;
         error: string;
+        execution_policy?: {
+          first_response_ns: number;
+          run_timeout_ns: number;
+          stall_action: string;
+          stall_ns: number;
+          step_timeout_ns: number;
+        } | null;
+        failure_kind?: string;
         finished_at: string;
         id: string;
         input: {
@@ -787,6 +1260,10 @@ export interface components {
           targets: string[] | null;
           workflow: string;
         };
+        policy_adopted_at?: string;
+        recovered_at?: string;
+        recovery_count?: number;
+        recovery_note?: string;
         routing: {
           assignments: {
             [key: string]: string;
@@ -807,22 +1284,29 @@ export interface components {
           usage_known: boolean;
           workflow: string;
         };
+        skill_snapshot?: string;
+        skill_versions?: {
+          [key: string]: string;
+        } | null;
+        started_at?: string;
         status: string;
         thread_id: string;
         workspace: {
-          consent_version: number;
           created_at: string;
           description: string;
           id: string;
           name: string;
           revision: number;
           root: string;
+          skill_ids: string[] | null;
         };
         workspace_id: string;
       }[];
       sources: {
+        capture_step_id?: string;
         captured_at: string;
         content: string;
+        content_digest?: string;
         end_line: number;
         id: string;
         kind: string;
@@ -853,27 +1337,55 @@ export interface components {
     };
     VerifyReply: {
       executor?: string;
+      executors?:
+        | {
+            adapter: string;
+            capabilities?: string[] | null;
+            checked_at?: string;
+            id: string;
+            installed: boolean;
+            isolation: string;
+            protocol: string;
+            reason: string;
+            supported: boolean;
+            version: string;
+          }[]
+        | null;
       model: string;
       verified_at: string;
     };
     Workspace: {
-      consent_version: number;
       created_at: string;
       description: string;
       id: string;
       name: string;
       revision: number;
       root: string;
+      skill_ids: string[] | null;
     };
     WorkspaceInput: {
-      consent_version?: number;
       description?: string;
       name: string;
       root?: string;
+      skill_ids?: string[] | null;
     };
     WorkspaceList: {
       items: components["schemas"]["Workspace"][] | null;
       next_cursor?: string;
+    };
+    WorkspaceMember: {
+      agent_id: string;
+      enabled: boolean;
+      revision: number;
+      tools: string[] | null;
+      workspace_id: string;
+    };
+    WorkspaceMemberInput: {
+      agent_id?: string;
+      enabled: boolean;
+      revision?: number;
+      tools: string[] | null;
+      workspace_id?: string;
     };
   };
   responses: never;
@@ -884,6 +1396,70 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  globalAgents: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  createGlobalAgent: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Agent"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   updateAgent: {
     parameters: {
       query?: never;
@@ -1025,6 +1601,73 @@ export interface operations {
       };
     };
   };
+  logout: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AuthStatus"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  directories: {
+    parameters: {
+      query?: {
+        /** @description Existing local directory; empty starts at allowed roots or the home directory. Does not bind a workspace. */
+        path?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DirectoryListing"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   run: {
     parameters: {
       query?: never;
@@ -1093,6 +1736,40 @@ export interface operations {
       };
     };
   };
+  runEventHistory: {
+    parameters: {
+      query?: {
+        after?: number;
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EventPage"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   runEvents: {
     parameters: {
       query?: {
@@ -1115,6 +1792,78 @@ export interface operations {
         };
         content: {
           "text/event-stream": components["schemas"]["Event"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  runMessageContent: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        id: string;
+        messageID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessageContentPage"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  resumeRun: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Run"];
         };
       };
       /** @description Structured error */
@@ -1637,6 +2386,118 @@ export interface operations {
       };
     };
   };
+  linkMember: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+        agentID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WorkspaceMemberInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Agent"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  unlinkMember: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+        agentID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DeleteReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  updateMember: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+        agentID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WorkspaceMemberInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Agent"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   threads: {
     parameters: {
       query?: {
@@ -1708,7 +2569,7 @@ export interface operations {
       };
     };
   };
-  bootstrap: {
+  login: {
     parameters: {
       query?: never;
       header?: never;
@@ -1717,7 +2578,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        "application/json": components["schemas"]["BootstrapInput"];
+        "application/json": components["schemas"]["PasswordInput"];
       };
     };
     responses: {
@@ -1727,7 +2588,69 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["BootstrapReply"];
+          "application/json": components["schemas"]["SessionReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  setupPassword: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PasswordInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SessionReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  authStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AuthStatus"];
         };
       };
       /** @description Structured error */

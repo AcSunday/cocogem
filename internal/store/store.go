@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"unicode/utf8"
 
 	w "github.com/AcSunday/cocogem/internal/workspace"
 	_ "modernc.org/sqlite"
@@ -64,6 +65,10 @@ func Open(path string) (*Store, error) {
 	if _, err = db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	if err = migrateAgents(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate members: %w", err)
 	}
 	return &Store{db: db, changed: make(chan struct{})}, nil
 }
@@ -165,21 +170,6 @@ func (t *Tx) SaveWorkspace(v w.Workspace) error {
 	return t.exec("INSERT INTO workspaces(id,revision,body) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body", v.ID, v.Revision, body(v))
 }
 
-// Agents lists the workspace's stable member identities.
-func (t *Tx) Agents(workspaceID string) ([]w.Agent, error) {
-	return list[w.Agent](t, "SELECT body FROM agent_profiles WHERE workspace_id=? ORDER BY rowid", workspaceID)
-}
-
-// Agent reads a member.
-func (t *Tx) Agent(id string) (w.Agent, error) {
-	return get[w.Agent](t, "SELECT body FROM agent_profiles WHERE id=?", id)
-}
-
-// SaveAgent stores a validated member; handle uniqueness is also enforced by SQL.
-func (t *Tx) SaveAgent(v w.Agent) error {
-	return t.exec("INSERT INTO agent_profiles(id,workspace_id,handle,revision,body) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET handle=excluded.handle,revision=excluded.revision,body=excluded.body", v.ID, v.WorkspaceID, v.Handle, v.Revision, body(v))
-}
-
 // Threads lists conversations by recent activity.
 func (t *Tx) Threads(workspaceID string) ([]w.Thread, error) {
 	return list[w.Thread](t, "SELECT body FROM threads WHERE workspace_id=? ORDER BY updated_at DESC,id DESC", workspaceID)
@@ -252,13 +242,122 @@ func (t *Tx) SaveStep(v w.Step) error {
 	return t.exec("INSERT INTO steps(id,run_id,status,position,body) VALUES(?,?,?,(SELECT COUNT(*) FROM steps WHERE run_id=?),?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,body=excluded.body", v.ID, v.RunID, v.Status, v.RunID, body(v))
 }
 
+// Attempts lists every execution try for a run in stable order.
+func (t *Tx) Attempts(runID string) ([]w.Attempt, error) {
+	return list[w.Attempt](t, "SELECT body FROM attempts WHERE run_id=? ORDER BY rowid", runID)
+}
+
+// StepAttempts lists one logical step's tries, oldest first.
+func (t *Tx) StepAttempts(stepID string) ([]w.Attempt, error) {
+	return list[w.Attempt](t, "SELECT body FROM attempts WHERE step_id=? ORDER BY number", stepID)
+}
+
+// Attempt reads one persisted try.
+func (t *Tx) Attempt(id string) (w.Attempt, error) {
+	return get[w.Attempt](t, "SELECT body FROM attempts WHERE id=?", id)
+}
+
+// SaveAttempt creates a try or advances its lifecycle; terminal bodies stay fixed.
+func (t *Tx) SaveAttempt(v w.Attempt) error {
+	old, err := t.Attempt(v.ID)
+	if err == nil {
+		if attemptTerminal(old.Status) && old.Status != v.Status {
+			// A service stop can race a process cancellation; recovery may
+			// correct that one ambiguous terminal state to interrupted.
+			if !(old.Status == "canceled" && v.Status == "interrupted") {
+				return w.ErrConflict
+			}
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	return t.exec("INSERT INTO attempts(id,run_id,step_id,number,status,body) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,body=excluded.body", v.ID, v.RunID, v.StepID, v.Number, v.Status, body(v))
+}
+
+func attemptTerminal(status string) bool {
+	return status == "succeeded" || status == "failed" || status == "canceled" || status == "interrupted" || status == "uncertain" || status == "blocked"
+}
+
+// RunClaim reads the current dispatch lease.
+func (t *Tx) RunClaim(runID string) (w.RunClaim, error) {
+	return get[w.RunClaim](t, "SELECT body FROM run_claims WHERE run_id=?", runID)
+}
+
+// InsertRunClaim succeeds only when no server holds the run.
+func (t *Tx) InsertRunClaim(v w.RunClaim) (bool, error) {
+	result, err := t.tx.ExecContext(t.ctx, "INSERT OR IGNORE INTO run_claims(run_id,owner_id,owner_pid,owner_start,claimed_at,body) VALUES(?,?,?,?,?,?)", v.RunID, v.OwnerID, v.OwnerPID, v.OwnerStart, v.ClaimedAt, body(v))
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
+}
+
+// TakeRunClaim replaces exactly the observed stale lease.
+func (t *Tx) TakeRunClaim(old, next w.RunClaim) (bool, error) {
+	result, err := t.tx.ExecContext(t.ctx, "UPDATE run_claims SET owner_id=?,owner_pid=?,owner_start=?,claimed_at=?,body=? WHERE run_id=? AND owner_id=? AND owner_pid=? AND owner_start=? AND claimed_at=?", next.OwnerID, next.OwnerPID, next.OwnerStart, next.ClaimedAt, body(next), old.RunID, old.OwnerID, old.OwnerPID, old.OwnerStart, old.ClaimedAt)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
+}
+
+// ReleaseRunClaim drops a lease only for its recorded owner.
+func (t *Tx) ReleaseRunClaim(runID, ownerID string) error {
+	return t.exec("DELETE FROM run_claims WHERE run_id=? AND owner_id=?", runID, ownerID)
+}
+
+// ReleaseClaims drops every lease held by this server instance.
+func (t *Tx) ReleaseClaims(ownerID string) error {
+	return t.exec("DELETE FROM run_claims WHERE owner_id=?", ownerID)
+}
+
+// ReopenRun is the only allowed transition out of an interrupted checkpoint.
+func (t *Tx) ReopenRun(v w.Run) error {
+	result, err := t.tx.ExecContext(t.ctx, "UPDATE runs SET status=?,body=? WHERE id=? AND status='interrupted'", v.Status, body(v), v.ID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return w.ErrConflict
+	}
+	return nil
+}
+
 // Messages returns stable timeline order, including unfinished bubbles.
 func (t *Tx) Messages(threadID string) ([]w.Message, error) {
 	return list[w.Message](t, "SELECT body FROM messages WHERE thread_id=? ORDER BY position", threadID)
 }
 
+// Message reads one timeline item, including its bounded preview.
+func (t *Tx) Message(id string) (w.Message, error) {
+	return get[w.Message](t, "SELECT body FROM messages WHERE id=?", id)
+}
+
 // SaveMessage updates one bubble rather than appending streaming duplicates.
+// Legacy inline bodies keep their complete historical text; chunked messages
+// store only a bounded preview here and their complete body in message_chunks.
 func (t *Tx) SaveMessage(v w.Message) error {
+	if !utf8.ValidString(v.Content) {
+		return errors.New("message content must be valid UTF-8")
+	}
+	switch v.ContentFormat {
+	case "", w.ContentFormatInline:
+	case w.ContentFormatChunksV1:
+		if len(v.Content) > w.MaxMessagePreviewBytes {
+			return fmt.Errorf("message preview exceeds %d bytes", w.MaxMessagePreviewBytes)
+		}
+		if v.ContentBytes < len(v.Content) {
+			return errors.New("message content_bytes is smaller than its preview")
+		}
+	default:
+		return fmt.Errorf("unsupported message content format %q", v.ContentFormat)
+	}
 	return t.exec("INSERT INTO messages(id,thread_id,run_id,position,body) VALUES(?,?,?,(SELECT COALESCE(MAX(position),0)+1 FROM messages),?) ON CONFLICT(id) DO UPDATE SET body=excluded.body", v.ID, v.ThreadID, v.RunID, body(v))
 }
 
@@ -332,7 +431,10 @@ func (t *Tx) SaveArtifact(v w.Artifact) error {
 func (t *Tx) DeleteThread(id string) error {
 	for _, q := range []string{
 		"DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
+		"DELETE FROM attempts WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
+		"DELETE FROM run_claims WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
 		"DELETE FROM steps WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
+		"DELETE FROM message_chunks WHERE message_id IN (SELECT id FROM messages WHERE thread_id=?)",
 		"DELETE FROM messages WHERE thread_id=?",
 		"DELETE FROM sources WHERE thread_id=?",
 		"DELETE FROM artifacts WHERE thread_id=?",
@@ -346,7 +448,7 @@ func (t *Tx) DeleteThread(id string) error {
 	return nil
 }
 
-// DeleteWorkspace removes a workspace with its members and conversations.
+// DeleteWorkspace removes its links and conversations, preserving global members.
 func (t *Tx) DeleteWorkspace(id string) error {
 	threads, err := t.Threads(id)
 	if err != nil {
@@ -357,7 +459,7 @@ func (t *Tx) DeleteWorkspace(id string) error {
 			return err
 		}
 	}
-	if err := t.exec("DELETE FROM agent_profiles WHERE workspace_id=?", id); err != nil {
+	if err := t.exec("DELETE FROM workspace_members WHERE workspace_id=?", id); err != nil {
 		return err
 	}
 	return t.exec("DELETE FROM workspaces WHERE id=?", id)

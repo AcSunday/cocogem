@@ -1,6 +1,6 @@
 # Contributing
 
-Use Go 1.26.9+ and Node.js 22.12+ (Node.js 24 LTS is recommended).
+Use Go 1.26.10+ and Node.js 22.12+ (Node.js 24 LTS is recommended).
 Read [the product specification](docs/product-v0.1.md) before changing behavior.
 Follow [the project layout](docs/project-layout.md) when adding files.
 
@@ -20,7 +20,9 @@ Public releases and remote pushes are separate maintainer actions. AI review
 does not replace automated tests or independent review of security changes.
 
 Native CLI adapters have three different verification levels. `make test` uses
-only temporary subprocess fixtures; `make e2e` uses the explicit demo model.
+only temporary subprocess fixtures; `make e2e` uses an isolated, test-only Go
+HTTP/SSE harness with synthetic model and source fixtures. No fixture model or
+offline runtime mode is exposed by the application.
 To exercise installed Codex/Gemini binaries against a local fake model and
 scoped MCP, run:
 

@@ -11,13 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/store"
-	"github.com/AcSunday/cocogem/internal/tools"
+	"github.com/AcSunday/cocogem/internal/testutil"
 	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
@@ -31,12 +29,12 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	}
 	defer db.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	engine := &workflow.Engine{Store: db, AllowedModels: []string{"demo"}, Model: model.Demo{}, Web: tools.NewWeb("", true), Demo: true}
+	engine := &workflow.Engine{Store: db, AllowedModels: []string{"default"}, Model: testutil.Model{}, Web: testutil.Web{}}
 	if err := engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { cancel(); engine.Wait() }()
-	s, err := New(Config{Host: "local.test", WebDir: dir, Models: []string{"demo"}, Demo: true, Model: model.Demo{}}, db, engine)
+	s, err := New(Config{Host: "local.test", AuthFile: filepath.Join(dir, "auth.json"), WebDir: dir, Models: []string{"default"}, ModelConfigured: true, Model: testutil.Model{}}, db, engine)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +59,7 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	if got := call("GET", "/api/v1/system", nil, nil).Code; got != 401 {
 		t.Fatal(got)
 	}
-	rw := call("POST", "/bootstrap", map[string]string{"token": s.BootstrapToken()}, nil)
+	rw := call("POST", "/auth/setup", PasswordInput{Password: "local-test-password"}, nil)
 	if rw.Code != 200 {
 		t.Fatal(rw.Body.String())
 	}
@@ -69,8 +67,8 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	var auth map[string]string
 	json.Unmarshal(rw.Body.Bytes(), &auth)
 	csrf = auth["csrf_token"]
-	if reused := call("POST", "/bootstrap", map[string]string{"token": "used"}, nil); reused.Code != 401 {
-		t.Fatal("bootstrap token reuse accepted")
+	if reused := call("POST", "/auth/setup", PasswordInput{Password: "another-test-password"}, nil); reused.Code != 409 {
+		t.Fatal("initialized password was overwritten")
 	}
 	oldCSRF := csrf
 	csrf = "incorrect"
@@ -78,7 +76,7 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 		t.Fatal("CSRF bypass")
 	}
 	csrf = oldCSRF
-	validateResponse(t, "/bootstrap", "post", 200, rw.Body.Bytes())
+	validateResponse(t, "/auth/setup", "post", 200, rw.Body.Bytes())
 	systemResponse := call("GET", "/api/v1/system", nil, nil)
 	validateResponse(t, "/api/v1/system", "get", 200, systemResponse.Body.Bytes())
 	if got := call("POST", "/api/v1/workspaces", map[string]string{"name": "x"}, map[string]string{"Origin": "https://evil.example"}).Code; got != 403 {
@@ -114,23 +112,20 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 		t.Fatal(rw.Body.String())
 	}
 	json.Unmarshal(rw.Body.Bytes(), &th)
-	s.config.Demo = false
-	spy := &countModel{}
-	previousModel := s.config.Model
-	s.config.Model = spy
-	denied := call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", w.RunInput{Message: "布布帮我研究一下"}, nil)
-	if denied.Code != 403 || spy.calls.Load() != 0 || !strings.Contains(denied.Body.String(), "确认") {
-		t.Fatal("routing bypassed data consent", denied.Body.String(), spy.calls.Load())
-	}
-	s.config.Demo = true
-	s.config.Model = previousModel
-	in := w.RunInput{Message: "比较协作方法", Workflow: "research", Assignments: map[string]string{"researcher": a[0].ID, "critic": a[1].ID, "coordinator": a[2].ID}}
+
+	in := w.RunInput{SourceURLs: testutil.Sources, Message: "比较协作方法", Workflow: "research", Assignments: map[string]string{"researcher": a[0].ID, "critic": a[1].ID, "coordinator": a[2].ID}}
 	rw = call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", in, nil)
 	var preview struct {
 		ID string `json:"proposal_id"`
 	}
 	json.Unmarshal(rw.Body.Bytes(), &preview)
 	in.ProposalID = preview.ID
+	s.config.ModelConfigured = false
+	denied := call("POST", "/api/v1/threads/"+th.ID+"/runs", in, map[string]string{"Idempotency-Key": "test-idempotency-key"})
+	if denied.Code != 503 || !strings.Contains(denied.Body.String(), "model_unavailable") {
+		t.Fatal("missing CLI silently executed a fixture", denied.Body.String())
+	}
+	s.config.ModelConfigured = true
 	rw = call("POST", "/api/v1/threads/"+th.ID+"/runs", in, map[string]string{"Idempotency-Key": "test-idempotency-key"})
 	if rw.Code != 202 {
 		t.Fatal(rw.Body.String())
@@ -200,8 +195,8 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	artifact := artifacts.Items[0]
 	rw = call("GET", "/api/v1/artifacts/"+artifact.ID+"/versions/1/export", nil, nil)
 	b, _ := io.ReadAll(rw.Result().Body)
-	if !strings.Contains(string(b), "离线演示") {
-		t.Fatal("demo export not labeled")
+	if !strings.Contains(string(b), artifact.Body) || strings.Contains(string(b), "离线演示") {
+		t.Fatal("export does not preserve the artifact body")
 	}
 
 	// Deleting a conversation removes its run history; deleting the workspace removes the rest.
@@ -269,13 +264,6 @@ func TestDeleteRefusesActiveRun(t *testing.T) {
 	}
 }
 
-type countModel struct{ calls atomic.Int32 }
-
-func (m *countModel) Complete(context.Context, model.Request, func(string) error) (model.Response, error) {
-	m.calls.Add(1)
-	return model.Response{StopReason: "end_turn"}, nil
-}
-
 func TestPaginationUsesOpaqueBoundedCursor(t *testing.T) {
 	r := httptest.NewRequest("GET", "http://local.test/?limit=2", nil)
 	page, err := paginate(r, []int{1, 2, 3})
@@ -319,5 +307,43 @@ func TestExecutorCapabilitiesFailClosed(t *testing.T) {
 				t.Fatalf("error=%v wantErr=%v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestExecutorDiscoveryRefreshesCompatibility(t *testing.T) {
+	calls := 0
+	s := &Server{config: Config{Discover: func(context.Context) []ExecutorInfo {
+		calls++
+		return []ExecutorInfo{{ID: "claude", Installed: true, Supported: calls > 1, Version: "2.1.310", Adapter: "claude-stream-json", Isolation: "enforced", Protocol: "runtime"}}
+	}}}
+	first := s.refreshExecutors(t.Context())
+	if len(first) != 1 || first[0].Supported {
+		t.Fatalf("unexpected first discovery: %+v", first)
+	}
+	second := s.refreshExecutors(t.Context())
+	if !second[0].Supported || calls != 2 {
+		t.Fatalf("compatibility was not rechecked: %+v calls=%d", second, calls)
+	}
+	if err := s.validateExecutor("claude"); err != nil {
+		t.Fatalf("refreshed executor rejected: %v", err)
+	}
+}
+
+func TestVerificationIsInvalidatedWhenProgramChanges(t *testing.T) {
+	verified := map[string]string{"claude:default": "2026-10-26T00:00:00Z", "codex:default": "2026-10-26T00:00:00Z"}
+	programs := map[string]string{
+		"claude:default": executorSignature(ExecutorInfo{ID: "claude", Version: "2.1.310", Adapter: "claude-stream-json", Isolation: "enforced", Identity: "old"}),
+		"codex:default":  executorSignature(ExecutorInfo{ID: "codex", Version: "0.164.0", Adapter: "codex-exec-json", Isolation: "enforced", Identity: "same"}),
+	}
+	executors := []ExecutorInfo{
+		{ID: "claude", Version: "2.1.310", Adapter: "claude-stream-json", Isolation: "enforced", Identity: "new"},
+		{ID: "codex", Version: "0.164.0", Adapter: "codex-exec-json", Isolation: "enforced", Identity: "same"},
+	}
+	filterVerifications(verified, programs, executors)
+	if _, ok := verified["claude:default"]; ok {
+		t.Fatal("stale program verification survived")
+	}
+	if _, ok := verified["codex:default"]; !ok {
+		t.Fatal("unchanged program verification was dropped")
 	}
 }

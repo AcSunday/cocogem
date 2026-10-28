@@ -1,13 +1,14 @@
+import { Select } from "./Select";
 import { useState } from "react";
 import type { Thread, Workspace } from "../api/client";
 import { cx } from "../styles/classes";
 import { formatMessageTime } from "../lib/presentation";
 import { Icon } from "./Icon";
+import { AppearanceSelect, type Appearance } from "./AppearanceSelect";
 
 export function Sidebar({
   open,
   close,
-  demo,
   workspaces,
   workspaceID,
   workspace,
@@ -21,10 +22,11 @@ export function Sidebar({
   onCreateWorkspace,
   onEditWorkspace,
   onSettings,
+  appearance,
+  onAppearance,
 }: {
   open: boolean;
   close: () => void;
-  demo: boolean;
   workspaces: Workspace[];
   workspaceID: string;
   workspace?: Workspace;
@@ -38,6 +40,8 @@ export function Sidebar({
   onCreateWorkspace: () => void;
   onEditWorkspace: () => void;
   onSettings: () => void;
+  appearance: Appearance;
+  onAppearance: (value: Appearance) => void;
 }) {
   const [filter, setFilter] = useState("");
   const query = filter.trim().toLowerCase();
@@ -59,7 +63,6 @@ export function Sidebar({
             <Icon name="logo" size={18} />
           </span>
           Cocogem
-          <span className={cx("version")}>v0.1</span>
         </a>
         <button
           className={cx("icon-button sidebar-close")}
@@ -72,10 +75,10 @@ export function Sidebar({
       <label className={cx("sr-only")} htmlFor="workspace-switch">
         切换工作空间
       </label>
-      <select
+      <Select
         id="workspace-switch"
         value={workspaceID}
-        onChange={(event) => onWorkspace(event.target.value)}
+        onChange={(selected) => onWorkspace(selected)}
       >
         {!workspaceID && <option value="">选择工作空间</option>}
         {workspaces.map((ws) => (
@@ -83,7 +86,7 @@ export function Sidebar({
             {ws.name}
           </option>
         ))}
-      </select>
+      </Select>
       <button
         className={cx("new-thread")}
         onClick={onNewThread}
@@ -152,9 +155,8 @@ export function Sidebar({
         <button onClick={onSettings}>
           <Icon name="settings" size={14} /> 服务与设置
         </button>
-        <p>
-          {demo ? "离线演示 · 数据留在本机" : "本地工作空间 · 数据留在本机"}
-        </p>
+        <AppearanceSelect value={appearance} onChange={onAppearance} />
+        <p>本地工作空间 · 数据留在本机</p>
       </div>
     </aside>
   );

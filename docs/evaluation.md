@@ -14,7 +14,7 @@ reported usage. Missing usage is unknown, not zero. Archive source captures.
 | Missing or blocked sources | Reports uncertainty instead of inventing citations |
 
 Review correctness, unsupported claims, omissions and useful disagreement.
-The offline fixtures validate workflow behavior only. No real-provider quality
+Automated test fixtures validate workflow behavior only. No real-provider quality
 score is currently claimed. Real smoke tests require explicit provider setup;
 never use private project data as an automatic evaluation fixture.
 

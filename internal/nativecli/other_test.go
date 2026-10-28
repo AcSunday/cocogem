@@ -109,11 +109,26 @@ func runOtherNativeHelper(executor, mode string, arg func(string) string) {
 		if executor == "gemini" {
 			fmt.Printf("{\"type\":\"tool_use\",\"tool_name\":%q}\n", "mcp_"+serverName+"_read_file")
 		} else {
-			fmt.Fprintln(os.Stdout, `{"type":"item.started","item":{"type":"mcp_tool_call","server":"cocogem","tool":"read_file"}}`)
+			fmt.Fprintln(os.Stdout, `{"type":"item.started","item":{"id":"item_tool","type":"mcp_tool_call","server":"cocogem","tool":"read_file"}}`)
 		}
 		result := rpc("tools/call", map[string]any{"name": "read_file", "arguments": map[string]any{"path": "README.md"}})
 		if result["result"].(map[string]any)["isError"] == true {
 			os.Exit(53)
+		}
+	}
+	if mode == "session" {
+		if executor == "gemini" {
+			fmt.Println(`{"type":"message","session_id":"99999999-9999-4999-8999-999999999999","role":"assistant","content":"changed"}`)
+		} else {
+			fmt.Println(`{"type":"item.completed","thread_id":"99999999-9999-4999-8999-999999999999","item":{"id":"item_changed","type":"agent_message","text":"changed"}}`)
+		}
+		return
+	}
+	if mode == "notice" {
+		if executor == "gemini" {
+			fmt.Fprintln(os.Stdout, `{"type":"thought","content":"non-critical"}`)
+		} else {
+			fmt.Fprintln(os.Stdout, `{"type":"thread.updated","status":"non-critical"}`)
 		}
 	}
 	if mode == "truncate" {
@@ -123,7 +138,7 @@ func runOtherNativeHelper(executor, mode string, arg func(string) string) {
 		if executor == "gemini" {
 			fmt.Fprintln(os.Stdout, `{"type":"tool_use","tool_name":"run_shell_command"}`)
 		} else {
-			fmt.Fprintln(os.Stdout, `{"type":"item.started","item":{"type":"command_execution"}}`)
+			fmt.Fprintln(os.Stdout, `{"type":"item.started","item":{"id":"item_shell","type":"command_execution"}}`)
 		}
 		return
 	}
@@ -131,7 +146,7 @@ func runOtherNativeHelper(executor, mode string, arg func(string) string) {
 		fmt.Fprintln(os.Stdout, `{"type":"message","role":"assistant","content":"public fixture answer","delta":true}`)
 		fmt.Fprintln(os.Stdout, `{"type":"result","status":"success"}`)
 	} else {
-		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"type":"agent_message","text":"public fixture answer"}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"item.completed","item":{"id":"item_message","type":"agent_message","text":"public fixture answer"}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":4}}`)
 	}
 }
@@ -139,7 +154,7 @@ func runOtherNativeHelper(executor, mode string, arg func(string) string) {
 func TestOtherNativeToolLoops(t *testing.T) {
 	for _, id := range []string{"codex", "gemini"} {
 		t.Run(id, func(t *testing.T) {
-			for _, mode := range []string{"call", "truncate", "unapproved"} {
+			for _, mode := range []string{"call", "notice", "truncate", "unapproved", "session"} {
 				t.Run(mode, func(t *testing.T) {
 					request := testRequest()
 					request.Executor = id
@@ -147,9 +162,12 @@ func TestOtherNativeToolLoops(t *testing.T) {
 					calls := 0
 					err := fakeProvider(mode).Run(context.Background(), request, func(context.Context, string, json.RawMessage) (string, error) { calls++; return "ok", nil }, func(string, map[string]any) error { return nil })
 					if mode == "call" && (err != nil || calls != 1) {
-						t.Fatalf("calls=%d err=%v", calls, err)
+						t.Fatalf("mode=%s calls=%d err=%v", mode, calls, err)
 					}
-					if mode != "call" && err == nil {
+					if mode == "notice" && (err != nil || calls != 0) {
+						t.Fatalf("mode=%s calls=%d err=%v", mode, calls, err)
+					}
+					if (mode == "truncate" || mode == "unapproved" || mode == "session") && err == nil {
 						t.Fatal("unconfirmed or unsafe native execution succeeded")
 					}
 				})

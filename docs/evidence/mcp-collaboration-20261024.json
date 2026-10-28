@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-24",
+  "timezone": "Asia/Shanghai",
+  "scope": "Local Cocogem member sharing, shared skills and asynchronous MCP collaboration",
+  "automated": {
+    "make_test": "passed",
+    "frontend_tests": 44,
+    "browser_tests": 5,
+    "browser": "installed Chrome",
+    "make_build": "passed",
+    "contract_regeneration": "stable",
+    "production_http_backup_restore_smoke": "passed",
+    "go_toolchain": "1.26.10",
+    "reachable_vulnerabilities": 0,
+    "production_npm_audit_findings": 0
+  },
+  "live_collaboration": {
+    "result": "passed",
+    "duration_seconds": 103.08,
+    "coordinator_cli": "claude",
+    "researcher_cli": "codex",
+    "reviewer_cli": "claude",
+    "distinct_members": 3,
+    "succeeded_steps": 5,
+    "accepted_handoffs": 2,
+    "continuations": 2,
+    "members_with_skill_read_receipts": 3,
+    "independent_author_check": "passed",
+    "exact_work_reference": "committed research message",
+    "final_artifacts": 1,
+    "artifact_type": "note",
+    "public_fixture": "17 + 25 = 42",
+    "sse_sequence": "contiguous",
+    "notes": [
+      "Host validation rejected invalid submissions before correction; no claim of zero tool retries.",
+      "The fixture verifies transport and scheduling, not general research quality."
+    ]
+  },
+  "gemini_live": {
+    "cli_version": "0.64.0",
+    "result": "failed",
+    "category": "protocol_mismatch",
+    "provider_http_status": 400,
+    "cause": "Configured upstream requested OpenAI chat/completions or responses instead of Gemini native generateContent protocol.",
+    "existing_credentials_and_native_configuration": "unchanged",
+    "three_cli_success_claimed": false
+  },
+  "privacy": "Only public synthetic input used; no credentials, raw user data, databases or private endpoint URLs included.",
+  "command": "COCOGEM_CHECK_LIVE_COLLABORATION=1 COCOGEM_LIVE_REVIEWER_CLI=claude go test ./internal/httpapi -run ^TestLiveMixedCLICollaboration$ -count=1 -timeout=15m -v"
+}
