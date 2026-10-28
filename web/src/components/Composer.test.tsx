@@ -36,10 +36,6 @@ function Example({
       setDraft={setDraft}
       workflow={workflow}
       setWorkflow={setWorkflow}
-      selected={[]}
-      toggleSelected={() => {}}
-      assignments={{ coordinator: "one" }}
-      setAssignment={() => {}}
       clearArtifactRef={() => {}}
       active={false}
       canceling={false}
@@ -127,7 +123,7 @@ it("completes an @ mention before sending and lets Shift+Enter keep a newline", 
   expect(send).toHaveBeenCalledOnce();
 });
 
-it("keeps workflow roles in a dismissible panel and accepts links in the message", async () => {
+it("keeps the workflow selector without a session assignment editor", async () => {
   const send = vi.fn();
   render(<Example onSend={send} />);
   const user = userEvent.setup();
@@ -137,12 +133,10 @@ it("keeps workflow roles in a dismissible panel and accepts links in the message
   expect(screen.queryByLabelText("资料链接")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("研究范围")).not.toBeInTheDocument();
   await chooseOption(user, screen.getByLabelText("工作方式"), "research");
-  const roles = screen.getByLabelText(/^成员与分工/);
-  await user.click(roles);
-  expect(screen.getByLabelText("研究")).toBeVisible();
-  await user.keyboard("{Escape}");
-  expect(roles.closest("details")).not.toHaveAttribute("open");
-  expect(roles).toHaveFocus();
+  expect(screen.getByLabelText("工作方式")).toHaveValue("research");
+  expect(screen.queryByLabelText(/^成员与分工/)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("研究")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("质疑")).not.toBeInTheDocument();
   const input = screen.getByLabelText("输入问题");
   await user.type(input, "研究 https://example.org/");
   await user.keyboard("{Enter}");
@@ -150,11 +144,34 @@ it("keeps workflow roles in a dismissible panel and accepts links in the message
   expect(input).toHaveValue("研究 https://example.org/");
 });
 
-it("shows the actual coordinator and when the default fell back", () => {
+it("shows the actual coordinator and the accepted routing summary", () => {
+  const routing = {
+    assignments: {
+      researcher: "one",
+      critic: "one",
+      coordinator: "one",
+    },
+    clarification: "",
+    decision: "assign",
+    evidence: [],
+    explanation: "",
+    input_tokens: 0,
+    model_call: false,
+    output_tokens: 0,
+    targets: [],
+    usage_known: false,
+    workflow: "research",
+  };
   const { rerender } = render(
-    <Example coordinator={{ name: "布偶猫", fallback: false }} />,
+    <Example
+      coordinator={{ name: "布偶猫", fallback: false }}
+      routing={routing}
+    />,
   );
   expect(screen.getByText("协调者：布偶猫")).toBeVisible();
+  expect(
+    screen.getByText("研究：布偶猫 · 质疑：布偶猫 · 汇总：布偶猫"),
+  ).toBeVisible();
   rerender(<Example coordinator={{ name: "缅因猫", fallback: true }} />);
   expect(screen.getByText("默认协调者不可用，使用缅因猫")).toBeVisible();
 });

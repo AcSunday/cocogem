@@ -399,17 +399,6 @@
   font-size: 12px;
   color: var(--text);
 }
-.recipient {
-  min-height: 28px;
-  padding: 2px 10px 2px 3px;
-  border-radius: 999px;
-  font-size: 13px;
-}
-.recipient.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-text);
-}
 .composer-hint {
   color: var(--text-3);
   font-size: 12px;
@@ -476,65 +465,6 @@
   color: var(--accent-text);
   font-size: 12px;
   overflow-wrap: anywhere;
-}
-.collaboration-options summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-2);
-  font-size: 12px;
-  cursor: pointer;
-  list-style: none;
-}
-.collaboration-options summary::-webkit-details-marker {
-  display: none;
-}
-.collaboration-options {
-  flex-shrink: 0;
-}
-.collaboration-options summary {
-  min-height: 28px;
-  white-space: nowrap;
-}
-.composer-popup {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  z-index: 10;
-  max-height: min(360px, 50dvh);
-  overflow: auto;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-.collaboration-options {
-  min-width: 0;
-}
-.collaboration-options summary {
-  min-height: 28px;
-  max-width: 100%;
-}
-.collaboration-options summary span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.collaboration-options summary svg {
-  flex-shrink: 0;
-}
-.member-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 16px;
-}
-.member-options label {
-  display: grid;
-  gap: 4px;
-  color: var(--text-2);
-  font-size: 12px;
 }
 .mention-options {
   position: absolute;

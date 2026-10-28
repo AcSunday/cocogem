@@ -105,6 +105,27 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await settingsDialog.getByRole("button", { name: "保存成员" }).click();
   await expect(settingsDialog.getByRole("status")).toContainText("已保存");
   const visitor = await (await createdProfile).json();
+  // Role defaults are global; sessions only report the routing they receive.
+  await settingsDialog.getByRole("tab", { name: "协作" }).click();
+  const researchDefaults = settingsDialog.getByRole("group", {
+    name: "Research",
+  });
+  for (const [role, member] of [
+    ["研究", "缅因猫 (@maine)"],
+    ["质疑", "布偶猫 (@ragdoll)"],
+    ["汇总", "橘猫 (@orange)"],
+  ] as const) {
+    await researchDefaults
+      .getByRole("combobox", { name: role, exact: true })
+      .click();
+    await settingsDialog
+      .getByRole("option", { name: member, exact: true })
+      .click();
+  }
+  await settingsDialog.getByRole("button", { name: "保存协作默认" }).click();
+  await expect(settingsDialog.getByRole("status")).toContainText(
+    "协作默认已保存",
+  );
   await page.getByRole("button", { name: "关闭窗口" }).click();
 
   // Join, restrict, disable and remove only this workspace's relationship.
@@ -174,10 +195,24 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(page.getByLabel("研究范围")).toHaveCount(0);
   await messageInput.press("Shift+Enter");
   await expect(messageInput).toHaveValue(/\n$/);
+  const previewRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/routing-preview") &&
+      request.method() === "POST",
+  );
   await messageInput.press("Enter");
+  const previewBody = (await previewRequest).postDataJSON();
+  expect(previewBody.workflow).toBe("research");
+  expect(previewBody.assignments).toEqual({});
+  expect(previewBody.targets).toEqual([]);
   await expect(page.getByText("已完成", { exact: true }).first()).toBeVisible({
     timeout: 15000,
   });
+  // The accepted routing carries the global defaults; no local editor exists.
+  await expect(
+    page.getByText("研究：缅因猫 · 质疑：布偶猫 · 汇总：橘猫"),
+  ).toBeVisible();
+  await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   const researchURL = page.url();
   await expect(
     page.getByRole("complementary", { name: "协作资料" }),
@@ -300,7 +335,16 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page
     .getByLabel("输入问题")
     .fill("分别讨论协作的收益和成本，保留不同观点。");
+  const discussionPreview = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/routing-preview") &&
+      request.method() === "POST",
+  );
   await page.getByRole("button", { name: "发送", exact: true }).click();
+  const discussionBody = (await discussionPreview).postDataJSON();
+  expect(discussionBody.workflow).toBe("discussion");
+  expect(discussionBody.assignments).toEqual({});
+  expect(discussionBody.targets).toEqual([]);
   await expect(page.getByTestId("run-status")).toHaveText("已完成");
   await openPanel("产物");
   await expect(
@@ -373,7 +417,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   ).toHaveCount(after);
   // Theme and panel changes keep the linked draft and workflow configuration in place.
   await selectOption(page.getByLabel("工作方式", { exact: true }), "research");
-  await page.getByLabel(/^成员与分工/).click();
+  await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   await page
     .getByLabel("输入问题")
     .fill("主题切换和打开资料后仍在的草稿 https://example.org/draft");
@@ -395,10 +439,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     await expect(page.getByLabel("输入问题")).toHaveValue(
       "主题切换和打开资料后仍在的草稿 https://example.org/draft",
     );
-    await expect(page.getByLabel(/^成员与分工/).locator("..")).toHaveAttribute(
-      "open",
-      "",
-    );
+    await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
     await appearance.click();
     await expect(page.getByRole("listbox")).toBeVisible();
     await page.screenshot({
@@ -604,7 +645,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   }
   await page.setViewportSize({ width: 1280, height: 800 });
 
-  // Links live in the message; workflow roles stay in a floating panel.
+  // Links live in the message; role defaults are global, not a composer panel.
   await selectOption(page.getByLabel("工作方式", { exact: true }), "free");
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   await expect(page.getByText("自动指派", { exact: true })).toHaveCount(0);
@@ -622,13 +663,8 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   }
   await page.setViewportSize({ width: 1280, height: 800 });
   await selectOption(page.getByLabel("工作方式", { exact: true }), "research");
-  const assignmentToggle = page.getByLabel(/^成员与分工/);
-  const workflowControl = page.getByLabel("工作方式", { exact: true });
-  const beforeAssignment = await workflowControl.boundingBox();
-  await assignmentToggle.click();
-  await expect(page.getByLabel("研究", { exact: true })).toBeVisible();
-  expect((await workflowControl.boundingBox())?.y).toBe(beforeAssignment?.y);
-  await assignmentToggle.press("Escape");
+  await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
+  await expect(page.getByLabel("研究", { exact: true })).toHaveCount(0);
   await selectOption(page.getByLabel("工作方式", { exact: true }), "free");
 
   // @ mentions filter by what is typed and are chosen with the keyboard.

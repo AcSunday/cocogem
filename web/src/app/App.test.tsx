@@ -448,9 +448,12 @@ it.each([
   { search: "configured", question: "研究 https://example.org/topic" },
   { search: "not_configured", question: "研究 https://example.org/topic" },
 ])(
-  "sends automatic research with saved conversation roles ($search, $question)",
+  "sends no local role assignments and reports server-resolved global defaults ($search, $question)",
   async ({ search, question }) => {
     history.replaceState({}, "", "/w/ws/t/two");
+    const globalAssignments = {
+      research: { researcher: "one", critic: "two", coordinator: "two" },
+    };
     const agents: Agent[] = ["disabled", "one", "two", "outside"].map((id) => ({
       id,
       workspace_id: "ws",
@@ -482,6 +485,12 @@ it.each([
         return Response.json({ items: [{ id: "ws", name: "工作空间" }] });
       if (path === "/api/v1/workspaces/ws/agents")
         return Response.json({ items: agents });
+      if (path === "/api/v1/settings")
+        return Response.json({
+          revision: 1,
+          default_coordinator_id: "two",
+          assignments: globalAssignments,
+        });
       if (path.startsWith("/api/v1/workspaces/ws/threads"))
         return Response.json({ items: [thread], next_cursor: "" });
       if (path.startsWith("/api/v1/threads/two?"))
@@ -498,11 +507,7 @@ it.each([
             decision: "assign",
             workflow: "research",
             targets: [],
-            assignments: {
-              researcher: "one",
-              critic: "two",
-              coordinator: "two",
-            },
+            assignments: globalAssignments.research,
             clarification: "保留问题等待确认",
           },
         });
@@ -513,12 +518,12 @@ it.each([
     render(<App />);
     const user = userEvent.setup();
     await screen.findByRole("heading", { name: "双成员研究" });
-    await waitFor(() =>
-      expect(screen.getByLabelText("研究")).toHaveValue("one"),
-    );
     expect(screen.getByLabelText("工作方式")).toHaveValue("research");
-    expect(screen.getByLabelText("质疑")).toHaveValue("two");
-    expect(screen.getByLabelText("汇总")).toHaveValue("two");
+    // Sessions no longer edit roles; globals are resolved by the server.
+    expect(screen.queryByLabelText(/^成员与分工/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("研究")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("质疑")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("汇总")).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("输入问题"), question);
     await user.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(previewInputs).toHaveLength(1));
@@ -531,22 +536,10 @@ it.each([
     expect(screen.queryByLabelText("研究范围")).not.toBeInTheDocument();
     // Saved defaults are not sent as manual overrides; the server resolves them.
     expect(previewInput.assignments).toEqual({});
-    // The accepted preview's effective roles are what the composer reports.
-    expect(screen.getByLabelText(/^成员与分工/)).toHaveAccessibleName(
-      "成员与分工：研究：one · 质疑：two · 汇总：two",
-    );
-
-    // Manual role overrides still travel; omitted roles stay server-resolved.
-    await chooseOption(user, screen.getByLabelText("研究"), "two");
-    await user.click(screen.getByRole("button", { name: "发送" }));
-    await waitFor(() => expect(previewInputs).toHaveLength(2));
-    expect(previewInputs[1].assignments).toEqual({ researcher: "two" });
-    expect(Object.values(previewInputs[1].assignments ?? {})).not.toContain(
-      "disabled",
-    );
-    expect(Object.values(previewInputs[1].assignments ?? {})).not.toContain(
-      "outside",
-    );
+    // The accepted preview's effective roles stay visible in the composer.
+    expect(
+      await screen.findByText("研究：one · 质疑：two · 汇总：two"),
+    ).toBeVisible();
   },
 );
 

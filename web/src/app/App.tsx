@@ -47,14 +47,12 @@ import { WorkspaceForm } from "../components/forms/WorkspaceForm";
 import { WorkspaceMembersForm } from "../components/forms/WorkspaceMembersForm";
 import {
   conversationCoordinator,
-  defaultAssignments,
   errorText,
   livenessFromAttempts,
   mergeAttemptLiveness,
   nextLiveness,
   seedLiveness,
   threadTitle,
-  workflowRoles,
   workflows,
 } from "../lib/presentation";
 import { cx } from "../styles/classes";
@@ -355,10 +353,6 @@ function WorkspaceApp({
   const [workflowChoices, setWorkflowChoices] = useState<
     Record<string, WorkflowKey>
   >({});
-  const [selected, setSelected] = useState<string[]>([]);
-  const [assignmentChoices, setAssignmentChoices] = useState<
-    Record<string, Record<string, string>>
-  >({});
   const [routing, setRouting] = useState<Routing>();
   const [tab, setTab] = useState<PanelTab>("artifacts");
   const [source, setSource] = useState<Source>();
@@ -425,28 +419,6 @@ function WorkspaceApp({
     setWorkflowChoices((current) => ({ ...current, [draftKey]: value }));
     setRouting(undefined);
   };
-  // Only the user's own picks are overrides; global defaults are resolved by
-  // the server so stale permissions fall back authoritatively.
-  const explicitAssignments = (flow: WorkflowKey) =>
-    Object.fromEntries(
-      Object.entries(assignmentChoices[draftKey] ?? {}).filter(
-        ([role, id]) => id !== "" && (workflowRoles[flow] ?? []).includes(role),
-      ),
-    );
-  const assignments: Record<string, string> = {
-    ...defaultAssignments(
-      threadMembers,
-      view?.thread.coordinator_id,
-      settings?.assignments ?? {},
-      settings?.default_coordinator_id,
-      workflow,
-    ),
-    ...Object.fromEntries(
-      Object.entries(explicitAssignments(workflow)).filter(([, id]) =>
-        available.some((agent) => agent.id === id),
-      ),
-    ),
-  };
   // Existing conversations keep their own coordinator; a new one previews the
   // same default/fallback the server applies when creating it.
   const coordinatorID = threadID
@@ -492,7 +464,6 @@ function WorkspaceApp({
     sourceGeneration.current++;
     setArtifactRef(undefined);
     setRouting(undefined);
-    setSelected([]);
     messageCursorRef.current = "";
     viewCursor.current = "";
     setMessageCursor("");
@@ -993,10 +964,6 @@ function WorkspaceApp({
     );
     currentThread.current = thread.id;
     setWorkflowChoices((current) => ({ ...current, [thread.id]: workflow }));
-    setAssignmentChoices((current) => ({
-      ...current,
-      [thread.id]: explicitAssignments(workflow),
-    }));
     setDrafts((current) => ({
       ...current,
       [thread.id]: current[`new:${workspaceID}`] ?? text,
@@ -1020,9 +987,9 @@ function WorkspaceApp({
         : {
             message: text,
             workflow: workflow === "free" ? "" : workflow,
-            targets: workflow === "discussion" ? selected : [],
-            assignments:
-              workflow === "free" ? {} : explicitAssignments(workflow),
+            targets: [],
+            // The server resolves global/session defaults from an empty map.
+            assignments: {},
             source_urls: [],
             artifact_refs: artifactRef
               ? [{ id: artifactRef.id, version: artifactRef.version }]
@@ -1484,22 +1451,6 @@ function WorkspaceApp({
               setDraft={updateDraft}
               workflow={workflow}
               setWorkflow={setWorkflow}
-              selected={selected}
-              toggleSelected={(id) =>
-                setSelected((current) =>
-                  current.includes(id)
-                    ? current.filter((item) => item !== id)
-                    : [...current, id],
-                )
-              }
-              assignments={assignments}
-              setAssignment={(role, id) => {
-                setRouting(undefined);
-                setAssignmentChoices((current) => ({
-                  ...current,
-                  [draftKey]: { ...current[draftKey], [role]: id },
-                }));
-              }}
               artifactRef={artifactRef}
               clearArtifactRef={() => setArtifactRef(undefined)}
               coordinator={coordinator}
@@ -1626,7 +1577,6 @@ function WorkspaceApp({
                 ...current,
                 [th.id]: th.workflow as WorkflowKey,
               }));
-              setAssignmentChoices((current) => ({ ...current, [th.id]: {} }));
               if (value.id)
                 setView((current) =>
                   current?.thread.id === th.id

@@ -9,7 +9,6 @@ import {
 import type { Agent, Artifact, Routing } from "../api/client";
 import { cx } from "../styles/classes";
 import {
-  canServeRole,
   memberLabel,
   roleLabel,
   workflowRoles,
@@ -21,8 +20,6 @@ import { Icon } from "./Icon";
 
 export type WorkflowKey = keyof typeof workflows;
 
-const rolesFor = (workflow: WorkflowKey) => workflowRoles[workflow] ?? [];
-
 export function Composer({
   agents,
   allAgents,
@@ -30,10 +27,6 @@ export function Composer({
   setDraft,
   workflow,
   setWorkflow,
-  selected,
-  toggleSelected,
-  assignments,
-  setAssignment,
   artifactRef,
   clearArtifactRef,
   coordinator,
@@ -52,10 +45,6 @@ export function Composer({
   setDraft: (value: string) => void;
   workflow: WorkflowKey;
   setWorkflow: (value: WorkflowKey) => void;
-  selected: string[];
-  toggleSelected: (id: string) => void;
-  assignments: Record<string, string>;
-  setAssignment: (role: string, id: string) => void;
   artifactRef?: Artifact;
   clearArtifactRef: () => void;
   coordinator?: { name: string; fallback: boolean };
@@ -105,6 +94,19 @@ export function Composer({
       workflows[routing.workflow as WorkflowKey] ||
       ""
     : "";
+  // The accepted routing owns the actual roles; the input area only reports it.
+  const assignmentSummary = routing?.assignments
+    ? (workflowRoles[routing.workflow] ?? Object.keys(routing.assignments))
+        .map((role) => {
+          const id = routing.assignments?.[role];
+          const member =
+            agents.find((agent) => agent.id === id) ??
+            allAgents.find((agent) => agent.id === id);
+          return member ? `${roleLabel(role)}：${member.display_name}` : "";
+        })
+        .filter(Boolean)
+        .join(" · ")
+    : "";
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (canSend) onSend();
@@ -112,50 +114,8 @@ export function Composer({
   const placeholder = disabled
     ? "先创建一个工作空间，再开始提问"
     : "描述任务或贴上链接，输入 @ 邀请成员协作";
-  // The accepted preview owns the actual roles; local picks are only a preview
-  // until the server resolves defaults and permissions.
-  const shownAssignments =
-    routing?.assignments && Object.keys(routing.assignments).length
-      ? routing.assignments
-      : assignments;
-  const recipientSummary = selected.length
-    ? agents
-        .filter((agent) => selected.includes(agent.id))
-        .map((agent) => agent.display_name)
-        .join("、")
-    : [
-        ...(workflow === "discussion"
-          ? [agents.map((agent) => agent.display_name).join("、")]
-          : []),
-        ...rolesFor(workflow).map((role) => {
-          const id = shownAssignments[role];
-          const member =
-            agents.find((agent) => agent.id === id) ??
-            allAgents.find((agent) => agent.id === id);
-          return `${roleLabel(role)}：${member?.display_name || "请选择"}`;
-        }),
-      ].join(" · ");
   return (
-    <form
-      className={cx("composer")}
-      onSubmit={submit}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape" || event.defaultPrevented) return;
-        const expanded =
-          (event.target as HTMLElement).closest<HTMLDetailsElement>(
-            "details[open]",
-          ) ??
-          event.currentTarget.querySelector<HTMLDetailsElement>(
-            "details[open]",
-          );
-        if (expanded) {
-          event.preventDefault();
-          event.stopPropagation();
-          expanded.open = false;
-          expanded.querySelector("summary")?.focus();
-        }
-      }}
-    >
+    <form className={cx("composer")} onSubmit={submit}>
       {pending}
       {artifactRef && (
         <div className={cx("reference-pill")}>
@@ -278,64 +238,6 @@ export function Composer({
               ))}
             </Select>
           </label>
-          {workflow !== "free" && (
-            <details
-              className={cx("collaboration-options")}
-              name="composer-options"
-            >
-              <summary
-                aria-label={`成员与分工：${recipientSummary}`}
-                title={recipientSummary}
-              >
-                <Icon name="users" size={14} />
-                <span>分工</span>
-                <Icon name="chevron" size={12} />
-              </summary>
-              <div className={cx("composer-popup member-options")}>
-                {workflow === "discussion" &&
-                  agents.map((agent) => (
-                    <button
-                      type="button"
-                      key={agent.id}
-                      aria-pressed={selected.includes(agent.id)}
-                      aria-label={memberLabel(agent)}
-                      title={memberLabel(agent)}
-                      className={cx(
-                        `recipient ${selected.includes(agent.id) ? "active" : ""}`,
-                      )}
-                      onClick={() => toggleSelected(agent.id)}
-                    >
-                      <Avatar
-                        name={agent.display_name}
-                        id={agent.id}
-                        avatar={agent.avatar}
-                        small
-                      />
-                      {agent.display_name}
-                    </button>
-                  ))}
-                {rolesFor(workflow).map((role) => (
-                  <label key={role}>
-                    {roleLabel(role)}
-                    <Select
-                      aria-label={roleLabel(role)}
-                      value={assignments[role] ?? ""}
-                      onChange={(selected) => setAssignment(role, selected)}
-                    >
-                      <option value="">请选择</option>
-                      {agents
-                        .filter((agent) => canServeRole(agent, role))
-                        .map((agent) => (
-                          <option value={agent.id} key={agent.id}>
-                            {agent.display_name}
-                          </option>
-                        ))}
-                    </Select>
-                  </label>
-                ))}
-              </div>
-            </details>
-          )}
         </div>
         {active ? (
           <button
@@ -389,6 +291,11 @@ export function Composer({
             title={routing?.clarification || routing?.explanation}
           >
             {routing?.clarification ? routeLabel : `→ ${routeLabel}`}
+          </span>
+        )}
+        {assignmentSummary && (
+          <span className={cx("route-chip")} role="status" title="本轮分工">
+            {assignmentSummary}
           </span>
         )}
       </div>
