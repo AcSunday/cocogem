@@ -159,3 +159,38 @@ it("clears an unavailable member instead of saving the stale id", async () => {
     assignments: { research: { critic: "one" } },
   });
 });
+
+it("shows the persisted method and selection reason without raw payloads", () => {
+  const selected = {
+    id: "selected-run",
+    input: { workflow: "free" },
+    created_at: "2026-10-24T00:00:00Z",
+    selected_workflow: {
+      workflow: "research",
+      targets: ["member-uuid"],
+      assignments: { researcher: "member-uuid", future_role: "other-uuid" },
+      reason: "  需要外部资料核对  ",
+      step_id: "step-uuid",
+      selected_at: "2026-10-24T00:00:00Z",
+    },
+    agents: [],
+  } as unknown as Run;
+  const { rerender } = render(
+    <SnapshotDialog run={selected} close={() => {}} />,
+  );
+  expect(screen.getByText("本轮方法：Research")).toBeVisible();
+  expect(screen.getByText("选择原因：需要外部资料核对")).toBeVisible();
+  // Unknown assignment roles and raw IDs never reach the visible snapshot.
+  expect(
+    screen.queryByText(/member-uuid|other-uuid|future_role|step-uuid/),
+  ).toBeNull();
+
+  rerender(
+    <SnapshotDialog
+      run={{ ...selected, selected_workflow: null, method: "direct" }}
+      close={() => {}}
+    />,
+  );
+  expect(screen.getByText("本轮方法：直接回答")).toBeVisible();
+  expect(screen.queryByText(/选择原因：/)).toBeNull();
+});

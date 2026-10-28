@@ -11,10 +11,14 @@ import {
   limitLabel,
   livenessFromAttempts,
   mergeAttemptLiveness,
+  methodEventLabel,
+  methodLabel,
   nextLiveness,
   noticeLabel,
+  roleLabel,
   runErrorText,
   runDuration,
+  runMethod,
   runUsageSummary,
   seedLiveness,
   sourceKindLabel,
@@ -639,4 +643,79 @@ it("labels search result pages as unread leads", () => {
       url: "https://example.org/article?q=DeBank",
     }),
   ).toBe("网页 · 已读原文");
+});
+
+it("labels the persisted run method and readable selection reason", () => {
+  const run = (extra: Record<string, unknown>): Run =>
+    ({ input: { workflow: "free" }, ...extra }) as Run;
+  expect(runMethod(run({}))).toEqual({
+    method: "",
+    label: "自由协作",
+    reason: "",
+  });
+  expect(runMethod(run({ method: "direct" }))).toEqual({
+    method: "direct",
+    label: "直接回答",
+    reason: "",
+  });
+  expect(runMethod(run({ method: "delegation" })).label).toBe("自由分工");
+  expect(runMethod(run({ input: { workflow: "research" } })).label).toBe(
+    "Research",
+  );
+  const selection = {
+    workflow: "code_analysis",
+    targets: ["member-uuid"],
+    assignments: { analyst: "member-uuid", future_role: "other-uuid" },
+    reason: "  需要只读核对源码  ",
+    step_id: "step-uuid",
+    selected_at: "2026-10-28T00:00:00Z",
+  };
+  // The selection wins and the reason is trimmed; unknown roles never affect
+  // how the persisted method reads, and no member ID enters the label.
+  expect(runMethod(run({ selected_workflow: selection }))).toEqual({
+    method: "code_analysis",
+    label: "工程分析",
+    reason: "需要只读核对源码",
+  });
+});
+
+it("renders method events as readable text without raw payload details", () => {
+  const event = (type: string, data: unknown): Event => ({
+    schema_version: 1,
+    run_id: "run",
+    seq: 1,
+    type,
+    occurred_at: "",
+    data,
+  });
+  const selected = methodEventLabel(
+    event("workflow_selected", {
+      selection: {
+        workflow: "discussion",
+        targets: ["member-uuid"],
+        assignments: { coordinator: "member-uuid", future_role: "other-uuid" },
+        reason: "需要独立观点和交叉质询",
+        step_id: "step-uuid",
+        selected_at: "2026-10-28T00:00:00Z",
+      },
+      steps: [{ step_id: "plan-step-uuid" }],
+    }),
+  );
+  expect(selected).toBe(
+    "协调者选择方法：协作讨论 · 需要独立观点和交叉质询",
+  );
+  expect(selected).not.toContain("uuid");
+  expect(methodEventLabel(event("method_recorded", { method: "direct" }))).toBe(
+    "本轮方法：直接回答",
+  );
+  expect(methodEventLabel(event("method_recorded", {}))).toBe("");
+  expect(methodEventLabel(event("run_finished", { method: "direct" }))).toBe("");
+});
+
+it("keeps unknown labels as readable keys instead of prototype objects", () => {
+  expect(roleLabel("member")).toBe("成员");
+  expect(roleLabel("future_role")).toBe("future_role");
+  expect(methodLabel("future_method")).toBe("future_method");
+  expect(roleLabel("constructor")).toBe("constructor");
+  expect(methodLabel("__proto__")).toBe("__proto__");
 });

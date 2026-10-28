@@ -15,7 +15,7 @@ import {
   runErrorText,
   runUsageSummary,
   toolLabel,
-  workflows,
+  runMethod,
 } from "../lib/presentation";
 import { Icon } from "./Icon";
 import { CollaborationTasks } from "./CollaborationTasks";
@@ -95,8 +95,7 @@ export function RunDivider({
   onSource?: (id: string) => void;
   onArtifact?: (artifact: Artifact) => void;
 }) {
-  const workflow =
-    workflows[(run.input.workflow || "free") as keyof typeof workflows];
+  const { label: workflow, reason } = runMethod(run);
   const duration = runDuration(run);
   const usage = runUsageSummary(run, attempts);
   const failed = ["failed", "interrupted", "canceled"].includes(run.status);
@@ -149,6 +148,7 @@ export function RunDivider({
       <div className={cx("run-card-head")}>
         <span className={cx("run-index")}>第 {index} 次</span>
         <span>{workflow}</span>
+        {reason && <span className={cx("muted")}>{reason}</span>}
         <span
           className={cx(`status ${run.status}`)}
           {...(latest ? { "data-testid": "run-status" } : {})}

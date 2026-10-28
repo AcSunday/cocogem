@@ -135,31 +135,48 @@ type ExecutionPolicy struct {
 	StallAction   string        `json:"stall_action"`
 }
 
+// WorkflowSelection records the collaboration method a free run's coordinator
+// selected from its planning step. Run.Input stays immutable; the selected
+// workflow and its exact participants are the effective plan input.
+type WorkflowSelection struct {
+	Workflow    string            `json:"workflow"`
+	Targets     []string          `json:"targets"`
+	Assignments map[string]string `json:"assignments"`
+	Reason      string            `json:"reason,omitempty"`
+	StepID      string            `json:"step_id"`
+	SelectedAt  string            `json:"selected_at"`
+}
+
 // Run snapshots a bounded workflow and owns its single terminal status.
 type Run struct {
-	ID              string            `json:"id"`
-	WorkspaceID     string            `json:"workspace_id"`
-	ThreadID        string            `json:"thread_id"`
-	Input           RunInput          `json:"input"`
-	Routing         Routing           `json:"routing"`
-	Agents          []Agent           `json:"agents"`
-	CoordinatorID   string            `json:"coordinator_id,omitempty"`
-	SkillVersions   map[string]string `json:"skill_versions,omitempty"`
-	SkillSnapshot   string            `json:"skill_snapshot,omitempty"`
-	Workspace       Workspace         `json:"workspace"`
-	ExecutionPolicy *ExecutionPolicy  `json:"execution_policy,omitempty"`
-	Status          string            `json:"status"`
-	FailureKind     string            `json:"failure_kind,omitempty"`
-	Error           string            `json:"error"`
-	RecoveryCount   int               `json:"recovery_count,omitempty"`
-	RecoveredAt     string            `json:"recovered_at,omitempty"`
-	RecoveryNote    string            `json:"recovery_note,omitempty"`
-	CreatedAt       string            `json:"created_at"`
-	StartedAt       string            `json:"started_at,omitempty"`
-	DeadlineAt      string            `json:"deadline_at,omitempty"`
-	PolicyAdoptedAt string            `json:"policy_adopted_at,omitempty"`
-	FinishedAt      string            `json:"finished_at"`
-	Delivery        *Delivery         `json:"delivery,omitempty"`
+	ID          string   `json:"id"`
+	WorkspaceID string   `json:"workspace_id"`
+	ThreadID    string   `json:"thread_id"`
+	Input       RunInput `json:"input"`
+	Routing     Routing  `json:"routing"`
+	// SelectedWorkflow is written once by the coordinator's planning step.
+	// Method records how a free run actually completed: direct, delegation, or
+	// the selected workflow. Built-in runs leave Method empty.
+	SelectedWorkflow *WorkflowSelection `json:"selected_workflow,omitempty"`
+	Method           string             `json:"method,omitempty"`
+	Agents           []Agent            `json:"agents"`
+	CoordinatorID    string             `json:"coordinator_id,omitempty"`
+	SkillVersions    map[string]string  `json:"skill_versions,omitempty"`
+	SkillSnapshot    string             `json:"skill_snapshot,omitempty"`
+	Workspace        Workspace          `json:"workspace"`
+	ExecutionPolicy  *ExecutionPolicy   `json:"execution_policy,omitempty"`
+	Status           string             `json:"status"`
+	FailureKind      string             `json:"failure_kind,omitempty"`
+	Error            string             `json:"error"`
+	RecoveryCount    int                `json:"recovery_count,omitempty"`
+	RecoveredAt      string             `json:"recovered_at,omitempty"`
+	RecoveryNote     string             `json:"recovery_note,omitempty"`
+	CreatedAt        string             `json:"created_at"`
+	StartedAt        string             `json:"started_at,omitempty"`
+	DeadlineAt       string             `json:"deadline_at,omitempty"`
+	PolicyAdoptedAt  string             `json:"policy_adopted_at,omitempty"`
+	FinishedAt       string             `json:"finished_at"`
+	Delivery         *Delivery          `json:"delivery,omitempty"`
 }
 
 // Step describes one member's work and the exact upstream results it can consume.

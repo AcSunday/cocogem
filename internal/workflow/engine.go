@@ -390,13 +390,20 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 	slog.Info("run started", "workspace_id", run.WorkspaceID, "thread_id", run.ThreadID, "run_id", run.ID)
 	waiting := map[string]bool{}
 	for {
+		var current w.Run
 		if err = e.Store.Read(ctx, func(tx *store.Tx) error {
 			var readErr error
+			if current, readErr = tx.Run(run.ID); readErr != nil {
+				return readErr
+			}
 			steps, readErr = tx.Steps(run.ID)
 			return readErr
 		}); err != nil {
 			break
 		}
+		// A planning step may have selected a workflow and persisted it while
+		// this loop was running; later steps must see the effective plan input.
+		run = current
 		ready := []int{}
 		pending := false
 		skipped := false
@@ -668,10 +675,16 @@ func (e *Engine) finish(parent context.Context, run w.Run, status string, cause 
 				}
 			} else {
 				current.Delivery = delivery
+				current.Method = settledMethod(current, steps)
 			}
 		}
 		if err := tx.SaveRun(current); err != nil {
 			return err
+		}
+		if status == "succeeded" && current.SelectedWorkflow == nil && (current.Input.Workflow == "" || current.Input.Workflow == "free") {
+			if err := tx.AppendEvent(run.ID, "", "", "method_recorded", map[string]any{"method": current.Method}); err != nil {
+				return err
+			}
 		}
 		return tx.AppendEvent(run.ID, "", "", "run_finished", current)
 	})
@@ -718,7 +731,7 @@ func buildDelivery(tx *store.Tx, run w.Run) (*w.Delivery, error) {
 	if err != nil {
 		return nil, err
 	}
-	finals := finalSteps(run.Input, steps)
+	finals := finalSteps(effectiveInput(run), steps)
 	if len(finals) == 0 {
 		return nil, errors.New("no final delivery target")
 	}
@@ -811,10 +824,24 @@ func messageHasVisibleText(tx *store.Tx, message w.Message) (bool, error) {
 // continuations are rejected before a draft can be created. A root's artifact
 // is kept as an attempt draft if the root later delegates.
 func (e *Engine) mayPublish(ctx context.Context, run w.Run, step w.Step) (bool, error) {
-	if RequiredArtifact(step, run.Input) != "" {
+	current := run
+	if run.SelectedWorkflow == nil && step.Kind == "" && (run.Input.Workflow == "" || run.Input.Workflow == "free") {
+		// The planning root may select a method during this same invocation, so
+		// its publication authority follows the persisted run, not the stale
+		// dispatch snapshot.
+		if err := e.Store.Read(ctx, func(tx *store.Tx) error {
+			var err error
+			current, err = tx.Run(run.ID)
+			return err
+		}); err != nil {
+			return false, err
+		}
+	}
+	in := effectiveInput(current)
+	if RequiredArtifact(step, in) != "" {
 		return true, nil
 	}
-	if run.Input.Workflow != "" && run.Input.Workflow != "free" {
+	if in.Workflow != "" && in.Workflow != "free" {
 		return false, nil
 	}
 	if step.Kind == "" {
@@ -823,20 +850,19 @@ func (e *Engine) mayPublish(ctx context.Context, run w.Run, step w.Step) (bool, 
 	if step.Kind != "continuation" {
 		return false, nil
 	}
-	var allowed bool
-	err := e.Store.Read(ctx, func(tx *store.Tx) error {
-		steps, err := tx.Steps(run.ID)
-		if err != nil {
-			return err
-		}
-		// Only the root chain's final continuation may publish; an inner
-		// continuation belongs to a delegated task and stays a draft.
-		allowed = slices.ContainsFunc(finalSteps(run.Input, steps), func(final w.Step) bool {
-			return final.ID == step.ID
-		})
-		return nil
-	})
-	return allowed, err
+	var steps []w.Step
+	if err := e.Store.Read(ctx, func(tx *store.Tx) error {
+		var err error
+		steps, err = tx.Steps(run.ID)
+		return err
+	}); err != nil {
+		return false, err
+	}
+	// Only the root chain's final continuation may publish; an inner
+	// continuation belongs to a delegated task and stays a draft.
+	return slices.ContainsFunc(finalSteps(in, steps), func(final w.Step) bool {
+		return final.ID == step.ID
+	}), nil
 }
 
 // suspend persists a recoverable checkpoint without pretending the run ended.
@@ -958,7 +984,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		}
 	}
 	allowed := e.allowedTools(run, a)
-	required := RequiredArtifact(step, run.Input)
+	required := RequiredArtifact(step, effectiveInput(run))
 	message := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: step.ID, AgentID: a.ID, AgentName: a.DisplayName, Role: "assistant", Status: "processing", ContentFormat: w.ContentFormatChunksV1, CreatedAt: w.Now()}
 	step.Status = "running"
 	var handoff Handoff
@@ -1068,9 +1094,13 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			if err != nil {
 				return err
 			}
+			// The planning root is a scheduling dependency only. Its message and
+			// artifacts are withheld from the handoff so a planner that answered
+			// the task anyway cannot seed the independent views.
+			planningRoot := planningRootStep(run)
 			dependentArtifacts := []w.Artifact{}
 			for _, artifact := range artifacts {
-				if artifact.RunID != run.ID || !slices.Contains(step.DependsOn, artifact.StepID) {
+				if artifact.RunID != run.ID || artifact.StepID == planningRoot || !slices.Contains(step.DependsOn, artifact.StepID) {
 					continue
 				}
 				preview, err := tx.ArtifactPreview(artifact.ID, artifact.Version, 6000)
@@ -1079,7 +1109,11 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 				}
 				dependentArtifacts = append(dependentArtifacts, preview)
 			}
-			handoff = prepareHandoff(step, run.Input.Message, all, dependentArtifacts, sourceSnapshot)
+			messages := all
+			if planningRoot != "" {
+				messages = slices.DeleteFunc(slices.Clone(all), func(m w.Message) bool { return m.StepID == planningRoot })
+			}
+			handoff = prepareHandoff(step, run.Input.Message, messages, dependentArtifacts, sourceSnapshot)
 			if err := addReferencedInputs(tx, step, run.ThreadID, &handoff); err != nil {
 				return err
 			}
@@ -1245,6 +1279,8 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			return result, handoffErr
 		case "get_task":
 			return e.getTask(callCtx, run, input)
+		case "choose_workflow":
+			return e.chooseWorkflow(callCtx, run, step, input)
 		case "read_source":
 			stateMu.Lock()
 			snapshot := slices.Clone(sources)
@@ -1619,13 +1655,18 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		if err != nil {
 			return err
 		}
+		// Re-read the run: this step may itself have selected a workflow.
+		current, err := tx.Run(run.ID)
+		if err != nil {
+			return err
+		}
 		formal := map[string]bool{}
-		for _, final := range finalSteps(run.Input, steps) {
+		for _, final := range finalSteps(effectiveInput(current), steps) {
 			formal[final.ID] = true
 		}
 		if publishedCopy != nil && step.Status == "succeeded" && formal[step.ID] {
-			if len(run.Input.ArtifactRefs) > 0 {
-				ref := run.Input.ArtifactRefs[0]
+			if len(current.Input.ArtifactRefs) > 0 {
+				ref := current.Input.ArtifactRefs[0]
 				previous, err := tx.Artifact(ref.ID, ref.Version)
 				if err != nil {
 					return err

@@ -1640,6 +1640,9 @@
             ],
             "type": "object"
           },
+          "method": {
+            "type": "string"
+          },
           "policy_adopted_at": {
             "type": "string"
           },
@@ -1734,6 +1737,56 @@
               "output_tokens"
             ],
             "type": "object"
+          },
+          "selected_workflow": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "assignments": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "selected_at": {
+                    "type": "string"
+                  },
+                  "step_id": {
+                    "type": "string"
+                  },
+                  "targets": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  },
+                  "workflow": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "workflow",
+                  "targets",
+                  "assignments",
+                  "step_id",
+                  "selected_at"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "skill_snapshot": {
             "type": "string"
@@ -2561,6 +2614,9 @@
                 ],
                 "type": "object"
               },
+              "method": {
+                "type": "string"
+              },
               "policy_adopted_at": {
                 "type": "string"
               },
@@ -2655,6 +2711,56 @@
                   "output_tokens"
                 ],
                 "type": "object"
+              },
+              "selected_workflow": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "assignments": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "selected_at": {
+                        "type": "string"
+                      },
+                      "step_id": {
+                        "type": "string"
+                      },
+                      "targets": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
+                      "workflow": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "workflow",
+                      "targets",
+                      "assignments",
+                      "step_id",
+                      "selected_at"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "skill_snapshot": {
                 "type": "string"
@@ -3747,6 +3853,9 @@
                   ],
                   "type": "object"
                 },
+                "method": {
+                  "type": "string"
+                },
                 "policy_adopted_at": {
                   "type": "string"
                 },
@@ -3841,6 +3950,56 @@
                     "output_tokens"
                   ],
                   "type": "object"
+                },
+                "selected_workflow": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assignments": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "selected_at": {
+                          "type": "string"
+                        },
+                        "step_id": {
+                          "type": "string"
+                        },
+                        "targets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": [
+                            "array",
+                            "null"
+                          ]
+                        },
+                        "workflow": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "workflow",
+                        "targets",
+                        "assignments",
+                        "step_id",
+                        "selected_at"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "skill_snapshot": {
                   "type": "string"

@@ -367,12 +367,18 @@ func (e *Engine) recoverRun(ctx context.Context, id string) error {
 					return tx.AppendEvent(id, "", "", "run_finished", current)
 				}
 				current.Delivery = delivery
+				current.Method = settledMethod(current, finished)
 			}
 			current.Status = "succeeded"
 			current.Error = ""
 			current.FinishedAt = w.Now()
 			if err := tx.SaveRun(current); err != nil {
 				return err
+			}
+			if current.Delivery != nil && current.SelectedWorkflow == nil && (current.Input.Workflow == "" || current.Input.Workflow == "free") {
+				if err := tx.AppendEvent(id, "", "", "method_recorded", map[string]any{"method": current.Method}); err != nil {
+					return err
+				}
 			}
 			return tx.AppendEvent(id, "", "", "run_finished", current)
 		}

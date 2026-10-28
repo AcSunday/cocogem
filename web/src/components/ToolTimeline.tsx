@@ -5,6 +5,7 @@ import { Markdown } from "./Markdown";
 import {
   livenessLabel,
   memberLabel,
+  methodEventLabel,
   noticeLabel,
   toolLabel,
   usageSummary,
@@ -75,6 +76,10 @@ export function ToolTimeline({
   // The live window evicts old events; a start without a finish then cannot
   // prove the tool is still running.
   const windowEvicted = mode === "live" && events.length >= EVENT_WINDOW;
+  // method_recorded is a run-level event without a step or member group.
+  const runNotices = events.filter(
+    (event) => !event.agent_id && methodEventLabel(event),
+  );
   return (
     <div>
       {groups(events).map((group) => {
@@ -122,6 +127,17 @@ export function ToolTimeline({
               )}
             </div>
             {group.events.map((event) => {
+              if (
+                event.type === "workflow_selected" ||
+                event.type === "method_recorded"
+              ) {
+                const label = methodEventLabel(event);
+                return label ? (
+                  <p className={cx("muted")} key={event.seq}>
+                    {label}
+                  </p>
+                ) : null;
+              }
               if (event.type === "handoff_prepared")
                 return (
                   <HandoffRecord
@@ -254,6 +270,11 @@ export function ToolTimeline({
           </section>
         );
       })}
+      {runNotices.map((event) => (
+        <p className={cx("muted")} key={event.seq}>
+          {methodEventLabel(event)}
+        </p>
+      ))}
     </div>
   );
 }

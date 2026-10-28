@@ -8,6 +8,7 @@ export type SettingsInput = components["schemas"]["SettingsInput"];
 export type Thread = components["schemas"]["Thread"];
 export type Message = components["schemas"]["Message"];
 export type Run = components["schemas"]["Run"];
+export type WorkflowSelection = NonNullable<Run["selected_workflow"]>;
 export type Delivery = components["schemas"]["Delivery"];
 export type RunInput = components["schemas"]["RunInput"];
 export type Step = components["schemas"]["Step"];

@@ -31,7 +31,7 @@ export function messageModel(message: Message): string {
 const labels =
   (table: Record<string, string>) =>
   (key = "") =>
-    table[key] ?? key;
+    Object.hasOwn(table, key) ? table[key] : key;
 export const toolLabel = labels({
   list_files: "列出文件",
   read_file: "读取文件",
@@ -65,7 +65,38 @@ export const roleLabel = labels({
   synthesizer: "综合草案",
   checker: "原作者复查",
   responder: "回复",
+  member: "成员",
 });
+/** Persisted run methods, including the two free-run outcomes. */
+export const methodLabel = labels({
+  direct: "直接回答",
+  delegation: "自由分工",
+  discussion: "协作讨论",
+  research: "Research",
+  code_analysis: "工程分析",
+});
+
+/**
+ * The method actually recorded on a run: the coordinator's selection first,
+ * then an explicit built-in workflow, then the settled free-run outcome. No
+ * message or current member setting can fill a missing record.
+ */
+export function runMethod(
+  run: Pick<Run, "input" | "method" | "selected_workflow">,
+) {
+  const selected = run.selected_workflow;
+  const input = run.input?.workflow ?? "";
+  const method =
+    selected?.workflow ||
+    (input && input !== "free" ? input : "") ||
+    run.method ||
+    "";
+  return {
+    method,
+    label: method ? methodLabel(method) : workflows.free,
+    reason: selected?.reason?.trim() ?? "",
+  };
+}
 export const skillLabel = labels({
   "task-orchestration": "任务编排",
   "task-handoff": "任务交接",
@@ -196,6 +227,31 @@ const eventData = (event: Event) =>
   event.data && typeof event.data === "object"
     ? (event.data as Record<string, unknown>)
     : {};
+
+/**
+ * Method events read as one short line. The raw payload (member IDs, role maps,
+ * step IDs) stays in the event record for debugging and never reaches this text.
+ */
+export function methodEventLabel(event: Event) {
+  const data = eventData(event);
+  if (event.type === "workflow_selected") {
+    const selection =
+      data.selection && typeof data.selection === "object"
+        ? (data.selection as Record<string, unknown>)
+        : {};
+    const workflow =
+      typeof selection.workflow === "string" ? selection.workflow : "";
+    if (!workflow) return "";
+    const reason =
+      typeof selection.reason === "string" ? selection.reason.trim() : "";
+    return `协调者选择方法：${methodLabel(workflow)}${reason ? ` · ${reason}` : ""}`;
+  }
+  if (event.type === "method_recorded") {
+    const method = typeof data.method === "string" ? data.method : "";
+    return method ? `本轮方法：${methodLabel(method)}` : "";
+  }
+  return "";
+}
 
 /**
  * Only confirmed activity clears a warning. An explicit false wins even when a

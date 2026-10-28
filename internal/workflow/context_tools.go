@@ -85,6 +85,9 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		}
 		explicitArtifact[ref.ID][ref.Version] = true
 	}
+	// The planning root's message is a directive, not evidence: selected plan
+	// steps depend on it for scheduling but may never read its content.
+	planningRoot := planningRootStep(run)
 	dependencies := map[string]bool{}
 	for _, id := range step.DependsOn {
 		dependencies[id] = true
@@ -93,7 +96,7 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		if message.ThreadID != run.ThreadID || message.Status != "completed" || message.StepID == step.ID {
 			continue
 		}
-		allowed := dependencies[message.StepID] || explicitMessage[message.ID] || selectedHistory[message.ID]
+		allowed := message.StepID != planningRoot && (dependencies[message.StepID] || explicitMessage[message.ID] || selectedHistory[message.ID])
 		if !allowed {
 			continue
 		}
@@ -111,7 +114,7 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		if artifact.ThreadID != run.ThreadID {
 			continue
 		}
-		allowed := dependencies[artifact.StepID] || explicitArtifact[artifact.ID][artifact.Version]
+		allowed := artifact.StepID != planningRoot && (dependencies[artifact.StepID] || explicitArtifact[artifact.ID][artifact.Version])
 		if !allowed {
 			continue
 		}
@@ -694,7 +697,7 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
 		member = run.Agents[index]
 	}
-	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: run.Input.Workflow, ResearchScope: run.Input.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, run.Input.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
+	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: effectiveInput(run).Workflow, ResearchScope: run.Input.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, run.Input.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
 	for _, id := range enabledSkills(run) {
 		value.Skills = append(value.Skills, id+"@"+run.SkillVersions[id])
 	}

@@ -52,7 +52,7 @@ func collaborationTools(run w.Run) []model.Tool {
 	if len(enabledSkills(run)) > 0 {
 		out = append(out, model.Tool{Name: "read_skill", Description: "Read an enabled shared skill or its reference file. Read the relevant skill before collaboration; use only runtime roster IDs.", Schema: object(map[string]any{"skill_id": text(64), "resource": text(200)}, "skill_id")})
 	}
-	if (run.Input.Workflow == "free" || run.Input.Workflow == "") && len(run.Agents) > 1 {
+	if workflow := effectiveInput(run).Workflow; (workflow == "free" || workflow == "") && len(run.Agents) > 1 {
 		out = append(out, model.Tool{Name: "handoff_task", Description: "Submit a bounded task to another member in this run. Returns a durable submission receipt, not an answer. Finish your invocation after submitting; the platform calls you again with committed results, including failures. Multiple independent submissions before finishing run in parallel. Never repeat a submission with a new request_id or dispatch through @ text.", Schema: object(map[string]any{
 			"request_id": text(100), "target_agent_id": text(100), "task": text(6000),
 			"role":         map[string]any{"type": "string", "enum": []string{"researcher", "analyst", "reviewer", "critic", "coordinator", "member"}},
@@ -176,6 +176,9 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 	if err := tools.Decode(raw, &in); err != nil {
 		return "", err
 	}
+	if run.SelectedWorkflow != nil {
+		return "", errors.New("a workflow method was selected; follow its plan instead of delegating")
+	}
 	if run.Input.Workflow != "free" && run.Input.Workflow != "" {
 		return "", errors.New("built-in workflows use their accepted step plan")
 	}
@@ -198,6 +201,9 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 		}
 		if current.Status != "running" {
 			return errors.New("run no longer accepts handoffs")
+		}
+		if current.SelectedWorkflow != nil {
+			return errors.New("a workflow method was selected; follow its plan instead of delegating")
 		}
 		steps, err := tx.Steps(run.ID)
 		if err != nil {

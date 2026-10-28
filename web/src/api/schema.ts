@@ -832,6 +832,7 @@ export interface components {
         targets: string[] | null;
         workflow: string;
       };
+      method?: string;
       policy_adopted_at?: string;
       recovered_at?: string;
       recovery_count?: number;
@@ -856,6 +857,10 @@ export interface components {
         usage_known: boolean;
         workflow: string;
       };
+      selected_workflow?: {
+        assignments: {
+          [key: string]: string;
+        } | null;
         reason?: string;
         selected_at: string;
         step_id: string;
@@ -1053,6 +1058,7 @@ export interface components {
           targets: string[] | null;
           workflow: string;
         };
+        method?: string;
         policy_adopted_at?: string;
         recovered_at?: string;
         recovery_count?: number;
@@ -1077,6 +1083,10 @@ export interface components {
           usage_known: boolean;
           workflow: string;
         };
+        selected_workflow?: {
+          assignments: {
+            [key: string]: string;
+          } | null;
           reason?: string;
           selected_at: string;
           step_id: string;
@@ -1343,6 +1353,7 @@ export interface components {
           targets: string[] | null;
           workflow: string;
         };
+        method?: string;
         policy_adopted_at?: string;
         recovered_at?: string;
         recovery_count?: number;
@@ -1367,6 +1378,10 @@ export interface components {
           usage_known: boolean;
           workflow: string;
         };
+        selected_workflow?: {
+          assignments: {
+            [key: string]: string;
+          } | null;
           reason?: string;
           selected_at: string;
           step_id: string;

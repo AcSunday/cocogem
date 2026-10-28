@@ -17,6 +17,7 @@ import {
   limitLabel,
   policyNote,
   roleLabel,
+  runMethod,
   skillLabel,
   workflowRoles,
   workflows,
@@ -406,6 +407,9 @@ export function SnapshotDialog({
 }) {
   const workflow =
     workflows[(run.input.workflow || "free") as keyof typeof workflows];
+  // Only the persisted method/selection reaches the snapshot; a missing record
+  // stays the free label instead of being inferred from messages.
+  const method = runMethod(run);
   const policyRows = executionPolicyRows(run.execution_policy);
   const startedAt = formatDateTime(run.started_at);
   const deadlineAt = formatDateTime(run.deadline_at);
@@ -414,6 +418,10 @@ export function SnapshotDialog({
       <p>
         {workflow} · 创建于 {formatDateTime(run.created_at)}
       </p>
+      <p>本轮方法：{method.label}</p>
+      {method.reason && (
+        <p className={cx("muted")}>选择原因：{method.reason}</p>
+      )}
       {run.coordinator_id && (
         <p>
           本轮协调者：
