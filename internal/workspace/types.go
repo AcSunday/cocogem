@@ -244,14 +244,18 @@ const (
 	MaxMessagePreviewBytes = 64 << 10
 )
 
-// Message is one stable timeline item, updated while streaming.
+// Message is one stable timeline item, updated while streaming. Model fields
+// snapshot the producing attempt so later configuration edits cannot relabel it.
 type Message struct {
 	ID               string `json:"id"`
 	ThreadID         string `json:"thread_id"`
 	RunID            string `json:"run_id"`
 	StepID           string `json:"step_id"`
+	AttemptID        string `json:"attempt_id,omitempty"`
 	AgentID          string `json:"agent_id"`
 	AgentName        string `json:"agent_name"`
+	Model            string `json:"model,omitempty"`
+	ResolvedModel    string `json:"resolved_model,omitempty"`
 	Role             string `json:"role"`
 	Content          string `json:"content"`
 	ContentFormat    string `json:"content_format,omitempty"`

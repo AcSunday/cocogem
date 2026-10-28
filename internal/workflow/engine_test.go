@@ -497,6 +497,87 @@ func TestResearchExecutionAndCancellation(t *testing.T) {
 	}
 }
 
+func TestMessageSnapshotsAttemptModelAndSurvivesMemberEdit(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	enableExecutor(t, s, &run, "claude")
+	checker := &staticChecker{info: agent.AdapterInfo{ID: "claude", Installed: true, Supported: true}}
+	inspector := &staticInspector{staticChecker: checker, connection: agent.ConnectionInfo{ResolvedModel: "resolved-model", Identity: "connection-identity"}}
+	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": defaultRunner()}, Adapters: inspector, Web: testutil.Web{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	result := awaitRun(t, s, run.ID)
+	cancel()
+	e.Wait()
+	if result.Status != "succeeded" {
+		t.Fatalf("status=%s error=%s", result.Status, result.Error)
+	}
+	messages := func() []w.Message {
+		var items []w.Message
+		if err := s.Read(context.Background(), func(tx *store.Tx) error {
+			var err error
+			items, err = tx.Messages(run.ThreadID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return items
+	}
+	var attempts []w.Attempt
+	if err := s.Read(context.Background(), func(tx *store.Tx) error {
+		var err error
+		attempts, err = tx.Attempts(run.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	byAttempt := map[string]w.Attempt{}
+	for _, attempt := range attempts {
+		byAttempt[attempt.ID] = attempt
+	}
+	before := messages()
+	assistant := 0
+	for _, message := range before {
+		if message.Role != "assistant" {
+			continue
+		}
+		assistant++
+		attempt, ok := byAttempt[message.AttemptID]
+		if !ok || attempt.StepID != message.StepID || attempt.RunID != message.RunID {
+			t.Fatalf("message is not bound to its own attempt: %+v", message)
+		}
+		if message.Model != "default" || message.ResolvedModel != "resolved-model" || message.ResolvedModel != attempt.ResolvedModel {
+			t.Fatalf("message model snapshot = %+v", message)
+		}
+	}
+	if assistant != 3 {
+		t.Fatalf("assistant messages = %d", assistant)
+	}
+	// Editing the reusable member profile must not rewrite already produced history.
+	if err := s.Write(context.Background(), func(tx *store.Tx) error {
+		for i := range run.Agents {
+			run.Agents[i].Model = "edited-model"
+			if err := tx.SaveAgent(run.Agents[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range messages() {
+		if message.Role == "assistant" && (message.Model != "default" || message.ResolvedModel != "resolved-model") {
+			t.Fatalf("member edit rewrote message history: %+v", message)
+		}
+	}
+}
+
 type nativeRunnerFunc func(context.Context, model.Request, agent.Execute, agent.Observe) error
 
 func (f nativeRunnerFunc) Run(ctx context.Context, r model.Request, execute agent.Execute, observe agent.Observe) error {

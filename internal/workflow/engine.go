@@ -856,6 +856,9 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		dispatchNow := time.Now()
 		deadline, alreadyExpired := applyStepDeadline(&step, existing, policy, dispatchNow)
 		attempt = w.Attempt{ID: w.NewID(), RunID: run.ID, StepID: step.ID, Number: number, Status: "running", Reason: reason, Recovery: recovery, RecoveredFrom: recoveredFrom, SourceIDs: sourceIDs(sourceSnapshot), StartedAt: dispatchNow.UTC().Format(time.RFC3339Nano), LastProgress: dispatchNow.UTC().Format(time.RFC3339Nano), Executor: a.Executor, Model: a.Model, ResolvedModel: connection.ResolvedModel, ConnectionID: connection.Identity, Adapter: adapter.Adapter, CLIVersion: adapter.Version, CLIProgram: adapter.Program, CLIIdentity: adapter.Identity, SessionMode: "fresh"}
+		// The message belongs to this exact attempt, so a retry cannot make the
+		// UI attribute it to a newer attempt's model.
+		message.AttemptID, message.Model, message.ResolvedModel = attempt.ID, attempt.Model, attempt.ResolvedModel
 		if a.Executor != "" && e.Adapters != nil && (!adapter.Supported || connectionChange != "") {
 			reason := adapter.Reason
 			if reason == "" {

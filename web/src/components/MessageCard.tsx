@@ -11,6 +11,7 @@ import {
   errorText,
   formatMessageTime,
   memberTone,
+  messageModel,
   roleLabel,
 } from "../lib/presentation";
 import { Avatar } from "./Avatar";
@@ -53,6 +54,7 @@ export function MessageCard({
   role?: string;
 }) {
   const user = message.role === "user";
+  const model = user ? "" : messageModel(message);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<MessageContentPage>();
   // Page indexes are absolute; base is the first cursor still retained.
@@ -134,6 +136,9 @@ export function MessageCard({
             />
           )}
           <strong>{user ? "你" : message.agent_name}</strong>
+          {model && (
+            <small className={cx("message-model")}>（{model}）</small>
+          )}
           {role && <span className={cx("role-chip")}>{roleLabel(role)}</span>}
           <time dateTime={message.created_at}>
             {formatMessageTime(message.created_at)}

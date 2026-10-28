@@ -670,12 +670,15 @@ export interface components {
     Message: {
       agent_id: string;
       agent_name: string;
+      attempt_id?: string;
       content: string;
       content_bytes?: number;
       content_format?: string;
       content_truncated?: boolean;
       created_at: string;
       id: string;
+      model?: string;
+      resolved_model?: string;
       role: string;
       run_id: string;
       status: string;
@@ -1204,12 +1207,15 @@ export interface components {
         items: {
           agent_id: string;
           agent_name: string;
+          attempt_id?: string;
           content: string;
           content_bytes?: number;
           content_format?: string;
           content_truncated?: boolean;
           created_at: string;
           id: string;
+          model?: string;
+          resolved_model?: string;
           role: string;
           run_id: string;
           status: string;

@@ -1,4 +1,4 @@
-import type { Agent, Attempt, Event, Run, Source } from "../api/client";
+import type { Agent, Attempt, Event, Message, Run, Source } from "../api/client";
 
 export const workflows = {
   free: "自由协作",
@@ -14,6 +14,19 @@ export const memberTone = (id: string) =>
   [...id].reduce((tone, char) => (tone + char.charCodeAt(0)) % 4, 0);
 export const memberLabel = (agent: Agent) =>
   `${agent.display_name} (@${agent.handle})`;
+
+/**
+ * The model recorded by the message's own attempt. Legacy rows may only carry
+ * the run's requested model; an unresolved default stays clearly labelled.
+ */
+export function messageModel(message: Message): string {
+  if (message.role === "user") return "";
+  const resolved = message.resolved_model?.trim() ?? "";
+  const requested = message.model?.trim() ?? "";
+  if (resolved && resolved !== "cli-default") return resolved;
+  if (requested && requested !== "default") return requested;
+  return resolved || requested ? "CLI 默认模型" : "";
+}
 
 const labels =
   (table: Record<string, string>) =>

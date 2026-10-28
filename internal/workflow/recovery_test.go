@@ -291,6 +291,25 @@ func TestGracefulStopSuspendsThenRestartContinues(t *testing.T) {
 	if !preserved {
 		t.Fatalf("partial attempt output was overwritten: %+v", messages)
 	}
+	byAttempt := map[string]w.Attempt{}
+	for _, attempt := range finalAttempts {
+		byAttempt[attempt.ID] = attempt
+	}
+	stepMessages := []w.Message{}
+	for _, message := range messages {
+		if message.StepID == steps[0].ID && message.Role == "assistant" {
+			stepMessages = append(stepMessages, message)
+		}
+	}
+	if len(stepMessages) != 2 || stepMessages[0].AttemptID == stepMessages[1].AttemptID {
+		t.Fatalf("retried step messages do not keep their own attempts: %+v", stepMessages)
+	}
+	for _, message := range stepMessages {
+		attempt, ok := byAttempt[message.AttemptID]
+		if !ok || attempt.StepID != message.StepID || attempt.Model != message.Model {
+			t.Fatalf("message %s was relabelled by another attempt: %+v", message.Content, message)
+		}
+	}
 }
 
 func TestCanceledRunNeverRevives(t *testing.T) {

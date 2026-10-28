@@ -65,6 +65,29 @@ func pageContents(items []w.Message) []string {
 	return out
 }
 
+func TestPagedMessagesKeepsAttemptAndModelSnapshot(t *testing.T) {
+	s, _, thread, run := pagingStore(t)
+	message := w.Message{ID: w.NewID(), ThreadID: thread.ID, RunID: run.ID, StepID: w.NewID(), AttemptID: w.NewID(), AgentID: w.NewID(), AgentName: "研究成员", Role: "assistant", Model: "requested", ResolvedModel: "resolved", Content: "snapshot", Status: "completed", CreatedAt: w.Now()}
+	if err := s.Write(context.Background(), func(tx *Tx) error { return tx.SaveMessage(message) }); err != nil {
+		t.Fatal(err)
+	}
+	var page MessagePage
+	if err := s.Read(context.Background(), func(tx *Tx) error {
+		var err error
+		page, err = tx.PagedMessages(thread.ID, "", 0)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("items = %+v", page.Items)
+	}
+	got := page.Items[0]
+	if got.AttemptID != message.AttemptID || got.Model != "requested" || got.ResolvedModel != "resolved" {
+		t.Fatalf("model snapshot was not persisted: %+v", got)
+	}
+}
+
 func TestPagedMessagesReturnsLatestPageInOrder(t *testing.T) {
 	s, _, thread, run := pagingStore(t)
 	contents := make([]string, 35)

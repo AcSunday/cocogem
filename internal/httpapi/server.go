@@ -718,6 +718,36 @@ func (s *Server) dropProposals(match func(proposal) bool) {
 	}
 }
 
+// backfillMessageModels exposes the requested model for legacy messages that
+// predate per-message attempt snapshots. The run roster is frozen, so this
+// never guesses a retry attempt and never claims the model was resolved.
+func backfillMessageModels(messages []w.Message, runs []w.Run) {
+	type rosterEntry struct {
+		count int
+		model string
+	}
+	rosters := make(map[string]map[string]rosterEntry, len(runs))
+	for _, run := range runs {
+		roster := make(map[string]rosterEntry, len(run.Agents))
+		for _, agent := range run.Agents {
+			entry := roster[agent.ID]
+			entry.count++
+			entry.model = agent.Model
+			roster[agent.ID] = entry
+		}
+		rosters[run.ID] = roster
+	}
+	for i := range messages {
+		message := &messages[i]
+		if message.Role == "user" || message.Model != "" || message.ResolvedModel != "" {
+			continue
+		}
+		if entry := rosters[message.RunID][message.AgentID]; entry.count == 1 {
+			message.Model = entry.model
+		}
+	}
+}
+
 func (s *Server) thread(rw http.ResponseWriter, r *http.Request) {
 	limit, err := queryLimit(r, store.DefaultMessagePage, store.MaxMessagePage)
 	if err != nil {
@@ -740,6 +770,7 @@ func (s *Server) thread(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		backfillMessageModels(view.Messages.Items, view.Runs)
 		view.Sources, err = tx.SourceMetadata(view.Thread.ID)
 		return err
 	})

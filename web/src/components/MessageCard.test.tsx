@@ -68,6 +68,58 @@ it("keeps member identity colors when names or roster positions change", () => {
   expect(screen.getByText("新的称呼")).toBeVisible();
 });
 
+it("shows the model recorded by the message's own attempt", () => {
+  const { rerender } = render(
+    <MessageCard
+      message={message({ model: "requested", resolved_model: "resolved" })}
+      index={0}
+    />,
+  );
+  expect(screen.getByText("研究成员")).toBeVisible();
+  expect(screen.getByText("（resolved）")).toBeVisible();
+  rerender(
+    <MessageCard
+      message={message({ model: "legacy-requested", resolved_model: undefined })}
+      index={0}
+    />,
+  );
+  expect(screen.getByText("（legacy-requested）")).toBeVisible();
+});
+
+it("labels default and unresolved models without claiming a resolved model", () => {
+  const { rerender } = render(
+    <MessageCard
+      message={message({ model: "default", resolved_model: "cli-default" })}
+      index={0}
+    />,
+  );
+  expect(screen.getByText("（CLI 默认模型）")).toBeVisible();
+  rerender(
+    <MessageCard
+      message={message({ model: "default", resolved_model: undefined })}
+      index={0}
+    />,
+  );
+  expect(screen.getByText("（CLI 默认模型）")).toBeVisible();
+});
+
+it("never shows a model for the user's own message", () => {
+  render(
+    <MessageCard
+      message={message({
+        role: "user",
+        agent_name: "你",
+        model: "default",
+        resolved_model: "resolved",
+      })}
+      index={0}
+    />,
+  );
+  expect(screen.getByText("你")).toBeVisible();
+  expect(screen.queryByText("（resolved）")).not.toBeInTheDocument();
+  expect(screen.queryByText("（CLI 默认模型）")).not.toBeInTheDocument();
+});
+
 it("replaces the current page while walking the full text, then keeps its state across rerenders", async () => {
   const fetcher = vi
     .fn()

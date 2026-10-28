@@ -1016,6 +1016,9 @@
           "agent_name": {
             "type": "string"
           },
+          "attempt_id": {
+            "type": "string"
+          },
           "content": {
             "type": "string"
           },
@@ -1032,6 +1035,12 @@
             "type": "string"
           },
           "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "resolved_model": {
             "type": "string"
           },
           "role": {
@@ -3268,6 +3277,9 @@
                     "agent_name": {
                       "type": "string"
                     },
+                    "attempt_id": {
+                      "type": "string"
+                    },
                     "content": {
                       "type": "string"
                     },
@@ -3284,6 +3296,12 @@
                       "type": "string"
                     },
                     "id": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "resolved_model": {
                       "type": "string"
                     },
                     "role": {
