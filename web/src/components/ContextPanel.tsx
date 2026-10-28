@@ -1,6 +1,6 @@
 import { Select } from "./Select";
 import { useEffect, useState } from "react";
-import type { Agent, Artifact, Event, Run, Source } from "../api/client";
+import type { Artifact, Event, Run, Source } from "../api/client";
 import { EVENT_WINDOW, statusText } from "../api/client";
 import { cx } from "../styles/classes";
 import {
@@ -8,15 +8,13 @@ import {
   latestSources,
   sourceKindLabel,
 } from "../lib/presentation";
-import { Avatar } from "./Avatar";
 import { ArtifactCard } from "./ArtifactCard";
 import { EventHistory } from "./EventHistory";
 import { Icon } from "./Icon";
 import { ToolTimeline } from "./ToolTimeline";
 
-export type PanelTab = "members" | "sources" | "artifacts" | "tools";
+export type PanelTab = "sources" | "artifacts" | "tools";
 const tabs: [PanelTab, string][] = [
-  ["members", "成员"],
   ["sources", "来源"],
   ["artifacts", "产物"],
   ["tools", "过程"],
@@ -27,9 +25,6 @@ export function ContextPanel({
   close,
   tab,
   setTab,
-  agents,
-  canManage,
-  onManage,
   sources,
   source,
   sourceID,
@@ -46,9 +41,6 @@ export function ContextPanel({
   close: () => void;
   tab: PanelTab;
   setTab: (tab: PanelTab) => void;
-  agents: Agent[];
-  canManage: boolean;
-  onManage: () => void;
   sources: Source[];
   source?: Source;
   sourceID?: string;
@@ -89,10 +81,10 @@ export function ContextPanel({
               onKeyDown={(event) => {
                 const next = (
                   {
-                    ArrowRight: (index + 1) % 4,
-                    ArrowLeft: (index + 3) % 4,
+                    ArrowRight: (index + 1) % tabs.length,
+                    ArrowLeft: (index + tabs.length - 1) % tabs.length,
                     Home: 0,
-                    End: 3,
+                    End: tabs.length - 1,
                   } as Record<string, number>
                 )[event.key];
                 if (next === undefined) return;
@@ -122,38 +114,6 @@ export function ContextPanel({
         role="tabpanel"
         aria-labelledby={`tab-${tab}`}
       >
-        {tab === "members" && (
-          <>
-            {agents.map((agent) => (
-              <article className={cx("member-card")} key={agent.id}>
-                <Avatar name={agent.display_name} id={agent.id} />
-                <div>
-                  <strong>{agent.display_name}</strong>
-                  <small>
-                    @{agent.handle}
-                    {agent.disabled && " · 已停用"}
-                  </small>
-                  {agent.role_description && <p>{agent.role_description}</p>}
-                  <span className={cx("model-label")}>
-                    {agent.executor ? `${agent.executor} · ` : ""}
-                    {agent.model === "default" ? "CLI 默认模型" : agent.model}
-                  </span>
-                </div>
-              </article>
-            ))}
-            {!agents.length && (
-              <p className={cx("panel-empty")}>创建工作空间后会有默认成员。</p>
-            )}
-            <button
-              className={cx("panel-action")}
-              onClick={onManage}
-              disabled={!canManage}
-            >
-              <Icon name="users" size={14} />
-              管理成员与称呼
-            </button>
-          </>
-        )}
         {tab === "sources" && (
           <>
             {!shownSources.length && (

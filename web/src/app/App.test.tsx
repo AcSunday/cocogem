@@ -1253,6 +1253,13 @@ it("loads source bodies from the source endpoint instead of the metadata list", 
   const user = userEvent.setup();
   await screen.findByRole("heading", { name: "来源测试" });
   await user.click(screen.getByRole("button", { name: "打开协作面板" }));
+  expect(screen.getByRole("tab", { name: /产物/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(
+    screen.queryByRole("tab", { name: "成员" }),
+  ).not.toBeInTheDocument();
   await user.click(screen.getByRole("tab", { name: /来源/ }));
   await user.click(screen.getByRole("button", { name: /公开资料/ }));
   expect(await screen.findByText("捕获的完整正文")).toBeVisible();

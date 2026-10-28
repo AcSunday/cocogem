@@ -1474,9 +1474,6 @@ function WorkspaceApp({
             }}
             tab={tab}
             setTab={setTab}
-            agents={agents}
-            canManage={!!workspace}
-            onManage={() => setModal({ kind: "agents" })}
             sources={view?.sources ?? []}
             source={source}
             sourceID={sourceID}

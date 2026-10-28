@@ -447,8 +447,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByRole("button", { name: "关闭窗口", exact: true }).click();
 
   // Renaming does not relabel an already captured tool execution.
-  await openPanel("成员");
-  await page.getByRole("button", { name: "管理成员与称呼" }).click();
+  await page.getByRole("button", { name: "成员 3", exact: true }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: /^布偶猫 \(@ragdoll\)/ })
@@ -487,6 +486,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   // The context panel is a drawer on phones and Escape closes it.
   await page.getByRole("button", { name: "打开协作面板" }).click();
   await expect(page.getByRole("tab", { name: /产物/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "成员" })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("tab", { name: /产物/ })).toBeHidden();
   await expect(page.locator("#context-toggle")).toBeFocused();

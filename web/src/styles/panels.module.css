@@ -64,40 +64,6 @@
   font-size: 13px;
   text-align: center;
 }
-.member-card {
-  display: flex;
-  gap: 10px;
-  padding: 12px 0;
-}
-.member-card + .member-card {
-  border-top: 1px solid var(--border);
-}
-.member-card strong {
-  display: block;
-  font-size: 14px;
-}
-.member-card small {
-  display: block;
-}
-.member-card p {
-  margin: 4px 0 6px;
-  color: var(--text-2);
-  font-size: 13px;
-}
-.model-label {
-  display: inline-block;
-  max-width: 220px;
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-3);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.panel-action {
-  width: 100%;
-  margin-top: 8px;
-}
 .source-card {
   flex-direction: column;
   align-items: flex-start;
