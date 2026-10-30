@@ -175,6 +175,201 @@ func TestClaudeNativeToolBoundariesFailClosed(t *testing.T) {
 	}
 }
 
+func claudeNoSuchTool(name string) string {
+	return "<tool_use_error>Error: No such tool available: " + name + "</tool_use_error>"
+}
+
+func claudeDisabledTool(name string) string {
+	return "<tool_use_error>Error: No such tool available: " + name + ". " + name + " is disabled for this session, in subagents as well as here.</tool_use_error>"
+}
+
+func claudeDeniedStream(t *testing.T, name, callID, denial string, tail string) string {
+	t.Helper()
+	return strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"` + nativeSession + `","tools":["Read"]}`,
+		`{"type":"assistant","message":{"id":"deny-` + callID + `","content":[{"type":"tool_use","id":"` + callID + `","name":"` + name + `","input":{"command":"touch /tmp/cocogem-denied-marker"}}]}}`,
+		`{"type":"user","message":{"id":"denied-result-` + callID + `","content":[{"type":"tool_result","tool_use_id":"` + callID + `","is_error":true,"content":` + mustJSON(t, denial) + `}]}}`,
+		tail,
+	}, "\n") + "\n"
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+func TestClaudeDeniedToolRecoveryRequiresFixedCLIDenial(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		tool   string
+		denial string
+	}{
+		{"Bash", "Bash", claudeDisabledTool("Bash")},
+		{"Task", "Task", claudeDisabledTool("Task")},
+		{"unknown MCP", "mcp__cocogem__not_exposed_fixture", claudeNoSuchTool("mcp__cocogem__not_exposed_fixture")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tail := `{"type":"assistant","message":{"id":"recovered","content":[{"type":"text","text":"RECOVERED_WITHOUT_TOOL_EXECUTION"}]}}` + "\n" +
+				`{"type":"result","subtype":"success","session_id":"` + nativeSession + `"}`
+			events, err := parseWithEvents(t, []string{"Read"}, claudeDeniedStream(t, tc.tool, "denied-1", tc.denial, tail), parseClaude)
+			if err != nil {
+				t.Fatalf("fixed CLI denial was not recoverable: %v", err)
+			}
+			var denied map[string]any
+			for _, event := range events {
+				switch event.kind {
+				case "tool_started":
+					t.Fatalf("denied tool emitted tool_started: %+v", event.data)
+				case "tool_finished":
+					if event.data["name"] == safeToken(tc.tool) {
+						denied = event.data
+					}
+				}
+			}
+			if denied == nil {
+				t.Fatalf("denial was not recorded: %+v", events)
+			}
+			if denied["status"] != "error" || denied["denied"] != true {
+				t.Fatalf("denial status = %+v", denied)
+			}
+			if _, present := denied["input"]; present {
+				t.Fatalf("denial event retained raw input: %+v", denied)
+			}
+			if output, _ := denied["output"].(string); !strings.Contains(output, safeToken(tc.tool)) || len(output) > 200 {
+				t.Fatalf("denial output is not bounded and readable: %q", output)
+			}
+		})
+	}
+}
+
+func TestClaudeAllowedToolStillWorksAfterDeniedCall(t *testing.T) {
+	stream := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"` + nativeSession + `","tools":["Read"]}`,
+		`{"type":"assistant","message":{"id":"deny","content":[{"type":"tool_use","id":"bad","name":"Bash","input":{"command":"echo"}}]}}`,
+		`{"type":"user","message":{"id":"deny-result","content":[{"type":"tool_result","tool_use_id":"bad","is_error":true,"content":` + mustJSON(t, claudeDisabledTool("Bash")) + `}]}}`,
+		`{"type":"assistant","message":{"id":"read","content":[{"type":"tool_use","id":"good","name":"Read","input":{"file_path":"/workspace/README.md"}}]}}`,
+		`{"type":"user","message":{"id":"read-result","content":[{"type":"tool_result","tool_use_id":"good","content":"PUBLIC"}]}}`,
+		`{"type":"assistant","message":{"id":"answer","content":[{"type":"text","text":"done"}]}}`,
+		`{"type":"result","subtype":"success","session_id":"` + nativeSession + `"}`,
+	}, "\n") + "\n"
+	events, err := parseWithEvents(t, []string{"Read"}, stream, parseClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var readOK, denied bool
+	for _, event := range events {
+		if event.kind != "tool_finished" {
+			continue
+		}
+		if event.data["tool_call_id"] == "cli:good" && event.data["status"] == "ok" && event.data["output"] == "PUBLIC" {
+			readOK = true
+		}
+		if event.data["tool_call_id"] == "cli:bad" && event.data["denied"] == true {
+			denied = true
+		}
+	}
+	if !readOK || !denied {
+		t.Fatalf("allowed native call after denial = %+v", events)
+	}
+}
+
+func TestClaudeDeniedToolRecoveryFailsClosed(t *testing.T) {
+	init := `{"type":"system","subtype":"init","session_id":"` + nativeSession + `","tools":["Read"]}` + "\n"
+	assistant := func(messageID, callID, name string) string {
+		return `{"type":"assistant","message":{"id":"` + messageID + `","content":[{"type":"tool_use","id":"` + callID + `","name":"` + name + `","input":{"command":"echo"}}]}}` + "\n"
+	}
+	result := func(messageID, callID string, isError bool, content string) string {
+		return `{"type":"user","message":{"id":"` + messageID + `","content":[{"type":"tool_result","tool_use_id":"` + callID + `","is_error":` + fmt.Sprint(isError) + `,"content":` + mustJSON(t, content) + `}]}}` + "\n"
+	}
+	success := `{"type":"result","subtype":"success","session_id":"` + nativeSession + `"}` + "\n"
+	for _, tc := range []struct {
+		name   string
+		stream string
+		want   string
+	}{
+		{
+			name:   "non-fixed denial",
+			stream: init + assistant("m1", "c1", "Bash") + result("m2", "c1", true, "Permission denied") + success,
+			want:   "unrecognized result",
+		},
+		{
+			name:   "successful denied result",
+			stream: init + assistant("m1", "c1", "Bash") + result("m2", "c1", false, claudeDisabledTool("Bash")) + success,
+			want:   "reported success",
+		},
+		{
+			name:   "denial names another tool",
+			stream: init + assistant("m1", "c1", "Bash") + result("m2", "c1", true, claudeNoSuchTool("Write")) + success,
+			want:   "unrecognized result",
+		},
+		{
+			name:   "missing call identity",
+			stream: init + `{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"","name":"Bash","input":{}}]}}` + "\n" + success,
+			want:   "without a safe identity",
+		},
+		{
+			name:   "duplicate denied identity",
+			stream: init + assistant("m1", "c1", "Bash") + assistant("m2", "c1", "Task") + success,
+			want:   "reused a denied tool-call identity",
+		},
+		{
+			name:   "allowed tool reuses denied identity",
+			stream: init + assistant("m1", "c1", "Bash") + assistant("m2", "c1", "Read") + success,
+			want:   "reused a denied tool-call identity",
+		},
+		{
+			name:   "denied call without result",
+			stream: init + assistant("m1", "c1", "Bash") + success,
+			want:   "without the fixed denial result",
+		},
+		{
+			name: "more than three denials",
+			stream: init + assistant("m1", "c1", "Bash") + result("r1", "c1", true, claudeDisabledTool("Bash")) +
+				assistant("m2", "c2", "Task") + result("r2", "c2", true, claudeDisabledTool("Task")) +
+				assistant("m3", "c3", "Glob") + result("r3", "c3", true, claudeDisabledTool("Glob")) +
+				assistant("m4", "c4", "Grep") + result("r4", "c4", true, claudeDisabledTool("Grep")) + success,
+			want: "more than 3 denied tools",
+		},
+		{
+			name:   "replayed denial result",
+			stream: init + assistant("m1", "c1", "Bash") + result("m2", "c1", true, claudeDisabledTool("Bash")) + result("m3", "c1", true, claudeDisabledTool("Bash")) + success,
+			want:   "replayed a denied tool result",
+		},
+		{
+			name:   "unsupported denial content",
+			stream: init + assistant("m1", "c1", "Bash") + `{"type":"user","message":{"id":"m2","content":[{"type":"tool_result","tool_use_id":"c1","is_error":true,"content":{"type":"image"}}]}}` + "\n" + success,
+			want:   "unrecognized result",
+		},
+		{
+			name:   "unsafe tool name",
+			stream: init + assistant("m1", "c1", "Bash/../x") + success,
+			want:   "without a safe identity",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseWithEvents(t, []string{"Read"}, tc.stream, parseClaude); err == nil {
+				t.Fatalf("unsafe stream was accepted: %s", tc.name)
+			} else if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+	unknown := `{"type":"system","subtype":"init","session_id":"` + nativeSession + `","tools":["Bash"]}` + "\n"
+	if _, err := parseWithEvents(t, []string{"Read"}, unknown, parseClaude); err == nil || !strings.Contains(err.Error(), "bash") {
+		t.Fatalf("unknown init inventory error lost the safe tool name: %v", err)
+	}
+	// An unresolved denied call must still name the safe tool, not only the
+	// protocol call identity, so the user and logs can diagnose the refusal.
+	unresolvedDenied := init + assistant("m1", "c1", "Bash") + success
+	if _, err := parseWithEvents(t, []string{"Read"}, unresolvedDenied, parseClaude); err == nil || !strings.Contains(err.Error(), "tool bash") {
+		t.Fatalf("unresolved denied call lost the safe tool name: %v", err)
+	}
+}
+
 func TestClaudeNativeObservationIsBounded(t *testing.T) {
 	large, _ := json.Marshal(strings.Repeat("x", nativeObservationLimit+10))
 	stream := `{"type":"system","subtype":"init","session_id":"` + nativeSession + `","tools":["Read"]}` + "\n" +

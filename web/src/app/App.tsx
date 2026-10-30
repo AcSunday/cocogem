@@ -90,7 +90,8 @@ const scenarios = [
 
 type ModalState =
   | { kind: "workspace" | "edit-workspace" | "agents" | "settings" }
-  | { kind: "thread" | "edit-thread" }
+  | { kind: "thread" }
+  | { kind: "edit-thread"; thread?: Thread }
   | { kind: "snapshot"; run: Run }
   | { kind: "artifact" }
   | { kind: "rename-thread"; thread: Thread }
@@ -972,7 +973,7 @@ function WorkspaceApp({
       {
         title: threadTitle(text),
         // The server applies the global default coordinator when omitted.
-        agent_ids: newThreadMembers.slice(0, 4).map((agent) => agent.id),
+        agent_ids: newThreadMembers.slice(0, 10).map((agent) => agent.id),
         workflow,
       },
     );
@@ -1203,6 +1204,7 @@ function WorkspaceApp({
         onHome={() => navigate(workspaceID)}
         onThread={(id) => navigate(workspaceID, id)}
         onNewThread={() => setModal({ kind: "thread" })}
+        onEditThread={(thread) => setModal({ kind: "edit-thread", thread })}
         onRenameThread={(thread) => setModal({ kind: "rename-thread", thread })}
         onDeleteThread={(thread) => setModal({ kind: "delete-thread", thread })}
         onCreateWorkspace={() => setModal({ kind: "workspace" })}
@@ -1523,7 +1525,11 @@ function WorkspaceApp({
       {(modal?.kind === "thread" || modal?.kind === "edit-thread") &&
         workspace && (
           <ThreadForm
-            current={modal.kind === "edit-thread" ? view?.thread : undefined}
+            current={
+              modal.kind === "edit-thread"
+                ? (modal.thread ?? view?.thread)
+                : undefined
+            }
             agents={available}
             defaultCoordinatorID={settings?.default_coordinator_id}
             close={close}

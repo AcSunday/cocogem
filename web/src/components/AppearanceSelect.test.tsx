@@ -18,6 +18,19 @@ it("shows the current choice and changes it from the keyboard", async () => {
   expect(trigger).toHaveFocus();
 });
 
+it("offers the DeepSeek appearance", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  const view = render(<AppearanceSelect value="system" onChange={onChange} />);
+  await user.click(screen.getByText("外观"));
+  await user.click(screen.getByRole("option", { name: "DeepSeek" }));
+  expect(onChange).toHaveBeenCalledWith("deepseek");
+  view.rerender(<AppearanceSelect value="deepseek" onChange={onChange} />);
+  expect(screen.getByRole("combobox", { name: "外观模式" })).toHaveTextContent(
+    "DeepSeek",
+  );
+});
+
 it("opens from the label and hands pointer choices to the app", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
@@ -28,5 +41,18 @@ it("opens from the label and hands pointer choices to the app", async () => {
   view.rerender(<AppearanceSelect value="dark" onChange={onChange} />);
   expect(screen.getByRole("combobox", { name: "外观模式" })).toHaveTextContent(
     "深色",
+  );
+});
+
+it("offers the warm classic appearance", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  const view = render(<AppearanceSelect value="system" onChange={onChange} />);
+  await user.click(screen.getByText("外观"));
+  await user.click(screen.getByRole("option", { name: "经典暖色" }));
+  expect(onChange).toHaveBeenCalledWith("warm");
+  view.rerender(<AppearanceSelect value="warm" onChange={onChange} />);
+  expect(screen.getByRole("combobox", { name: "外观模式" })).toHaveTextContent(
+    "经典暖色",
   );
 });

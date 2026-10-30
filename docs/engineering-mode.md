@@ -5,7 +5,7 @@
 ## 用户可见行为
 
 - 工作方式选择“工程协作”时，输入区出现一个小的“工程动作”选择，默认“分析（只读）”，可切换“开发（可修改并测试）”。这是动作选择，不是同意门禁；不选择时始终按只读分析执行。
-- 分析使用 `analyst` 与 `reviewer` 两个只读步骤，产物类型为 `code_analysis`。成员只能读取已绑定的工程目录并发布报告，不能写文件或执行测试。
+- 分析使用四个只读步骤：`analyst` 分析 → 复核成员以 `critic` 角色独立复核 → `analyst` 逐项只读答辩 → 同一复核成员以 `final_reviewer` 角色读取初评、复核与答辩，逐项核对最初发现并发布唯一的 `code_analysis`。中间质疑步骤没有发布义务；旧的两步 `reviewer` 发布计划继续兼容。成员只能读取已绑定的工程目录，不能写文件或执行测试。
 - 开发使用固定的四步计划并至少保留一轮修复闭环：
   1. `developer` 实现修改并运行测试；
   2. `reviewer` 独立读取 diff/测试证据并自行复测，以普通步骤回复给出结论和真实 source ID；它不发布 artifact；
@@ -13,7 +13,7 @@
   4. `final_reviewer` 做最终独立复核并发布本 Run 唯一的 `engineering_report`。
 - 只有 `final_reviewer` 能发布工程报告；中间步骤既没有 `publish_artifact` 工具，也无法通过执行门禁发布。
 - 自由协作的 `choose_workflow` 可显式选择工程只读分析，但从不授权开发；开发只能由用户在输入区显式选择“开发”。旧 `code_analysis` 选择保持只读兼容。
-- 全局协作设置按动作使用最小角色集：分析为 `analyst` + `reviewer`，开发为 `developer` + `reviewer`；开发动作的 `reviewer`（同一成员承担 `final_reviewer`）除发布权限外还必须具备 `run_test`，分析动作的 `reviewer` 只需发布权限，`run_test` 不是只读分析的门槛。默认填充不会让同一成员自审。
+- 全局协作设置按动作使用最小角色集：分析为 `analyst` + `reviewer`，开发为 `developer` + `reviewer`；同一复核成员在计划步骤中承担 `critic`（分析）或 `reviewer`/`final_reviewer`（开发），最终发布权限由 `final_reviewer` 保证。开发动作的 `reviewer`/`final_reviewer` 除发布权限外还必须具备 `run_test`，分析动作的 `reviewer` 只需发布权限，`run_test` 不是只读分析的门槛。默认填充不会让同一成员自审。
 - 每个 Run 的 `engineering_action` 显式保存在输入中。`develop` 只接受 `workflow=engineering` 且用户明确选择该动作的提交；成员预先拥有 `write_file`/`patch_file`/`run_test` 授权本身不会把分析升级成开发。
 - 旧的 `code_analysis` API、历史和会话设置继续可读可用，并始终保持只读；不会因为新增工程工具而获得写权限。
 - 新安装的默认成员仍只获得只读工具。`write_file`、`patch_file` 与 `run_test` 必须由用户显式加入全局允许和空间授权；旧数据不扩权。`patch_file` 是额外的可选授权，开发计划仍要求 `write_file` + `run_test`，只授予 `patch_file` 不会替代 `write_file`。

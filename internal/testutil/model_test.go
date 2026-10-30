@@ -64,6 +64,13 @@ func TestFixtureEngineeringAnalysisStaysReadOnly(t *testing.T) {
 	if err := json.Unmarshal(publish.Blocks[0].Input, &in); err != nil || in.Type != "code_analysis" {
 		t.Fatalf("engineering analysis artifact type = %q, %v", in.Type, err)
 	}
+	final := fixtureStep(t, "role=final_reviewer workflow=code_analysis type=code_analysis", "publish_artifact")
+	if len(final.Blocks) != 1 || final.Blocks[0].Name != "publish_artifact" {
+		t.Fatalf("final reviewer did not publish the read-only analysis: %+v", final.Blocks)
+	}
+	if err := json.Unmarshal(final.Blocks[0].Input, &in); err != nil || in.Type != "code_analysis" {
+		t.Fatalf("final reviewer artifact type = %q, %v", in.Type, err)
+	}
 }
 
 func TestFixtureChecksReturnStructuredCorrections(t *testing.T) {

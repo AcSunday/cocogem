@@ -35,7 +35,7 @@ export function ThreadForm({
               Number(b.id === defaultCoordinatorID) -
               Number(a.id === defaultCoordinatorID),
           )
-          .slice(0, 4)
+          .slice(0, 10)
           .map((agent) => agent.id);
     return {
       id: "",
@@ -78,7 +78,7 @@ export function ThreadForm({
           />
         </label>
         <fieldset>
-          <legend>会话成员（1–4 位）</legend>
+          <legend>会话成员（1–10 位）</legend>
           {agents.map((agent) => (
             <label className={cx("check-label")} key={agent.id}>
               <input

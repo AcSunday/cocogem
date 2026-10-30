@@ -92,6 +92,9 @@ it("applies and saves the appearance, including when browser storage is unavaila
   await chooseOption(user, select, "dark");
   expect(document.documentElement).toHaveAttribute("data-appearance", "dark");
   expect(localStorage.getItem("cocogem-appearance")).toBe("dark");
+  await chooseOption(user, select, "warm");
+  expect(document.documentElement).toHaveAttribute("data-appearance", "warm");
+  expect(localStorage.getItem("cocogem-appearance")).toBe("warm");
   vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
     throw new DOMException("Storage is disabled", "SecurityError");
   });

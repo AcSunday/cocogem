@@ -143,7 +143,7 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 		case "tool_use":
 			name := strings.TrimPrefix(event.ToolName, gate.nativePrefix)
 			if !initialized || gate.nativePrefix == "" || !strings.HasPrefix(event.ToolName, gate.nativePrefix) || gate.schemas[name] == nil {
-				return newFailure(FailureProtocol, "native CLI requested an unapproved native tool")
+				return newFailure(FailureProtocol, "native CLI requested an unapproved native tool: %s", safeToken(event.ToolName))
 			}
 			item := event.ID
 			if item == "" {

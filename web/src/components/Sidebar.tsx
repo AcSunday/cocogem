@@ -18,6 +18,7 @@ export function Sidebar({
   onHome,
   onThread,
   onNewThread,
+  onEditThread,
   onRenameThread,
   onDeleteThread,
   onCreateWorkspace,
@@ -37,6 +38,7 @@ export function Sidebar({
   onHome: () => void;
   onThread: (id: string) => void;
   onNewThread: () => void;
+  onEditThread: (thread: Thread) => void;
   onRenameThread: (thread: Thread) => void;
   onDeleteThread: (thread: Thread) => void;
   onCreateWorkspace: () => void;
@@ -129,6 +131,7 @@ export function Sidebar({
             <ThreadMenu
               thread={thread}
               session={threadID}
+              onEdit={() => onEditThread(thread)}
               onRename={() => onRenameThread(thread)}
               onDelete={() => onDeleteThread(thread)}
             />
@@ -166,11 +169,13 @@ export function Sidebar({
 function ThreadMenu({
   thread,
   session,
+  onEdit,
   onRename,
   onDelete,
 }: {
   thread: Thread;
   session: string;
+  onEdit: () => void;
   onRename: () => void;
   onDelete: () => void;
 }) {
@@ -282,6 +287,9 @@ function ThreadMenu({
             items[next]?.focus();
           }}
         >
+          <button type="button" role="menuitem" onClick={() => choose(onEdit)}>
+            编辑
+          </button>
           <button type="button" role="menuitem" onClick={() => choose(onRename)}>
             重命名
           </button>

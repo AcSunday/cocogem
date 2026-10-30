@@ -24,6 +24,60 @@ export const errorText = (error: unknown) =>
 export const initial = (name = "") => [...name.trim()][0] ?? "?";
 export const memberTone = (id: string) =>
   [...id].reduce((tone, char) => (tone + char.charCodeAt(0)) % 4, 0);
+
+export interface MemberColor {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export const memberPalette: MemberColor[] = [
+  { id: "blue", name: "天蓝", color: "#3b82f6" },
+  { id: "emerald", name: "翠绿", color: "#10b981" },
+  { id: "violet", name: "罗兰紫", color: "#8b5cf6" },
+  { id: "amber", name: "琥珀金", color: "#f59e0b" },
+  { id: "rose", name: "玫瑰粉", color: "#f43f5e" },
+  { id: "cyan", name: "青碧", color: "#06b6d4" },
+  { id: "indigo", name: "靛青", color: "#6366f1" },
+  { id: "orange", name: "暖橙", color: "#f97316" },
+];
+
+const COLOR_STORE_KEY = "cocogem.member-colors";
+
+export function getMemberColorId(agentId?: string): string {
+  if (!agentId) return "blue";
+  try {
+    const map = JSON.parse(localStorage.getItem(COLOR_STORE_KEY) ?? "{}");
+    if (map[agentId] && memberPalette.some((p) => p.id === map[agentId])) {
+      return map[agentId];
+    }
+  } catch {
+    // fallback to hash
+  }
+  const idx = [...agentId].reduce((acc, c) => (acc + c.charCodeAt(0)) % memberPalette.length, 0);
+  return memberPalette[idx].id;
+}
+
+export function setMemberColorId(agentId: string, colorId: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem(COLOR_STORE_KEY) ?? "{}");
+    map[agentId] = colorId;
+    localStorage.setItem(COLOR_STORE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+export function getMemberColor(agentId?: string): MemberColor {
+  const colorId = getMemberColorId(agentId);
+  return memberPalette.find((p) => p.id === colorId) ?? memberPalette[0];
+}
+
+export function randomMemberColorId(): string {
+  const index = Math.floor(Math.random() * memberPalette.length);
+  return memberPalette[index].id;
+}
+
 export const memberLabel = (agent: Agent) =>
   `${agent.display_name} (@${agent.handle})`;
 

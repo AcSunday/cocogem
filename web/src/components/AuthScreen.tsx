@@ -16,6 +16,7 @@ export function AuthScreen({
   const [initialized, setInitialized] = useState<boolean>();
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [visible, setVisible] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -36,24 +37,28 @@ export function AuthScreen({
   return (
     <main className={cx("bootstrap")}>
       <section className={cx("auth-card")} aria-labelledby="auth-title">
-        <span className={cx("brand-mark")}>
-          <Icon name="logo" size={22} />
-        </span>
-        <p className={cx("auth-brand")}>Cocogem</p>
-        <h1 id="auth-title">
-          {setup
-            ? "设置你的工作空间密码"
-            : required
-              ? "欢迎回来"
-              : "正在连接工作空间"}
-        </h1>
-        <p className={cx("muted")}>
-          {setup
-            ? "首次使用，设置一个密码来保护本机工作空间。"
-            : required
-              ? "输入密码，继续你的协作。"
-              : "正在连接本地服务…"}
-        </p>
+        <div className={cx("auth-head")}>
+          <span className={cx("brand-mark")}>
+            <Icon name="logo" size={22} />
+          </span>
+          <p className={cx("auth-brand")}>Cocogem</p>
+        </div>
+        <div className={cx("auth-intro")}>
+          <h1 id="auth-title">
+            {setup
+              ? "设置你的工作空间密码"
+              : required
+                ? "欢迎回来"
+                : "正在连接工作空间"}
+          </h1>
+          <p className={cx("muted")}>
+            {setup
+              ? "首次使用，设置一个密码来保护本机工作空间。"
+              : required
+                ? "输入密码，继续你的协作。"
+                : "正在连接本地服务…"}
+          </p>
+        </div>
         {initialized !== undefined && (
           <form
             onSubmit={async (event) => {
@@ -87,18 +92,29 @@ export function AuthScreen({
           >
             <label>
               {setup ? "设置密码" : "密码"}
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={setup ? "new-password" : "current-password"}
-                minLength={12}
-                maxLength={128}
-                required
-                autoFocus
-                aria-describedby={setup ? "password-hint" : undefined}
-                disabled={busy}
-              />
+              <span className={cx("password-field")}>
+                <input
+                  type={visible ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete={setup ? "new-password" : "current-password"}
+                  minLength={12}
+                  maxLength={128}
+                  required
+                  autoFocus
+                  aria-describedby={setup ? "password-hint" : undefined}
+                  disabled={busy}
+                />
+                <button
+                  type="button"
+                  className={cx("password-toggle")}
+                  aria-label={visible ? "隐藏密码" : "显示密码"}
+                  aria-pressed={visible}
+                  onClick={() => setVisible((shown) => !shown)}
+                >
+                  <Icon name={visible ? "eyeOff" : "eye"} size={16} />
+                </button>
+              </span>
             </label>
             {setup && (
               <>

@@ -1,36 +1,47 @@
 /* Design tokens and element defaults shared by every module. */
 :root {
   color-scheme: light dark;
-  --bg: light-dark(#faf7f2, #1e1e1e);
-  --surface: light-dark(#fffdf9, #252526);
-  --surface-2: light-dark(#f0ebe3, #181818);
-  --surface-3: light-dark(#eee7dd, #303031);
-  --border: light-dark(#dfd5c9, #3c3c3c);
-  --border-strong: light-dark(#9b8b7b, #777777);
-  --text: light-dark(#332c26, #d4d4d4);
-  --text-2: light-dark(#665b50, #b6b6b6);
-  --text-3: light-dark(#706357, #a6a6a6);
-  --accent: light-dark(#a34e35, #a65e48);
-  --accent-hover: light-dark(#8e422c, #99533e);
-  --accent-soft: light-dark(#f3e5d9, #3a2c26);
-  --accent-text: light-dark(#a34e35, #e4aa91);
-  --warn-bg: light-dark(#f4ead5, #3b3122);
-  --warn-text: light-dark(#705114, #e8bf7a);
-  --danger: light-dark(#9e3d2d, #f19890);
-  --danger-bg: light-dark(#f9e9e2, #3d2726);
-  --success-bg: light-dark(#e8eddf, #293328);
-  --success-text: light-dark(#50613e, #b3c6a6);
-  --focus: var(--accent-text);
-  --radius-sm: 7px;
-  --radius: 10px;
-  --radius-lg: 14px;
-  --shadow: 0 8px 32px light-dark(rgb(51 44 38 / 8%), rgb(0 0 0 / 24%));
-  --topbar: 56px;
-  font-family:
+  /* Modern clean light / Modern deep dark default pair */
+  --bg: light-dark(#f8fafc, #0b0d10);
+  --surface: light-dark(#ffffff, #14171d);
+  --surface-2: light-dark(#f1f5f9, #1c2027);
+  --surface-3: light-dark(#e2e8f0, #242932);
+  --border: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
+  --border-strong: light-dark(rgba(0, 0, 0, 0.16), rgba(255, 255, 255, 0.16));
+  --text: light-dark(#0f172a, #f1f5f9);
+  --text-2: light-dark(#475569, #94a3b8);
+  --text-3: light-dark(#64748b, #64748b);
+  --accent: light-dark(#2563eb, #3b82f6);
+  --accent-hover: light-dark(#1d4ed8, #2563eb);
+  --accent-soft: light-dark(rgba(37, 99, 235, 0.08), rgba(59, 130, 246, 0.12));
+  --accent-text: light-dark(#2563eb, #60a5fa);
+  --warn-bg: light-dark(rgba(245, 158, 11, 0.12), rgba(251, 191, 36, 0.12));
+  --warn-text: light-dark(#b45309, #fbbf24);
+  --danger: light-dark(#dc2626, #f87171);
+  --danger-bg: light-dark(rgba(220, 38, 38, 0.08), rgba(248, 113, 113, 0.12));
+  --success-bg: light-dark(rgba(5, 150, 105, 0.1), rgba(52, 211, 153, 0.12));
+  --success-text: light-dark(#059669, #34d399);
+  --focus: var(--accent);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+  --shadow: 0 10px 30px light-dark(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.45));
+  --shadow-lg: 0 16px 40px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.6));
+  --topbar: 52px;
+  --control-height: 34px;
+  --control-padding: 6px 12px;
+  --control-font-size: 13px;
+  --font-body:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-display: var(--font-body);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-body);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -58,29 +69,136 @@ p {
   margin-top: 0;
 }
 h1 {
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1.35;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 h2 {
   font-size: 18px;
   line-height: 1.4;
-  font-weight: 500;
+  font-weight: 600;
 }
 h3 {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
 }
 h4 {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
 }
 :root[data-appearance="light"] {
   color-scheme: light;
 }
 :root[data-appearance="dark"] {
   color-scheme: dark;
+}
+
+/* Warm appearance: original classic warm paper & terracotta red palette */
+:root[data-appearance="warm"] {
+  color-scheme: light;
+  --bg: #faf7f2;
+  --surface: #fffdf9;
+  --surface-2: #f0ebe3;
+  --surface-3: #eee7dd;
+  --border: #dfd5c9;
+  --border-strong: #9b8b7b;
+  --text: #332c26;
+  --text-2: #665b50;
+  --text-3: #706357;
+  --accent: #a34e35;
+  --accent-hover: #8e422c;
+  --accent-soft: #f3e5d9;
+  --accent-text: #a34e35;
+  --warn-bg: #f4ead5;
+  --warn-text: #705114;
+  --danger: #9e3d2d;
+  --danger-bg: #f9e9e2;
+  --success-bg: #e8eddf;
+  --success-text: #50613e;
+  --focus: var(--accent-text);
+  --shadow: 0 8px 32px rgb(51 44 38 / 8%);
+}
+/* DeepSeek harness: DeepSeek Harness (dsh) dark tokens — bluish neutrals,
+ * system type and the DSH radius scale. */
+:root[data-appearance="deepseek"] {
+  color-scheme: dark;
+  --bg: #151517;
+  --surface: #232324;
+  --surface-2: #1b1b1c;
+  --surface-3: #2c2c2e;
+  --border: rgb(255 255 255 / 10%);
+  --border-strong: rgb(255 255 255 / 18%);
+  --text: #f9fafb;
+  --text-2: #cfd3d6;
+  --text-3: #adb2b8;
+  --accent: #7aaaff;
+  --accent-hover: #5686fe;
+  --accent-soft: rgb(86 134 254 / 16%);
+  --accent-text: #7aaaff;
+  --warn-bg: #2b2518;
+  --warn-text: #f7ad31;
+  --danger: #f25a5a;
+  --danger-bg: rgb(242 90 90 / 12%);
+  --success-bg: rgb(34 197 94 / 12%);
+  --success-text: #4ed17e;
+  --focus: var(--accent);
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --shadow: 0 12px 32px rgb(0 0 0 / 40%);
+  --control-height: 36px;
+  --control-padding: 7px 14px;
+  --control-font-size: 14px;
+  scrollbar-color: #3c3c3d transparent;
+  scrollbar-width: thin;
+  --font-body:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
+    sans-serif;
+  --font-display: var(--font-body);
+}
+/* DSH primary buttons are light on dark; the blue stays for links and the
+ * composer send control. */
+:root[data-appearance="deepseek"] .primary {
+  border-color: transparent;
+  background: var(--text);
+  color: #151517;
+}
+:root[data-appearance="deepseek"] .primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: #ebeff2;
+}
+:root[data-appearance="deepseek"] .danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+/* DSH hover lightens the control instead of darkening it. */
+:root[data-appearance="deepseek"] button:hover:not(:disabled),
+:root[data-appearance="deepseek"] a.button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+:root[data-appearance="deepseek"] button {
+  transition:
+    background-color 0.1s ease,
+    border-color 0.1s ease;
+}
+:root[data-appearance="deepseek"] .skip-link {
+  color: #151517;
+}
+:root[data-appearance="deepseek"] ::selection {
+  background: rgb(86 134 254 / 40%);
+  color: var(--text);
+}
+/* DSH curves every rounded surface along a superellipse; full-round shapes
+ * opt out in their owning modules. */
+@supports (corner-shape: superellipse(1.5)) {
+  :root[data-appearance="deepseek"] *,
+  :root[data-appearance="deepseek"] *::before,
+  :root[data-appearance="deepseek"] *::after {
+    corner-shape: superellipse(1.5);
+  }
 }
 strong,
 b {
@@ -95,13 +213,13 @@ a.button {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 34px;
-  padding: 6px 12px;
+  min-height: var(--control-height);
+  padding: var(--control-padding);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--control-font-size);
   font-weight: 500;
   line-height: 1.4;
   text-decoration: none;

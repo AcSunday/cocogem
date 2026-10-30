@@ -167,7 +167,7 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	}
 	var view RunView
 	call("GET", "/api/v1/runs/"+run.ID, nil, &view, 0, 200)
-	if len(view.Steps) != 3 || view.Run.CoordinatorID != one[2].ID {
+	if len(view.Steps) != 5 || view.Run.CoordinatorID != one[2].ID {
 		t.Fatalf("unexpected run plan: %+v", view)
 	}
 	var threadView ThreadView
@@ -268,8 +268,8 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 		t.Fatalf("submitted research run lost its defaults: %+v", researchRun.Routing)
 	}
 	call("GET", "/api/v1/runs/"+researchRun.ID, nil, &view, 0, 200)
-	if len(view.Steps) != 3 {
-		t.Fatalf("research plan = %d steps, want 3", len(view.Steps))
+	if len(view.Steps) != 5 {
+		t.Fatalf("research plan = %d steps, want 5", len(view.Steps))
 	}
 
 	// The same holds for code analysis in a workspace bound to a source root.
@@ -287,8 +287,8 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	var analysisRun w.Run
 	submit(analysisThread.ID, "settings-no-assignment-analysis", input, &analysisRun)
 	call("GET", "/api/v1/runs/"+analysisRun.ID, nil, &view, 0, 200)
-	if len(view.Steps) != 2 {
-		t.Fatalf("code_analysis plan = %d steps, want 2", len(view.Steps))
+	if len(view.Steps) != 4 {
+		t.Fatalf("code_analysis plan = %d steps, want 4", len(view.Steps))
 	}
 
 	// Two members with only one publisher can still analyze: the publisher
@@ -306,8 +306,8 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	var pairedRun w.Run
 	submit(paired.ID, "settings-paired-analysis", input, &pairedRun)
 	call("GET", "/api/v1/runs/"+pairedRun.ID, nil, &view, 0, 200)
-	if len(view.Steps) != 2 {
-		t.Fatalf("two-member code_analysis plan = %d steps, want 2", len(view.Steps))
+	if len(view.Steps) != 4 {
+		t.Fatalf("two-member code_analysis plan = %d steps, want 4", len(view.Steps))
 	}
 	// An explicit analyst that is the only publisher is not silently changed.
 	input = w.RunInput{Message: "显式唯一发布者分析", Workflow: "code_analysis", Assignments: map[string]string{"analyst": pair[0].ID}}

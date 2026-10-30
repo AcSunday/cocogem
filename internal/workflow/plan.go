@@ -107,13 +107,24 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		if r == c {
 			return nil, errors.New("researcher and critic must be different members")
 		}
+		last := func() string { return out[len(out)-1].ID }
 		if err := add(r, "researcher", "Research the user question using allowed sources. Fetch originals before presenting them as read. State findings and uncertainties.", nil); err != nil {
 			return nil, err
 		}
-		if err := add(c, "critic", "Independently read relevant sources. Challenge dates, evidence, assumptions and missing alternatives. Preserve disputed conclusions.", []string{out[0].ID}); err != nil {
+		research := last()
+		if err := add(c, "critic", "Independently read relevant sources. Challenge dates, evidence, assumptions, missing alternatives and unsupported conclusions. Reply as a plain step message with exact references; do not publish an artifact.", []string{research}); err != nil {
 			return nil, err
 		}
-		if err := add(co, "coordinator", "Integrate research and critique; publish a research_report including scope, method, findings, disagreements, limitations and next steps.", []string{out[0].ID, out[1].ID}); err != nil {
+		critique := last()
+		if err := add(r, "researcher", "Respond point by point to the critic's exact challenges using the initial research and critique in the handoff. Add or correct evidence where possible, concede unsupported claims, and keep unresolved disagreement visible. Reply as a plain step message; do not publish an artifact.", []string{research, critique}); err != nil {
+			return nil, err
+		}
+		response := last()
+		if err := add(c, "critic", "Re-check the researcher's point-by-point response against the initial research and your own critique in the exact upstream handoff. Confirm corrected points and keep every unresolved item explicit. Reply as a plain step message; do not publish an artifact.", []string{research, critique, response}); err != nil {
+			return nil, err
+		}
+		review := last()
+		if err := add(co, "coordinator", "Deliver the final research_report from the initial research, critique, point-by-point response and critic re-check in the handoff. Include scope, method, findings, disagreements, source IDs, limitations and next steps, and keep unresolved items visible. Publish exactly one research_report.", []string{research, critique, response, review}); err != nil {
 			return nil, err
 		}
 	case "code_analysis":
@@ -121,10 +132,20 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		if a == r {
 			return nil, errors.New("analyst and reviewer must be different members")
 		}
+		last := func() string { return out[len(out)-1].ID }
 		if err := add(a, "analyst", "Read relevant source files. Analyze the requested behavior and report concrete findings with file evidence. Do not execute code or claim runtime verification.", nil); err != nil {
 			return nil, err
 		}
-		if err := add(r, "reviewer", "Read relevant files independently; confirm or dispute each finding and publish code_analysis with severity, impact, file source IDs and limitations. No runtime verification is available.", []string{out[0].ID}); err != nil {
+		analysis := last()
+		if err := add(r, "critic", "Read relevant files independently; confirm or dispute each finding with exact file source IDs and preserve disagreement. Reply as a plain step message; do not publish an artifact. No runtime verification is available.", []string{analysis}); err != nil {
+			return nil, err
+		}
+		review := last()
+		if err := add(a, "analyst", "Read the critic's exact step reply in the handoff and answer it point by point with file evidence. Concede unsupported findings and keep unresolved disagreement visible. Stay read-only: do not modify files, execute code, or claim runtime verification. Reply as a plain step message; do not publish an artifact.", []string{analysis, review}); err != nil {
+			return nil, err
+		}
+		response := last()
+		if err := add(r, "final_reviewer", "Independently read the relevant files plus the initial analysis, the committed review and the analyst response in the handoff. Check every original finding against the review and the response, then publish exactly one code_analysis with severity, impact, file source IDs and limitations; no runtime verification is available. Keep disputes and unresolved findings visible.", []string{analysis, review, response}); err != nil {
 			return nil, err
 		}
 	case "engineering":
@@ -157,7 +178,16 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		if err := add(a, "analyst", "Read relevant source files. Analyze the requested behavior and report concrete findings with file evidence. This engineering action is read-only: do not modify files, execute project tests, or claim runtime verification.", nil); err != nil {
 			return nil, err
 		}
-		if err := add(r, "reviewer", "Read relevant files independently; confirm or dispute each finding and publish code_analysis with severity, impact, file source IDs and limitations. This engineering action is read-only: no file writes or test execution.", []string{out[0].ID}); err != nil {
+		analysis := out[len(out)-1].ID
+		if err := add(r, "critic", "Read relevant files independently; confirm or dispute each finding with exact file source IDs and preserve disagreement. Reply as a plain step message; do not publish an artifact. This engineering action is read-only: no file writes or test execution.", []string{analysis}); err != nil {
+			return nil, err
+		}
+		review := out[len(out)-1].ID
+		if err := add(a, "analyst", "Read the critic's exact step reply in the handoff and answer it point by point with file evidence. Concede unsupported findings and keep unresolved disagreement visible. Stay read-only: do not modify files, execute tests, or claim runtime verification. Reply as a plain step message; do not publish an artifact.", []string{analysis, review}); err != nil {
+			return nil, err
+		}
+		response := out[len(out)-1].ID
+		if err := add(r, "final_reviewer", "Independently read the relevant files plus the initial analysis, the committed review and the analyst response in the handoff. Check every original finding against the review and the response, then publish exactly one code_analysis with severity, impact, file source IDs and limitations. This action is read-only: no file writes or test execution, and no runtime verification is available. Keep disputes and unresolved findings visible.", []string{analysis, review, response}); err != nil {
 			return nil, err
 		}
 	default:
@@ -221,7 +251,7 @@ func RequiredArtifact(step w.Step, in w.RunInput) string {
 			}
 			return ""
 		}
-		if step.Role == "reviewer" {
+		if step.Role == "reviewer" || step.Role == "final_reviewer" {
 			return "code_analysis"
 		}
 		return ""
@@ -232,7 +262,11 @@ func RequiredArtifact(step w.Step, in w.RunInput) string {
 		}
 		return "note"
 	}
-	if step.Role == "reviewer" {
+	// Legacy two-step plans still publish as reviewer. New read-only analysis
+	// plans use critic for the intermediate challenge and final_reviewer for
+	// the sole publication step, so an intermediate step never inherits this
+	// publication obligation.
+	if step.Role == "reviewer" || step.Role == "final_reviewer" {
 		return "code_analysis"
 	}
 	return ""

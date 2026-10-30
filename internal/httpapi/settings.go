@@ -79,8 +79,8 @@ func applyThreadDefaults(th *w.Thread, agents []w.Agent, settings w.Settings) {
 				th.AgentIDs = append(th.AgentIDs, agent.ID)
 			}
 		}
-		if len(th.AgentIDs) > 4 {
-			th.AgentIDs = th.AgentIDs[:4]
+		if len(th.AgentIDs) > 10 {
+			th.AgentIDs = th.AgentIDs[:10]
 		}
 	}
 	if th.CoordinatorID != "" {

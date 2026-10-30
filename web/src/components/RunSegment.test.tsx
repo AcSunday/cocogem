@@ -113,6 +113,50 @@ const articles = (text: string) =>
     .getAllByRole("article")
     .filter((article) => article.textContent?.includes(text));
 
+it("renders every research and read-only analysis step role", () => {
+  const renderRoles = (roles: string[]) => {
+    const steps = roles.map(
+      (role, index) =>
+        ({
+          ...step,
+          id: `step-${index}`,
+          role,
+          status: "succeeded",
+        }) as Step,
+    );
+    const messages = steps.map((item, index) => ({
+      ...message(`message-${index}`, `步骤输出 ${index}`),
+      step_id: item.id,
+    }));
+    return render(
+      <RunSegment
+        {...props}
+        run={{ ...baseRun, status: "running" }}
+        steps={steps}
+        messages={messages}
+      />,
+    );
+  };
+  const expectRoles = (labels: string[]) => {
+    labels.forEach((label, index) => {
+      expect(
+        within(articles(`步骤输出 ${index}`)[0]).getByText(label),
+      ).toBeVisible();
+    });
+  };
+  const research = renderRoles([
+    "researcher",
+    "critic",
+    "researcher",
+    "critic",
+    "coordinator",
+  ]);
+  expectRoles(["研究", "质疑", "研究", "质疑", "汇总"]);
+  research.unmount();
+  renderRoles(["analyst", "critic", "analyst", "final_reviewer"]);
+  expectRoles(["分析", "质疑", "分析", "最终复核"]);
+});
+
 it("folds intermediate replies but keeps every explicit final message", () => {
   render(
     <RunSegment

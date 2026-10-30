@@ -165,6 +165,7 @@ func TestPublishSchemaMatchesValidatorStatuses(t *testing.T) {
 		{"note", "free", "responder", "note", []string{"supported", "confirmed", "disputed", "insufficient_evidence"}},
 		{"research report", "research", "coordinator", "research_report", []string{"supported", "disputed", "insufficient_evidence"}},
 		{"code analysis", "code_analysis", "reviewer", "code_analysis", []string{"confirmed", "disputed", "insufficient_evidence"}},
+		{"final code analysis", "code_analysis", "final_reviewer", "code_analysis", []string{"confirmed", "disputed", "insufficient_evidence"}},
 	}
 	runs := make([]w.Run, len(cases))
 	for i, tc := range cases {

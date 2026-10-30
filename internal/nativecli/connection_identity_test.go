@@ -58,6 +58,10 @@ func TestClaudeConnectionIdentityTracksEnvironmentWithoutSettingsFile(t *testing
 }
 
 func TestGeminiConnectionIdentityTracksCLIHome(t *testing.T) {
+	for _, key := range []string{"GEMINI_MODEL", "GOOGLE_GENAI_MODEL", "GEMINI_CLI_MODEL"} {
+		t.Setenv(key, "")
+		_ = os.Unsetenv(key)
+	}
 	home := t.TempDir()
 	t.Setenv("GEMINI_CLI_HOME", home)
 	t.Setenv("GEMINI_CONFIG_DIR", t.TempDir())

@@ -485,7 +485,7 @@ func TestResearchExecutionAndCancellation(t *testing.T) {
 							handoffs++
 						}
 					}
-					if handoffs != 2 {
+					if handoffs != 4 {
 						t.Fatal("missing handoffs", handoffs)
 					}
 					return err
@@ -556,7 +556,7 @@ func TestMessageSnapshotsAttemptModelAndSurvivesMemberEdit(t *testing.T) {
 			t.Fatalf("message model snapshot = %+v", message)
 		}
 	}
-	if assistant != 3 {
+	if assistant != 5 {
 		t.Fatalf("assistant messages = %d", assistant)
 	}
 	// Editing the reusable member profile must not rewrite already produced history.

@@ -532,7 +532,7 @@ func validateThread(th w.Thread, agents []w.Agent) error {
 	if err := validateThreadTitle(th.Title); err != nil {
 		return err
 	}
-	if len(th.AgentIDs) < 1 || len(th.AgentIDs) > 4 {
+	if len(th.AgentIDs) < 1 || len(th.AgentIDs) > 10 {
 		return errors.New("会话成员数量无效")
 	}
 	if !slices.Contains(th.AgentIDs, th.CoordinatorID) {
@@ -1010,8 +1010,8 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 				th.AgentIDs = append(th.AgentIDs, a.ID)
 			}
 		}
-		if len(th.AgentIDs) > 4 {
-			return errors.New("会话不能超过四个成员")
+		if len(th.AgentIDs) > 10 {
+			return errors.New("会话不能超过十个成员")
 		}
 		if in.Workflow == "free" || in.Workflow == "" {
 			for _, a := range agents {

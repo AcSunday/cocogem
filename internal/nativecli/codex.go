@@ -225,14 +225,14 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 			case "plan", "todo_list", "reasoning_summary":
 			case "mcp_tool_call":
 				if event.Item.Server != "cocogem" || gate.schemas[event.Item.Tool] == nil {
-					return newFailure(FailureProtocol, "native CLI requested an unapproved MCP tool")
+					return newFailure(FailureProtocol, "native CLI requested an unapproved MCP tool: %s", safeToken(event.Item.Tool))
 				}
 				if activity.newTool(event.Item.ID, "") {
 					live.valid("tool_call")
 				}
 			case "web_search":
 				if !gate.nativeAllowed(nativeCodexWeb) {
-					return newFailure(FailureProtocol, "native CLI exposed a native web tool outside this step's permissions")
+					return newFailure(FailureProtocol, "native CLI exposed a native web tool outside this step's permissions: %s", safeToken(nativeCodexWeb))
 				}
 				started := activity.newTool(event.Item.ID, "web_search")
 				if event.Type != "item.completed" {

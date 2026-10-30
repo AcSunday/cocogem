@@ -2,7 +2,14 @@ import { Select } from "../Select";
 import { useState } from "react";
 import type { Agent, System, WorkspaceMember } from "../../api/client";
 import { cx } from "../../styles/classes";
-import { errorText, memberLabel } from "../../lib/presentation";
+import {
+  errorText,
+  getMemberColorId,
+  memberLabel,
+  memberPalette,
+  randomMemberColorId,
+  setMemberColorId,
+} from "../../lib/presentation";
 import { Avatar, avatars } from "../Avatar";
 import { Modal } from "../Modal";
 
@@ -76,6 +83,9 @@ export function MembersForm({
       ? agent
       : { ...agent, executor: "", model: "default" };
   const [value, setValue] = useState<Agent>(editable(initial));
+  const [colorId, setColorId] = useState<string>(() =>
+    initial.id ? getMemberColorId(initial.id) : randomMemberColorId(),
+  );
   const [aliases, setAliases] = useState((initial.aliases ?? []).join(","));
   const [capabilities, setCapabilities] = useState(
     (initial.capabilities ?? []).join(","),
@@ -103,6 +113,7 @@ export function MembersForm({
             key={agent.id}
             onClick={() => {
               setValue(editable(agent));
+              setColorId(getMemberColorId(agent.id));
               setAliases((agent.aliases ?? []).join(","));
               setCapabilities((agent.capabilities ?? []).join(","));
               setSaved(false);
@@ -127,6 +138,7 @@ export function MembersForm({
         <button
           onClick={() => {
             setValue(blank());
+            setColorId(randomMemberColorId());
             setAliases("");
             setCapabilities("");
             setSaved(false);
@@ -148,6 +160,7 @@ export function MembersForm({
             ...(catalog ? { capabilities: names(capabilities) } : {}),
           })
             .then((agent) => {
+              if (agent.id) setMemberColorId(agent.id, colorId);
               setValue(agent);
               setSaved(true);
             })
@@ -210,6 +223,29 @@ export function MembersForm({
             />
           </label>
         )}
+        <label>
+          专属颜色
+          <div className={cx("color-picker")}>
+            {memberPalette.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={cx(
+                  `color-dot ${colorId === item.id ? "selected" : ""}`,
+                )}
+                style={{ backgroundColor: item.color }}
+                title={item.name}
+                aria-label={`选择${item.name}`}
+                aria-pressed={colorId === item.id}
+                onClick={() => {
+                  setSaved(false);
+                  setColorId(item.id);
+                  if (value.id) setMemberColorId(value.id, item.id);
+                }}
+              />
+            ))}
+          </div>
+        </label>
         <label>
           头像
           <Select

@@ -21,6 +21,29 @@ test("restores explicit appearance before React loads", async ({ page }) => {
   await expect(page.locator("#root")).toBeEmpty();
 });
 
+test("restores the DeepSeek appearance before React loads", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.addInitScript(() =>
+    localStorage.setItem("cocogem-appearance", "deepseek"),
+  );
+  await page.route("**/assets/*.js", (route) =>
+    route.request().url().endsWith("/appearance.js")
+      ? route.continue()
+      : route.abort(),
+  );
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-appearance",
+    "deepseek",
+  );
+  await expect(page.locator("html")).toHaveCSS(
+    "background-color",
+    "rgb(21, 21, 23)",
+  );
+});
+
 test("ignores invalid preferences and works without browser storage", async ({
   page,
 }) => {

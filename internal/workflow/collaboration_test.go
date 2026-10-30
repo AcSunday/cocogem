@@ -179,7 +179,7 @@ func TestSubmitHandoffIsDurableAndIdempotent(t *testing.T) {
 		t.Fatalf("retry changed receipt: first=%+v second=%+v", first, second)
 	}
 	steps := collaborationSteps(t, e.Store, run.ID)
-	if len(steps) != 5 {
+	if len(steps) != 7 {
 		t.Fatalf("retry duplicated tasks: %+v", steps)
 	}
 	child, continuation := collaborationStep(t, steps, first.TaskID), collaborationStep(t, steps, first.ContinuationID)
@@ -197,7 +197,7 @@ func TestSubmitHandoffIsDurableAndIdempotent(t *testing.T) {
 	if _, err := e.submitHandoff(t.Context(), run, sender, collaborationJSON(t, in)); err == nil {
 		t.Fatal("idempotency collision was accepted")
 	}
-	if len(collaborationSteps(t, e.Store, run.ID)) != 5 || len(collaborationEvents(t, e.Store, run.ID)) != 1 {
+	if len(collaborationSteps(t, e.Store, run.ID)) != 7 || len(collaborationEvents(t, e.Store, run.ID)) != 1 {
 		t.Fatal("rejected collision changed durable state")
 	}
 	// A second independent submission shares the sender's continuation.
@@ -301,7 +301,7 @@ func TestSubmitHandoffRejectsInvalidTargetsAndInput(t *testing.T) {
 			if result, err := e.submitHandoff(t.Context(), run, sender, collaborationJSON(t, in)); err == nil || result != "" {
 				t.Fatalf("invalid handoff returned %q, %v", result, err)
 			}
-			if len(collaborationSteps(t, e.Store, run.ID)) != 3 || len(collaborationEvents(t, e.Store, run.ID)) != 0 {
+			if len(collaborationSteps(t, e.Store, run.ID)) != 5 || len(collaborationEvents(t, e.Store, run.ID)) != 0 {
 				t.Fatal("rejected request changed durable state")
 			}
 		})
@@ -353,7 +353,7 @@ func TestSubmitHandoffRechecksCurrentGrants(t *testing.T) {
 				if _, err := e.submitHandoff(t.Context(), run, sender, collaborationJSON(t, in)); err == nil {
 					t.Fatalf("handoff survived %s %s", who, change)
 				}
-				if len(collaborationSteps(t, e.Store, run.ID)) != 3 {
+				if len(collaborationSteps(t, e.Store, run.ID)) != 5 {
 					t.Fatal("permission failure left a task behind")
 				}
 			})
@@ -644,7 +644,7 @@ func TestCollaborationContextReportsCurrentAvailabilityAndGrants(t *testing.T) {
 	if err := json.NewDecoder(strings.NewReader(text[start:])).Decode(&roster); err != nil {
 		t.Fatal(err)
 	}
-	if roster.CoordinatorID != sender.AgentID || roster.CurrentStepID != sender.ID || len(roster.Tasks) != 3 || len(roster.Members) != 3 {
+	if roster.CoordinatorID != sender.AgentID || roster.CurrentStepID != sender.ID || len(roster.Tasks) != 5 || len(roster.Members) != 3 {
 		t.Fatalf("incomplete runtime context: %+v", roster)
 	}
 	if roster.Members[1].Available || !slices.Equal(roster.Members[1].Tools, []string{"read_source"}) || !slices.Equal(roster.Members[1].Capabilities, []string{"source-verification"}) {
@@ -1120,6 +1120,26 @@ type collaborationReceipt struct {
 	TaskID         string `json:"task_id"`
 	ContinuationID string `json:"continuation_id"`
 	Status         string `json:"status"`
+}
+
+func TestIndependentReviewRejectsTheTargetsOwnReferences(t *testing.T) {
+	e, run, sender := collaborationFixture(t)
+	own, _, _ := collaborationEvidence(t, e.Store, run, run.Agents[2].ID)
+	in := handoffInput{RequestID: "self-review", TargetAgentID: run.Agents[2].ID, Task: "Review this evidence", Role: "reviewer", ContextRefs: []string{own.ID}}
+	if result, err := e.submitHandoff(t.Context(), run, sender, collaborationJSON(t, in)); err == nil || result != "" {
+		t.Fatal("a reviewer was assigned their own referenced work")
+	} else {
+		for _, want := range []string{"target reviewer", own.ID, "omit the target's own replies"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("rejection is not correctable (%q missing): %v", want, err)
+			}
+		}
+	}
+	// The same work remains reviewable by a member who did not author it.
+	in.RequestID, in.TargetAgentID = "independent-review", run.Agents[1].ID
+	if _, err := e.submitHandoff(t.Context(), run, sender, collaborationJSON(t, in)); err != nil {
+		t.Fatalf("independent review target was refused: %v", err)
+	}
 }
 
 func collaborationFixture(t *testing.T) (*Engine, w.Run, w.Step) {

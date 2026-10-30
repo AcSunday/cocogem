@@ -4,16 +4,24 @@ select,
 textarea {
   min-width: 0;
   min-height: 36px;
-  padding: 7px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--surface);
   font-size: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 input:hover,
 select:hover,
 textarea:hover {
   border-color: var(--border-strong);
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--focus);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 textarea {
   resize: vertical;
@@ -302,17 +310,19 @@ small,
 .select-menu {
   inset: auto;
   margin: 0;
-  padding: 5px;
+  padding: 6px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   color: var(--text);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-lg);
   font-family: inherit;
   font-size: 13px;
   line-height: 1.5;
   z-index: 100;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 .select-option {
   display: flex;
@@ -320,10 +330,11 @@ small,
   align-items: center;
   gap: 12px;
   min-height: 36px;
-  padding: 8px 10px;
-  border-radius: 5px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
   cursor: pointer;
+  transition: all 0.12s ease;
 }
 .select-option[aria-selected="true"] {
   color: var(--accent-text);
@@ -336,4 +347,22 @@ small,
   color: var(--text-3);
   opacity: 0.55;
   cursor: not-allowed;
+}
+/* DeepSeek harness menus float over the page; chips and dots stay round. */
+:global(:root[data-appearance="deepseek"]) .select-menu {
+  border-color: var(--border);
+  background: rgb(48 49 54 / 94%);
+  backdrop-filter: blur(12px);
+}
+:global(:root[data-appearance="deepseek"])
+  .select-option[aria-selected="true"] {
+  color: var(--text);
+  background: rgb(255 255 255 / 10%);
+}
+:global(:root[data-appearance="deepseek"]) .select-option.highlighted {
+  background: rgb(255 255 255 / 8%);
+}
+:global(:root[data-appearance="deepseek"]) .status,
+:global(:root[data-appearance="deepseek"]) .status::before {
+  corner-shape: round;
 }

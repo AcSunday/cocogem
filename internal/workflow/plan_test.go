@@ -23,7 +23,7 @@ func TestFinitePlansAndIndependentReview(t *testing.T) {
 	}{
 		{"free", w.RunInput{Workflow: "free", Targets: []string{"a"}}, 1, false},
 		{"discussion", w.RunInput{Workflow: "discussion", Targets: []string{"a", "b"}, Assignments: map[string]string{"coordinator": "c"}}, 8, false},
-		{"research", w.RunInput{Workflow: "research", Assignments: map[string]string{"researcher": "a", "critic": "b", "coordinator": "c"}}, 3, false},
+		{"research", w.RunInput{Workflow: "research", Assignments: map[string]string{"researcher": "a", "critic": "b", "coordinator": "c"}}, 5, false},
 		{"self review", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "a"}}, 0, true},
 		{"unknown member", w.RunInput{Targets: []string{"x"}}, 0, true},
 	} {
@@ -33,6 +33,118 @@ func TestFinitePlansAndIndependentReview(t *testing.T) {
 				t.Fatal(plan, err)
 			}
 		})
+	}
+}
+
+func TestResearchPlanHandsExactContextToEachLaterStep(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "研究员", Tools: []string{"publish_artifact"}}, {ID: "b", DisplayName: "质疑者", Tools: []string{"publish_artifact"}}, {ID: "c", DisplayName: "协调者", Tools: []string{"publish_artifact"}}}
+	steps, err := Plan("run", w.RunInput{Workflow: "research", Assignments: map[string]string{"researcher": "a", "critic": "b", "coordinator": "c"}}, agents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 5 {
+		t.Fatalf("research steps = %d", len(steps))
+	}
+	roles := []string{}
+	for _, step := range steps {
+		roles = append(roles, step.Role)
+	}
+	if !slices.Equal(roles, []string{"researcher", "critic", "researcher", "critic", "coordinator"}) {
+		t.Fatalf("research roles = %v", roles)
+	}
+	if !slices.Equal(steps[1].DependsOn, []string{steps[0].ID}) {
+		t.Fatalf("critique deps = %v", steps[1].DependsOn)
+	}
+	if !slices.Equal(steps[2].DependsOn, []string{steps[0].ID, steps[1].ID}) {
+		t.Fatalf("researcher response deps = %v", steps[2].DependsOn)
+	}
+	if !slices.Equal(steps[3].DependsOn, []string{steps[0].ID, steps[1].ID, steps[2].ID}) {
+		t.Fatalf("critic re-check deps = %v", steps[3].DependsOn)
+	}
+	if !slices.Equal(steps[4].DependsOn, []string{steps[0].ID, steps[1].ID, steps[2].ID, steps[3].ID}) {
+		t.Fatalf("final report deps = %v", steps[4].DependsOn)
+	}
+	in := w.RunInput{Workflow: "research"}
+	for i, step := range steps {
+		want := ""
+		if i == len(steps)-1 {
+			want = "research_report"
+		}
+		if got := RequiredArtifact(step, in); got != want {
+			t.Fatalf("step %d artifact = %q, want %q", i, got, want)
+		}
+	}
+}
+
+func TestPlansReuseTheSameMemberForPairedRoles(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "甲", Tools: []string{"publish_artifact"}}, {ID: "b", DisplayName: "乙", Tools: []string{"publish_artifact"}}}
+	research, err := Plan("run", w.RunInput{Workflow: "research", Assignments: map[string]string{"researcher": "a", "critic": "b", "coordinator": "a"}}, agents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(research) != 5 || research[0].AgentID != "a" || research[2].AgentID != "a" || research[4].AgentID != "a" || research[1].AgentID != "b" || research[3].AgentID != "b" {
+		t.Fatalf("research reuse = %+v", research)
+	}
+	analysis, err := Plan("run", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}}, agents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis) != 4 || analysis[0].AgentID != "a" || analysis[2].AgentID != "a" || analysis[1].AgentID != "b" || analysis[3].AgentID != "b" {
+		t.Fatalf("analysis reuse = %+v", analysis)
+	}
+	if analysis[1].Role != "critic" || analysis[3].Role != "final_reviewer" || analysis[1].AgentID != analysis[3].AgentID {
+		t.Fatalf("one reviewer member must serve critic and final_reviewer: %+v", analysis)
+	}
+}
+
+func TestReadOnlyAnalysisUsesCriticThenFinalReviewerPublisher(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "分析", Tools: []string{"read_file", "publish_artifact"}}, {ID: "b", DisplayName: "复核", Tools: []string{"read_file", "publish_artifact"}}}
+	for _, in := range []w.RunInput{
+		{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}},
+		{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze, Assignments: map[string]string{"analyst": "a", "reviewer": "b"}},
+	} {
+		steps, err := Plan("run", in, agents)
+		if err != nil {
+			t.Fatal(err)
+		}
+		roles := []string{}
+		for _, step := range steps {
+			roles = append(roles, step.Role)
+		}
+		if !slices.Equal(roles, []string{"analyst", "critic", "analyst", "final_reviewer"}) {
+			t.Fatalf("%s roles = %v", in.Workflow, roles)
+		}
+		if !slices.Equal(steps[3].DependsOn, []string{steps[0].ID, steps[1].ID, steps[2].ID}) {
+			t.Fatalf("%s final deps = %v", in.Workflow, steps[3].DependsOn)
+		}
+		if !strings.Contains(steps[3].Instruction, "initial analysis") || !strings.Contains(steps[3].Instruction, "every original finding") {
+			t.Fatalf("%s final reviewer does not reconcile the initial analysis: %q", in.Workflow, steps[3].Instruction)
+		}
+		if RequiredArtifact(steps[1], in) != "" {
+			t.Fatalf("%s intermediate critic received a publication obligation", in.Workflow)
+		}
+		if RequiredArtifact(steps[3], in) != "code_analysis" {
+			t.Fatalf("%s final reviewer does not publish code_analysis", in.Workflow)
+		}
+		if got := w.RoleTools("code_analysis", "", "critic"); len(got) != 0 {
+			t.Fatalf("critic tools = %v", got)
+		}
+		if !slices.Contains(w.RoleTools("code_analysis", "", "final_reviewer"), "publish_artifact") {
+			t.Fatal("final_reviewer is not guaranteed publication")
+		}
+	}
+}
+
+func TestLegacyTwoStepReviewerStillPublishes(t *testing.T) {
+	legacy := w.Step{Role: "reviewer", Status: "pending"}
+	if got := RequiredArtifact(legacy, w.RunInput{Workflow: "code_analysis"}); got != "code_analysis" {
+		t.Fatalf("legacy code_analysis reviewer artifact = %q", got)
+	}
+	if got := RequiredArtifact(legacy, w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}); got != "code_analysis" {
+		t.Fatalf("legacy engineering analyst reviewer artifact = %q", got)
+	}
+	if got := RequiredArtifact(w.Step{Role: "critic", Status: "pending"}, w.RunInput{Workflow: "code_analysis"}); got != "" {
+		t.Fatalf("intermediate critic artifact = %q", got)
 	}
 }
 
@@ -113,22 +225,32 @@ func TestEngineeringPlansSeparateAnalysisAndDevelopment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(analyze) != 2 || analyze[0].Role != "analyst" || analyze[1].Role != "reviewer" {
+	roles := []string{}
+	for _, step := range analyze {
+		roles = append(roles, step.Role)
+	}
+	if len(analyze) != 4 || !slices.Equal(roles, []string{"analyst", "critic", "analyst", "final_reviewer"}) {
 		t.Fatalf("analysis plan = %+v", analyze)
 	}
-	if got := RequiredArtifact(analyze[1], w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}); got != "code_analysis" {
+	if !slices.Contains(analyze[3].DependsOn, analyze[0].ID) || !slices.Contains(analyze[3].DependsOn, analyze[1].ID) || !slices.Contains(analyze[3].DependsOn, analyze[2].ID) {
+		t.Fatal("final analysis review does not receive the initial analysis, review and response results")
+	}
+	if RequiredArtifact(analyze[1], w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}) != "" {
+		t.Fatal("intermediate analysis critic received a publication obligation")
+	}
+	if got := RequiredArtifact(analyze[3], w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}); got != "code_analysis" {
 		t.Fatalf("analysis artifact = %q", got)
 	}
 	develop, err := Plan("run", w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: map[string]string{"developer": "dev", "reviewer": "review"}}, agents)
 	if err != nil {
 		t.Fatal(err)
 	}
-	roles := []string{}
+	developRoles := []string{}
 	for _, step := range develop {
-		roles = append(roles, step.Role)
+		developRoles = append(developRoles, step.Role)
 	}
-	if len(develop) != 4 || !slices.Equal(roles, []string{"developer", "reviewer", "developer", "final_reviewer"}) {
-		t.Fatalf("development plan roles = %v", roles)
+	if len(develop) != 4 || !slices.Equal(developRoles, []string{"developer", "reviewer", "developer", "final_reviewer"}) {
+		t.Fatalf("development plan roles = %v", developRoles)
 	}
 	if len(develop[2].DependsOn) != 1 || develop[2].DependsOn[0] != develop[1].ID {
 		t.Fatal("development repair loop is not scheduled")
@@ -180,14 +302,22 @@ func TestEngineeringToolGatingIntersectsActionAndRole(t *testing.T) {
 		t.Fatalf("final reviewer can write: %v", final)
 	}
 	analyze := w.Run{Workspace: develop.Workspace, Input: w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}}
+	for _, role := range []string{"analyst", "critic", "final_reviewer"} {
+		gated := e.allowedTools(analyze, a, w.Step{Role: role})
+		if slices.Contains(gated, "write_file") || slices.Contains(gated, "patch_file") || slices.Contains(gated, "run_test") {
+			t.Fatalf("analysis role %s received engineering tools: %v", role, gated)
+		}
+	}
 	gated := e.allowedTools(analyze, a, w.Step{Role: "developer"})
 	if slices.Contains(gated, "write_file") || slices.Contains(gated, "patch_file") || slices.Contains(gated, "run_test") {
 		t.Fatalf("analysis received engineering tools: %v", gated)
 	}
 	legacy := w.Run{Workspace: develop.Workspace, Input: w.RunInput{Workflow: "code_analysis"}}
-	gated = e.allowedTools(legacy, a, w.Step{Role: "analyst"})
-	if slices.Contains(gated, "write_file") || slices.Contains(gated, "patch_file") || slices.Contains(gated, "run_test") {
-		t.Fatalf("legacy code analysis received engineering tools: %v", gated)
+	for _, role := range []string{"analyst", "critic", "final_reviewer"} {
+		gated = e.allowedTools(legacy, a, w.Step{Role: role})
+		if slices.Contains(gated, "write_file") || slices.Contains(gated, "patch_file") || slices.Contains(gated, "run_test") {
+			t.Fatalf("legacy code analysis role %s received engineering tools: %v", role, gated)
+		}
 	}
 	// A developer grant without patch_file keeps only write_file.
 	noPatch := w.Agent{ID: "dev", Tools: []string{"read_file", "write_file", "run_test"}}

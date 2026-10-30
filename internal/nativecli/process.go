@@ -367,6 +367,34 @@ func (a *activityTracker) duplicateFrame(id string, raw []byte) bool {
 	return false
 }
 
+// A denied tool call is recoverable only when the CLI itself proves the tool
+// was unavailable with its fixed, tool-specific error. The bound keeps a model
+// from looping on denials; the four concrete refusal cases stay fatal.
+const (
+	maxClaudeDeniedCalls  = 3
+	claudeDenialPrefix    = "<tool_use_error>Error: No such tool available: "
+	claudeDenialSuffix    = "</tool_use_error>"
+	claudeDenialDisabled  = " is disabled for this session, in subagents as well as here."
+	claudeDenialEventText = "Native tool call denied by the CLI: No such tool available: "
+)
+
+type deniedCall struct {
+	name     string
+	resolved bool
+}
+
+// claudeToolDenial accepts only the CLI's exact "No such tool available"
+// message for this call's own tool name. Any other is_error text, including a
+// successful or permission-shaped result, is not proof that nothing ran.
+func claudeToolDenial(text, name string) bool {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, claudeDenialPrefix+name) || !strings.HasSuffix(text, claudeDenialSuffix) {
+		return false
+	}
+	rest := strings.TrimSuffix(strings.TrimPrefix(text, claudeDenialPrefix+name), claudeDenialSuffix)
+	return rest == "" || rest == ". "+name+claudeDenialDisabled
+}
+
 func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
@@ -375,6 +403,8 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 	anonymous := 0
 	activity := newActivityTracker()
 	nativeCalls := map[string]*nativeCall{}
+	deniedCalls := map[string]*deniedCall{}
+	deniedCount := 0
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
@@ -421,7 +451,7 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 						continue
 					}
 					if !gate.allowedToolName(name) {
-						return newFailure(FailureProtocol, "native CLI exposed a tool outside this step's permissions")
+						return newFailure(FailureProtocol, "native CLI exposed a tool outside this step's permissions: %s", safeToken(name))
 					}
 				}
 				if err := gate.confirmTools(event.Tools, "mcp__cocogem__"); err != nil {
@@ -474,7 +504,27 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 				switch block.Type {
 				case "tool_use":
 					if !gate.allowedToolName(block.Name) {
-						return newFailure(FailureProtocol, "native CLI requested an unapproved native tool")
+						// The CLI is the enforced boundary. A tool missing from its
+						// inventory is rejected by the CLI with a fixed result; hold a
+						// bounded pending denial instead of trusting the model or
+						// replaying the call. Input is never retained or emitted.
+						safeName := safeToken(block.Name)
+						callID := block.ID
+						if safeName == "unconfirmed" || callID == "" || len(callID) > 200 {
+							return newFailure(FailureProtocol, "native CLI requested an unapproved native tool without a safe identity (%s)", safeName)
+						}
+						if _, exists := nativeCalls[callID]; exists {
+							return newFailure(FailureProtocol, "native CLI reused a native tool-call identity")
+						}
+						if _, exists := deniedCalls[callID]; exists {
+							return newFailure(FailureProtocol, "native CLI reused a denied tool-call identity")
+						}
+						if deniedCount >= maxClaudeDeniedCalls {
+							return newFailure(FailureProtocol, "native CLI requested more than %d denied tools", maxClaudeDeniedCalls)
+						}
+						deniedCount++
+						deniedCalls[callID] = &deniedCall{name: block.Name}
+						continue
 					}
 					callID := block.ID
 					native := gate.nativeAllowed(block.Name)
@@ -483,6 +533,9 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 					}
 					if callID == "" {
 						callID = fmt.Sprintf("%s#%d", block.Name, index)
+					}
+					if _, exists := deniedCalls[callID]; exists {
+						return newFailure(FailureProtocol, "native CLI reused a denied tool-call identity")
 					}
 					if native {
 						if _, exists := nativeCalls[callID]; exists {
@@ -548,6 +601,11 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 					return newFailure(FailureProtocol, "native CLI ended with an unresolved native tool call %s", safeToken(id))
 				}
 			}
+			for id, call := range deniedCalls {
+				if !call.resolved {
+					return newFailure(FailureProtocol, "native CLI ended without the fixed denial result for tool %s (call %s)", safeToken(call.name), safeToken(id))
+				}
+			}
 			finished = true
 		case "error":
 			if err := gate.recordUsage(event.Usage); err != nil {
@@ -611,6 +669,30 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 			for _, block := range message.Content {
 				switch block.Type {
 				case "tool_result":
+					if call, denied := deniedCalls[block.ToolUseID]; denied {
+						if call.resolved {
+							return newFailure(FailureProtocol, "native CLI replayed a denied tool result")
+						}
+						if !block.IsError {
+							return newFailure(FailureProtocol, "native CLI reported success for a tool it never offered (%s)", safeToken(call.name))
+						}
+						text, unsupported := nativeResultText(block.Content)
+						if unsupported || !claudeToolDenial(text, call.name) {
+							return newFailure(FailureProtocol, "native CLI denied tool %s with an unrecognized result; the host cannot prove it did not execute", safeToken(call.name))
+						}
+						call.resolved = true
+						if err := gate.emit("tool_finished", map[string]any{
+							"tool_call_id": "cli:" + block.ToolUseID,
+							"name":         safeToken(call.name),
+							"status":       "error",
+							"output":       claudeDenialEventText + safeToken(call.name),
+							"denied":       true,
+							"origin":       "native",
+						}); err != nil {
+							return err
+						}
+						continue
+					}
 					call, ok := nativeCalls[block.ToolUseID]
 					if !ok {
 						// Host MCP results are owned and recorded by the bridge.

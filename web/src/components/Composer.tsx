@@ -19,6 +19,14 @@ import { applyMention, mentionAt, mentionMatches } from "../lib/mention";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 
+const workflowIcons: Record<string, string> = {
+  free: "💬",
+  discuss: "👥",
+  research: "🔬",
+  code_analysis: "💻",
+  engineering: "🛠️",
+};
+
 export type WorkflowKey = keyof typeof workflows;
 export type EngineeringAction = "analyze" | "develop";
 
@@ -119,10 +127,48 @@ export function Composer({
   };
   const placeholder = disabled
     ? "先创建一个工作空间，再开始提问"
-    : "描述任务或贴上链接，输入 @ 邀请成员协作";
+    : active
+      ? "本次协作进行中…"
+      : "描述任务或贴上链接，输入 @ 邀请成员协作（Enter 发送 · Shift + Enter 换行）";
   return (
     <form className={cx("composer")} onSubmit={submit}>
       {pending}
+      <div className={cx("composer-capsules")}>
+        <label className={cx("capsule-wrap")}>
+          <span className={cx("sr-only")}>工作方式</span>
+          <Select
+            aria-label="工作方式"
+            value={workflow}
+            disabled={disabled}
+            onChange={(selected) => setWorkflow(selected as WorkflowKey)}
+          >
+            {workflowChoices.map(([key, name]) => (
+              <option key={key} value={key}>
+                {workflowIcons[key] || "⚡"} {name}
+              </option>
+            ))}
+            {workflow === "code_analysis" && (
+              <option value="code_analysis">💻 {workflows.code_analysis}</option>
+            )}
+          </Select>
+        </label>
+        {workflow === "engineering" && (
+          <label className={cx("capsule-wrap")}>
+            <span className={cx("sr-only")}>工程动作</span>
+            <Select
+              aria-label="工程动作"
+              value={engineeringAction}
+              disabled={disabled}
+              onChange={(selected) =>
+                setEngineeringAction?.(selected as EngineeringAction)
+              }
+            >
+              <option value="analyze">🔍 分析（只读）</option>
+              <option value="develop">🛠️ 开发（可修改并测试）</option>
+            </Select>
+          </label>
+        )}
+      </div>
       {artifactRef && (
         <div className={cx("reference-pill")}>
           <span>
@@ -227,41 +273,43 @@ export function Composer({
           }
         }}
       />
-      <div className={cx("composer-toolbar")}>
-        <div className={cx("composer-options")}>
-          <label>
-            <span className={cx("sr-only")}>工作方式</span>
-            <Select
-              aria-label="工作方式"
-              value={workflow}
-              disabled={disabled}
-              onChange={(selected) => setWorkflow(selected as WorkflowKey)}
+      <div className={cx("composer-bottom")}>
+        <div className={cx("composer-meta-chips")}>
+          {coordinator && (
+            <span
+              className={cx("route-chip")}
+              role="status"
+              title={
+                coordinator.fallback
+                  ? "全局默认协调者不在当前工作空间或已停用，已回退到本会话成员"
+                  : "本次会话的协调者"
+              }
             >
-              {workflowChoices.map(([key, name]) => (
-                <option key={key} value={key}>
-                  {name}
-                </option>
-              ))}
-              {workflow === "code_analysis" && (
-                <option value="code_analysis">{workflows.code_analysis}</option>
-              )}
-            </Select>
-          </label>
+              {coordinator.fallback
+                ? `默认协调者不可用，使用${coordinator.name}`
+                : `协调者：${coordinator.name}`}
+            </span>
+          )}
+          {routeLabel && (
+            <span
+              className={cx("route-chip")}
+              role="status"
+              title={routing?.clarification || routing?.explanation}
+            >
+              {routing?.clarification ? routeLabel : `→ ${routeLabel}`}
+            </span>
+          )}
+          {assignmentSummary && (
+            <span className={cx("route-chip")} role="status" title="本轮分工">
+              {assignmentSummary}
+            </span>
+          )}
           {workflow === "engineering" && (
-            <label>
-              <span className={cx("sr-only")}>工程动作</span>
-              <Select
-                aria-label="工程动作"
-                value={engineeringAction}
-                disabled={disabled}
-                onChange={(selected) =>
-                  setEngineeringAction?.(selected as EngineeringAction)
-                }
-              >
-                <option value="analyze">分析（只读）</option>
-                <option value="develop">开发（可修改并测试）</option>
-              </Select>
-            </label>
+            <small className={cx("muted")} role="note">
+              {engineeringAction === "develop"
+                ? "开发测试器：go test / npm test（其他未支持）"
+                : "只读分析：不改写、不执行测试"}
+            </small>
           )}
         </div>
         {active ? (
@@ -286,49 +334,6 @@ export function Composer({
           >
             <Icon name="send" size={16} />
           </button>
-        )}
-      </div>
-      <div className={cx("composer-bottom")}>
-        <small>
-          {active
-            ? "本次协作结束后可以继续发送"
-            : "Enter 发送 · Shift + Enter 换行"}
-        </small>
-        {workflow === "engineering" && (
-          <small className={cx("muted")} role="note">
-            {engineeringAction === "develop"
-              ? "开发测试器：go test / npm test（其他未支持）"
-              : "只读分析：不改写、不执行测试"}
-          </small>
-        )}
-        {coordinator && (
-          <span
-            className={cx("route-chip")}
-            role="status"
-            title={
-              coordinator.fallback
-                ? "全局默认协调者不在当前工作空间或已停用，已回退到本会话成员"
-                : "本次会话的协调者"
-            }
-          >
-            {coordinator.fallback
-              ? `默认协调者不可用，使用${coordinator.name}`
-              : `协调者：${coordinator.name}`}
-          </span>
-        )}
-        {routeLabel && (
-          <span
-            className={cx("route-chip")}
-            role="status"
-            title={routing?.clarification || routing?.explanation}
-          >
-            {routing?.clarification ? routeLabel : `→ ${routeLabel}`}
-          </span>
-        )}
-        {assignmentSummary && (
-          <span className={cx("route-chip")} role="status" title="本轮分工">
-            {assignmentSummary}
-          </span>
         )}
       </div>
     </form>

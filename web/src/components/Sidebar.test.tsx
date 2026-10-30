@@ -20,6 +20,7 @@ const thread = (id: string, title: string): Thread => ({
   updated_at: "2026-10-28T00:00:00Z",
 });
 
+const onEditThread = vi.fn();
 const onRenameThread = vi.fn();
 const onDeleteThread = vi.fn();
 
@@ -55,6 +56,7 @@ function sidebar(threadID = "a") {
       onHome={() => {}}
       onThread={() => {}}
       onNewThread={() => {}}
+      onEditThread={onEditThread}
       onRenameThread={onRenameThread}
       onDeleteThread={onDeleteThread}
       onCreateWorkspace={() => {}}
@@ -74,13 +76,16 @@ it("opens a per-thread menu, focuses its items and returns focus on Escape", asy
   });
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   await user.click(trigger);
-  const rename = screen.getByRole("menuitem", { name: "重命名" });
-  expect(rename).toHaveFocus();
+  const edit = screen.getByRole("menuitem", { name: "编辑" });
+  expect(edit).toHaveFocus();
+  expect(screen.getByRole("menuitem", { name: "重命名" })).toBeInTheDocument();
   expect(screen.getByRole("menuitem", { name: "删除" })).toBeInTheDocument();
+  await user.keyboard("{ArrowDown}");
+  expect(screen.getByRole("menuitem", { name: "重命名" })).toHaveFocus();
   await user.keyboard("{ArrowDown}");
   expect(screen.getByRole("menuitem", { name: "删除" })).toHaveFocus();
   await user.keyboard("{ArrowDown}");
-  expect(rename).toHaveFocus();
+  expect(edit).toHaveFocus();
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   expect(trigger).toHaveFocus();

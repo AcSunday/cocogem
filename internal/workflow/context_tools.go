@@ -44,6 +44,8 @@ type scopedMessage struct {
 type scopedArtifact struct {
 	version int
 	digest  string
+	typ     string
+	title   string
 }
 
 func (s *readScope) empty() bool {
@@ -106,6 +108,34 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		}
 		scope.messages[message.ID] = scopedMessage{digest: digest, version: version, format: format}
 	}
+	// A prior succeeded run becomes readable only when the selected history
+	// window contains one of its authoritative delivery messages. The exact
+	// delivered artifact versions then travel with that message; legacy runs
+	// without a recorded delivery are never inferred from titles or artifacts.
+	deliveredRuns := map[string]w.Run{}
+	runIDs := map[string]bool{}
+	for _, message := range messages {
+		if message.Status == "completed" && selectedHistory[message.ID] && message.RunID != run.ID {
+			runIDs[message.RunID] = true
+		}
+	}
+	if len(runIDs) > 0 {
+		runs, err := tx.Runs(run.ThreadID)
+		if err != nil {
+			return nil, err
+		}
+		for _, prior := range runs {
+			if !runIDs[prior.ID] || prior.Status != "succeeded" || prior.Delivery == nil {
+				continue
+			}
+			for _, message := range messages {
+				if message.RunID == prior.ID && selectedHistory[message.ID] && slices.Contains(prior.Delivery.MessageIDs, message.ID) {
+					deliveredRuns[prior.ID] = prior
+					break
+				}
+			}
+		}
+	}
 	artifacts, err := tx.ArtifactsMetadata(run.ThreadID)
 	if err != nil {
 		return nil, err
@@ -116,13 +146,18 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		}
 		allowed := artifact.StepID != planningRoot && (dependencies[artifact.StepID] || explicitArtifact[artifact.ID][artifact.Version])
 		if !allowed {
+			if prior, ok := deliveredRuns[artifact.RunID]; ok && w.IsDeliveredArtifact(prior, artifact) {
+				allowed = true
+			}
+		}
+		if !allowed {
 			continue
 		}
 		exact, err := tx.Artifact(artifact.ID, artifact.Version)
 		if err != nil {
 			return nil, err
 		}
-		scope.artifacts[artifact.ID] = append(scope.artifacts[artifact.ID], scopedArtifact{version: artifact.Version, digest: artifactDigest(exact)})
+		scope.artifacts[artifact.ID] = append(scope.artifacts[artifact.ID], scopedArtifact{version: artifact.Version, digest: artifactDigest(exact), typ: artifact.Type, title: artifact.Title})
 	}
 	for id := range scope.artifacts {
 		slices.SortFunc(scope.artifacts[id], func(a, b scopedArtifact) int { return a.version - b.version })
@@ -135,6 +170,45 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		scope.sources[source.ID] = scopedSource{digest: digest, ref: sourceRef(source, digest)}
 	}
 	return scope, nil
+}
+
+// artifactScopeIndex names only the exact artifact versions frozen for this
+// attempt, with bounded type/title metadata. Bodies stay out of the prompt;
+// read_context pages them on demand.
+func artifactScopeIndex(scope *readScope) string {
+	if scope == nil || len(scope.artifacts) == 0 {
+		return ""
+	}
+	type entry struct {
+		id      string
+		version int
+		typ     string
+		title   string
+	}
+	entries := []entry{}
+	for id, versions := range scope.artifacts {
+		for _, version := range versions {
+			entries = append(entries, entry{id: id, version: version.version, typ: version.typ, title: version.title})
+		}
+	}
+	slices.SortFunc(entries, func(a, b entry) int {
+		if order := strings.Compare(a.id, b.id); order != 0 {
+			return order
+		}
+		return a.version - b.version
+	})
+	const budget = 8192
+	text := strings.Builder{}
+	text.WriteString("\nReadable artifact versions frozen for this attempt (exact id@version; bodies are not inlined. Read one with read_context kind=artifact id=<id> version=<version> field=artifact_json, then follow next_cursor while has_more=true):\n")
+	for i, entry := range entries {
+		line := fmt.Sprintf("- %s@%d type=%s title=%q\n", entry.id, entry.version, boundedField(entry.typ, 40), boundedField(entry.title, 200))
+		if text.Len()+len(line) > budget {
+			fmt.Fprintf(&text, "- … %d more frozen artifact versions omitted from this index; their exact refs remain in the upstream handoff or get_task\n", len(entries)-i)
+			break
+		}
+		text.WriteString(line)
+	}
+	return text.String()
 }
 
 // sourceRef binds a capture's immutable coordinates and content digest, never

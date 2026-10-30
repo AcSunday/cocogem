@@ -91,6 +91,19 @@ const paths = {
     </>
   ),
   open: <path d="m7 17 10-10M7 7h10v10" />,
+  eye: (
+    <>
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  eyeOff: (
+    <>
+      <path d="m3 3 18 18" />
+      <path d="M10.6 6.2A9.6 9.6 0 0 1 12 6c6 0 9.5 6 9.5 6a15 15 0 0 1-3.2 3.6M6.3 6.9A15.6 15.6 0 0 0 2.5 12s3.5 6 9.5 6a9.6 9.6 0 0 0 3.7-.7" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

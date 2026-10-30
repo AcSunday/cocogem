@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -23,17 +24,24 @@ func TestRecentHistoryPrefersWholeLatestRounds(t *testing.T) {
 	}{
 		{"byte budget", 12, 16000, []string{"new-user", "new-reply"}},
 		{"message budget", 3, 50000, []string{"new-user", "new-reply"}},
-		{"no partial round", 1, 50000, []string{}},
-		{"latest round too large", 12, 5, []string{}},
+		// A newest round that does not fit by count keeps its final reply.
+		{"latest round over count", 1, 50000, []string{"new-reply"}},
+		// A newest round that does not fit by bytes keeps real IDs in bounded previews.
+		{"latest round too large", 12, 5, []string{"new-user", "new-reply"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := recentHistory(history, "current", tc.count, tc.byteLimit)
 			ids := []string{}
+			bytes := 0
 			for _, message := range got {
 				ids = append(ids, message.ID)
+				bytes += len(message.Content)
 			}
 			if !slices.Equal(ids, tc.want) {
 				t.Fatalf("history IDs=%v, want %v", ids, tc.want)
+			}
+			if bytes > tc.byteLimit {
+				t.Fatalf("history preview used %d bytes, budget %d", bytes, tc.byteLimit)
 			}
 		})
 	}
@@ -42,6 +50,50 @@ func TestRecentHistoryPrefersWholeLatestRounds(t *testing.T) {
 	history = append(round("good", "retained question"), failed...)
 	if got := recentHistory(history, "current", 12, 16000); len(got) != 2 || got[0].RunID != "good" {
 		t.Fatalf("included unfinished round: %+v", got)
+	}
+}
+
+func TestLatestOverBudgetHistoryRoundKeepsFinalReplyAndRealIDs(t *testing.T) {
+	history := []w.Message{{ID: "latest-user", RunID: "previous-research", Role: "user", Status: "completed", Content: "研究问题"}}
+	for _, id := range []string{"research", "critique", "response", "recheck", "final"} {
+		history = append(history, w.Message{ID: id, RunID: "previous-research", Role: "assistant", Status: "completed", Content: strings.Repeat("e", 4000)})
+	}
+	selected := recentHistory(history, "follow-up", 12, 16000)
+	if len(selected) != len(history) {
+		t.Fatalf("over-budget latest round was erased: selected=%d want=%d", len(selected), len(history))
+	}
+	bytes := 0
+	for i, message := range selected {
+		bytes += len(message.Content)
+		if message.ID != history[i].ID || message.RunID != "previous-research" || message.Status != "completed" || message.Role != history[i].Role {
+			t.Fatalf("bounded preview lost identity at %d: %+v", i, message)
+		}
+	}
+	if bytes > 16000 {
+		t.Fatalf("bounded preview used %d bytes, budget 16000", bytes)
+	}
+	if !selected[1].ContentTruncated || !selected[len(selected)-1].ContentTruncated {
+		t.Fatal("cut previews are not marked truncated")
+	}
+	if selected[len(selected)-1].ID != "final" {
+		t.Fatalf("final reply ID was lost: %+v", selected)
+	}
+	if selected[0].ContentBytes != len(history[0].Content) || selected[1].ContentBytes != 4000 {
+		t.Fatalf("full content size was lost: first=%d second=%d", selected[0].ContentBytes, selected[1].ContentBytes)
+	}
+}
+
+func TestLatestHistoryRoundCountCutKeepsOriginalTaskAndFinalReply(t *testing.T) {
+	history := []w.Message{{ID: "task", RunID: "discussion", Role: "user", Status: "completed", Content: "original task"}}
+	for i := 0; i < 14; i++ {
+		history = append(history, w.Message{ID: fmt.Sprintf("reply-%02d", i), RunID: "discussion", Role: "assistant", Status: "completed", Content: "reply"})
+	}
+	selected := recentHistory(history, "follow-up", 12, 16000)
+	if len(selected) != 12 {
+		t.Fatalf("bounded round count = %d, want 12", len(selected))
+	}
+	if selected[0].ID != "task" || selected[len(selected)-1].ID != "reply-13" {
+		t.Fatalf("original task or final reply was lost: first=%s last=%s", selected[0].ID, selected[len(selected)-1].ID)
 	}
 }
 

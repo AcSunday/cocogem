@@ -265,23 +265,42 @@ func runLongTaskFixture() error {
 		record(name, detail)
 		return nil
 	}
+	secondResearcher := role == "researcher" && strings.Contains(string(prompt), "point by point")
 	switch role {
 	case "researcher":
-		err = longTaskResearch(call, record)
+		if secondResearcher {
+			err = longTaskResearcherResponse(call, record, string(prompt))
+		} else {
+			err = longTaskResearch(call, record)
+		}
 	case "critic":
-		err = longTaskCritic(call, record, string(prompt))
+		handoff, handoffErr := longTaskHandoff(string(prompt))
+		if handoffErr != nil {
+			err = handoffErr
+		} else if len(handoff.Messages) == 1 {
+			err = longTaskCritic(call, record, string(prompt))
+		} else {
+			err = longTaskCriticRecheck(call, record, string(prompt))
+		}
 	case "coordinator":
 		err = longTaskCoordinator(call, record, string(prompt))
 	}
 	if err != nil {
 		return err
 	}
-	if role == "researcher" {
+	switch {
+	case role == "researcher" && !secondResearcher:
 		if err := encoder.Encode(map[string]any{"type": "assistant", "message": map[string]any{"id": "long-research", "content": []any{map[string]any{"type": "text", "text": longTaskBody()}}}}); err != nil {
 			return err
 		}
-	} else if err := encoder.Encode(map[string]any{"type": "assistant", "message": map[string]any{"id": "long-" + role, "content": []any{map[string]any{"type": "text", "text": role + " paged the exact upstream versions and preserved the counter-evidence."}}}}); err != nil {
-		return err
+	case role == "researcher":
+		if err := encoder.Encode(map[string]any{"type": "assistant", "message": map[string]any{"id": "research-response", "content": []any{map[string]any{"type": "text", "text": "researcher point-by-point response: the unresolved counter-evidence stays explicit."}}}}); err != nil {
+			return err
+		}
+	default:
+		if err := encoder.Encode(map[string]any{"type": "assistant", "message": map[string]any{"id": "long-" + role, "content": []any{map[string]any{"type": "text", "text": role + " paged the exact upstream versions and preserved the counter-evidence."}}}}); err != nil {
+			return err
+		}
 	}
 	return encoder.Encode(map[string]any{"type": "result", "subtype": "success", "is_error": false})
 }
@@ -454,12 +473,72 @@ func longTaskCritic(call func(string, any, any, string) error, record func(strin
 	return nil
 }
 
-func longTaskCoordinator(call func(string, any, any, string) error, record func(string, string), prompt string) error {
+// longTaskResearcherResponse is the third research step: it must consume the
+// initial research and the critique as exact references instead of restating
+// the task from memory.
+func longTaskResearcherResponse(call func(string, any, any, string) error, record func(string, string), prompt string) error {
 	handoff, err := longTaskHandoff(prompt)
 	if err != nil {
 		return err
 	}
 	if len(handoff.Messages) != 2 {
+		return fmt.Errorf("researcher response handoff has %d messages, want research and critique", len(handoff.Messages))
+	}
+	researchID := ""
+	for _, message := range handoff.Messages {
+		if strings.HasPrefix(message.Content, longTaskStart) {
+			researchID = message.ID
+		} else if _, _, err := longTaskReadContextPages(call, "message", message.ID, 0); err != nil {
+			return err
+		}
+	}
+	if researchID == "" {
+		return errors.New("researcher response lost the initial research message")
+	}
+	var first longTaskContextPage
+	if err := call("read_context", map[string]any{"kind": "message", "id": researchID, "max_bytes": 4096}, &first, "response-first-page"); err != nil {
+		return err
+	}
+	if !first.Committed || !strings.HasPrefix(first.Content, longTaskStart) {
+		return errors.New("researcher response could not read the exact initial research")
+	}
+	record("evidence", "researcher response consumed exact research and critique")
+	return nil
+}
+
+// longTaskCriticRecheck is the fourth research step: it re-reads the exact
+// response and keeps unresolved disagreement explicit.
+func longTaskCriticRecheck(call func(string, any, any, string) error, record func(string, string), prompt string) error {
+	handoff, err := longTaskHandoff(prompt)
+	if err != nil {
+		return err
+	}
+	if len(handoff.Messages) != 3 {
+		return fmt.Errorf("critic re-check handoff has %d messages, want research, critique and response", len(handoff.Messages))
+	}
+	for _, message := range handoff.Messages {
+		page, tailPage, err := longTaskReadContextPages(call, "message", message.ID, 0)
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(message.Content, longTaskStart) {
+			if !strings.Contains(page, longTaskEvidence) || tailPage < 1 {
+				return errors.New("critic re-check did not consume the exact research tail")
+			}
+		} else if page == "" {
+			return errors.New("critic re-check lost an exact upstream message")
+		}
+	}
+	record("evidence", "critic re-check consumed exact research, critique and response")
+	return nil
+}
+
+func longTaskCoordinator(call func(string, any, any, string) error, record func(string, string), prompt string) error {
+	handoff, err := longTaskHandoff(prompt)
+	if err != nil {
+		return err
+	}
+	if len(handoff.Messages) != 4 {
 		return errors.New("coordinator handoff lost committed messages")
 	}
 	researchIndex := -1
@@ -629,7 +708,7 @@ func TestLongTaskEvidenceThroughAuthenticatedAPI(t *testing.T) {
 		var view RunView
 		call("GET", "/api/v1/runs/"+run.ID, nil, nil, 200, &view)
 		if w.Terminal(view.Run.Status) {
-			if view.Run.Status != "succeeded" || len(view.Steps) != 3 {
+			if view.Run.Status != "succeeded" || len(view.Steps) != 5 {
 				diagnostic, _ := os.ReadFile(ledger + ".error")
 				t.Fatalf("run=%+v steps=%+v fixture=%s", view.Run, view.Steps, diagnostic)
 			}
@@ -789,7 +868,7 @@ func TestLongTaskEvidenceThroughAuthenticatedAPI(t *testing.T) {
 		}
 		researcherCalls = max(researcherCalls, calls)
 		if fields[2] == "evidence" {
-			tailCall = calls
+			tailCall = max(tailCall, calls)
 		}
 	}
 	if researcherCalls < 101 || tailCall <= 100 {

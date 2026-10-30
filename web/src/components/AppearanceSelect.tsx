@@ -2,7 +2,7 @@ import { Select } from "./Select";
 import { cx } from "../styles/classes";
 import { Icon } from "./Icon";
 
-export type Appearance = "system" | "light" | "dark";
+export type Appearance = "system" | "light" | "dark" | "warm" | "deepseek";
 
 export function AppearanceSelect({
   value,
@@ -23,6 +23,8 @@ export function AppearanceSelect({
         <option value="system">跟随系统</option>
         <option value="light">浅色</option>
         <option value="dark">深色</option>
+        <option value="warm">经典暖色</option>
+        <option value="deepseek">DeepSeek</option>
       </Select>
     </label>
   );

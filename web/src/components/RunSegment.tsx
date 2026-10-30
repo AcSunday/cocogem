@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import {
   messageContent,
+  statusText,
+  terminal,
   type Agent,
   type Artifact,
   type Attempt,
@@ -17,7 +19,15 @@ import {
   deliveredRun,
   missingDeliveryMessages,
 } from "../lib/delivery";
-import { errorText, messageModel, roleLabel } from "../lib/presentation";
+import {
+  errorText,
+  formatDateTime,
+  messageModel,
+  roleLabel,
+  runDuration,
+  runMethod,
+  runUsageSummary,
+} from "../lib/presentation";
 import { cx } from "../styles/classes";
 import { ArtifactCard } from "./ArtifactCard";
 import { Avatar } from "./Avatar";
@@ -407,6 +417,53 @@ export function RunSegment({
         {processMessages.map(card)}
       </RunDivider>
       {finalMessages.map(card)}
+      {terminal(run.status) && (
+        <div className={cx("run-footer-badge-wrap")}>
+          <div className={cx("run-footer-badge")} tabIndex={0}>
+            <span>{runMethod(run).label}</span>
+            <span>·</span>
+            <span>{statusText[run.status]}</span>
+            {runDuration(run) && (
+              <>
+                <span>·</span>
+                <span>{runDuration(run)}</span>
+              </>
+            )}
+            {runUsageSummary(run, attempts) && (
+              <>
+                <span>·</span>
+                <span>{runUsageSummary(run, attempts)}</span>
+              </>
+            )}
+          </div>
+          <div className={cx("run-footer-popover")}>
+            <strong>
+              第 {index} 次协作 · {runMethod(run).label}
+            </strong>
+            <div>状态：{statusText[run.status]}</div>
+            {runDuration(run) && <div>耗时：{runDuration(run)}</div>}
+            {runUsageSummary(run, attempts) && (
+              <div>用量：{runUsageSummary(run, attempts)}</div>
+            )}
+            {steps && steps.length > 0 && (
+              <div>
+                过程：共 {steps.length} 步（
+                {steps
+                  .map((s) => s.agent_name)
+                  .filter(Boolean)
+                  .join("、")}
+                ）
+              </div>
+            )}
+            {run.error && (
+              <div className={cx("error")}>异常：{run.error}</div>
+            )}
+            <small className={cx("muted")}>
+              详细日志与交接记录已保存在右侧协作面板
+            </small>
+          </div>
+        </div>
+      )}
       {missingFinal.length > 0 && (
         <MissingFinalResults
           key={`${run.id}:${missingFinal.join(",")}`}

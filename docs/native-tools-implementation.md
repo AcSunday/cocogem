@@ -25,6 +25,10 @@ Cocogem 是本地多 Agent 协作工作空间。CLI 负责模型调用与通用�
 
 原生文件保存 CLI 实际返回正文与行范围，缺少完整性信息则标不完整；宿主不重新读文件补证据。原生观察最多 512 KiB，超限明确截断；UI 事件正文另受限，file.content 不夹带进事件元数据。native_search 仅作线索，不能单独支撑 supported/confirmed；引用 native_web 的产物自动附加摘要限制。
 
+### 未开放工具的窄范围拒绝恢复（2026-10-29）
+
+`--tools` 仍是 CLI 强制边界，解析器只是协议守卫。已安装 Claude 2.1.312 的本地假模型实验显示：模型可请求库存外工具，CLI 的 `init` 库存仍只含允许工具，并在同一 call ID 返回固定的 `No such tool available: <name>`（Bash/Task 另有固定 `is disabled for this session...` 后缀），没有执行副作用。解析器因此只接受这种精确证明：记录有界拒绝事件，不保存/输出参数、不发 `tool_started`、不重启或重放 CLI；成功结果、其他错误文本、身份冲突、缺失/重复 call ID、pending 无结果、多暴露库存和超过三次拒绝仍 fail closed。Codex/Gemini 没有等价证据，不扩恢复面。详见 [协作循环验收](collaboration-loop-acceptance.md)。
+
 ## 真实验收
 
 全部使用隔离测试库与本机既有 CLI 配置，真实用户数据库未写入。单次执行时间是本次观察值，不是性能承诺。

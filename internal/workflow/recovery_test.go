@@ -395,7 +395,7 @@ func TestDuplicateRecoveryDispatchesEachStepOnce(t *testing.T) {
 	if got.Status != "succeeded" {
 		t.Fatalf("run=%+v", got)
 	}
-	if runner.count("researcher") != 1 || runner.count("critic") != 1 || runner.count("coordinator") != 1 {
+	if runner.count("researcher") != 2 || runner.count("critic") != 2 || runner.count("coordinator") != 1 {
 		t.Fatalf("duplicate dispatch occurred: %+v", runner.calls)
 	}
 }
@@ -447,7 +447,7 @@ func TestCrashWindowDoesNotRepeatCompletedSteps(t *testing.T) {
 	got := awaitRun(t, s, run.ID)
 	cancel()
 	e.Wait()
-	if got.Status != "succeeded" || runner.count("researcher") != 0 || runner.count("critic") != 1 || runner.count("coordinator") != 1 {
+	if got.Status != "succeeded" || runner.count("researcher") != 1 || runner.count("critic") != 2 || runner.count("coordinator") != 1 {
 		t.Fatalf("completed work repeated: run=%+v calls=%+v", got, runner.calls)
 	}
 	var messages []w.Message

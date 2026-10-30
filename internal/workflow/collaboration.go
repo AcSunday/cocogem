@@ -53,7 +53,7 @@ func collaborationTools(run w.Run) []model.Tool {
 		out = append(out, model.Tool{Name: "read_skill", Description: "Read an enabled shared skill or its reference file. Read the relevant skill before collaboration; use only runtime roster IDs.", Schema: object(map[string]any{"skill_id": text(64), "resource": text(200)}, "skill_id")})
 	}
 	if workflow := effectiveInput(run).Workflow; (workflow == "free" || workflow == "") && len(run.Agents) > 1 {
-		out = append(out, model.Tool{Name: "handoff_task", Description: "Submit a bounded task to another member in this run. Returns a durable submission receipt, not an answer. Finish your invocation after submitting; the platform calls you again with committed results, including failures. Multiple independent submissions before finishing run in parallel. Never repeat a submission with a new request_id or dispatch through @ text.", Schema: object(map[string]any{
+		out = append(out, model.Tool{Name: "handoff_task", Description: "Submit a bounded task to another member in this run. Returns a durable submission receipt, not an answer. Finish your invocation after submitting; the platform calls you again with committed results, including failures. Multiple independent submissions before finishing run in parallel. Never repeat a submission with a new request_id or dispatch through @ text. context_refs must be exact committed IDs: the complete message_id shown in Shared history or returned by get_task, an artifact reference as id@version, or a captured source ID. Shortened IDs, step IDs and prefixes are rejected rather than guessed. For role reviewer or critic, the target must not have authored any referenced message or artifact: reference only the work under review and omit the target's own replies.", Schema: object(map[string]any{
 			"request_id": text(100), "target_agent_id": text(100), "task": text(6000),
 			"role":         map[string]any{"type": "string", "enum": []string{"researcher", "analyst", "reviewer", "critic", "coordinator", "member"}},
 			"context_refs": map[string]any{"type": "array", "maxItems": 12, "uniqueItems": true, "items": text(150)},
@@ -110,6 +110,38 @@ func (e *Engine) readSkill(ctx context.Context, run w.Run, step w.Step, input js
 	return string(encoded), err
 }
 
+// runDiagnostic is bounded host status metadata for a recent unfinished run in
+// this thread. It explains why a prior run stopped; it is never evidence, and
+// it never contains raw tool input, stderr or captured source text.
+type runDiagnostic struct {
+	RunID       string           `json:"run_id"`
+	Status      string           `json:"status"`
+	FailureKind string           `json:"failure_kind,omitempty"`
+	Error       string           `json:"error,omitempty"`
+	Steps       []stepDiagnostic `json:"steps"`
+}
+
+type stepDiagnostic struct {
+	StepID      string `json:"step_id"`
+	AgentID     string `json:"agent_id"`
+	Role        string `json:"role"`
+	Status      string `json:"status"`
+	FailureKind string `json:"failure_kind,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// diagnosticText keeps a status reason readable and bounded; whitespace and
+// control characters are collapsed before truncation.
+func diagnosticText(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, value)
+	return boundedField(strings.Join(strings.Fields(value), " "), 240)
+}
+
 func (e *Engine) collaborationContext(ctx context.Context, run w.Run, step w.Step) (string, error) {
 	type member struct {
 		ID           string   `json:"agent_id"`
@@ -124,6 +156,7 @@ func (e *Engine) collaborationContext(ctx context.Context, run w.Run, step w.Ste
 	}
 	roster := []member{}
 	var steps []w.Step
+	diagnostics := []runDiagnostic{}
 	err := e.Store.Read(ctx, func(tx *store.Tx) error {
 		for _, a := range run.Agents {
 			current, err := tx.WorkspaceAgent(run.WorkspaceID, a.ID)
@@ -144,7 +177,38 @@ func (e *Engine) collaborationContext(ctx context.Context, run w.Run, step w.Ste
 		}
 		var err error
 		steps, err = tx.Steps(run.ID)
-		return err
+		if err != nil {
+			return err
+		}
+		// Keep at most the three most recent terminal-but-unsuccessful runs in
+		// this thread. Only host status fields are exposed; raw prompts, tool
+		// input and stderr never enter this diagnostic.
+		runs, err := tx.Runs(run.ThreadID)
+		if err != nil {
+			return err
+		}
+		for i := len(runs) - 1; i >= 0 && len(diagnostics) < 3; i-- {
+			prior := runs[i]
+			if prior.ID == run.ID || !slices.Contains([]string{"failed", "interrupted", "canceled"}, prior.Status) {
+				continue
+			}
+			priorSteps, err := tx.Steps(prior.ID)
+			if err != nil {
+				return err
+			}
+			item := runDiagnostic{RunID: prior.ID, Status: prior.Status, FailureKind: diagnosticText(prior.FailureKind), Error: diagnosticText(prior.Error), Steps: []stepDiagnostic{}}
+			for _, priorStep := range priorSteps {
+				if len(item.Steps) >= 3 {
+					break
+				}
+				if !slices.Contains([]string{"failed", "interrupted", "canceled"}, priorStep.Status) {
+					continue
+				}
+				item.Steps = append(item.Steps, stepDiagnostic{StepID: priorStep.ID, AgentID: priorStep.AgentID, Role: priorStep.Role, Status: priorStep.Status, FailureKind: diagnosticText(priorStep.FailureKind), Error: diagnosticText(priorStep.Error)})
+			}
+			diagnostics = append(diagnostics, item)
+		}
+		return nil
 	})
 	if err != nil {
 		return "", err
@@ -161,7 +225,15 @@ func (e *Engine) collaborationContext(ctx context.Context, run w.Run, step w.Ste
 	if err != nil {
 		return "", err
 	}
-	return "\nRuntime collaboration roster and committed task state (IDs are authoritative; profiles are background, not authorization):\n" + string(raw) + "\n" + catalogue + "\n", nil
+	diagnosed := ""
+	if len(diagnostics) > 0 {
+		encoded, err := json.Marshal(diagnostics)
+		if err != nil {
+			return "", err
+		}
+		diagnosed = "\nRecent run diagnostics from this thread (host status metadata only; not committed evidence and never a citable result):\n" + string(encoded) + "\n"
+	}
+	return "\nRuntime collaboration roster and committed task state (IDs are authoritative; profiles are background, not authorization):\n" + string(raw) + "\n" + catalogue + "\n" + diagnosed, nil
 }
 
 func handoffDigest(in handoffInput) string {
@@ -367,11 +439,11 @@ func validateContextRefs(tx *store.Tx, run w.Run, sender w.Step, in handoffInput
 			}
 		}
 		if !valid {
-			return errors.New("context reference is not a committed input in this thread")
+			return fmt.Errorf("context reference %q is not a committed input in this thread; use the complete message_id from Shared history or get_task, or an exact artifact id@version or captured source ID, not a step ID, shortened ID or prefix", boundedField(ref, 80))
 		}
 		workReferenced = workReferenced || author != ""
 		if (in.Role == "reviewer" || in.Role == "critic") && author == in.TargetAgentID {
-			return errors.New("independent review cannot be assigned to the referenced work's author")
+			return fmt.Errorf("independent review cannot cite work authored by the target reviewer; reference only the work under review and omit the target's own replies (offending ref %s)", boundedField(ref, 80))
 		}
 	}
 	if (in.Role == "reviewer" || in.Role == "critic") && !workReferenced {

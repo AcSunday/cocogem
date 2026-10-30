@@ -9,10 +9,15 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-// recentHistory selects whole completed rounds, preferring the newest within both budgets.
+// recentHistory selects whole completed rounds, preferring the newest within
+// both budgets. The newest completed round stays discoverable even when its
+// full previews exceed a budget: it enters the window with real IDs, authors
+// and statuses, bounded bodies and truncation flags so read_context can page
+// the exact committed message. Older over-budget rounds are still dropped.
 func recentHistory(messages []w.Message, excludeRunID string, maxMessages, maxBytes int) []w.Message {
 	selected := []w.Message{}
 	bytes := 0
+	latest := true
 	for end := len(messages); end > 0; {
 		start := end - 1
 		for start > 0 && messages[start-1].RunID == messages[end-1].RunID {
@@ -33,10 +38,46 @@ func recentHistory(messages []w.Message, excludeRunID string, maxMessages, maxBy
 			continue
 		}
 		if len(selected)+len(round) > maxMessages || bytes+roundBytes > maxBytes {
+			if latest {
+				selected = append(boundedRoundPreview(round, maxMessages, maxBytes), selected...)
+			}
 			break
 		}
+		latest = false
 		bytes += roundBytes
 		selected = append(slices.Clone(round), selected...)
+	}
+	return selected
+}
+
+// boundedRoundPreview keeps the newest completed round usable under the same
+// history budgets. A count cut preserves the original task and final reply; a
+// byte cut gives every kept message a fair share, so the last reply is never
+// the only survivor of a truncated preview.
+func boundedRoundPreview(round []w.Message, maxMessages, maxBytes int) []w.Message {
+	if len(round) == 0 || maxMessages <= 0 || maxBytes < 0 {
+		return nil
+	}
+	selected := slices.Clone(round)
+	if len(round) > maxMessages {
+		if maxMessages == 1 {
+			selected = slices.Clone(round[len(round)-1:])
+		} else {
+			selected = append(slices.Clone(round[:1]), slices.Clone(round[len(round)-maxMessages+1:])...)
+		}
+	}
+	remaining := maxBytes
+	for i := range selected {
+		original := len(selected[i].Content)
+		if selected[i].ContentBytes < original {
+			selected[i].ContentBytes = original
+		}
+		share := remaining / (len(selected) - i)
+		if original > share {
+			selected[i].Content = trimBytes(selected[i].Content, share)
+			selected[i].ContentTruncated = true
+		}
+		remaining -= len(selected[i].Content)
 	}
 	return selected
 }

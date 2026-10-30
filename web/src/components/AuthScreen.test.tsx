@@ -42,6 +42,27 @@ it("confirms the first password before setting it and clears it after success", 
   expect(screen.getByLabelText("确认密码")).toHaveValue("");
 });
 
+it("reveals and hides the password", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) =>
+      Response.json(
+        path === "/auth/status"
+          ? { initialized: true }
+          : { csrf_token: "session" },
+      ),
+    ),
+  );
+  render(<AuthScreen required error="" connect={vi.fn(async () => {})} />);
+  const user = userEvent.setup();
+  const password = await screen.findByLabelText("密码", { exact: true });
+  expect(password).toHaveAttribute("type", "password");
+  await user.click(screen.getByRole("button", { name: "显示密码" }));
+  expect(password).toHaveAttribute("type", "text");
+  await user.click(screen.getByRole("button", { name: "隐藏密码" }));
+  expect(password).toHaveAttribute("type", "password");
+});
+
 it("uses the saved password, reports errors and allows a retry", async () => {
   let attempts = 0;
   vi.stubGlobal(

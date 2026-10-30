@@ -1,0 +1,1555 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cocogem UI Redesign Prototype | 现代多 Agent 协同工作台</title>
+  <style>
+    /* ==========================================================================
+       1. Design Tokens & CSS Variables (现代高质感设计系统)
+       ========================================================================== */
+    :root {
+      /* Dark Theme (默认：现代深空黑灰，类似 Linear / Raycast) */
+      --bg-base: #0b0d10;
+      --bg-surface: #14171d;
+      --bg-surface-raised: #1c2027;
+      --bg-surface-hover: #242932;
+      --bg-subtle: rgba(255, 255, 255, 0.04);
+      --bg-glass: rgba(20, 23, 29, 0.85);
+
+      --border-subtle: rgba(255, 255, 255, 0.07);
+      --border-medium: rgba(255, 255, 255, 0.12);
+      --border-focus: #3b82f6;
+
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-tertiary: #64748b;
+      --text-muted: #475569;
+
+      /* Brand & Accent (现代科技蓝 / 严谨高阶质感) */
+      --accent-primary: #3b82f6;
+      --accent-hover: #2563eb;
+      --accent-subtle: rgba(59, 130, 246, 0.12);
+      --accent-border: rgba(59, 130, 246, 0.25);
+      --accent-contrast: #ffffff;
+
+      /* Semantic Tones (状态标签) */
+      --success-text: #34d399;
+      --success-bg: rgba(52, 211, 153, 0.12);
+      --success-border: rgba(52, 211, 153, 0.25);
+
+      --warning-text: #fbbf24;
+      --warning-bg: rgba(251, 191, 36, 0.12);
+      --warning-border: rgba(251, 191, 36, 0.25);
+
+      --danger-text: #f87171;
+      --danger-bg: rgba(248, 113, 113, 0.12);
+
+      --badge-researcher: #38bdf8;
+      --badge-critic: #f472b6;
+      --badge-lead: #a78bfa;
+
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+      --shadow-composer: 0 8px 30px rgba(0, 0, 0, 0.5);
+
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+      --radius-full: 9999px;
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", Roboto, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    [data-theme="light"] {
+      /* Light Theme (清爽、通透、高对比度现代洁净白) */
+      --bg-base: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-surface-raised: #f1f5f9;
+      --bg-surface-hover: #e2e8f0;
+      --bg-subtle: rgba(0, 0, 0, 0.03);
+      --bg-glass: rgba(255, 255, 255, 0.88);
+
+      --border-subtle: rgba(0, 0, 0, 0.06);
+      --border-medium: rgba(0, 0, 0, 0.12);
+      --border-focus: #2563eb;
+
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-tertiary: #64748b;
+      --text-muted: #94a3b8;
+
+      --accent-primary: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-subtle: rgba(37, 99, 235, 0.08);
+      --accent-border: rgba(37, 99, 235, 0.2);
+      --accent-contrast: #ffffff;
+
+      --success-text: #059669;
+      --success-bg: rgba(5, 150, 105, 0.1);
+      --success-border: rgba(5, 150, 105, 0.2);
+
+      --warning-text: #b45309;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --warning-border: rgba(245, 158, 11, 0.2);
+
+      --badge-researcher: #0284c7;
+      --badge-critic: #db2777;
+      --badge-lead: #7c3aed;
+
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.07);
+      --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.08);
+      --shadow-composer: 0 10px 30px rgba(0, 0, 0, 0.08);
+    }
+
+    /* Reset & Base */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      line-height: 1.55;
+      font-size: 14px;
+      overflow: hidden;
+      height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Layout Structure: Sidebar + Main Stage (Timeline + Live Canvas) */
+    .app-container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* ==========================================================================
+       2. Left Navigation Sidebar
+       ========================================================================== */
+    .sidebar {
+      width: 250px;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      transition: width 0.2s ease;
+    }
+
+    .sidebar-header {
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text-primary);
+      text-decoration: none;
+      letter-spacing: -0.01em;
+    }
+    .brand-logo {
+      width: 26px;
+      height: 26px;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.35);
+    }
+    .workspace-pill {
+      margin: 12px 14px 6px;
+      padding: 8px 10px;
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-secondary);
+      transition: all 0.15s;
+    }
+    .workspace-pill:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+    }
+
+    .new-chat-btn {
+      margin: 6px 14px 12px;
+      padding: 8px 12px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .new-chat-btn:hover {
+      background: var(--accent-subtle);
+      border-color: var(--accent-border);
+      color: var(--accent-primary);
+    }
+
+    .thread-section-title {
+      padding: 8px 16px 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+      font-weight: 600;
+    }
+    .thread-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px;
+      list-style: none;
+    }
+    .thread-item {
+      padding: 8px 10px;
+      margin-bottom: 2px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-secondary);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .thread-item:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+    }
+    .thread-item.active {
+      background: var(--accent-subtle);
+      color: var(--accent-primary);
+      font-weight: 500;
+      border: 1px solid var(--accent-border);
+    }
+    .thread-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 170px;
+    }
+
+    .sidebar-footer {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+
+    /* ==========================================================================
+       3. Main Stage: Topbar + Workspace Columns
+       ========================================================================== */
+    .main-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg-base);
+    }
+
+    /* Top Navigation Bar */
+    .topbar {
+      height: 52px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+    .breadcrumb-item {
+      color: var(--text-tertiary);
+      font-weight: 400;
+    }
+    .breadcrumb-sep {
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+    .breadcrumb-current {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .workflow-tag {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: var(--accent-subtle);
+      color: var(--accent-primary);
+      border: 1px solid var(--accent-border);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .workflow-tag::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* 成员头像堆叠（Avatar Stack）- 消除玩具感，强调专业角色 */
+    .member-stack-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 10px 4px 6px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text-secondary);
+      transition: all 0.15s;
+    }
+    .member-stack-btn:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-medium);
+      color: var(--text-primary);
+    }
+    .avatar-stack {
+      display: flex;
+      align-items: center;
+    }
+    .avatar-badge {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: #fff;
+      border: 2px solid var(--bg-surface);
+      margin-left: -5px;
+    }
+    .avatar-badge:first-child { margin-left: 0; }
+    .avatar-researcher { background: var(--badge-researcher); }
+    .avatar-critic { background: var(--badge-critic); }
+    .avatar-lead { background: var(--badge-lead); }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .icon-btn:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+      border-color: var(--border-subtle);
+    }
+    .icon-btn.active {
+      background: var(--accent-subtle);
+      color: var(--accent-primary);
+      border-color: var(--accent-border);
+    }
+
+    /* ==========================================================================
+       4. Work Area: Split View (Timeline + Canvas)
+       ========================================================================== */
+    .work-columns {
+      flex: 1;
+      display: flex;
+      height: calc(100vh - 52px);
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* 4.1 Timeline Section (左侧对话与过程主干) */
+    .timeline-pane {
+      flex: 1.1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      height: 100%;
+      min-width: 480px;
+      border-right: 1px solid var(--border-subtle);
+      background: var(--bg-base);
+    }
+
+    .timeline-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px 140px; /* 重点：留足 140px 底部间距，彻底根除遮挡！ */
+      scroll-behavior: smooth;
+    }
+
+    .timeline-content {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* 用户问题气泡 */
+    .user-query-card {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      margin-bottom: 28px;
+    }
+    .user-bubble {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      border-top-right-radius: 4px;
+      padding: 14px 18px;
+      max-width: 88%;
+      box-shadow: var(--shadow-sm);
+    }
+    .user-text {
+      font-size: 14px;
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+    .user-refs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .ref-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 3px 8px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-full);
+      color: var(--text-secondary);
+      text-decoration: none;
+    }
+    .ref-pill:hover {
+      border-color: var(--border-medium);
+      color: var(--text-primary);
+    }
+    .query-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      margin-right: 4px;
+    }
+
+    /* 运行批次与状态栏 (Run Header) */
+    .run-header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 20px;
+    }
+    .run-badge-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .status-badge.completed {
+      background: var(--success-bg);
+      color: var(--success-text);
+      border: 1px solid var(--success-border);
+    }
+    .status-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .run-meta-info {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      display: flex;
+      gap: 12px;
+    }
+
+    /* ==========================================================================
+       核心改造 1：多 Agent 协作管道与步进器（Pipeline Stepper）
+       取代原先极其隐蔽的 "> 协作过程 3 个步骤"
+       ========================================================================== */
+    .pipeline-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+    .pipeline-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 14px;
+    }
+    .pipeline-stepper {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+    }
+    .step-item {
+      display: flex;
+      gap: 12px;
+      position: relative;
+    }
+    /* 连线 */
+    .step-item:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      left: 11px;
+      top: 26px;
+      bottom: -10px;
+      width: 2px;
+      background: var(--border-subtle);
+    }
+    .step-icon-wrap {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 600;
+      z-index: 1;
+    }
+    .step-icon-done {
+      background: var(--success-bg);
+      color: var(--success-text);
+      border: 1px solid var(--success-border);
+    }
+    .step-content {
+      flex: 1;
+      padding-top: 2px;
+    }
+    .step-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .step-role-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .role-badge {
+      font-size: 10px;
+      font-weight: 500;
+      padding: 1px 6px;
+      border-radius: var(--radius-sm);
+    }
+    .role-badge.researcher { background: rgba(56, 189, 248, 0.15); color: var(--badge-researcher); }
+    .role-badge.critic { background: rgba(244, 114, 182, 0.15); color: var(--badge-critic); }
+    .role-badge.lead { background: rgba(167, 139, 250, 0.15); color: var(--badge-lead); }
+
+    .step-action-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 3px;
+    }
+    .step-tools-list {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .tool-chip {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-raised);
+      color: var(--text-tertiary);
+      border: 1px solid var(--border-subtle);
+    }
+
+    /* 消息呈现卡片（Message Block） */
+    .agent-msg-card {
+      margin-bottom: 24px;
+      padding-left: 2px;
+    }
+    .agent-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .agent-avatar-small {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .agent-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .agent-model-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+    .agent-body {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      line-height: 1.65;
+      font-size: 13.5px;
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+      border-left: 3px solid var(--badge-researcher);
+    }
+    .agent-body.critic-body {
+      border-left-color: var(--badge-critic);
+    }
+    .agent-body.lead-body {
+      border-left-color: var(--badge-lead);
+    }
+    .agent-body h4 {
+      font-size: 14px;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+    .agent-body ul, .agent-body ol {
+      padding-left: 18px;
+      margin: 8px 0;
+    }
+    .agent-body li {
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+    }
+    .agent-body li strong {
+      color: var(--text-primary);
+    }
+
+    /* 友好的系统辅助提示（替代冷硬的"不会自动重试"日志） */
+    .friendly-notice {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: var(--warning-text);
+      font-size: 12.5px;
+      margin-top: 14px;
+    }
+    .notice-icon {
+      font-size: 15px;
+      line-height: 1;
+    }
+    .notice-actions {
+      margin-top: 4px;
+    }
+    .notice-link-btn {
+      color: currentColor;
+      text-decoration: underline;
+      cursor: pointer;
+      font-weight: 500;
+      background: transparent;
+      border: none;
+      font-size: 12px;
+    }
+
+    /* ==========================================================================
+       核心改造 2：悬浮底部输入框（Modern Unified Composer）
+       解决：1.视口遮挡 2.双发送按钮歧义 3.过载拥挤
+       ========================================================================== */
+    .composer-container {
+      position: absolute;
+      bottom: 20px;
+      left: 32px;
+      right: 32px;
+      max-width: 720px;
+      margin: 0 auto;
+      z-index: 20;
+    }
+    .composer-box {
+      background: var(--bg-glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-composer);
+      padding: 12px 16px 10px;
+      transition: all 0.2s ease;
+    }
+    .composer-box:focus-within {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px var(--accent-subtle), var(--shadow-composer);
+    }
+
+    /* 顶部快捷控制条（Pills Row） */
+    .composer-capsules {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .capsule-select-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .capsule-select-btn:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+    }
+    .capsule-icon {
+      font-size: 12px;
+    }
+
+    /* 文本输入区 */
+    .composer-input {
+      width: 100%;
+      min-height: 48px;
+      max-height: 180px;
+      background: transparent;
+      border: none;
+      outline: none;
+      resize: none;
+      font-family: inherit;
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--text-primary);
+    }
+    .composer-input::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    /* 底部条：单一主按钮 + 优雅状态辅助 */
+    .composer-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid var(--border-subtle);
+    }
+    .composer-hints {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .key-hint {
+      display: inline-block;
+      padding: 1px 4px;
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    /* 仅保留一个统一、醒目的发送按钮 */
+    .composer-send-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-full);
+      background: var(--accent-primary);
+      border: none;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+      transition: all 0.15s ease;
+    }
+    .composer-send-btn:hover {
+      background: var(--accent-hover);
+      transform: scale(1.04);
+    }
+    .composer-send-btn svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ==========================================================================
+       4.2 Live Artifact & Evidence Canvas (右侧产物交付与事实画板)
+       ========================================================================== */
+    .canvas-pane {
+      flex: 0.9;
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-width: 380px;
+      transition: all 0.25s ease;
+    }
+    .canvas-pane.collapsed {
+      width: 0;
+      min-width: 0;
+      flex: 0;
+      overflow: hidden;
+      border: none;
+    }
+
+    .canvas-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .canvas-tabs {
+      display: flex;
+      gap: 16px;
+    }
+    .canvas-tab-btn {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding-bottom: 4px;
+      position: relative;
+    }
+    .canvas-tab-btn.active {
+      color: var(--accent-primary);
+    }
+    .canvas-tab-btn.active::after {
+      content: "";
+      position: absolute;
+      bottom: -15px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent-primary);
+      border-radius: 2px;
+    }
+    .tab-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      font-size: 10px;
+      border-radius: var(--radius-full);
+      background: var(--bg-subtle);
+      color: var(--text-secondary);
+      margin-left: 4px;
+    }
+
+    .canvas-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .action-btn {
+      padding: 5px 10px;
+      font-size: 12px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-raised);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+    .action-btn:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+    }
+    .action-btn.primary {
+      background: var(--accent-primary);
+      color: #fff;
+      border-color: var(--accent-primary);
+    }
+    .action-btn.primary:hover {
+      background: var(--accent-hover);
+    }
+
+    .canvas-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+
+    /* 产物阅读器（Artifact View） */
+    .artifact-doc-card {
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+    .doc-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .doc-version {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 2px 8px;
+      background: var(--accent-subtle);
+      color: var(--accent-primary);
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+    }
+    .doc-date {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .doc-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+
+    /* 结构化证据卡片 */
+    .findings-section {
+      margin-top: 20px;
+    }
+    .section-headline {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-tertiary);
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+    .finding-item {
+      padding: 12px 14px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      margin-bottom: 10px;
+    }
+    .finding-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .finding-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .evidence-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: var(--radius-full);
+      font-weight: 500;
+    }
+    .evidence-badge.verified {
+      background: var(--success-bg);
+      color: var(--success-text);
+      border: 1px solid var(--success-border);
+    }
+    .evidence-badge.uncertain {
+      background: var(--warning-bg);
+      color: var(--warning-text);
+      border: 1px solid var(--warning-border);
+    }
+    .finding-detail {
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* 来源引文折叠列表 */
+    .source-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .source-entry {
+      padding: 10px 12px;
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 12px;
+    }
+    .source-domain {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+    .source-title {
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    /* UI 说明浮动提示标签 (Demo Only) */
+    .demo-callout-pill {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(37, 99, 235, 0.9);
+      backdrop-filter: blur(8px);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: var(--radius-full);
+      font-size: 11.5px;
+      font-weight: 500;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.3);
+    }
+
+    @media (max-width: 900px) {
+      .canvas-pane { display: none; }
+      .sidebar { width: 68px; }
+      .brand span, .thread-title, .workspace-pill span, .new-chat-btn span { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 提示标签 -->
+  <div class="demo-callout-pill">
+    <span>💡 现代 UI 升级预览样例：中性高阶审美 · 流程步进管道 · 左右双栏画板 · 根除输入遮挡</span>
+  </div>
+
+  <div class="app-container">
+
+    <!-- 1. 左侧轻量导航边栏 (Sidebar) -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <a href="#" class="brand">
+          <div class="brand-logo">C</div>
+          <span>Cocogem</span>
+        </a>
+      </div>
+
+      <div class="workspace-pill" title="点击切换或配置工作空间">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          <span style="font-weight: 500; color: var(--text-primary);">技术调研空间</span>
+        </div>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </div>
+
+      <button class="new-chat-btn" onclick="startNewChat()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        <span>新建协作会话</span>
+      </button>
+
+      <div class="thread-section-title">最近的讨论</div>
+      <ul class="thread-list">
+        <li class="thread-item active">
+          <span class="thread-title">研究多 Agent 协作的适用场景</span>
+          <span style="font-size: 10px; color: var(--accent-primary); font-family: var(--font-mono);">NOW</span>
+        </li>
+        <li class="thread-item">
+          <span class="thread-title">分析 DeBank 架构与业务矩阵</span>
+          <span style="font-size: 11px; color: var(--text-muted);">昨天</span>
+        </li>
+        <li class="thread-item">
+          <span class="thread-title">CLI 进程隔离与安全沙箱审计</span>
+          <span style="font-size: 11px; color: var(--text-muted);">3天前</span>
+        </li>
+        <li class="thread-item">
+          <span class="thread-title">比较主流 Agent 框架与原生 Loop</span>
+          <span style="font-size: 11px; color: var(--text-muted);">上周</span>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981;"></span>
+          <span>本机数据就绪</span>
+        </div>
+        <span>v0.1.2</span>
+      </div>
+    </aside>
+
+    <!-- 2. 主操作台 (Main Stage) -->
+    <main class="main-stage">
+      
+      <!-- 2.1 顶部栏 (Topbar) -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="breadcrumbs">
+            <span class="breadcrumb-item">技术调研空间</span>
+            <span class="breadcrumb-sep">/</span>
+            <span class="breadcrumb-current">研究多 Agent 协作的适用场景，说明证据与限制</span>
+          </div>
+          <span class="workflow-tag">深度研讨 (Research)</span>
+        </div>
+
+        <div class="topbar-right">
+          <!-- 角色名册堆叠（解决萌系宠物与严肃任务的违和感：清晰标注职责） -->
+          <button class="member-stack-btn" title="查看参与本次协作的成员">
+            <div class="avatar-stack">
+              <div class="avatar-badge avatar-researcher" title="调研员 (Claude Code)">调</div>
+              <div class="avatar-badge avatar-critic" title="质疑员 (Codex)">审</div>
+              <div class="avatar-badge avatar-lead" title="协调员 (Gemini)">总</div>
+            </div>
+            <span>3 位专业成员</span>
+          </button>
+
+          <div class="topbar-actions">
+            <!-- 浅色/深色主题切换 -->
+            <button class="icon-btn" id="theme-toggle" onclick="toggleTheme()" title="切换浅色/深色模式">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            </button>
+            <!-- 产物画板收折切换 -->
+            <button class="icon-btn active" id="canvas-toggle" onclick="toggleCanvas()" title="收起/展开交付画板">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- 2.2 工作双栏（对话流与交付物画板并排） -->
+      <div class="work-columns">
+        
+        <!-- 左侧：对话与协作过程流 (Timeline Pane) -->
+        <section class="timeline-pane">
+          <div class="timeline-scroll" id="timelineScroll">
+            <div class="timeline-content">
+
+              <!-- 用户提问气泡 -->
+              <div class="user-query-card">
+                <div class="user-bubble">
+                  <div class="user-text">
+                    请全面研究多 Agent 协作系统在工业落地中的适用场景，重点提取证据支撑与已知限制，形成一份可直接复核的研究简报。
+                  </div>
+                  <div class="user-refs">
+                    <a href="#" class="ref-pill">🔗 https://example.org/cocogem/research</a>
+                    <a href="#" class="ref-pill">📄 research-scenario.md</a>
+                  </div>
+                </div>
+                <div class="query-time">今天 11:42 · 本地发起</div>
+              </div>
+
+              <!-- 执行状态栏 -->
+              <div class="run-header-bar">
+                <div class="run-badge-group">
+                  <span class="status-badge completed">
+                    <span class="status-dot"></span>
+                    协作执行完毕
+                  </span>
+                  <span>用时 4.2 秒</span>
+                </div>
+                <div class="run-meta-info">
+                  <span>并发调用 3 次</span>
+                  <span>调用 8 个工具</span>
+                </div>
+              </div>
+
+              <!-- 重点改造：团队协作步进管道 (Pipeline Stepper) -->
+              <div class="pipeline-card">
+                <div class="pipeline-title">
+                  <span>协作交付管道 (Pipeline)</span>
+                  <span style="font-size: 11px; color: var(--text-tertiary); font-weight: normal;">按顺序独立复核 · 不可篡改溯源</span>
+                </div>
+
+                <div class="pipeline-stepper">
+                  <!-- 步骤 1: 调研员检索 -->
+                  <div class="step-item">
+                    <div class="step-icon-wrap step-icon-done">✓</div>
+                    <div class="step-content">
+                      <div class="step-header">
+                        <div class="step-role-name">
+                          <span>资料检索与主线提取</span>
+                          <span class="role-badge researcher">调研员 · Claude</span>
+                        </div>
+                        <span style="font-size: 11px; color: var(--text-tertiary);">1.8s</span>
+                      </div>
+                      <div class="step-action-desc">读取本地 `research-scenario.md` 与网络资料，提取 3 个核心应用论据。</div>
+                      <div class="step-tools-list">
+                        <span class="tool-chip">WebFetch (2次)</span>
+                        <span class="tool-chip">Grep (1次)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 步骤 2: 质疑员独立审计 -->
+                  <div class="step-item">
+                    <div class="step-icon-wrap step-icon-done">✓</div>
+                    <div class="step-content">
+                      <div class="step-header">
+                        <div class="step-role-name">
+                          <span>边界审查与交叉质疑</span>
+                          <span class="role-badge critic">审计员 · Codex</span>
+                        </div>
+                        <span style="font-size: 11px; color: var(--text-tertiary);">1.4s</span>
+                      </div>
+                      <div class="step-action-desc">指出调研报告缺少量化 ROI 证据，并标记 1 处未证实的不确定性假设。</div>
+                      <div class="step-tools-list">
+                        <span class="tool-chip">Independent-Review</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 步骤 3: 协调员汇总结论 -->
+                  <div class="step-item">
+                    <div class="step-icon-wrap step-icon-done">✓</div>
+                    <div class="step-content">
+                      <div class="step-header">
+                        <div class="step-role-name">
+                          <span>争议收敛与交付报告发布</span>
+                          <span class="role-badge lead">协调员 · Gemini</span>
+                        </div>
+                        <span style="font-size: 11px; color: var(--text-tertiary);">1.0s</span>
+                      </div>
+                      <div class="step-action-desc">将正反方观点综合为最终《多 Agent 适用场景研究报告 v1》，推送到右侧画板。</div>
+                      <div class="step-tools-list">
+                        <span class="tool-chip">Publish-Artifact</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 消息 1: 调研员意见 -->
+              <div class="agent-msg-card">
+                <div class="agent-meta">
+                  <div class="agent-avatar-small avatar-researcher">调</div>
+                  <span class="agent-name">调研员 (Claude Code)</span>
+                  <span class="agent-model-tag">claude-3-7-sonnet</span>
+                </div>
+                <div class="agent-body">
+                  <h4>初步调研发现与证据提取</h4>
+                  <p>通过对示例资料及产业落地案例的交叉分析，当前多 Agent 架构在以下场景收益最为确凿：</p>
+                  <ol>
+                    <li><strong>可正交拆分的解耦任务</strong>：如文献深度调研、跨语言代码审查、合规审计。</li>
+                    <li><strong>异构模型交叉验证（Cross-Verification）</strong>：单个模型容易陷入幻觉盲区，多角色互审能显著提升可信度。</li>
+                  </ol>
+                </div>
+              </div>
+
+              <!-- 消息 2: 审计员反方意见 -->
+              <div class="agent-msg-card">
+                <div class="agent-meta">
+                  <div class="agent-avatar-small avatar-critic">审</div>
+                  <span class="agent-name">审计员 (Codex CLI)</span>
+                  <span class="agent-model-tag">gpt-4o</span>
+                </div>
+                <div class="agent-body critic-body">
+                  <h4>独立复核异议与限制补充</h4>
+                  <p>对调研员的结论提出 2 点关键保留意见，已同步记入交付限制：</p>
+                  <ul>
+                    <li><strong>边际成本陡增</strong>：多步往返导致 Token 消耗增加 300%~500%，简单任务切勿盲目引入。</li>
+                    <li><strong>缺乏量化评估标准</strong>：目前的评估大多依赖定性判断，尚无统一的生产级 Benchmark。</li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- 友好的系统辅助提示（替代冷硬的"不会自动重试"日志） -->
+              <div class="friendly-notice">
+                <span class="notice-icon">ℹ️</span>
+                <div>
+                  <div style="font-weight: 600;">系统就绪提示</div>
+                  <div>本次多 Agent 协作已成功沉淀为版本化报告。如需调整观点，可直接在下方输入追问，或在右侧画板中标记反馈。</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- 重点改造：悬浮统一输入框 (Unified Modern Composer) -->
+          <div class="composer-container">
+            <div class="composer-box">
+              
+              <!-- 顶部辅助胶囊（Pills Row）：取代原先杂乱分散的下拉和Chip -->
+              <div class="composer-capsules">
+                <button class="capsule-select-btn">
+                  <span class="capsule-icon">⚡</span>
+                  <span style="font-weight: 500;">深度研讨 (Research)</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <button class="capsule-select-btn">
+                  <span class="capsule-icon">👥</span>
+                  <span>指派: 自动编排全员</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <button class="capsule-select-btn">
+                  <span class="capsule-icon">+</span>
+                  <span>添加本地/网页引用</span>
+                </button>
+              </div>
+
+              <!-- 文本输入区 -->
+              <textarea 
+                class="composer-input" 
+                id="userInput"
+                rows="2"
+                placeholder="在此继续追问、补充约束，或输入 @ 指定特定角色..."
+              ></textarea>
+
+              <!-- 底部操作栏：去除歧义的第二个假按钮，仅保留明确的发送主入口 -->
+              <div class="composer-footer">
+                <div class="composer-hints">
+                  <span>按 <span class="key-hint">⌘</span> + <span class="key-hint">Enter</span> 发送</span>
+                  <span>·</span>
+                  <span>已启用本机只读沙箱</span>
+                </div>
+
+                <!-- 唯一明确的发送主入口 -->
+                <button class="composer-send-btn" id="sendBtn" onclick="handleSend()" title="发送任务 (⌘ + Enter)">
+                  <svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+        </section>
+
+        <!-- 右侧：交付物画板与证据链 (Live Artifact & Canvas) -->
+        <aside class="canvas-pane" id="canvasPane">
+          <div class="canvas-header">
+            <div class="canvas-tabs">
+              <button class="canvas-tab-btn active">
+                交付产物 <span class="tab-badge">v1</span>
+              </button>
+              <button class="canvas-tab-btn">
+                事实来源 <span class="tab-badge">4</span>
+              </button>
+              <button class="canvas-tab-btn">
+                调用过程
+              </button>
+            </div>
+            <div class="canvas-actions">
+              <button class="action-btn" title="复制 Markdown 内容" onclick="alert('已复制报告 Markdown 到剪贴板')">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                复制
+              </button>
+              <button class="action-btn primary" title="导出报告为本地文件">
+                导出
+              </button>
+            </div>
+          </div>
+
+          <div class="canvas-body">
+            <div class="artifact-doc-card">
+              <div class="doc-meta">
+                <span class="doc-version">RESEARCH REPORT · V1</span>
+                <span class="doc-date">2026-10-29 11:42</span>
+              </div>
+              <h2 class="doc-title">多 Agent 协同体系在工程与研讨场景下的落地价值与边界</h2>
+
+              <p style="color: var(--text-secondary); font-size: 13.5px; line-height: 1.6; margin-bottom: 16px;">
+                本报告由调研员与审计员基于指定资料进行多轮交叉验证后整理完成，已剔除无明确证据的推测性假说。
+              </p>
+
+              <!-- 结构化发现 (Findings) -->
+              <div class="findings-section">
+                <div class="section-headline">关键结构化发现</div>
+
+                <div class="finding-item">
+                  <div class="finding-header">
+                    <span class="finding-title">1. 质疑-复核闭环显著降低幻觉率</span>
+                    <span class="evidence-badge verified">有充分依据</span>
+                  </div>
+                  <div class="finding-detail">
+                    通过将“检索角色”与“批判角色”解耦，独立复核机制拦截了约 42% 的事实引用错误。
+                  </div>
+                </div>
+
+                <div class="finding-item">
+                  <div class="finding-header">
+                    <span class="finding-title">2. 状态机硬性约束优于纯自由涌现</span>
+                    <span class="evidence-badge verified">已确认</span>
+                  </div>
+                  <div class="finding-detail">
+                    无界自嗨群聊在第 3 轮交互后信息熵骤增，采用有限步骤计划（串行/并行）能保证交付确定性。
+                  </div>
+                </div>
+
+                <div class="finding-item">
+                  <div class="finding-header">
+                    <span class="finding-title">3. 短板：高延时与排队等待成本</span>
+                    <span class="evidence-badge uncertain">需持续关注</span>
+                  </div>
+                  <div class="finding-detail">
+                    完整复核流程首字返回时间（TTFT）延长，需要前端提供更生动的过程可视化缓解等待焦虑。
+                  </div>
+                </div>
+
+                <!-- 引用来源列表 -->
+                <div class="section-headline" style="margin-top: 20px;">不可伪造的事实来源</div>
+                <div class="source-list">
+                  <div class="source-entry">
+                    <span style="color: var(--accent-primary);">📄</span>
+                    <div>
+                      <div class="source-title">research-scenario.md (第 9-25 行)</div>
+                      <div class="source-domain">本地只读沙箱文件 · SHA256: 655cc299</div>
+                    </div>
+                  </div>
+                  <div class="source-entry">
+                    <span style="color: var(--accent-primary);">🌐</span>
+                    <div>
+                      <div class="source-title">Multi-Agent Collaboration Architecture Evaluation</div>
+                      <div class="source-domain">example.org/cocogem/research</div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </aside>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // 交互逻辑：主题切换 (Light / Dark)
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+    }
+
+    // 交互逻辑：折叠/展开右侧交付物画板 (Split View Toggle)
+    function toggleCanvas() {
+      const pane = document.getElementById('canvasPane');
+      const btn = document.getElementById('canvas-toggle');
+      pane.classList.toggle('collapsed');
+      btn.classList.toggle('active');
+    }
+
+    // 交互逻辑：模拟发送与滚动
+    function handleSend() {
+      const input = document.getElementById('userInput');
+      const text = input.value.trim();
+      if (!text) {
+        input.focus();
+        return;
+      }
+      alert('已成功触发协同任务：“' + text + '”\n在实际重构后，系统将无缝展开步骤管道并推送到交付画板。');
+      input.value = '';
+    }
+
+    // 键盘快捷键监听
+    document.getElementById('userInput').addEventListener('keydown', function(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleSend();
+      }
+    });
+
+    function startNewChat() {
+      const input = document.getElementById('userInput');
+      input.value = '';
+      input.placeholder = '请输入新的任务目标或粘贴要分析的文档链接...';
+      input.focus();
+    }
+  </script>
+</body>
+</html>

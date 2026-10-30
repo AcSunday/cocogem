@@ -196,7 +196,7 @@ func runNativeHTTPFixture() error {
 		return encoder.Encode(map[string]any{"type": "result", "subtype": "success", "is_error": false})
 	}
 	var source w.Source
-	if role == "researcher" {
+	if role == "researcher" && !strings.Contains(string(prompt), "point by point") {
 		if err := callTool("read_file", map[string]any{"path": "evidence.md"}, &source); err != nil {
 			return err
 		}
@@ -218,10 +218,20 @@ func runNativeHTTPFixture() error {
 			return errors.New("an intermediate step's artifact leaked into the handoff")
 		}
 		wantMessages := 1
-		if role == "coordinator" {
+		switch role {
+		case "coordinator":
+			wantMessages = 4
+		case "researcher":
 			wantMessages = 2
+		case "critic":
+			// The first critique sees one message; the re-check sees the
+			// research, its own critique and the point-by-point response.
+			if len(handoff.Messages) != 1 && len(handoff.Messages) != 3 {
+				return errors.New("unexpected critique handoff size")
+			}
+			wantMessages = len(handoff.Messages)
 		}
-		if len(handoff.Messages) != wantMessages || handoff.Messages[0].ID == "" {
+		if len(handoff.Messages) != wantMessages || len(handoff.Messages) == 0 || handoff.Messages[0].ID == "" {
 			return errors.New("upstream committed message identities missing")
 		}
 		if len(handoff.MessageRefs) != len(handoff.Messages) || len(handoff.ArtifactRefs) != len(handoff.Artifacts) {
@@ -427,7 +437,7 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 		var view RunView
 		call("GET", "/api/v1/runs/"+run.ID, nil, nil, 200, &view)
 		if w.Terminal(view.Run.Status) {
-			if view.Run.Status != "succeeded" || len(view.Steps) != 3 {
+			if view.Run.Status != "succeeded" || len(view.Steps) != 5 {
 				diagnostic, _ := os.ReadFile(ledger + ".error")
 				t.Fatalf("run=%+v steps=%+v fixture=%s", view.Run, view.Steps, diagnostic)
 			}
@@ -485,7 +495,7 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 					return err
 				}
 				if len(handoff.Artifacts) != 0 || len(handoff.SourceIDs) != 1 {
-					return errors.New("persisted handoff leaked an intermediate artifact or lost evidence")
+					return fmt.Errorf("persisted handoff leaked an intermediate artifact or lost evidence: artifacts=%d sources=%d step=%s", len(handoff.Artifacts), len(handoff.SourceIDs), event.StepID)
 				}
 				if len(handoff.MessageRefs) == 0 || len(handoff.ArtifactRefs) != 0 || len(handoff.Digests) < len(handoff.MessageRefs)+1 {
 					return errors.New("persisted handoff lost exact refs or digests")
@@ -510,7 +520,7 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 		// researcher reads a file; critic and coordinator page the exact captured
 		// source. Each dependent also reads committed messages through
 		// read_context, never from the inline preview alone.
-		if len(sessions) != 3 || toolReads != 3 || contextReads != 3 || handoffs != 2 {
+		if len(sessions) != 5 || toolReads != 5 || contextReads != 10 || handoffs != 4 {
 			return fmt.Errorf("sessions=%d reads=%d context_reads=%d handoffs=%d", len(sessions), toolReads, contextReads, handoffs)
 		}
 		return nil
@@ -518,7 +528,7 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(ledger)
-	if err != nil || len(strings.Split(strings.TrimSpace(string(before)), "\n")) != 3 {
+	if err != nil || len(strings.Split(strings.TrimSpace(string(before)), "\n")) != 5 {
 		t.Fatalf("native invocations=%s err=%v", before, err)
 	}
 	directories := map[string]bool{}

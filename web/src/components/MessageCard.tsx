@@ -10,6 +10,7 @@ import {
   bytesLabel,
   errorText,
   formatMessageTime,
+  getMemberColor,
   memberTone,
   messageModel,
   roleLabel,
@@ -124,11 +125,17 @@ export function MessageCard({
   const hasNewContent =
     !!page && (message.content_bytes ?? 0) > (page.content_bytes ?? 0);
   const shown = open && page ? page.content : message.content;
+  const memberColor = !user ? getMemberColor(message.agent_id || message.id) : undefined;
   return (
     <article
       className={cx(
         `message ${user ? "user-message" : `member-message tone-${memberTone(message.agent_id || message.id)}`}`,
       )}
+      style={
+        memberColor
+          ? ({ "--member-color": memberColor.color } as Record<string, string>)
+          : undefined
+      }
       aria-label={user ? "你的消息" : undefined}
     >
       <div className={cx("message-content")}>

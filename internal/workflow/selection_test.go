@@ -273,14 +273,20 @@ func TestCoordinatorSelectionValidatesRosterAndRoles(t *testing.T) {
 			t.Fatal(err)
 		}
 		steps := selectionSteps(t, s, run.ID)
-		if len(steps) != 3 {
-			t.Fatalf("code analysis steps = %d, want root + analyst + reviewer", len(steps))
+		if len(steps) != 5 {
+			t.Fatalf("code analysis steps = %d, want root + analysis + review + response + final review", len(steps))
 		}
 		if steps[1].Role != "analyst" || steps[1].AgentID != agents[1].ID || !slices.Equal(steps[1].DependsOn, []string{root.ID}) {
 			t.Fatalf("analyst step = %+v", steps[1])
 		}
-		if steps[2].Role != "reviewer" || steps[2].AgentID != agents[2].ID || !slices.Equal(steps[2].DependsOn, []string{steps[1].ID}) {
+		if steps[2].Role != "critic" || steps[2].AgentID != agents[2].ID || !slices.Equal(steps[2].DependsOn, []string{steps[1].ID}) {
 			t.Fatalf("reviewer step = %+v", steps[2])
+		}
+		if steps[3].Role != "analyst" || steps[3].AgentID != agents[1].ID || !slices.Contains(steps[3].DependsOn, steps[1].ID) || !slices.Contains(steps[3].DependsOn, steps[2].ID) {
+			t.Fatalf("analyst response step = %+v", steps[3])
+		}
+		if steps[4].Role != "final_reviewer" || steps[4].AgentID != agents[2].ID || !slices.Contains(steps[4].DependsOn, steps[2].ID) || !slices.Contains(steps[4].DependsOn, steps[3].ID) {
+			t.Fatalf("final reviewer step = %+v", steps[4])
 		}
 		var current w.Run
 		if err := s.Read(context.Background(), func(tx *store.Tx) error {
@@ -290,8 +296,8 @@ func TestCoordinatorSelectionValidatesRosterAndRoles(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if RequiredArtifact(steps[2], effectiveInput(current)) != "code_analysis" {
-			t.Fatal("selected engineering analysis would not publish a read-only report")
+		if RequiredArtifact(steps[2], effectiveInput(current)) != "" || RequiredArtifact(steps[4], effectiveInput(current)) != "code_analysis" {
+			t.Fatal("selected engineering analysis publication roles are wrong")
 		}
 		for i := range agents {
 			if !slices.Equal(current.Agents[i].Tools, agents[i].Tools) {
@@ -459,11 +465,11 @@ func TestSelectionEngineeringIsAlwaysReadOnlyAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	current, steps := readRunAndSteps(t, s, run.ID)
-	if current.SelectedWorkflow == nil || current.SelectedWorkflow.Workflow != "engineering" || len(steps) != 3 {
+	if current.SelectedWorkflow == nil || current.SelectedWorkflow.Workflow != "engineering" || len(steps) != 5 {
 		t.Fatalf("engineering selection = %+v steps=%d", current.SelectedWorkflow, len(steps))
 	}
-	if steps[1].Role != "analyst" || steps[2].Role != "reviewer" {
-		t.Fatalf("engineering analysis roles = %s, %s", steps[1].Role, steps[2].Role)
+	if steps[1].Role != "analyst" || steps[2].Role != "critic" || steps[3].Role != "analyst" || steps[4].Role != "final_reviewer" {
+		t.Fatalf("engineering analysis roles = %s, %s, %s, %s", steps[1].Role, steps[2].Role, steps[3].Role, steps[4].Role)
 	}
 	effective := effectiveInput(current)
 	if effective.Workflow != "engineering" || effective.EngineeringAction != w.EngineeringAnalyze {
@@ -479,8 +485,8 @@ func TestSelectionEngineeringIsAlwaysReadOnlyAnalysis(t *testing.T) {
 	if EngineeringToolAllowed(effective, "reviewer", "run_test") {
 		t.Fatal("selected engineering analysis authorized project tests")
 	}
-	if RequiredArtifact(steps[2], effective) != "code_analysis" {
-		t.Fatal("selected engineering analysis did not require a code_analysis report")
+	if RequiredArtifact(steps[2], effective) != "" || RequiredArtifact(steps[4], effective) != "code_analysis" {
+		t.Fatal("selected engineering analysis publication roles are wrong")
 	}
 }
 
@@ -878,7 +884,7 @@ func TestSelectedDiscussionRunsFiveStagesAndDelivers(t *testing.T) {
 	}
 }
 
-func TestSelectedResearchRunsAcceptedThreeStepPlan(t *testing.T) {
+func TestSelectedResearchRunsAcceptedFiveStepPlan(t *testing.T) {
 	e, s, run, agents, root := seedMethodFixture(t, nil)
 	run.Status = "queued"
 	root.Status = "pending"
@@ -901,14 +907,14 @@ func TestSelectedResearchRunsAcceptedThreeStepPlan(t *testing.T) {
 		t.Fatalf("method = %q", got.Method)
 	}
 	_, steps := readRunAndSteps(t, s, run.ID)
-	if len(steps) != 4 {
-		t.Fatalf("steps = %d, want root + 3", len(steps))
+	if len(steps) != 6 {
+		t.Fatalf("steps = %d, want root + 5", len(steps))
 	}
 	roles := []string{}
 	for _, step := range steps[1:] {
 		roles = append(roles, step.Role)
 	}
-	if !slices.Equal(roles, []string{"researcher", "critic", "coordinator"}) {
+	if !slices.Equal(roles, []string{"researcher", "critic", "researcher", "critic", "coordinator"}) {
 		t.Fatalf("research roles = %v", roles)
 	}
 	if got.Delivery == nil || len(got.Delivery.ArtifactRefs) != 1 {
