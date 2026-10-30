@@ -1,0 +1,35 @@
+.settings-container {
+  display: flex;
+  height: 60vh;
+  min-height: 400px;
+}
+.settings-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-right: 1px solid var(--border);
+}
+.settings-tab {
+  justify-content: flex-start;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.settings-tab:hover {
+  background: var(--surface-3);
+}
+.settings-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}

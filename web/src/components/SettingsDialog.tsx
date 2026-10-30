@@ -1,4 +1,3 @@
-import { Select } from "./Select";
 import { useState } from "react";
 import type {
   Agent,
@@ -27,16 +26,6 @@ import { Modal } from "./Modal";
 
 type SettingsTab = "members" | "collaboration" | "service";
 
-const editable = (settings: Settings): SettingsInput => ({
-  default_coordinator_id: settings.default_coordinator_id ?? "",
-  assignments: Object.fromEntries(
-    Object.entries(settings.assignments ?? {}).map(([workflow, roles]) => [
-      workflow,
-      { ...(roles ?? {}) },
-    ]),
-  ),
-});
-
 export function SettingsDialog({
   system,
   setSystem,
@@ -57,62 +46,59 @@ export function SettingsDialog({
   saveAgent?: (value: Agent) => Promise<Agent>;
 }) {
   const tabs: [SettingsTab, string][] = [];
-  if (saveAgent) tabs.push(["members", "成员"]);
-  if (settings && saveSettings) tabs.push(["collaboration", "协作"]);
-  tabs.push(["service", "服务"]);
+  if (saveAgent) tabs.push(["members", "成员管理"]);
+  if (settings && saveSettings) tabs.push(["collaboration", "协作设置"]);
+  tabs.push(["service", "服务与验证"]);
   const [tab, setTab] = useState<SettingsTab>(tabs[0][0]);
+  
   return (
     <Modal title="设置" close={close} wide>
-      <div className={cx("panel-tabs")} role="tablist" aria-label="设置分类">
-        {tabs.map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            id={`settings-tab-${key}`}
-            aria-selected={tab === key}
-            aria-controls={`settings-panel-${key}`}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div
-        id={`settings-panel-${tab}`}
-        role="tabpanel"
-        aria-labelledby={`settings-tab-${tab}`}
-      >
-        {tab === "members" && saveAgent && (
-          <MembersSettings
-            embedded
-            global
-            agents={[]}
-            system={system}
-            workspaceID=""
-            refresh={async () => {}}
-            close={close}
-            save={saveAgent}
-          />
-        )}
-        {tab === "collaboration" && settings && saveSettings && (
-          <CollaborationSettings
-            agents={agents}
-            settings={settings}
-            save={saveSettings}
-          />
-        )}
-        {tab === "service" && (
-          <ServiceSettings
-            system={system}
-            setSystem={setSystem}
-            lock={lock}
-          />
-        )}
+      <div className={cx("settings-container")}>
+        <nav className={cx("settings-sidebar")}>
+          {tabs.map(([key, label]) => (
+            <button
+              key={key}
+              className={cx(`settings-tab ${tab === key ? "active" : ""}`)}
+              onClick={() => setTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <main className={cx("settings-body")}>
+          {tab === "members" && saveAgent && (
+            <MembersSettings
+              embedded
+              global
+              agents={[]}
+              system={system}
+              workspaceID=""
+              refresh={async () => {}}
+              close={close}
+              save={saveAgent}
+            />
+          )}
+          {tab === "collaboration" && settings && saveSettings && (
+            <CollaborationSettings
+              agents={agents}
+              settings={settings}
+              save={saveSettings}
+            />
+          )}
+          {tab === "service" && (
+            <ServiceSettings
+              system={system}
+              setSystem={setSystem}
+              lock={lock}
+            />
+          )}
+        </main>
       </div>
     </Modal>
   );
 }
+// ... rest of the functions (CollaborationSettings, ServiceSettings, SnapshotDialog) remain largely unchanged in logic but should be updated with new styles if possible. For now, focus on structure.
+
 
 /** Global collaboration defaults; a member is only used where the workspace grants it. */
 function CollaborationSettings({
