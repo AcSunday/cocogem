@@ -1,11 +1,18 @@
 import { cx } from "../styles/classes";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
 export function Markdown({ text }: { text: string }) {
+  // Regex to find @mentions and wrap them in a span
+  const highlightedText = text.replace(
+    /@([a-zA-Z0-9_-]+)/g,
+    '<span class="mention" title="成员简介">@$1</span>'
+  );
+
   return (
     <div className={cx("markdown")}>
       <ReactMarkdown
-        skipHtml
+        skipHtml={false} // Enable HTML for the mentions
         remarkPlugins={[remarkGfm]}
         components={{
           a: (props) => (
@@ -21,7 +28,7 @@ export function Markdown({ text }: { text: string }) {
           pre: (props) => <pre tabIndex={0}>{props.children}</pre>,
         }}
       >
-        {text}
+        {highlightedText}
       </ReactMarkdown>
     </div>
   );

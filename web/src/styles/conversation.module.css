@@ -394,18 +394,18 @@
 .avatar {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
-  border-radius: 9px;
-  font-size: 14px;
+  border-radius: 10px;
+  font-size: 16px;
   font-weight: 500;
 }
 .avatar-sm {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  font-size: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 .tone-0,
 .tone-1,

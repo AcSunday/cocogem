@@ -233,16 +233,16 @@ small,
   padding: 0;
   background: none;
 }
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+.mention {
+  color: var(--accent-text);
+  font-weight: 600;
+  cursor: help;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+.mention:hover {
+  text-decoration: underline;
 }
 .skip-link {
   position: absolute;

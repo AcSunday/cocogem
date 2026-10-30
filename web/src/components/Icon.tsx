@@ -15,6 +15,7 @@ const paths = {
   send: <path d="M12 19V5M5 12l7-7 7 7" />,
   down: <path d="M12 5v14M5 12l7 7 7-7" />,
   stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  stop_filled: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />,
   trash: <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />,
   edit: <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />,
   settings: (
@@ -108,13 +109,21 @@ const paths = {
 
 export type IconName = keyof typeof paths;
 
-export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
+export function Icon({
+  name,
+  size = 16,
+  fill,
+}: {
+  name: IconName;
+  size?: number;
+  fill?: string;
+}) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={fill || "none"}
       stroke="currentColor"
       strokeWidth={1.8}
       strokeLinecap="round"

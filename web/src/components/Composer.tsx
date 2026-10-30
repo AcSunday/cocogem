@@ -322,7 +322,7 @@ export function Composer({
             onClick={onStop}
             disabled={canceling}
           >
-            <Icon name="stop" size={14} />
+            <Icon name="stop_filled" size={14} />
           </button>
         ) : (
           <button
