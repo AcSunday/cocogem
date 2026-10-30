@@ -3,6 +3,7 @@ import controls from "./controls.module.css";
 import layout from "./layout.module.css";
 import conversation from "./conversation.module.css";
 import panels from "./panels.module.css";
+import members from "./member-editor.module.css";
 
 const modules: Record<string, string>[] = [
   base,
@@ -10,6 +11,7 @@ const modules: Record<string, string>[] = [
   layout,
   conversation,
   panels,
+  members,
 ];
 
 // Resolve the shared workspace design vocabulary to locally scoped CSS classes.
