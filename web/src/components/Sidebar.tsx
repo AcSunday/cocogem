@@ -126,7 +126,14 @@ export function Sidebar({
               onClick={() => onThread(thread.id)}
             >
               <strong>{thread.title}</strong>
-              <small>{formatMessageTime(thread.updated_at)}</small>
+              <div className={cx("thread-meta")}>
+                <small>{formatMessageTime(thread.updated_at)}</small>
+                {thread.status === "processing" ? (
+                  <span className={cx("status-indicator processing")} title="进行中" />
+                ) : thread.status === "completed" ? (
+                  <span className={cx("status-indicator completed")} title="已完成" />
+                ) : null}
+              </div>
             </button>
             <ThreadMenu
               thread={thread}

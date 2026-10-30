@@ -147,9 +147,23 @@
   white-space: nowrap;
   overflow: hidden;
 }
-.thread small {
-  font-size: 11px;
-  color: var(--text-3);
+.thread-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.status-indicator.processing {
+  background: var(--warn-text);
+  animation: pulse 1.5s infinite;
+}
+.status-indicator.completed {
+  background: var(--success-text);
 }
 .thread-actions {
   position: relative;
