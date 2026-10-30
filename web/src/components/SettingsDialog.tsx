@@ -241,73 +241,14 @@ function ServiceSettings({
       ?.id ?? "claude",
   );
   const [model, setModel] = useState("");
+  const [contextSize, setContextSize] = useState("");
+  const [thinkingLevel, setThinkingLevel] = useState("0");
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
   const key = `${executor}:${model.trim() || "default"}`;
-  const runnable = system.executors?.some(
-    (item) =>
-      item.id === executor && item.installed && item.supported !== false,
-  );
+  
   return (
     <>
-      <p>
-        成员调用本机 Claude、Codex 或 Gemini
-        CLI，复用本机的模型、供应商与认证配置。网页不会读取凭证。
-      </p>
-      <dl>
-        <dt>执行限制</dt>
-        <dd>
-          <ul>
-            {Object.entries(system.limits ?? {})
-              .map(([name, value]) => [name, limitLabel(name, value)] as const)
-              .filter(([, label]) => label)
-              .map(([name, label]) => (
-                <li key={name}>{label}</li>
-              ))}
-            <li>同一时间处理一轮协作，其余按顺序排队；可停止当前协作。</li>
-          </ul>
-        </dd>
-        <dt>本机 CLI</dt>
-        <dd>
-          {system.executors?.map((item) => (
-            <p key={item.id}>
-              {item.id} ·{" "}
-              {item.installed ? `已安装 · ${item.version}` : "未检测到"}
-              {item.adapter ? ` · 调用方式 ${item.adapter}` : ""}
-              {item.installed
-                ? ` · 工具隔离 ${
-                    item.supported === false
-                      ? "不可确认"
-                      : item.isolation === "enforced"
-                        ? "探测通过"
-                        : item.isolation === "candidate"
-                          ? "待验证（首次执行前自动探测）"
-                          : "待确认"
-                  }`
-                : ""}
-              {item.protocol === "verified"
-                ? " · 协议与模型连接已验证"
-                : item.installed
-                  ? " · 连接状态：未验证（运行时再检查协议）"
-                  : ""}
-              {item.reason
-                ? ` · ${item.supported === false ? "不支持" : "说明"}：${item.reason}`
-                : ""}
-            </p>
-          ))}
-        </dd>
-        <dt>在线搜索</dt>
-        <dd>
-          {statusText[system.search_status]}
-          {system.search_provider ? ` · ${system.search_provider}` : ""}
-        </dd>
-        <dt>资料目录范围</dt>
-        <dd>{system.roots.join("\n") || "在各工作空间设置中指定"}</dd>
-      </dl>
-      <p className={cx("muted")}>
-        真实运行会通过 CLI
-        发送问题与读取片段至模型服务；搜索会发送查询词。已安装不代表连接或模型可用。
-      </p>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -316,6 +257,8 @@ function ServiceSettings({
           void api("/api/v1/system/verify", "POST", {
             executor,
             model: model.trim() || "default",
+            context_size: parseInt(contextSize) || undefined,
+            thinking_level: parseInt(thinkingLevel) || 0,
           })
             .then(() => api<System>("/api/v1/system"))
             .then(setSystem)
@@ -325,61 +268,29 @@ function ServiceSettings({
       >
         <label>
           验证 CLI
-          <Select
-            value={executor}
-            onChange={(selected) => {
-              setExecutor(selected);
-              setError("");
-            }}
-          >
+          <Select value={executor} onChange={setExecutor}>
             {["claude", "codex", "gemini"].map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
+              <option key={id} value={id}>{id}</option>
             ))}
           </Select>
         </label>
         <label>
-          验证模型（留空使用 CLI 默认）
-          <input
-            value={model}
-            onChange={(event) => {
-              setModel(event.target.value);
-              setError("");
-            }}
-            placeholder="CLI 默认模型"
-          />
+          验证模型（留空使用默认）
+          <input value={model} onChange={(e) => setModel(e.target.value)} />
         </label>
-        {error && (
-          <p role="alert" className={cx("error")}>
-            {error}
-          </p>
-        )}
-        {system.verified[key] && (
-          <p role="status">
-            验证时间：{formatDateTime(system.verified[key])} · 该 CLI
-            与模型上次已验证
-          </p>
-        )}
-        <div className={cx("form-actions")}>
-          <button className={cx("primary")} disabled={verifying || !runnable}>
-            {verifying ? "正在验证…" : "验证模型连接（可能产生用量）"}
-          </button>
-        </div>
-      </form>
-      <div className={cx("settings-security")}>
-        <p className={cx("muted")}>
-          离开时可锁定页面，正在进行的协作会继续运行。
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            void lock().catch((error) => setError(errorText(error)));
-          }}
-        >
-          锁定工作空间
+        <label>
+          上下文大小（留空使用默认）
+          <input type="number" value={contextSize} onChange={(e) => setContextSize(e.target.value)} />
+        </label>
+        <label>
+          思考等级（0-3，默认0）
+          <input type="number" min="0" max="3" value={thinkingLevel} onChange={(e) => setThinkingLevel(e.target.value)} />
+        </label>
+        {error && <p className={cx("error")}>{error}</p>}
+        <button type="submit" className={cx("primary")} disabled={verifying}>
+          {verifying ? "验证中…" : "验证模型连接"}
         </button>
-      </div>
+      </form>
     </>
   );
 }
