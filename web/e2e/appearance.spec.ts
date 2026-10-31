@@ -16,12 +16,30 @@ test("restores explicit appearance before React loads", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-appearance", "dark");
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(30, 30, 30)",
+    "rgb(11, 13, 16)",
   );
   await expect(page.locator("#root")).toBeEmpty();
 });
 
-test("restores the DeepSeek appearance before React loads", async ({
+test("restores the warm appearance before React loads", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.addInitScript(() =>
+    localStorage.setItem("cocogem-appearance", "warm"),
+  );
+  await page.route("**/assets/*.js", (route) =>
+    route.request().url().endsWith("/appearance.js")
+      ? route.continue()
+      : route.abort(),
+  );
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute("data-appearance", "warm");
+  await expect(page.locator("html")).toHaveCSS(
+    "background-color",
+    "rgb(250, 247, 242)",
+  );
+});
+
+test("drops a removed theme preference and falls back to system", async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "light" });
@@ -34,13 +52,10 @@ test("restores the DeepSeek appearance before React loads", async ({
       : route.abort(),
   );
   await page.goto("/");
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-appearance",
-    "deepseek",
-  );
+  await expect(page.locator("html")).not.toHaveAttribute("data-appearance");
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(21, 21, 23)",
+    "rgb(248, 250, 252)",
   );
 });
 
@@ -64,12 +79,12 @@ test("ignores invalid preferences and works without browser storage", async ({
   await expect(page.locator("html")).not.toHaveAttribute("data-appearance");
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(30, 30, 30)",
+    "rgb(11, 13, 16)",
   );
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(250, 247, 242)",
+    "rgb(248, 250, 252)",
   );
   await page.addInitScript(() => {
     Object.defineProperty(window, "localStorage", {
@@ -82,6 +97,6 @@ test("ignores invalid preferences and works without browser storage", async ({
   await expect(page.locator("html")).not.toHaveAttribute("data-appearance");
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(250, 247, 242)",
+    "rgb(248, 250, 252)",
   );
 });

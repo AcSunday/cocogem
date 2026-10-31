@@ -1,5 +1,6 @@
 import { Select } from "./Select";
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -7,7 +8,12 @@ import {
   type ReactNode,
 } from "react";
 import type { Agent, Artifact, Routing } from "../api/client";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
+import panels from "../styles/panels.module.css";
 import {
   memberLabel,
   roleLabel,
@@ -18,6 +24,8 @@ import {
 import { applyMention, mentionAt, mentionMatches } from "../lib/mention";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+
+const cx = scoped(base, controls, layout, conversation, panels);
 
 const workflowIcons: Record<string, string> = {
   free: "💬",
@@ -121,6 +129,17 @@ export function Composer({
         .filter(Boolean)
         .join(" · ")
     : "";
+  const [compact, setCompact] = useState(
+    () => window.matchMedia?.("(max-width: 900px)")?.matches ?? false,
+  );
+  useEffect(() => {
+    const media = window.matchMedia?.("(max-width: 900px)");
+    if (!media) return;
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (canSend) onSend();
@@ -129,7 +148,9 @@ export function Composer({
     ? "先创建一个工作空间，再开始提问"
     : active
       ? "本次协作进行中…"
-      : "描述任务或贴上链接，输入 @ 邀请成员协作（Enter 发送 · Shift + Enter 换行）";
+      : compact
+        ? "描述你的想法及任务，输入 @ 指定成员协作"
+        : "描述你的想法及任务，输入 @ 指定成员协作（Enter 发送 · Shift + Enter 换行）";
   return (
     <form className={cx("composer")} onSubmit={submit}>
       {pending}
@@ -148,7 +169,9 @@ export function Composer({
               </option>
             ))}
             {workflow === "code_analysis" && (
-              <option value="code_analysis">💻 {workflows.code_analysis}</option>
+              <option value="code_analysis">
+                💻 {workflows.code_analysis}
+              </option>
             )}
           </Select>
         </label>
@@ -216,6 +239,7 @@ export function Composer({
       <textarea
         ref={input}
         id="composer-input"
+        className={cx("composer-input")}
         aria-label="输入问题"
         placeholder={placeholder}
         value={draft}

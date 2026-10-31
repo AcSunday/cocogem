@@ -2,7 +2,12 @@ import { Select } from "./Select";
 import { useEffect, useState } from "react";
 import type { Artifact, Event, Run, Source } from "../api/client";
 import { EVENT_WINDOW, statusText } from "../api/client";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import panels from "../styles/panels.module.css";
+import settings from "../styles/settings.module.css";
 import {
   formatDateTime,
   latestSources,
@@ -12,6 +17,8 @@ import { ArtifactCard } from "./ArtifactCard";
 import { EventHistory } from "./EventHistory";
 import { Icon } from "./Icon";
 import { ToolTimeline } from "./ToolTimeline";
+
+const cx = scoped(base, controls, layout, panels, settings);
 
 export type PanelTab = "sources" | "artifacts" | "tools";
 const tabs: [PanelTab, string][] = [

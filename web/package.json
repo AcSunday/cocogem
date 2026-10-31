@@ -10,7 +10,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src && node scripts/check-styles.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "generate": "openapi-typescript ../api/openapi.yaml -o src/api/schema.ts && prettier --write src/api/schema.ts"

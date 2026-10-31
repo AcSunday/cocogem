@@ -1,4 +1,11 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Agent, Artifact, Message, Run, Step } from "../api/client";
@@ -323,6 +330,8 @@ it("reads a final message missing from the page by its exact id", async () => {
 });
 
 it("labels an exact final message from its own author and model snapshot", async () => {
+  const avatar =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
   const snapshot = {
     ...message("final-missing", ""),
     agent_name: "快照成员",
@@ -340,7 +349,7 @@ it("labels an exact final message from its own author and model snapshot", async
       {...props}
       run={{
         ...baseRun,
-        agents: [{ ...agent, model: "profile-model" }],
+        agents: [{ ...agent, avatar, model: "profile-model" }],
         status: "succeeded",
         delivery: {
           message_ids: ["final-missing"],
@@ -357,7 +366,7 @@ it("labels an exact final message from its own author and model snapshot", async
   expect(within(result).getByText("快照成员")).toBeVisible();
   expect(within(result).getByText("（resolved-y）")).toBeVisible();
   expect(within(result).getByText("复核")).toBeVisible();
-  expect(within(result).getByText("🐱")).toBeVisible();
+  expect(result.querySelector("img")).toHaveAttribute("src", avatar);
   expect(within(result).queryByText("布偶猫")).toBeNull();
   expect(within(result).queryByText(/profile-model/)).toBeNull();
 });
@@ -398,10 +407,7 @@ it("retries only the final result that failed", async () => {
       return contentPage("final-a", "最终甲");
     failures++;
     if (failures <= 2)
-      return Response.json(
-        { error: { message: "加载失败" } },
-        { status: 500 },
-      );
+      return Response.json({ error: { message: "加载失败" } }, { status: 500 });
     return contentPage("final-b", "最终乙");
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -610,4 +616,33 @@ it("keeps a delivery-only artifact target visible until the page catches up", as
   rerender(view([artifact(1), artifact(2)]));
   expect(screen.queryByText("最终产物正在加载…")).toBeNull();
   expect(screen.getByText("讨论纪要 · v2")).toBeVisible();
+});
+
+it("uses the run member snapshot for mention names, aliases and roles", () => {
+  const historical = {
+    ...agent,
+    display_name: "历史布偶猫",
+    aliases: ["布布"],
+    role_description: "当时的独立复核职责",
+  };
+  const run = {
+    ...baseRun,
+    status: "succeeded",
+    agents: [historical],
+    delivery: { message_ids: ["final"], artifact_refs: [] },
+  } as unknown as Run;
+  render(
+    <RunSegment
+      {...props}
+      run={run}
+      steps={[step]}
+      messages={[message("final", "请 @布布 复核这条结论。")]}
+    />,
+  );
+  const mention = screen.getByText("@布布");
+  fireEvent.focus(mention);
+  const tooltip = screen.getByRole("tooltip");
+  expect(tooltip).toHaveTextContent("历史布偶猫");
+  expect(tooltip).toHaveTextContent("@ragdoll");
+  expect(tooltip).toHaveTextContent("当时的独立复核职责");
 });

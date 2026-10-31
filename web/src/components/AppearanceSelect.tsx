@@ -1,8 +1,11 @@
 import { Select } from "./Select";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import layout from "../styles/layout.module.css";
 import { Icon } from "./Icon";
 
-export type Appearance = "system" | "light" | "dark" | "warm" | "deepseek";
+const cx = scoped(layout);
+
+export type Appearance = "system" | "light" | "dark" | "warm";
 
 export function AppearanceSelect({
   value,
@@ -24,7 +27,6 @@ export function AppearanceSelect({
         <option value="light">浅色</option>
         <option value="dark">深色</option>
         <option value="warm">经典暖色</option>
-        <option value="deepseek">DeepSeek</option>
       </Select>
     </label>
   );

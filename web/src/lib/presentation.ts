@@ -10,7 +10,7 @@ import type {
 export const workflows = {
   free: "自由协作",
   discussion: "协作讨论",
-  research: "Research",
+  research: "研究协作",
   engineering: "工程协作",
   code_analysis: "代码分析（旧）",
 };
@@ -43,25 +43,42 @@ export const memberPalette: MemberColor[] = [
 ];
 
 const COLOR_STORE_KEY = "cocogem.member-colors";
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+export const isMemberColor = (value = "") =>
+  HEX_COLOR.test(value) || memberPalette.some((item) => item.id === value);
+
+/** Resolves legacy palette IDs and arbitrary #RRGGBB values to one hex color. */
+export function memberColorHex(value = ""): string {
+  const legacy = memberPalette.find((item) => item.id === value);
+  if (legacy) return legacy.color;
+  if (HEX_COLOR.test(value)) return value.toLowerCase();
+  return "";
+}
 
 export function getMemberColorId(agentId?: string): string {
   if (!agentId) return "blue";
   try {
     const map = JSON.parse(localStorage.getItem(COLOR_STORE_KEY) ?? "{}");
-    if (map[agentId] && memberPalette.some((p) => p.id === map[agentId])) {
+    if (typeof map[agentId] === "string" && isMemberColor(map[agentId])) {
       return map[agentId];
     }
   } catch {
     // fallback to hash
   }
-  const idx = [...agentId].reduce((acc, c) => (acc + c.charCodeAt(0)) % memberPalette.length, 0);
+  const idx = [...agentId].reduce(
+    (acc, c) => (acc + c.charCodeAt(0)) % memberPalette.length,
+    0,
+  );
   return memberPalette[idx].id;
 }
 
-export function setMemberColorId(agentId: string, colorId: string) {
+/** Stores a legacy palette ID or an arbitrary #RRGGBB color unchanged. */
+export function setMemberColorId(agentId: string, color: string) {
+  if (!isMemberColor(color)) return;
   try {
     const map = JSON.parse(localStorage.getItem(COLOR_STORE_KEY) ?? "{}");
-    map[agentId] = colorId;
+    map[agentId] = memberColorHex(color);
     localStorage.setItem(COLOR_STORE_KEY, JSON.stringify(map));
   } catch {
     // ignore
@@ -70,12 +87,22 @@ export function setMemberColorId(agentId: string, colorId: string) {
 
 export function getMemberColor(agentId?: string): MemberColor {
   const colorId = getMemberColorId(agentId);
-  return memberPalette.find((p) => p.id === colorId) ?? memberPalette[0];
+  const legacy = memberPalette.find((item) => item.id === colorId);
+  if (legacy) return legacy;
+  return {
+    id: "custom",
+    name: "自定义颜色",
+    color: memberColorHex(colorId) || memberPalette[0].color,
+  };
 }
 
 export function randomMemberColorId(): string {
-  const index = Math.floor(Math.random() * memberPalette.length);
-  return memberPalette[index].id;
+  return memberPalette[Math.floor(Math.random() * memberPalette.length)].id;
+}
+
+/** Stable arbitrary color for a new draft before it has an identity. */
+export function randomMemberColorHex(): string {
+  return memberPalette[Math.floor(Math.random() * memberPalette.length)].color;
 }
 
 export const memberLabel = (agent: Agent) =>
@@ -145,7 +172,7 @@ export const methodLabel = labels({
   direct: "直接回答",
   delegation: "自由分工",
   discussion: "协作讨论",
-  research: "Research",
+  research: "研究协作",
   engineering: "工程协作",
   code_analysis: "工程分析（旧）",
 });
@@ -198,7 +225,7 @@ export function runErrorText(error = "", status = "") {
   if (status === "canceled" || /context canceled/.test(error))
     return "已按你的要求停止。";
   if (error.includes("host_input_limit"))
-    return "宿主发送给 CLI 的初始输入超过上限，任务没有开始执行；请缩短问题或改用来源引用后新建任务。不会自动重试。";
+    return "成员设置的输入上限不足以容纳本次初始输入，任务没有开始执行；请缩短问题、改用来源引用或调高该成员的上下文大小限制。不会自动重试。";
   if (error.includes("context_overflow"))
     return "CLI 的上下文窗口已超出容量，本次尝试未完成；检查点已保留，需要你确认后继续。不会自动重试。";
   if (/failure_kind[=:]\s*interrupted|^interrupted(?:[:：]|$)/.test(error))
@@ -247,7 +274,7 @@ export function runErrorText(error = "", status = "") {
 /** Machine failure kinds need a clear reason without promising an automatic retry. */
 export const failureKindLabel = labels({
   host_input_limit:
-    "宿主初始输入超过上限，任务没有开始执行；请缩短问题或改用来源引用后新建任务。不会自动重试。",
+    "成员设置的输入上限不足以容纳本次初始输入，任务没有开始执行；请缩短问题、改用来源引用或调高该成员的上下文大小限制。不会自动重试。",
   context_overflow:
     "CLI 上下文窗口已超出容量，本次尝试未完成；检查点已保留，需要你确认后继续。不会自动重试。",
   process_uncertain:
@@ -491,7 +518,8 @@ export function attemptUsageLabel(attempt: Attempt) {
  * live event window. Known parts of a partial attempt still count; gaps never
  * become zero.
  */
-export function runUsageSummary(run: Run, attempts: Attempt[]) {
+/** Token totals without the "用量：" label, for compact status lines. */
+export function runUsageTokens(run: Run, attempts: Attempt[]) {
   let input = 0;
   let output = 0;
   let reported = 0;
@@ -519,9 +547,30 @@ export function runUsageSummary(run: Run, attempts: Attempt[]) {
   // A partial zero is still a reported number; only missing usage is unknown.
   if (!reported) return "用量未知";
   const label = `${input} / ${output} tokens`;
-  return incomplete
-    ? `部分用量：${label}（${incomplete} 处未知）`
-    : `用量：${label}`;
+  return incomplete ? `部分用量：${label}（${incomplete} 处未知）` : label;
+}
+
+export function runUsageSummary(run: Run, attempts: Attempt[]) {
+  const tokens = runUsageTokens(run, attempts);
+  if (!tokens || tokens === "用量未知" || tokens.startsWith("部分用量："))
+    return tokens;
+  return `用量：${tokens}`;
+}
+
+/** The terminal status glyph shared by the session list and run footer. */
+export function statusIconName(status: string) {
+  switch (status) {
+    case "succeeded":
+    case "completed":
+      return "check" as const;
+    case "failed":
+      return "close" as const;
+    case "canceled":
+      return "stop" as const;
+    case "interrupted":
+      return "refresh" as const;
+  }
+  return undefined;
 }
 const disabledLimitLabel: Record<string, string> = {
   run_seconds: "不设协作总期限",

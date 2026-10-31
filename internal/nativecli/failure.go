@@ -23,6 +23,7 @@ const (
 	FailurePermission           FailureKind = "permissions"
 	FailureToolUnavailable      FailureKind = "tool_unavailable"
 	FailureModelUnavailable     FailureKind = "model_unavailable"
+	FailureProviderTransient    FailureKind = "provider_transient"
 	FailureProcess              FailureKind = "process"
 	FailureProcessUncertain     FailureKind = "process_uncertain"
 	FailureUnknown              FailureKind = "unknown"
@@ -77,6 +78,8 @@ func structuredFailureKind(code string) (kind FailureKind, broad bool) {
 			return FailureQuota, false
 		case "network_error", "connection_error":
 			return FailureNetwork, false
+		case "server_error", "internal_error", "bad_gateway", "service_unavailable", "gateway_timeout", "overloaded_error", "500", "502", "503", "504":
+			return FailureProviderTransient, false
 		case "permission_denied", "permission_error":
 			return FailurePermission, false
 		case "tool_not_found", "tool_unavailable", "unknown_tool":
@@ -166,6 +169,8 @@ func classifyFailure(terminalReason, subtype, detail string) (FailureKind, strin
 		return FailureAuthentication, "authentication", guidanceFor(FailureAuthentication)
 	case containsAny(lower, "quota", "rate limit", "rate_limit", "429", "credit", "balance", "billing", "usage limit"):
 		return FailureQuota, "quota", guidanceFor(FailureQuota)
+	case containsAny(lower, "temporarily unavailable", "service unavailable", "bad gateway", "gateway timeout", "overloaded", "internal server error", "502", "503", "504"):
+		return FailureProviderTransient, "provider_transient", guidanceFor(FailureProviderTransient)
 	case containsAny(lower, "permission", "denied", "disallowed"):
 		return FailurePermission, "permissions", guidanceFor(FailurePermission)
 	case containsAny(lower, "tool not found", "tool unavailable", "unknown tool", "mcp server"):
@@ -182,7 +187,7 @@ func categoryFor(kind FailureKind) string {
 	switch kind {
 	case FailureProtocol:
 		return "protocol_mismatch"
-	case FailureNetwork:
+	case FailureNetwork, FailureProviderTransient:
 		return "connection"
 	default:
 		return string(kind)
@@ -201,6 +206,8 @@ func guidanceFor(kind FailureKind) string {
 		return "the CLI account reported a quota or rate limit; check its existing plan locally"
 	case FailureNetwork:
 		return "the CLI could not reach its configured endpoint; check local network and connection settings"
+	case FailureProviderTransient:
+		return "the provider reported a temporary outage or rate limit; the workflow may retry safe read-only steps"
 	case FailureHostInputLimit:
 		return "reduce the required host input or retrieve evidence by exact reference"
 	case FailureFirstResponseTimeout:

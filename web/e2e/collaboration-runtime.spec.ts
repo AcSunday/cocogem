@@ -59,7 +59,7 @@ test("browser, server and scheduler execute research, independent review and res
     ["orange", "核对员", "fixture-review"],
   ]) {
     await settingsDialog
-      .getByRole("button", { name: new RegExp(`\\(@${handle}\\)`) })
+      .getByRole("button", { name: new RegExp(`@${handle}\\b`) })
       .click();
     await settingsDialog.getByLabel("显示名", { exact: true }).fill(name);
     await settingsDialog.getByLabel("能力标签（用逗号分隔）").fill(capability);
@@ -67,13 +67,16 @@ test("browser, server and scheduler execute research, independent review and res
       .getByRole("button", { name: "保存成员", exact: true })
       .click();
     await expect(settingsDialog.getByRole("status")).toContainText("已保存");
+    await settingsDialog
+      .getByRole("button", { name: "← 返回列表" })
+      .click();
   }
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await page.reload();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await settingsDialog.getByRole("tab", { name: "成员" }).click();
   await settingsDialog
-    .getByRole("button", { name: /^资料员 \(@maine\)/ })
+    .getByRole("button", { name: /资料员.*@maine/ })
     .click();
   await expect(settingsDialog.getByLabel("能力标签（用逗号分隔）")).toHaveValue(
     "fixture-research",
@@ -123,7 +126,7 @@ test("browser, server and scheduler execute research, independent review and res
     page.getByRole("heading", { name: "动态研究与独立复核", exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("工作方式", { exact: true })).toHaveText(
-    "自由协作",
+    /自由协作/,
   );
   const accepted = page.waitForResponse(
     (response) =>

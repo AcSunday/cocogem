@@ -147,7 +147,7 @@ it("shows a selected workflow and its reason instead of the free label", () => {
       onResume={() => {}}
     />,
   );
-  expect(screen.getByText("Research")).toBeVisible();
+  expect(screen.getByText("研究协作")).toBeVisible();
   expect(screen.getByText("需要外部资料核对")).toBeVisible();
   expect(screen.queryByText("自由协作")).not.toBeInTheDocument();
 });

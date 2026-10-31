@@ -170,14 +170,84 @@ func (t *Tx) SaveWorkspace(v w.Workspace) error {
 	return t.exec("INSERT INTO workspaces(id,revision,body) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body", v.ID, v.Revision, body(v))
 }
 
-// Threads lists conversations by recent activity.
+// Threads lists visible conversations with one bounded latest/active run
+// projection. Soft-deleted conversations never appear in normal navigation.
 func (t *Tx) Threads(workspaceID string) ([]w.Thread, error) {
-	return list[w.Thread](t, "SELECT body FROM threads WHERE workspace_id=? ORDER BY updated_at DESC,id DESC", workspaceID)
+	return t.threads(workspaceID, false)
 }
 
-// Thread reads a conversation.
+// ThreadsAny includes soft-deleted conversations for workspace destruction.
+func (t *Tx) ThreadsAny(workspaceID string) ([]w.Thread, error) {
+	return t.threads(workspaceID, true)
+}
+
+func (t *Tx) threads(workspaceID string, includeDeleted bool) ([]w.Thread, error) {
+	const query = `SELECT th.body,
+		COALESCE((SELECT r.status FROM runs r WHERE r.thread_id=th.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1),''),
+		COALESCE((SELECT r.id FROM runs r WHERE r.thread_id=th.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1),''),
+		COALESCE((SELECT r.status FROM runs r WHERE r.thread_id=th.id AND r.status IN ('queued','running','canceling') ORDER BY r.created_at DESC,r.id DESC LIMIT 1),''),
+		COALESCE((SELECT r.id FROM runs r WHERE r.thread_id=th.id AND r.status IN ('queued','running','canceling') ORDER BY r.created_at DESC,r.id DESC LIMIT 1),'')
+		FROM threads th WHERE th.workspace_id=? ORDER BY th.updated_at DESC,th.id DESC`
+	rows, err := t.tx.QueryContext(t.ctx, query, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []w.Thread{}
+	for rows.Next() {
+		var body string
+		var lastStatus, lastID, activeStatus, activeID string
+		if err := rows.Scan(&body, &lastStatus, &lastID, &activeStatus, &activeID); err != nil {
+			return nil, err
+		}
+		var value w.Thread
+		if err := json.Unmarshal([]byte(body), &value); err != nil {
+			return nil, err
+		}
+		if value.DeletedAt != "" && !includeDeleted {
+			continue
+		}
+		value.LastRunID, value.LastRunStatus = lastID, lastStatus
+		value.ActiveRunID, value.ActiveRunStatus = activeID, activeStatus
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+// Thread reads a visible conversation.
 func (t *Tx) Thread(id string) (w.Thread, error) {
+	value, err := t.ThreadAny(id)
+	if err != nil {
+		return value, err
+	}
+	if value.DeletedAt != "" {
+		return w.Thread{}, ErrNotFound
+	}
+	return value, nil
+}
+
+// ThreadAny reads a conversation regardless of trash state for restore, purge
+// and workspace destruction only.
+func (t *Tx) ThreadAny(id string) (w.Thread, error) {
 	return get[w.Thread](t, "SELECT body FROM threads WHERE id=?", id)
+}
+
+// DeletedThreads lists the trash in purge order.
+func (t *Tx) DeletedThreads() ([]w.Thread, error) {
+	values, err := list[w.Thread](t, "SELECT body FROM threads WHERE COALESCE(json_extract(body,'$.deleted_at'),'')<>'' ORDER BY json_extract(body,'$.purge_at'),id")
+	if err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// ExpiredThreads lists soft-deleted conversations whose retention has elapsed.
+func (t *Tx) ExpiredThreads(now string) ([]w.Thread, error) {
+	values, err := list[w.Thread](t, "SELECT body FROM threads WHERE COALESCE(json_extract(body,'$.deleted_at'),'')<>'' AND COALESCE(json_extract(body,'$.purge_at'),'')<>'' AND json_extract(body,'$.purge_at')<=? ORDER BY json_extract(body,'$.purge_at'),id", now)
+	if err != nil {
+		return nil, err
+	}
+	return values, nil
 }
 
 // SaveThread persists configuration and activity order.
@@ -450,7 +520,7 @@ func (t *Tx) DeleteThread(id string) error {
 
 // DeleteWorkspace removes its links and conversations, preserving global members.
 func (t *Tx) DeleteWorkspace(id string) error {
-	threads, err := t.Threads(id)
+	threads, err := t.ThreadsAny(id)
 	if err != nil {
 		return err
 	}

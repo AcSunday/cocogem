@@ -16,7 +16,7 @@ func TestSettingsPersistAcrossReopen(t *testing.T) {
 	}
 	if err := s.Read(t.Context(), func(tx *Tx) error {
 		value, err := tx.Settings()
-		if err != nil || value.Revision != 1 || value.DefaultCoordinatorID != "" || len(value.Assignments) != 0 {
+		if err != nil || value.Revision != 1 || value.DefaultCoordinatorID != "" || len(value.Assignments) != 0 || value.RetentionDays != w.DefaultRetentionDays {
 			t.Fatalf("unset settings: %+v, %v", value, err)
 		}
 		return nil
@@ -27,6 +27,7 @@ func TestSettingsPersistAcrossReopen(t *testing.T) {
 		Revision:             2,
 		DefaultCoordinatorID: "agent-a",
 		Assignments:          map[string]map[string]string{"research": {"researcher": "agent-a", "critic": "agent-b", "coordinator": "agent-c"}},
+		RetentionDays:        w.DefaultRetentionDays,
 	}
 	if err := s.Write(t.Context(), func(tx *Tx) error { return tx.SaveSettings(want) }); err != nil {
 		t.Fatal(err)

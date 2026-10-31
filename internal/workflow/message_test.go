@@ -20,7 +20,7 @@ func newTestWriter(t *testing.T, s *store.Store, run w.Run) *messageWriter {
 		t.Fatal(err)
 	}
 	message := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[0].ID, AgentID: run.Agents[0].ID, AgentName: run.Agents[0].DisplayName, Role: "assistant", Status: "processing", ContentFormat: w.ContentFormatChunksV1, CreatedAt: w.Now()}
-	return newMessageWriter(s, t.Context(), time.Hour, run.ID, steps[0].ID, run.Agents[0].ID, "", message, nil)
+	return newMessageWriter(s, t.Context(), time.Hour, run.ID, steps[0].ID, run.Agents[0].ID, "", message, 0, nil)
 }
 
 func storedChunkBytes(t *testing.T, s *store.Store, id string) (w.Message, int) {
@@ -144,7 +144,7 @@ func TestMessageWriterSnapshotActivityMatchesPersistedProgress(t *testing.T) {
 	}
 	write := func(duplicate, real bool) {
 		message := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[0].ID, AgentID: run.Agents[0].ID, Role: "assistant", Status: "processing", ContentFormat: w.ContentFormatChunksV1, CreatedAt: w.Now()}
-		writer := newMessageWriter(s, t.Context(), time.Hour, run.ID, steps[0].ID, run.Agents[0].ID, attempt.ID, message, nil)
+		writer := newMessageWriter(s, t.Context(), time.Hour, run.ID, steps[0].ID, run.Agents[0].ID, attempt.ID, message, 0, nil)
 		if duplicate {
 			if err := writer.AppendDuplicate("quiet text"); err != nil {
 				t.Fatal(err)

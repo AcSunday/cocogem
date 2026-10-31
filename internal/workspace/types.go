@@ -27,26 +27,73 @@ type Workspace struct {
 	SkillIDs    []string `json:"skill_ids"`
 }
 
-// AvatarChoices are the only accepted built-in avatars. Remote URLs, SVG and
-// uploads are rejected by construction, and avatars never enter model prompts.
+// AvatarChoices are legacy built-in avatars retained so old profiles can be
+// edited and cleared. New avatars are uploaded image data URIs only; avatars
+// never enter model prompts.
 var AvatarChoices = []string{"🐱", "🦊", "🦉", "🐼", "🐰", "🐻", "🐧", "🐯"}
+
+// Context budget and thinking-level limits are shared by CRUD, run snapshots
+// and native invocation. ContextSize is measured in UTF-8 input bytes; empty
+// follows the CLI's configured context window.
+const MinContextSize = 1024
+
+// ThinkingLevels returns the explicit effort choices the installed adapter can
+// pass through. Gemini exposes no safe per-invocation effort switch here, so
+// its only supported value is empty (keep the CLI configuration default).
+func ThinkingLevels(executor string) []string {
+	switch executor {
+	case "claude":
+		return []string{"low", "medium", "high", "xhigh", "max"}
+	case "codex":
+		return []string{"low", "medium", "high", "xhigh", "ultra", "max"}
+	case "gemini":
+		// The installed Gemini CLI exposes thinkingLevel LOW/HIGH through its
+		// scoped modelConfigs.generateContentConfig, not a CLI flag.
+		return []string{"low", "high"}
+	default:
+		return nil
+	}
+}
+
+// ValidateExecutionOptions checks options before persistence and again before
+// dispatch. An unsupported combination is an explicit error, never ignored.
+func ValidateExecutionOptions(executor string, contextSize int, thinking string) error {
+	if contextSize != 0 && contextSize < MinContextSize {
+		return fmt.Errorf("context_size must be 0 (CLI default) or at least %d bytes", MinContextSize)
+	}
+	if thinking == "" {
+		return nil
+	}
+	levels := ThinkingLevels(executor)
+	if len(levels) == 0 {
+		return errors.New("thinking_level is not supported for this executor; leave it empty to keep the CLI default")
+	}
+	if !slices.Contains(levels, thinking) {
+		return fmt.Errorf("thinking_level must be one of %s", strings.Join(levels, ", "))
+	}
+	return nil
+}
 
 // Agent keeps identity independent of its presentation, model and current role.
 type Agent struct {
-	ID              string           `json:"id"`
-	WorkspaceID     string           `json:"workspace_id"`
-	DisplayName     string           `json:"display_name"`
-	Handle          string           `json:"handle"`
-	Aliases         []string         `json:"aliases"`
-	RoleDescription string           `json:"role_description"`
-	Capabilities    []string         `json:"capabilities,omitempty"`
-	Avatar          string           `json:"avatar,omitempty"`
-	Executor        string           `json:"executor,omitempty"`
-	Model           string           `json:"model"`
-	Tools           []string         `json:"tools"`
-	Disabled        bool             `json:"disabled"`
-	Revision        int              `json:"revision"`
-	Membership      *WorkspaceMember `json:"membership,omitempty"`
+	ID              string   `json:"id"`
+	WorkspaceID     string   `json:"workspace_id"`
+	DisplayName     string   `json:"display_name"`
+	Handle          string   `json:"handle"`
+	Aliases         []string `json:"aliases"`
+	RoleDescription string   `json:"role_description"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+	Avatar          string   `json:"avatar,omitempty"`
+	Executor        string   `json:"executor,omitempty"`
+	Model           string   `json:"model"`
+	// ContextSize is an optional host input budget in bytes. Empty (0) follows
+	// the CLI's configured context window.
+	ContextSize   int              `json:"context_size,omitempty"`
+	ThinkingLevel string           `json:"thinking_level,omitempty"`
+	Tools         []string         `json:"tools"`
+	Disabled      bool             `json:"disabled"`
+	Revision      int              `json:"revision"`
+	Membership    *WorkspaceMember `json:"membership,omitempty"`
 }
 
 // WorkspaceMember grants a global member a bounded set of workspace tools.
@@ -96,23 +143,55 @@ func RoleTools(workflow, action, role string) []string {
 	return nil
 }
 
+// Trash retention bounds. Zero means the default of 7 days.
+const (
+	DefaultRetentionDays = 7
+	MinRetentionDays     = 1
+	MaxRetentionDays     = 3650
+)
+
+// EffectiveRetentionDays returns the configured period or the compatible default.
+func EffectiveRetentionDays(days int) int {
+	if days == 0 {
+		return DefaultRetentionDays
+	}
+	return days
+}
+
+// ValidateRetentionDays rejects ambiguous or unbounded retention periods.
+func ValidateRetentionDays(days int) error {
+	if days < MinRetentionDays || days > MaxRetentionDays {
+		return fmt.Errorf("retention_days must be between %d and %d", MinRetentionDays, MaxRetentionDays)
+	}
+	return nil
+}
+
 // Settings holds device-wide collaboration defaults shared by every workspace.
 type Settings struct {
 	Revision             int                          `json:"revision"`
 	DefaultCoordinatorID string                       `json:"default_coordinator_id"`
 	Assignments          map[string]map[string]string `json:"assignments"`
+	RetentionDays        int                          `json:"retention_days,omitempty"`
 }
 
-// Thread is a shared, ordered conversation within one workspace.
+// Thread is a shared, ordered conversation within one workspace. Status fields
+// are a read projection of this thread's latest run, not persisted body fields.
+// A soft-deleted thread keeps its identity and full history until purge.
 type Thread struct {
-	ID            string   `json:"id"`
-	WorkspaceID   string   `json:"workspace_id"`
-	Title         string   `json:"title"`
-	AgentIDs      []string `json:"agent_ids"`
-	CoordinatorID string   `json:"coordinator_id"`
-	Workflow      string   `json:"workflow"`
-	Revision      int      `json:"revision"`
-	UpdatedAt     string   `json:"updated_at"`
+	ID              string   `json:"id"`
+	WorkspaceID     string   `json:"workspace_id"`
+	Title           string   `json:"title"`
+	AgentIDs        []string `json:"agent_ids"`
+	CoordinatorID   string   `json:"coordinator_id"`
+	Workflow        string   `json:"workflow"`
+	Revision        int      `json:"revision"`
+	UpdatedAt       string   `json:"updated_at"`
+	DeletedAt       string   `json:"deleted_at,omitempty"`
+	PurgeAt         string   `json:"purge_at,omitempty"`
+	LastRunID       string   `json:"last_run_id,omitempty"`
+	LastRunStatus   string   `json:"last_run_status,omitempty"`
+	ActiveRunID     string   `json:"active_run_id,omitempty"`
+	ActiveRunStatus string   `json:"active_run_status,omitempty"`
 }
 
 // Engineering actions: analysis is read-only, development may write files and
@@ -489,8 +568,14 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	if len(a.Aliases) > 12 || len(a.RoleDescription) > 8000 || len(a.Capabilities) > 20 {
 		return errors.New("agent configuration exceeds limits")
 	}
-	if a.Avatar != "" && !slices.Contains(AvatarChoices, a.Avatar) {
-		return errors.New("avatar must be a built-in choice")
+	if err := ValidateAvatar(a.Avatar); err != nil {
+		return err
+	}
+	if err := ValidateExecutionOptions(a.Executor, a.ContextSize, a.ThinkingLevel); err != nil {
+		return err
+	}
+	if a.Executor == "gemini" && a.ThinkingLevel != "" && (a.Model == "" || a.Model == "default") {
+		return errors.New("Gemini thinking_level requires an explicit model so the scoped override can match it")
 	}
 	for _, capability := range a.Capabilities {
 		if strings.TrimSpace(capability) != capability || capability == "" || len([]rune(capability)) > 100 {

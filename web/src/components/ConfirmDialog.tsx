@@ -1,7 +1,14 @@
 import { useState, type ReactNode } from "react";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import conversation from "../styles/conversation.module.css";
+import panels from "../styles/panels.module.css";
+import settings from "../styles/settings.module.css";
 import { errorText } from "../lib/presentation";
 import { Modal } from "./Modal";
+
+const cx = scoped(base, controls, conversation, panels, settings);
 
 /** Destructive actions always pass through an explicit, labelled confirmation. */
 export function ConfirmDialog({

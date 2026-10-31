@@ -374,7 +374,7 @@ it("shows the persisted method selection and settled method as readable text", (
     <ToolTimeline agents={[member]} events={[selected]} />,
   );
   expect(
-    screen.getByText("协调者选择方法：Research · 需要外部资料核对"),
+    screen.getByText("协调者选择方法：研究协作 · 需要外部资料核对"),
   ).toBeVisible();
   // Unknown assignment roles and member IDs stay in the raw event record.
   expect(

@@ -761,6 +761,8 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 		SourceURLs        []string `json:"source_urls"`
 		Executor          string   `json:"executor"`
 		Model             string   `json:"model"`
+		ContextSize       int      `json:"context_size,omitempty"`
+		ThinkingLevel     string   `json:"thinking_level,omitempty"`
 		ResolvedModel     string   `json:"resolved_model"`
 		Connection        string   `json:"connection"`
 		CLIIdentity       string   `json:"cli_identity"`
@@ -778,7 +780,7 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 		member = run.Agents[index]
 	}
 	in := effectiveInput(run)
-	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, EngineeringAction: in.EngineeringAction, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
+	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, EngineeringAction: in.EngineeringAction, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
 	for _, id := range enabledSkills(run) {
 		value.Skills = append(value.Skills, id+"@"+run.SkillVersions[id])
 	}

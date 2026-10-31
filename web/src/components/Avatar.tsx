@@ -1,10 +1,17 @@
 import { initial, memberTone } from "../lib/presentation";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import controls from "../styles/controls.module.css";
+import conversation from "../styles/conversation.module.css";
 
-/** The built-in choices accepted by the server; no URLs, SVG or uploads. */
-export const avatars = ["🐱", "🦊", "🦉", "🐼", "🐰", "🐻", "🐧", "🐯"];
+const cx = scoped(controls, conversation);
 
-/** A member's chosen avatar or initial on a stable tone; decorative, the name is always shown beside it. */
+const imageAvatar = /^data:image\/(?:png|jpeg);base64,[a-z0-9+/=]+$/i;
+
+/** Uploaded avatars are restricted to decoded PNG/JPEG data URIs. */
+export const memberImage = (avatar?: string) =>
+  avatar && imageAvatar.test(avatar) ? avatar : "";
+
+/** A member's uploaded image or initial on a stable tone; decorative, the name is always shown beside it. */
 export function Avatar({
   name,
   id,
@@ -18,14 +25,15 @@ export function Avatar({
   index?: number;
   small?: boolean;
 }) {
+  const image = memberImage(avatar);
   return (
     <span
       className={cx(
-        `avatar tone-${id ? memberTone(id) : Math.max(0, index) % 4} ${small ? "avatar-sm" : ""}`,
+        `avatar tone-${id ? memberTone(id) : Math.max(0, index) % 4} ${small ? "avatar-sm" : ""} ${image ? "avatar-image" : ""}`,
       )}
       aria-hidden="true"
     >
-      {avatar && avatars.includes(avatar) ? avatar : initial(name)}
+      {image ? <img src={image} alt="" /> : initial(name)}
     </span>
   );
 }

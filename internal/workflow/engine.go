@@ -35,9 +35,12 @@ type Engine struct {
 	AllowedRoots  []string
 	AllowedModels []string
 	Limits        Limits
-	InstanceID    string
-	Owner         proc.Identity
-	Errors        chan error
+	// RetryBackoff is the base delay for automatic transient retries. Tests
+	// may lower it; production uses a bounded exponential backoff.
+	RetryBackoff time.Duration
+	InstanceID   string
+	Owner        proc.Identity
+	Errors       chan error
 
 	mu     sync.Mutex
 	active map[string]context.CancelFunc
@@ -245,6 +248,10 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		if err != nil {
 			return err
 		}
+		// A worker that wakes for a deleted conversation must not dispatch it.
+		if _, err := tx.Thread(current.ThreadID); err != nil {
+			return err
+		}
 		run = current
 		return nil
 	}); err != nil {
@@ -268,6 +275,9 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 	err := e.Store.Write(parent, func(tx *store.Tx) error {
 		current, err := tx.Run(run.ID)
 		if err != nil {
+			return err
+		}
+		if _, err := tx.Thread(current.ThreadID); err != nil {
 			return err
 		}
 		if current.Status != "queued" {
@@ -986,6 +996,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	allowed := e.allowedTools(run, a, step)
 	required := RequiredArtifact(step, effectiveInput(run))
 	message := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: step.ID, AgentID: a.ID, AgentName: a.DisplayName, Role: "assistant", Status: "processing", ContentFormat: w.ContentFormatChunksV1, CreatedAt: w.Now()}
+	messageSeq := 0
 	step.Status = "running"
 	var handoff Handoff
 	var attempt w.Attempt
@@ -993,6 +1004,9 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	var stepDeadline time.Time
 	var previousDraft *w.Artifact
 	var retiredSession string
+	// A retry may only replay a step that has not committed a host or external
+	// side effect. This flag is set before any mutating tool executes.
+	var mutated atomic.Bool
 	err := e.Store.Write(ctx, func(tx *store.Tx) error {
 		current, err := tx.Run(run.ID)
 		if err != nil {
@@ -1017,13 +1031,34 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			reason = "retry_after_interruption"
 			recovery = "new_attempt_from_context"
 			recoveredFrom = latest.ID
-			if latest.Status == "failed" && latest.FailureKind == string(nativecli.FailureContextOverflow) {
+			switch {
+			case latest.Status == "failed" && latest.FailureKind == string(nativecli.FailureContextOverflow):
 				reason = "context_fresh"
 				recovery = "context_fresh"
 				retiredSession = latest.SessionID
+			case latest.Status == "failed" && transientRetryableKind(latest.FailureKind):
+				reason = autoRetryReason
+				recovery = "new_attempt_after_transient_failure"
 			}
 			previousDraft = latest.DraftArtifact
 		}
+		// A transient retry continues the same bubble: append the new attempt's
+		// text to the failed message. Interrupted checkpoints keep their own
+		// partial message as recovery evidence.
+		if reason == autoRetryReason {
+			previous, findErr := tx.LatestStepMessage(run.ID, step.ID)
+			switch {
+			case findErr == nil && previous.Status != "completed" && previous.Status != "canceled" && previous.ContentFormat == w.ContentFormatChunksV1:
+				seq, seqErr := tx.MessageLastChunkSeq(previous.ID)
+				if seqErr != nil {
+					return seqErr
+				}
+				message, messageSeq = previous, seq
+			case findErr != nil && !errors.Is(findErr, store.ErrNotFound):
+				return findErr
+			}
+		}
+		message.Status = "processing"
 		connectionChange := ""
 		for i := len(existing) - 1; i >= 0; i-- {
 			if existing[i].Status == "blocked" {
@@ -1212,7 +1247,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	}
 	defer stopStep()
 	var internalFailure atomic.Bool
-	writer := newMessageWriter(e.Store, stepCtx, 100*time.Millisecond, run.ID, step.ID, a.ID, attempt.ID, message, func(err error) {
+	writer := newMessageWriter(e.Store, stepCtx, 100*time.Millisecond, run.ID, step.ID, a.ID, attempt.ID, message, messageSeq, func(err error) {
 		internalFailure.Store(true)
 		e.report(err)
 		stopStep()
@@ -1273,6 +1308,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		case "read_context":
 			return e.readContext(callCtx, run, step, scope, input)
 		case "handoff_task":
+			mutated.Store(true)
 			result, handoffErr := e.submitHandoff(callCtx, run, step, input)
 			if handoffErr == nil {
 				stateMu.Lock()
@@ -1283,6 +1319,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		case "get_task":
 			return e.getTask(callCtx, run, input)
 		case "choose_workflow":
+			mutated.Store(true)
 			return e.chooseWorkflow(callCtx, run, step, input)
 		case "read_source":
 			stateMu.Lock()
@@ -1313,8 +1350,12 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			}
 		}
 		if name != "publish_artifact" {
+			if slices.Contains([]string{"write_file", "patch_file", "run_test"}, name) {
+				mutated.Store(true)
+			}
 			return tools.Execute(callCtx, name, input, tools.Scope{Root: run.Workspace.Root, Web: e.Web, Capture: capture})
 		}
+		mutated.Store(true)
 		allowedPublisher, permissionErr := e.mayPublish(callCtx, run, step)
 		if permissionErr != nil {
 			return "", permissionErr
@@ -1760,6 +1801,47 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			e.report(updateErr)
 		}
 		e.report(saveErr)
+	}
+	// Automatic retries create a fresh Attempt and Message after the failed
+	// evidence is durable. Only a transient provider/connection failure with
+	// no committed side effect, live context and untriggered checkpoint is
+	// eligible; the persisted reason keeps the budget across restarts.
+	if saveErr == nil &&
+		step.Status == "failed" && attempt.Status == "failed" &&
+		ctx.Err() == nil && !mutated.Load() &&
+		// attempt.Number is durable and includes the current attempt, so the
+		// budget survives restart and cannot be reset by relabelling reasons.
+		attempt.Number <= autoRetryLimit &&
+		(checkpoint == nil || !checkpoint.triggered()) &&
+		transientRetryable(err) {
+		delay := e.retryDelay(attempt.Number - 1)
+		eventErr := e.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
+			return tx.AppendEvent(run.ID, step.ID, a.ID, "retry_scheduled", map[string]any{
+				"attempt_id":        attempt.ID,
+				"attempt_number":    attempt.Number,
+				"next_attempt":      attempt.Number + 1,
+				"max_attempts":      autoRetryLimit + 1,
+				"failure_kind":      attempt.FailureKind,
+				"reason":            autoRetryReason,
+				"backoff_millis":    delay.Milliseconds(),
+				"side_effects_seen": mutated.Load(),
+			})
+		})
+		if eventErr != nil {
+			e.report(eventErr)
+			return step
+		}
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return step
+		case <-timer.C:
+		}
+		if ctx.Err() != nil || checkpoint != nil && checkpoint.triggered() {
+			return step
+		}
+		return e.executeStepWith(ctx, run, step, history, all, sourceSnapshot, checkpoint)
 	}
 	return step
 }

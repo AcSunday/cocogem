@@ -108,6 +108,10 @@ func (e *Engine) recoverActive(ctx context.Context) error {
 			continue
 		}
 		if err := e.recoverRun(ctx, run.ID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				e.release(ctx, run.ID)
+				continue
+			}
 			return err
 		}
 	}
@@ -122,6 +126,9 @@ func (e *Engine) recoverRun(ctx context.Context, id string) error {
 	if err := e.Store.Read(ctx, func(tx *store.Tx) error {
 		var err error
 		if run, err = tx.Run(id); err != nil {
+			return err
+		}
+		if _, err = tx.Thread(run.ThreadID); err != nil {
 			return err
 		}
 		if attempts, err = tx.Attempts(id); err != nil {
@@ -614,6 +621,11 @@ func (e *Engine) Resume(ctx context.Context, id string) (w.Run, error) {
 		if run, err = tx.Run(id); err != nil {
 			return err
 		}
+		// A soft-deleted conversation is not addressable through any run API
+		// or resume path, even if its visible-thread guard raced the delete.
+		if _, err = tx.Thread(run.ThreadID); err != nil {
+			return err
+		}
 		if steps, err = tx.Steps(id); err != nil {
 			return err
 		}
@@ -637,6 +649,9 @@ func (e *Engine) Resume(ctx context.Context, id string) (w.Run, error) {
 		if err := e.Store.Write(ctx, func(tx *store.Tx) error {
 			current, err := tx.Run(id)
 			if err != nil {
+				return err
+			}
+			if _, err := tx.Thread(current.ThreadID); err != nil {
 				return err
 			}
 			if current.Status != "interrupted" {
@@ -753,6 +768,11 @@ func (e *Engine) Resume(ctx context.Context, id string) (w.Run, error) {
 	err := e.Store.Write(ctx, func(tx *store.Tx) error {
 		current, err := tx.Run(id)
 		if err != nil {
+			return err
+		}
+		// Re-check visibility inside the final transaction; a competing
+		// soft-delete may have committed after the initial read.
+		if _, err := tx.Thread(current.ThreadID); err != nil {
 			return err
 		}
 		if current.Status == "queued" {

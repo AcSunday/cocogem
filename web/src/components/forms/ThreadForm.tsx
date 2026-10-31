@@ -1,7 +1,13 @@
 import { Select } from "../Select";
 import { useState } from "react";
 import type { Thread, Agent } from "../../api/client";
-import { cx } from "../../styles/classes";
+import { scoped } from "../../styles/classes";
+import base from "../../styles/base.module.css";
+import controls from "../../styles/controls.module.css";
+import conversation from "../../styles/conversation.module.css";
+import panels from "../../styles/panels.module.css";
+import members from "../../styles/member-editor.module.css";
+import settings from "../../styles/settings.module.css";
 import {
   errorText,
   memberLabel,
@@ -9,6 +15,8 @@ import {
   workflows,
 } from "../../lib/presentation";
 import { Modal } from "../Modal";
+
+const cx = scoped(base, controls, conversation, panels, members, settings);
 
 export function ThreadForm({
   current,

@@ -69,6 +69,13 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 	for _, tool := range request.Tools {
 		args = append(args, "-c", "mcp_servers.cocogem.tools."+tool.Name+".approval_mode=\"approve\"")
 	}
+	if request.ThinkingLevel != "" {
+		// The scoped catalog reports no reasoning levels, so this explicit
+		// config override is the supported per-invocation effort switch. It
+		// replaces any configured default carried in the connection snapshot.
+		args = withoutReasoningEffort(args)
+		args = append(args, "-c", `model_reasoning_effort="`+request.ThinkingLevel+`"`)
+	}
 	if env == nil {
 		env = map[string]string{}
 	}
@@ -77,6 +84,20 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 }
 
 var modelIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}$`)
+
+// withoutReasoningEffort drops the forwarded default so an explicit member
+// effort is the only reasoning override in argv.
+func withoutReasoningEffort(args []string) []string {
+	filtered := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		if args[index] == "-c" && index+1 < len(args) && strings.HasPrefix(args[index+1], "model_reasoning_effort=") {
+			index++
+			continue
+		}
+		filtered = append(filtered, args[index])
+	}
+	return filtered
+}
 
 func codexWebInput(query string, raw json.RawMessage) json.RawMessage {
 	var action struct {
@@ -136,7 +157,7 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 	initialized, started, finished := false, false, false
 	sessionID := ""
 	activity := newActivityTracker()
-	completed := newActivityTracker()
+	agentText := newTextStreams()
 	finishedItems := map[string]bool{}
 	webPending := map[string]bool{}
 	for scanner.Scan() {
@@ -198,17 +219,43 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 			}
 			switch event.Item.Type {
 			case "agent_message":
-				if text := event.Item.Text; strings.TrimSpace(text) != "" && activity.newText(event.Item.ID, text) {
+				text := event.Item.Text
+				if text != "" && activity.newText(event.Item.ID, text) && strings.TrimSpace(text) != "" {
 					live.valid("text")
 					if err := gate.activity(activityTextDelta); err != nil {
 						return err
 					}
 				}
-				if event.Type == "item.completed" && strings.TrimSpace(event.Item.Text) != "" && completed.newText(event.Item.ID, event.Item.Text) {
-					if err := gate.requireTools(); err != nil {
-						return err
+				if text != "" {
+					// Codex exposes cumulative item snapshots. Intermediate
+					// updates extend without re-hashing the whole body; the
+					// completed frame verifies the streamed prefix and fails on
+					// a rewrite instead of silently accepting a divergent final.
+					var delta string
+					var err error
+					if event.Type == "item.completed" {
+						var streamed bool
+						delta, streamed, err = agentText.authoritative("codex:"+event.Item.ID, text)
+						if err != nil {
+							return newFailure(FailureProtocol, "Codex completed message conflicted with streamed text: %v", err)
+						}
+						if !streamed {
+							delta = text + "\n"
+						}
+					} else {
+						delta, err = agentText.snapshotUnchecked("codex:"+event.Item.ID, text)
+						if err != nil {
+							return newFailure(FailureProtocol, "Codex item snapshots are not append-only: %v", err)
+						}
 					}
-					if err := gate.emit("text", map[string]any{"text": event.Item.Text + "\n", "activity": true}); err != nil {
+					if delta != "" {
+						if err := gate.emit("text", map[string]any{"text": delta, "activity": strings.TrimSpace(delta) != ""}); err != nil {
+							return err
+						}
+					}
+				}
+				if event.Type == "item.completed" {
+					if err := gate.requireTools(); err != nil {
 						return err
 					}
 				}

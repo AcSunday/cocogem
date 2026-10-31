@@ -1015,11 +1015,15 @@ func TestWaitingDependencyDoesNotFailPendingStep(t *testing.T) {
 	defer s.Close()
 	run := seedRun(t, s)
 	enableExecutor(t, s, &run, "claude")
+	// The four upstream steps accumulate more waiting than one step deadline,
+	// so a deadline charged from step creation would fail this run. Each step
+	// still executes well inside its own budget, leaving race-run headroom.
+	const stepDelay = time.Second
 	runner := &testRunner{run: func(ctx context.Context, request model.Request, _ int, execute agent.Execute, observe agent.Observe) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(80 * time.Millisecond):
+		case <-time.After(stepDelay):
 		}
 		if err := observe("text", map[string]any{"text": "done"}); err != nil {
 			return err
@@ -1031,7 +1035,7 @@ func TestWaitingDependencyDoesNotFailPendingStep(t *testing.T) {
 		}
 		return nil
 	}}
-	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Limits: Limits{RunTimeout: 5 * time.Second, StepTimeout: 250 * time.Millisecond}, Web: testutil.Web{}}
+	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Limits: Limits{RunTimeout: 30 * time.Second, StepTimeout: 3 * time.Second}, Web: testutil.Web{}}
 	ctx, cancel := context.WithCancel(t.Context())
 	if err := e.Start(ctx); err != nil {
 		cancel()
@@ -1665,5 +1669,38 @@ func TestPublishArtifactRetryReplacesStagedContent(t *testing.T) {
 	}
 	if len(artifacts) != 1 || artifacts[0].Body != "final corrected content" {
 		t.Fatalf("staged replacement was not committed exactly once: %+v", artifacts)
+	}
+}
+
+// The durable state after an HTTP resume request passes its visibleRunRead
+// guard, then a competing soft-delete commits before Resume.
+func TestDeletedThreadCannotResume(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		run.Status = "interrupted"
+		run.FinishedAt = w.Now()
+		if err := tx.SaveRun(run); err != nil {
+			return err
+		}
+		th, err := tx.Thread(run.ThreadID)
+		if err != nil {
+			return err
+		}
+		th.DeletedAt = "2026-10-30T08:00:00Z"
+		th.PurgeAt = "2026-11-29T08:00:00Z"
+		th.Revision++
+		return tx.SaveThread(th)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := Engine{Store: s, Model: testutil.Model{}, AllowedModels: []string{"test"}}
+	got, err := e.Resume(t.Context(), run.ID)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleted thread resumed: status=%q recovery_count=%d err=%v; expected store.ErrNotFound", got.Status, got.RecoveryCount, err)
 	}
 }

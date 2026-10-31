@@ -7,7 +7,12 @@ import {
   executionPolicyRows,
   failureKindLabel,
   formatMessageTime,
+  getMemberColor,
+  getMemberColorId,
+  isMemberColor,
   latestSources,
+  memberColorHex,
+  setMemberColorId,
   limitLabel,
   livenessFromAttempts,
   mergeAttemptLiveness,
@@ -20,6 +25,7 @@ import {
   runDuration,
   runMethod,
   runUsageSummary,
+  runUsageTokens,
   seedLiveness,
   sourceKindLabel,
   threadTitle,
@@ -41,6 +47,24 @@ const agent = (id: string, extra: Partial<Agent> = {}): Agent => ({
   disabled: false,
   revision: 1,
   ...extra,
+});
+
+it("persists arbitrary hex colors and maps legacy palette ids", () => {
+  localStorage.clear();
+  setMemberColorId("member", "#12AbEf");
+  expect(getMemberColorId("member")).toBe("#12abef");
+  expect(getMemberColor("member")).toEqual({
+    id: "custom",
+    name: "自定义颜色",
+    color: "#12abef",
+  });
+  setMemberColorId("legacy", "violet");
+  expect(getMemberColorId("legacy")).toBe("#8b5cf6");
+  expect(memberColorHex("violet")).toBe("#8b5cf6");
+  expect(memberColorHex("#ABCDEF")).toBe("#abcdef");
+  expect(isMemberColor("#abcdef")).toBe(true);
+  expect(isMemberColor("not-a-color")).toBe(false);
+  localStorage.clear();
 });
 
 it("explains native protocol mismatches without proposing new credentials", () => {
@@ -173,7 +197,7 @@ it("explains host input, context overflow and interrupted kinds without retry pr
     expect(text).toContain("不会自动重试");
   }
   expect(runErrorText("host_input_limit: 100000 bytes")).toContain(
-    "初始输入超过上限",
+    "输入上限不足以容纳本次初始输入",
   );
   expect(runErrorText("context_overflow: maximum context")).toContain(
     "上下文窗口已超出容量",
@@ -522,6 +546,7 @@ it("sums run usage from persisted attempts, not the bounded event window", () =>
   });
   expect(runUsageSummary(run(), [])).toBe("");
   expect(runUsageSummary(run(), [zero])).toBe("用量：0 / 0 tokens");
+  expect(runUsageTokens(run(), [zero])).toBe("0 / 0 tokens");
   expect(
     runUsageSummary(run(), [
       attempt({ usage_known: true, input_tokens: 10, output_tokens: 2 }),
@@ -678,7 +703,7 @@ it("labels the persisted run method and readable selection reason", () => {
   });
   expect(runMethod(run({ method: "delegation" })).label).toBe("自由分工");
   expect(runMethod(run({ input: { workflow: "research" } })).label).toBe(
-    "Research",
+    "研究协作",
   );
   const selection = {
     workflow: "code_analysis",

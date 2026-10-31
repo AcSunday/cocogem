@@ -41,8 +41,25 @@ type messageWriter struct {
 	done          chan struct{}
 }
 
-func newMessageWriter(s *store.Store, ctx context.Context, interval time.Duration, runID, stepID, agentID, attemptID string, message w.Message, onFailure func(error)) *messageWriter {
-	writer := &messageWriter{store: s, ctx: ctx, interval: interval, runID: runID, stepID: stepID, agentID: agentID, attemptID: attemptID, message: message, onFailure: onFailure, stop: make(chan struct{}), done: make(chan struct{})}
+func newMessageWriter(s *store.Store, ctx context.Context, interval time.Duration, runID, stepID, agentID, attemptID string, message w.Message, seq int, onFailure func(error)) *messageWriter {
+	preview := []byte(message.Content)
+	writer := &messageWriter{
+		store:         s,
+		ctx:           ctx,
+		interval:      interval,
+		runID:         runID,
+		stepID:        stepID,
+		agentID:       agentID,
+		attemptID:     attemptID,
+		message:       message,
+		onFailure:     onFailure,
+		seq:           seq,
+		total:         message.ContentBytes,
+		preview:       preview,
+		previewClosed: message.ContentTruncated || message.ContentBytes > len(preview),
+		stop:          make(chan struct{}),
+		done:          make(chan struct{}),
+	}
 	go writer.tick()
 	return writer
 }

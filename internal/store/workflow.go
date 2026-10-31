@@ -64,6 +64,26 @@ func (t *Tx) MessagesMetadata(threadID string) ([]w.Message, error) {
 	return list[w.Message](t, "SELECT json_remove(body,'$.content') FROM messages WHERE thread_id=? ORDER BY position", threadID)
 }
 
+// LatestStepMessage returns the newest timeline message for one logical step,
+// so a retry can continue the same bubble instead of adding a duplicate.
+func (t *Tx) LatestStepMessage(runID, stepID string) (w.Message, error) {
+	values, err := list[w.Message](t, "SELECT body FROM messages WHERE run_id=? AND json_extract(body,'$.step_id')=? ORDER BY position DESC LIMIT 1", runID, stepID)
+	if err != nil {
+		return w.Message{}, err
+	}
+	if len(values) == 0 {
+		return w.Message{}, ErrNotFound
+	}
+	return values[0], nil
+}
+
+// MessageLastChunkSeq returns the highest committed chunk sequence.
+func (t *Tx) MessageLastChunkSeq(messageID string) (int, error) {
+	var seq int
+	err := t.tx.QueryRowContext(t.ctx, "SELECT COALESCE(MAX(seq),0) FROM message_chunks WHERE message_id=?", messageID).Scan(&seq)
+	return seq, err
+}
+
 // SetMessageStatus changes only the lifecycle field, preserving the bounded
 // preview and every immutable chunk already committed for the message.
 func (t *Tx) SetMessageStatus(id, status string) error {

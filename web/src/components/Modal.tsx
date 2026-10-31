@@ -1,6 +1,11 @@
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import layout from "../styles/layout.module.css";
+import panels from "../styles/panels.module.css";
 import { useEffect, useRef, type ReactNode } from "react";
 import { Icon } from "./Icon";
+
+const cx = scoped(base, layout, panels);
 
 export function Modal({
   title,
@@ -14,6 +19,9 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // A file picker's own cancel/close can surface as a backdrop click or an
+  // Escape cancel; neither should dismiss the dialog that opened it.
+  const backdropPress = useRef(false);
   useEffect(() => {
     const dialog = ref.current;
     const previous = document.activeElement as HTMLElement | null;
@@ -29,11 +37,18 @@ export function Modal({
       className={cx(wide ? "wide" : "")}
       onCancel={(event) => {
         event.preventDefault();
+        const active = document.activeElement;
+        if (active instanceof HTMLInputElement && active.type === "file")
+          return;
         close();
       }}
-      // A click that lands on the dialog itself is on the backdrop.
+      onPointerDown={(event) => {
+        backdropPress.current = event.target === event.currentTarget;
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) close();
+        const backdrop = event.target === event.currentTarget;
+        if (backdrop && backdropPress.current) close();
+        backdropPress.current = false;
       }}
       aria-label={title}
     >

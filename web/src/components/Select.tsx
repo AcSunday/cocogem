@@ -10,8 +10,14 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
+import panels from "../styles/panels.module.css";
 import { Icon } from "./Icon";
+
+const cx = scoped(controls, layout, conversation, panels);
 
 type Props = Pick<
   ComponentProps<"button">,

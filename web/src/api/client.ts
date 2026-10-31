@@ -94,6 +94,10 @@ const messageBytes = (message: Message) =>
 export function mergeMessage(current: Message, incoming: Message): Message {
   const body =
     messageBytes(incoming) >= messageBytes(current) ? incoming : current;
+  // A retry reuses the message with a new attempt id and may legitimately
+  // return from a terminal failure to processing; stale snapshots keep the old id.
+  const retried =
+    !!incoming.attempt_id && incoming.attempt_id !== current.attempt_id;
   return {
     ...current,
     ...incoming,
@@ -101,7 +105,9 @@ export function mergeMessage(current: Message, incoming: Message): Message {
     content_bytes: messageBytes(body),
     content_truncated: body.content_truncated === true,
     status:
-      messageTerminal(current.status) && !messageTerminal(incoming.status)
+      messageTerminal(current.status) &&
+      !messageTerminal(incoming.status) &&
+      !retried
         ? current.status
         : incoming.status,
   };
@@ -139,7 +145,10 @@ export function eventMessage(event: Event): Message | undefined {
  * snapshot deltas; append remains accepted for older runs. A bounded preview is
  * all the client keeps, but byte metadata keeps counting after truncation.
  */
-export function applyMessageDelta(messages: Message[], event: Event): Message[] {
+export function applyMessageDelta(
+  messages: Message[],
+  event: Event,
+): Message[] {
   if (event.type !== "message_delta") return messages;
   const data =
     event.data && typeof event.data === "object"
@@ -184,8 +193,7 @@ export function applyMessageDelta(messages: Message[], event: Event): Message[] 
         ...current,
         content: preview.text,
         content_bytes: Math.max(total, preview.bytes),
-        content_truncated:
-          data.content_truncated === true || preview.truncated,
+        content_truncated: data.content_truncated === true || preview.truncated,
       };
     }
   } else {

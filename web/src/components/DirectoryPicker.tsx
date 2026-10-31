@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type DirectoryListing } from "../api/client";
 import { errorText } from "../lib/presentation";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
+import panels from "../styles/panels.module.css";
+import settings from "../styles/settings.module.css";
 import { Icon } from "./Icon";
+
+const cx = scoped(base, controls, layout, conversation, panels, settings);
 
 export function DirectoryPicker({
   initialPath,

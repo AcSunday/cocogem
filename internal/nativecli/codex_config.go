@@ -33,10 +33,32 @@ type codexConnection struct {
 }
 
 type codexConfig struct {
-	Model          string                     `toml:"model,omitempty"`
-	ModelProvider  string                     `toml:"model_provider,omitempty"`
-	ModelProviders map[string]codexConnection `toml:"model_providers,omitempty"`
+	Model                      string                     `toml:"model,omitempty"`
+	ModelProvider              string                     `toml:"model_provider,omitempty"`
+	ModelReasoningEffort       string                     `toml:"model_reasoning_effort,omitempty"`
+	ModelContextWindow         int                        `toml:"model_context_window,omitempty"`
+	ModelAutoCompactTokenLimit int                        `toml:"model_auto_compact_token_limit,omitempty"`
+	ModelProviders             map[string]codexConnection `toml:"model_providers,omitempty"`
 }
+
+// codexInferenceArgs preserves the CLI's configured effort and context preset
+// in a scoped --ignore-user-config launch. Only inference fields are forwarded,
+// and only as simple tokens; hooks, tools and other config stay host-owned.
+func codexInferenceArgs(config codexConfig) []string {
+	args := []string{}
+	if reasoningEffortPattern.MatchString(config.ModelReasoningEffort) {
+		args = append(args, "-c", `model_reasoning_effort="`+config.ModelReasoningEffort+`"`)
+	}
+	if config.ModelContextWindow > 0 {
+		args = append(args, "-c", "model_context_window="+strconv.Itoa(config.ModelContextWindow))
+	}
+	if config.ModelAutoCompactTokenLimit > 0 {
+		args = append(args, "-c", "model_auto_compact_token_limit="+strconv.Itoa(config.ModelAutoCompactTokenLimit))
+	}
+	return args
+}
+
+var reasoningEffortPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 func codexHome() (string, error) {
 	if configured := os.Getenv("CODEX_HOME"); configured != "" {
@@ -97,9 +119,10 @@ func codexConnectionConfig(model string) (resolved string, args []string, env ma
 	if config.ModelProvider == "" {
 		config.ModelProvider = "openai"
 	}
+	inference := codexInferenceArgs(config)
 	connection, ok := config.ModelProviders[config.ModelProvider]
 	if !ok && config.ModelProvider == "openai" {
-		return resolved, nil, nil, nil
+		return resolved, inference, nil, nil
 	}
 	if !ok {
 		return "", nil, nil, errors.New("native Codex selected provider has no connection configuration")
@@ -160,6 +183,7 @@ func codexConnectionConfig(model string) (resolved string, args []string, env ma
 		return "", nil, nil, errors.New("encode scoped Codex connection")
 	}
 	// --ignore-user-config also ignores --profile; only nonsecret connection overrides enter argv.
+	args = append(args, inference...)
 	for _, line := range strings.Split(strings.TrimSpace(encoded.String()), "\n") {
 		args = append(args, "-c", line)
 	}

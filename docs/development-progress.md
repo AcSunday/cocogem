@@ -131,6 +131,32 @@ Gemini 0.64.0 安装/隔离能力探测通过，但真实模型调用未通过�
 
 验证：前端构建、类型检查、Lint、45 项单元测试及实际 Go 测试服务下 Chrome 工作空间流程通过。当前 18742 前端已更新，不重启服务、不更改 CLI 或会话数据；本次未调用真实模型。
 
+## 2026-10-30：12 项增强最终验收
+
+按用户要求在 Gemini 连续三次上游错误后交给本机 Claude Code 完成实现，由 Codex 独立复现并验收。成员卡片/头像/颜色、精确模型验证与执行选项、会话与设置视觉、真实 Run 状态、有限重试、流式正文、停止按钮及回收站均已接通。追加的侧栏要求已实现：工作空间、新建、搜索默认透明背景与边框，仅悬停/键盘焦点反馈，新建使用聊天气泡图标，移除可见“切换工作空间”标签。@ 简介使用固定浮层并限制在窗口内，避免顶栏裁切。
+
+最终验证通过：Go race/shuffle 全包（`GOMAXPROCS=2`、`-p=1`），原生 CLI 集成，210 项前端单元测试，Lint、类型检查、生产构建，以及 Chrome 11 项完整浏览器测试；OpenAPI/生成类型重复生成稳定；正式服务 HTTP smoke 含关闭、备份和恢复通过。完整证据、已修复问题及真实供应商边界见 [验收记录](harness-enhancements-acceptance.md)。上下文选项是可选的 UTF-8 输入字节预算，留空跟随执行 CLI 配置；真实 Claude 观察到增量正文，Codex 此次仅一帧，Gemini 真实上游本轮未通过。未 commit/push、未部署、未修改用户真实数据库。
+
+## 2026-10-30：设置、回收站、侧栏状态与会话阅读体验
+
+界面部分将全局设置恢复为成员、协作、服务、回收站四个真实页签：服务页恢复 CLI 安装/可执行/连接三态、在线搜索与目录状态、精确 CLI+模型验证和锁定入口，移除服务页未接通的全局执行选项输入（真实的成员执行选项见下节）；回收站支持加载/空态/失败重试、恢复与永久删除的显式二次确认、恢复后刷新侧栏和导航，以及保留周期保存。保留周期 PATCH 携带当前 revision 并保留默认协调者和角色分工。
+
+侧栏顶部统一为紧凑的工作空间选择、新建和搜索；会话行显示来自列表快照的 active/last run 状态，运行中显示转圈，完成、失败、停止和中断使用不同图标与无障碍文本。App 在 SSE run 生命周期事件后及时刷新会话列表，并只在页面可见时做有界 2 秒轻量轮询，不逐会话发请求。会话视觉调整为更清楚的头像姓名行、适中正文宽与用户/成员区分；停止按钮使用与发送相同的主题背景和实心方形图标。
+
+Markdown 不再把 `@` 替换成 raw HTML 字符串；已知 handle、显示名和中文别名在文本 AST 节点中安全渲染，悬停/键盘聚焦显示真实头像、名字、handle 和职责，未知 `@`、代码、预格式化文本、URL/邮箱和链接目标不受影响。真实会话与 Run 成员快照传入 MessageCard/RunSegment/Markdown。保留 App 的 `message_delta` 实时更新，不添加定时器假吐字；文档明确部分 Codex 调用只发 `item.completed` 一帧。
+
+验证：前端 Lint、类型检查、单元测试、生产构建与隔离 `TestBrowserServer` 端到端用例；设置页桌面浅色/深色与手机截图写入 `/tmp/cocogem-supervision`。本节记录界面阶段，最终全量验收见 [本轮验收记录](harness-enhancements-acceptance.md)。
+
+## 2026-10-30：后端执行选项、默认 effort、重试与回收站收尾
+
+- 成员执行选项进入统一校验：`context_size` 按 UTF-8 字节计，空值跟随执行 CLI 配置的上下文窗口，显式值只能是不小于 1024 的成员输入上限；`thinking_level` 在保存、派发和连接验证时校验，Gemini 的显式级别必须配合具体模型。CRUD、`POST /api/v1/system/verify` 的透传与独立验证键、Run 请求透传均有回归。
+- 空 `thinking_level` 不再丢失本机 CLI 默认：Codex 的 scoped `--ignore-user-config` 启动转交配置顶层 `model_reasoning_effort`（简单 token 白名单，openai 默认连接早返回路径也转交；成员显式级别替换它）；Gemini scoped settings 只带入用户 `modelConfigs.customOverrides[]` 中匹配具体模型的 `thinkingLevel`/`thinkingBudget`/`includeThoughts`，其他 modelConfigs 字段与 hooks/tools/scripts/MCP 不继承；Claude 继续沿用 `effortLevel`。转交值属于连接身份快照，配置变化后旧中断 Run 按连接变化阻止续跑。Codex 的 profile 内 effort、非简单 token 值和 Gemini 的其他 modelConfigs 字段明确不转发。
+- 自动重试按持久 Attempt 预算执行：初始 1 次 + 最多 3 次，只限明确可重放失败；`errors.Join` 中任一独立不可重试原因、已提交副作用、调用方取消或预算耗尽都会阻止重试，重启和改写原因标签不能重置预算。
+- 回收站删除默认保留 7 天，可配置 1–3650 天；修改周期和启动维护都会按当前周期同步回收站中会话的清理时间；恢复与永久删除要求当前 revision，永久删除只接受已删除会话。清理在启动和每 10 分钟维护时执行，只删除已到期、无活动 Run 且无存活平台拥有进程的会话，并在最终事务重新读取当前 `purge_at`；`StartMaintenance` 返回 wait，服务先取消再等待维护退出后关闭数据库。
+- 流式正文只从真实 CLI 帧写入 `message_chunks`；Claude/Gemini 的累计快照校验已流式前缀，更短或前缀不一致按协议失败，不重复也不静默丢弃。实测部分 Codex 调用仍只有一帧 `item.completed`，不能宣称所有供应商逐字流式。
+- `TestBrowserServer` 新增前端依赖的确定性流式夹具：任务以 `流式界面验收：` 开头时依次输出两段固定文本，间隔 400ms 且可被 ctx 取消，第二段输出后仍等待 400ms 才结束，便于断言运行中的两段可见更新。夹具只存在于 `*_test.go`。
+- 验证：`go vet ./...`、`go test -race -shuffle=on ./...`、`go test -race -tags=integration ./cmd/cocogem`、`node --test scripts/*.test.mjs`、`go run ./cmd/checksecrets`、`go run ./cmd/contract` 与 `npm --prefix web run generate` 全部退出 0，受并发争用影响后最终以 `GOMAXPROCS=2 go test -race -shuffle=on -p=1 ./...` 全套通过，最终 race 日志为 `/tmp/cocogem-supervision/root-go-race-serial-final.log`，其他检查日志在 `/tmp/cocogem-supervision/backend-final-*.log`；OpenAPI 与生成类型重复生成无差异。首次全量 race 运行在监督方并行套件争用时，既有 `TestStepAndRunDeadlinesPersistAcrossServiceRestart` 的 5 秒冻结期限在恢复前到期而失败；隔离重跑 5/5 通过，确认不是产品行为变化后，仅将测试窗口放宽到 30 秒（第二引擎仍用 1ms 证明冻结策略未被重置），全量重跑通过。独立真实 Claude Provider 探针沿用监督方此前的 PASS（121 帧），本阶段未重复付费探针；前端完整验收见 [本轮验收记录](harness-enhancements-acceptance.md)。
+
 ## 2026-10-25：工作空间直接设置本机目录
 
 修复目录下拉框仅列出启动参数、默认启动无法绑定本机目录的问题。创建和编辑工作空间均可输入完整路径，支持 `~/`，保存真实绝对路径；不设置 `--allow-root` 时由已解锁的本机用户选择，设置后仅能绑定允许目录及其子目录。服务端拒绝不存在、不可读、非目录、已知敏感路径及越界软链接，运行和工具调用重新检查绑定；协作运行期间不能改绑。文件工具仍只读，沿用原有范围和捕获限制。

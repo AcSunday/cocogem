@@ -5,21 +5,42 @@ import {
   type Message,
   type MessageContentPage,
 } from "../api/client";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
 import {
   bytesLabel,
   errorText,
   formatMessageTime,
   getMemberColor,
-  memberTone,
   messageModel,
   roleLabel,
 } from "../lib/presentation";
 import { Avatar } from "./Avatar";
-import { Markdown } from "./Markdown";
+import { Markdown, type MentionMember } from "./Markdown";
+
+const cx = scoped(base, controls, layout, conversation);
 
 /** Cursors are small, but a long read must not grow the page state forever. */
 const MAX_CONTENT_CURSORS = 64;
+
+/**
+ * Maps a message status to its visual treatment. Terminal-good states stay
+ * silent: the delivered message is the evidence. Live states pulse, failures
+ * stand out.
+ */
+export function messageStatusKind(
+  status: string,
+): "live" | "error" | "warn" | "done" {
+  if (status === "processing" || status === "queued" || status === "running")
+    return "live";
+  if (status === "failed") return "error";
+  if (status === "succeeded" || status === "completed" || status === "")
+    return "done";
+  return "warn";
+}
 
 export type CursorStack = { base: number; items: string[] };
 
@@ -53,11 +74,16 @@ export function MessageCard({
   index,
   role,
   avatar,
+  members = [],
+  final = false,
 }: {
   message: Message;
   index: number;
   role?: string;
   avatar?: string;
+  members?: MentionMember[];
+  /** Delivered results fill the member column so the run footer can align. */
+  final?: boolean;
 }) {
   const user = message.role === "user";
   const model = user ? "" : messageModel(message);
@@ -125,11 +151,13 @@ export function MessageCard({
   const hasNewContent =
     !!page && (message.content_bytes ?? 0) > (page.content_bytes ?? 0);
   const shown = open && page ? page.content : message.content;
-  const memberColor = !user ? getMemberColor(message.agent_id || message.id) : undefined;
+  const memberColor = !user
+    ? getMemberColor(message.agent_id || message.id)
+    : undefined;
   return (
     <article
       className={cx(
-        `message ${user ? "user-message" : `member-message tone-${memberTone(message.agent_id || message.id)}`}`,
+        `message ${user ? "user-message" : "member-message"} ${final ? "final-message" : ""}`,
       )}
       style={
         memberColor
@@ -138,27 +166,28 @@ export function MessageCard({
       }
       aria-label={user ? "你的消息" : undefined}
     >
+      {!user && (
+        <Avatar
+          name={message.agent_name}
+          id={message.agent_id}
+          avatar={avatar}
+          index={index}
+        />
+      )}
       <div className={cx("message-content")}>
         <div className={cx("message-meta")}>
-          {!user && (
-            <Avatar
-              name={message.agent_name}
-              id={message.agent_id}
-              avatar={avatar}
-              index={index}
-              small
-            />
-          )}
           <strong>{user ? "你" : message.agent_name}</strong>
-          {model && (
-            <small className={cx("message-model")}>（{model}）</small>
-          )}
+          {model && <small className={cx("message-model")}>（{model}）</small>}
           {role && <span className={cx("role-chip")}>{roleLabel(role)}</span>}
           <time dateTime={message.created_at}>
             {formatMessageTime(message.created_at)}
           </time>
-          {message.status !== "completed" && (
-            <small className={cx("live")}>{statusText[message.status]}</small>
+          {messageStatusKind(message.status) !== "done" && (
+            <small
+              className={cx(`status-${messageStatusKind(message.status)}`)}
+            >
+              {statusText[message.status]}
+            </small>
           )}
         </div>
         <div className={cx("message-body")}>
@@ -167,6 +196,7 @@ export function MessageCard({
               shown ||
               (user ? "" : generating ? "正在准备回复…" : "本次回复没有正文。")
             }
+            members={members}
           />
         </div>
         {message.content_truncated && (
@@ -208,7 +238,9 @@ export function MessageCard({
                   disabled={
                     pageIndex === 0 || loading || pageIndex - 1 < stack.base
                   }
-                  onClick={() => void load(pageIndex - 1, cursorAt(pageIndex - 1))}
+                  onClick={() =>
+                    void load(pageIndex - 1, cursorAt(pageIndex - 1))
+                  }
                 >
                   上一页
                 </button>
@@ -229,7 +261,9 @@ export function MessageCard({
                   className={cx("ghost small")}
                   aria-label="查看下一页全文"
                   disabled={!page.has_more || loading}
-                  onClick={() => void load(pageIndex + 1, page.next_cursor ?? "")}
+                  onClick={() =>
+                    void load(pageIndex + 1, page.next_cursor ?? "")
+                  }
                 >
                   下一页
                 </button>

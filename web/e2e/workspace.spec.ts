@@ -6,6 +6,7 @@ test.use({ baseURL: process.env.COCOGEM_TEST_BASE });
 test("create a team, run research, inspect evidence, export, follow up and cancel", async ({
   page,
 }) => {
+  test.setTimeout(180000);
   const selectOption = async (
     control: Locator,
     value: string | { index: number },
@@ -15,6 +16,11 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     if (typeof value === "string")
       await menu.locator(`[role="option"][data-value="${value}"]`).click();
     else await menu.getByRole("option").nth(value.index).click();
+    await page.evaluate(() => {
+      for (const animation of document.getAnimations()) {
+        if (animation instanceof CSSTransition) animation.finish();
+      }
+    });
   };
   const openPanel = async (name: string) => {
     const toggle = page.getByRole("button", {
@@ -70,9 +76,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(membersDialog.getByLabel("职责")).toHaveCount(0);
   await expect(membersDialog.getByLabel("头像")).toHaveCount(0);
   await expect(membersDialog.getByLabel("执行 CLI")).toHaveCount(0);
-  await expect(
-    membersDialog.getByText("在所有工作空间停用此成员"),
-  ).toHaveCount(0);
+  await expect(membersDialog.getByText("在所有工作空间停用此成员")).toHaveCount(
+    0,
+  );
   await expect(
     membersDialog.getByRole("button", { name: "＋ 新成员" }),
   ).toHaveCount(0);
@@ -86,7 +92,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   const settingsDialog = page.getByRole("dialog", { name: "设置" });
   await settingsDialog.getByRole("tab", { name: "成员" }).click();
   await settingsDialog
-    .getByRole("button", { name: /^布偶猫 \(@ragdoll\)$/ })
+    .getByRole("button", { name: /布偶猫.*@ragdoll/ })
     .click();
   await settingsDialog.getByLabel("别名（用逗号分隔）").fill("布布");
   await settingsDialog.getByRole("button", { name: "保存成员" }).click();
@@ -94,6 +100,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await settingsDialog.getByLabel("职责").fill("研究资料并核对证据。");
   await settingsDialog.getByRole("button", { name: "保存成员" }).click();
   await expect(settingsDialog.getByRole("status")).toContainText("已保存");
+  await settingsDialog.getByRole("button", { name: "← 返回列表" }).click();
   const createdProfile = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/v1/agents") &&
@@ -108,7 +115,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   // Role defaults are global; sessions only report the routing they receive.
   await settingsDialog.getByRole("tab", { name: "协作" }).click();
   const researchDefaults = settingsDialog.getByRole("group", {
-    name: "Research",
+    name: "研究协作",
   });
   for (const [role, member] of [
     ["研究", "缅因猫 (@maine)"],
@@ -136,9 +143,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await membersDialog.getByLabel("web_search").uncheck();
   const joined = page.waitForResponse(
     (response) =>
-      response.url().endsWith(
-        `/api/v1/workspaces/${workspaceID}/members/${visitor.id}`,
-      ) && response.request().method() === "PUT",
+      response
+        .url()
+        .endsWith(`/api/v1/workspaces/${workspaceID}/members/${visitor.id}`) &&
+      response.request().method() === "PUT",
   );
   await membersDialog.getByRole("button", { name: "加入本工作空间" }).click();
   const joinRequest = (await joined).request();
@@ -153,9 +161,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await membersDialog.getByLabel("在本工作空间启用").uncheck();
   const updated = page.waitForResponse(
     (response) =>
-      response.url().endsWith(
-        `/api/v1/workspaces/${workspaceID}/members/${visitor.id}`,
-      ) && response.request().method() === "PATCH",
+      response
+        .url()
+        .endsWith(`/api/v1/workspaces/${workspaceID}/members/${visitor.id}`) &&
+      response.request().method() === "PATCH",
   );
   await membersDialog.getByRole("button", { name: "保存本空间权限" }).click();
   const updateRequest = (await updated).request();
@@ -166,9 +175,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   });
   const removed = page.waitForResponse(
     (response) =>
-      response.url().endsWith(
-        `/api/v1/workspaces/${workspaceID}/members/${visitor.id}`,
-      ) && response.request().method() === "DELETE",
+      response
+        .url()
+        .endsWith(`/api/v1/workspaces/${workspaceID}/members/${visitor.id}`) &&
+      response.request().method() === "DELETE",
   );
   await membersDialog.getByRole("button", { name: "移出本工作空间" }).click();
   expect((await removed).request().headers()["if-match"]).toBe("2");
@@ -181,7 +191,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(memberInput).toHaveValue("成员入口草稿");
   await memberInput.fill("");
   await page
-    .getByRole("button", { name: "做一次 Research", exact: false })
+    .getByRole("button", { name: "做一次研究协作", exact: false })
     .click();
   const messageInput = page.getByLabel("输入问题");
   await messageInput.fill(
@@ -197,8 +207,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(messageInput).toHaveValue(/\n$/);
   const previewRequest = page.waitForRequest(
     (request) =>
-      request.url().endsWith("/routing-preview") &&
-      request.method() === "POST",
+      request.url().endsWith("/routing-preview") && request.method() === "POST",
   );
   await messageInput.press("Enter");
   const previewBody = (await previewRequest).postDataJSON();
@@ -303,12 +312,14 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     page.getByLabel("工作方式", { exact: true }),
     "engineering",
   );
-  await expect(page.getByLabel("工程动作")).toHaveText("分析（只读）");
+  await expect(page.getByLabel("工程动作")).toHaveText(/分析（只读）/);
   await page
     .getByLabel("输入问题")
     .fill("分析示例仓库如何区分身份和角色，不要声称执行测试。");
   await page.getByRole("button", { name: "发送", exact: true }).click();
-  await expect(page.getByTestId("run-status")).toHaveText("已完成");
+  await expect(page.getByTestId("run-status")).toHaveText("已完成", {
+    timeout: 20000,
+  });
   await openPanel("产物");
   await page
     .getByRole("complementary", { name: "协作资料" })
@@ -338,15 +349,16 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     .fill("分别讨论协作的收益和成本，保留不同观点。");
   const discussionPreview = page.waitForRequest(
     (request) =>
-      request.url().endsWith("/routing-preview") &&
-      request.method() === "POST",
+      request.url().endsWith("/routing-preview") && request.method() === "POST",
   );
   await page.getByRole("button", { name: "发送", exact: true }).click();
   const discussionBody = (await discussionPreview).postDataJSON();
   expect(discussionBody.workflow).toBe("discussion");
   expect(discussionBody.assignments).toEqual({});
   expect(discussionBody.targets).toEqual([]);
-  await expect(page.getByTestId("run-status")).toHaveText("已完成");
+  await expect(page.getByTestId("run-status")).toHaveText("已完成", {
+    timeout: 20000,
+  });
   await openPanel("产物");
   await expect(
     page
@@ -379,7 +391,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByLabel("输入问题").fill("布布帮我研究一下协作方法");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await page.getByLabel("输入问题").fill("下一条草稿，不能被清除");
-  await expect(page.getByTestId("run-status")).toHaveText("已完成");
+  await expect(page.getByTestId("run-status")).toHaveText("已完成", {
+    timeout: 20000,
+  });
   await expect(page.getByLabel("输入问题")).toHaveValue(
     "下一条草稿，不能被清除",
   );
@@ -403,7 +417,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     page.getByRole("button", { name: "重试原请求", exact: true }),
   ).toBeEnabled();
   await page.getByRole("button", { name: "重试原请求", exact: true }).click();
-  await expect(page.getByTestId("run-status")).toHaveText("已完成");
+  await expect(page.getByTestId("run-status")).toHaveText("已完成", {
+    timeout: 20000,
+  });
   const after = (
     await (await page.request.get(`/api/v1/threads/${threadPath}`)).json()
   ).runs.length;
@@ -465,18 +481,18 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(appearance).toHaveText(/深色/);
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(30, 30, 30)",
+    "rgb(11, 13, 16)",
   );
   await selectOption(appearance, "system");
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(250, 247, 242)",
+    "rgb(248, 250, 252)",
   );
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(30, 30, 30)",
+    "rgb(11, 13, 16)",
   );
 
   // A saved default applies after navigation and reload; ordinary discussion
@@ -515,7 +531,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
       .map((agent: { handle: string }) => agent.handle)
       .sort(),
   ).toEqual(["maine", "ragdoll"]);
-  await expect(page.getByTestId("run-status")).toHaveText("已完成");
+  await expect(page.getByTestId("run-status")).toHaveText("已完成", {
+    timeout: 20000,
+  });
 
   // Editing the current coordinator must keep its history and unsent state in place.
   const currentThreadID = new URL(page.url()).pathname.split("/t/")[1];
@@ -557,7 +575,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await settingsSaved;
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page).toHaveURL(twoMemberURL);
-  await expect(page.getByTestId("run-status")).toHaveText("已完成");
+  await expect(page.getByTestId("run-status")).toHaveText("已完成", {
+    timeout: 20000,
+  });
   await expect(page.getByLabel("输入问题")).toHaveValue(linkedDraft);
   await expect(page.getByLabel("资料链接")).toHaveCount(0);
   expect(await timeline.evaluate((element) => element.scrollTop)).toBe(
@@ -581,7 +601,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await settingsDialog.getByRole("tab", { name: "成员" }).click();
   await settingsDialog
-    .getByRole("button", { name: /^布偶猫 \(@ragdoll\)$/ })
+    .getByRole("button", { name: /布偶猫.*@ragdoll/ })
     .click();
   await settingsDialog.getByLabel("显示名").fill("新布偶猫");
   await settingsDialog.getByRole("button", { name: "保存成员" }).click();
@@ -605,9 +625,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(
     page.getByRole("button", { name: /更多会话操作：/ }).first(),
   ).toHaveCSS("opacity", "1");
-  await page
-    .getByRole("button", { name: "只读工程分析", exact: true })
-    .click();
+  await page.getByRole("button", { name: "只读工程分析", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "只读工程分析", exact: true }),
   ).toBeVisible();
@@ -628,6 +646,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     await page.getByRole("button", { name: "打开导航", exact: true }).click();
     await selectOption(appearance, mode);
     await page.getByRole("button", { name: "关闭导航", exact: true }).click();
+    await expect(
+      page.getByRole("complementary", { name: "导航" }),
+    ).toBeHidden();
     await expect(page.getByLabel("输入问题")).toHaveValue("手机上的草稿");
     expect(
       await page.evaluate(

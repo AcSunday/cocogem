@@ -1,6 +1,11 @@
 import type { Agent, Artifact, Event, Message, Source } from "../api/client";
 import { EVENT_WINDOW, terminal } from "../api/client";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import panels from "../styles/panels.module.css";
+import settings from "../styles/settings.module.css";
 import { Markdown } from "./Markdown";
 import {
   livenessLabel,
@@ -10,6 +15,8 @@ import {
   toolLabel,
   usageSummary,
 } from "../lib/presentation";
+
+const cx = scoped(base, controls, layout, panels, settings);
 
 type Handoff = {
   instruction?: string;

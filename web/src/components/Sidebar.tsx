@@ -1,10 +1,23 @@
 import { Select } from "./Select";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { Thread, Workspace } from "../api/client";
-import { cx } from "../styles/classes";
-import { formatMessageTime } from "../lib/presentation";
+import { statusText } from "../api/client";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import layout from "../styles/layout.module.css";
+import panels from "../styles/panels.module.css";
+import settings from "../styles/settings.module.css";
+import { formatDateTime, statusIconName } from "../lib/presentation";
 import { Icon } from "./Icon";
 import { AppearanceSelect, type Appearance } from "./AppearanceSelect";
+
+const cx = scoped(base, layout, panels, settings);
 
 export function Sidebar({
   open,
@@ -48,10 +61,40 @@ export function Sidebar({
   onAppearance: (value: Appearance) => void;
 }) {
   const [filter, setFilter] = useState("");
+  const [timeTip, setTimeTip] = useState<{
+    label: string;
+    top: number;
+    left: number;
+  }>();
   const query = filter.trim().toLowerCase();
   const shown = threads.filter((thread) =>
     thread.title.toLowerCase().includes(query),
   );
+  const chooseThread = (id: string) => {
+    setFilter("");
+    onThread(id);
+  };
+  const startThread = () => {
+    setFilter("");
+    onNewThread();
+  };
+  useEffect(() => setTimeTip(undefined), [threadID, workspaceID]);
+  const showTime = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    updatedAt: string,
+  ) => {
+    const label = formatDateTime(updatedAt);
+    if (!label) {
+      setTimeTip(undefined);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTimeTip({
+      label: `更新于 ${label}`,
+      top: Math.min(Math.max(28, rect.top + rect.height / 2), innerHeight - 28),
+      left: Math.min(rect.right + 8, innerWidth - 180),
+    });
+  };
   return (
     <aside className={cx(`sidebar ${open ? "open" : ""}`)} aria-label="导航">
       <div className={cx("sidebar-head")}>
@@ -76,28 +119,31 @@ export function Sidebar({
           <Icon name="close" size={18} />
         </button>
       </div>
-      <label className={cx("sr-only")} htmlFor="workspace-switch">
-        切换工作空间
-      </label>
-      <Select
-        id="workspace-switch"
-        value={workspaceID}
-        onChange={(selected) => onWorkspace(selected)}
-      >
-        {!workspaceID && <option value="">选择工作空间</option>}
-        {workspaces.map((ws) => (
-          <option key={ws.id} value={ws.id}>
-            {ws.name}
-          </option>
-        ))}
-      </Select>
-      <button
-        className={cx("new-thread")}
-        onClick={onNewThread}
-        disabled={!workspace}
-      >
-        <Icon name="plus" /> 新建会话
-      </button>
+      <div className={cx("sidebar-controls")}>
+        <Select
+          id="workspace-switch"
+          aria-label="切换工作空间"
+          value={workspaceID}
+          onChange={(selected) => {
+            setFilter("");
+            onWorkspace(selected);
+          }}
+        >
+          {!workspaceID && <option value="">选择工作空间</option>}
+          {workspaces.map((ws) => (
+            <option key={ws.id} value={ws.id}>
+              {ws.name}
+            </option>
+          ))}
+        </Select>
+        <button
+          className={cx("new-thread")}
+          onClick={startThread}
+          disabled={!workspace}
+        >
+          <Icon name="discussion" size={16} /> 新建会话
+        </button>
+      </div>
       <label className={cx("search")}>
         <Icon name="search" size={14} />
         <input
@@ -111,29 +157,30 @@ export function Sidebar({
         <span>会话</span>
         <span>{threads.length}</span>
       </div>
-      <nav className={cx("thread-list")} aria-label="会话列表">
+      <nav
+        className={cx("thread-list")}
+        aria-label="会话列表"
+        onScroll={() => setTimeTip(undefined)}
+      >
         {shown.map((thread) => (
           <div
             key={thread.id}
             className={cx(
               `thread-item ${thread.id === threadID ? "selected" : ""}`,
             )}
+            onPointerEnter={(event) => showTime(event, thread.updated_at)}
+            onPointerLeave={() => setTimeTip(undefined)}
           >
             <button
               className={cx("thread")}
               aria-label={thread.title}
               aria-current={thread.id === threadID ? "page" : undefined}
-              onClick={() => onThread(thread.id)}
+              onClick={() => chooseThread(thread.id)}
             >
               <strong>{thread.title}</strong>
-              <div className={cx("thread-meta")}>
-                <small>{formatMessageTime(thread.updated_at)}</small>
-                {thread.status === "processing" ? (
-                  <span className={cx("status-indicator processing")} title="进行中" />
-                ) : thread.status === "completed" ? (
-                  <span className={cx("status-indicator completed")} title="已完成" />
-                ) : null}
-              </div>
+              <span className={cx("thread-meta")}>
+                <ThreadStatus thread={thread} />
+              </span>
             </button>
             <ThreadMenu
               thread={thread}
@@ -168,7 +215,58 @@ export function Sidebar({
         <AppearanceSelect value={appearance} onChange={onAppearance} />
         <p>本地工作空间 · 数据留在本机</p>
       </div>
+      {timeTip && (
+        <div
+          className={cx("thread-time-tip")}
+          role="tooltip"
+          style={{ top: timeTip.top, left: timeTip.left }}
+        >
+          {timeTip.label}
+        </div>
+      )}
     </aside>
+  );
+}
+
+const activeRunStates = new Set(["queued", "running", "canceling"]);
+
+/** A list snapshot's active run wins; an untouched new thread has no state. */
+function threadRunStatus(thread: Thread) {
+  if (
+    thread.active_run_id &&
+    (thread.active_run_status
+      ? activeRunStates.has(thread.active_run_status)
+      : true)
+  )
+    return {
+      status: thread.active_run_status || "running",
+      active: true,
+    };
+  if (thread.last_run_status)
+    return { status: thread.last_run_status, active: false };
+  return undefined;
+}
+
+function ThreadStatus({ thread }: { thread: Thread }) {
+  const state = threadRunStatus(thread);
+  if (!state) return null;
+  const label = statusText[state.status] ?? state.status;
+  const icon = statusIconName(state.status);
+  return (
+    <span
+      className={cx(
+        `thread-status ${state.status} ${state.active ? "active" : ""}`,
+      )}
+      role="status"
+      aria-label={`运行状态：${label}`}
+      title={`运行状态：${label}`}
+    >
+      {state.active ? (
+        <span className={cx("thread-spinner")} aria-hidden="true" />
+      ) : (
+        icon && <Icon name={icon} size={12} />
+      )}
+    </span>
   );
 }
 
@@ -273,9 +371,7 @@ function ThreadMenu({
               dismiss(true);
               return;
             }
-            if (
-              !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
-            )
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key))
               return;
             event.preventDefault();
             const items = [
@@ -297,7 +393,11 @@ function ThreadMenu({
           <button type="button" role="menuitem" onClick={() => choose(onEdit)}>
             编辑
           </button>
-          <button type="button" role="menuitem" onClick={() => choose(onRename)}>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => choose(onRename)}
+          >
             重命名
           </button>
           <button

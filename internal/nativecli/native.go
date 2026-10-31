@@ -171,7 +171,7 @@ func claudeArgs(configPath, settingsPath string, native []string) []string {
 		}
 	}
 	allowed := append(append([]string{}, builtins...), "mcp__cocogem__*")
-	return []string{"-p", "--output-format", "stream-json", "--verbose", "--restricted", "--tools", strings.Join(builtins, ","), "--strict-mcp-config", "--mcp-config", configPath, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--allowedTools", strings.Join(allowed, ","), "--disable-slash-commands", "--no-chrome", "--no-session-persistence", "--setting-sources", "", "--settings", settingsPath}
+	return []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--restricted", "--tools", strings.Join(builtins, ","), "--strict-mcp-config", "--mcp-config", configPath, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--allowedTools", strings.Join(allowed, ","), "--disable-slash-commands", "--no-chrome", "--no-session-persistence", "--setting-sources", "", "--settings", settingsPath}
 }
 
 // claudeStepSettings adds path denials aligned with tools.DeniedPath. The

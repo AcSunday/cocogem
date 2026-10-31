@@ -456,3 +456,24 @@ func TestNativeFirstGuidanceNamesActualToolsAndMarksOnlyTheirFallbacks(t *testin
 		})
 	}
 }
+
+func TestMemberExecutionOptionsReachModelRequest(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedPublicationRun(t, s, "free", "responder")
+	member := run.Agents[0]
+	member.ContextSize = 64000
+	member.ThinkingLevel = "high"
+	step := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: member.ID, AgentName: member.DisplayName, Role: "responder", Instruction: "直接回答", Status: "running"}
+	e := Engine{Store: s}
+	request, err := e.buildRequest(t.Context(), run, step, member, nil, "", agent.ConnectionInfo{}, agent.AdapterInfo{}, w.Message{ID: w.NewID(), RunID: run.ID, StepID: step.ID}, Handoff{}, nil, nil, nil, nil, nil, w.Attempt{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.ContextSize != 64000 || request.ThinkingLevel != "high" {
+		t.Fatalf("execution options were not forwarded to the model request: %+v", request)
+	}
+}

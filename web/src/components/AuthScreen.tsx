@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { api, APIError } from "../api/client";
 import { errorText } from "../lib/presentation";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
+import panels from "../styles/panels.module.css";
 import { Icon } from "./Icon";
+
+const cx = scoped(base, controls, layout, conversation, panels);
 
 export function AuthScreen({
   required,
@@ -58,6 +65,13 @@ export function AuthScreen({
                 ? "输入密码，继续你的协作。"
                 : "正在连接本地服务…"}
           </p>
+          {initialized === undefined && !(message || error) && (
+            <span
+              className={cx("auth-spinner")}
+              role="status"
+              aria-label="正在连接工作空间"
+            />
+          )}
         </div>
         {initialized !== undefined && (
           <form

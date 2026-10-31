@@ -37,6 +37,31 @@ func TestCodexConnectionIdentityTracksModelProviderAndEndpoint(t *testing.T) {
 	}
 }
 
+func TestCodexConnectionIdentityTracksReasoningEffort(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	write := func(effort string) {
+		t.Helper()
+		config := "model = \"fixture-model\"\nmodel_reasoning_effort = \"" + effort + "\"\n"
+		if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("high")
+	first, err := codexConnectionInfo("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("low")
+	second, err := codexConnectionInfo("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Identity == second.Identity {
+		t.Fatal("configured reasoning effort change was not part of the connection snapshot identity")
+	}
+}
+
 func TestClaudeConnectionIdentityTracksEnvironmentWithoutSettingsFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "synthetic-only")

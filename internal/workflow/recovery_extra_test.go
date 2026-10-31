@@ -34,7 +34,10 @@ func TestStepAndRunDeadlinesPersistAcrossServiceRestart(t *testing.T) {
 		}
 		return observe("text", map[string]any{"text": "completed after restart"})
 	}}
-	first := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Limits: Limits{RunTimeout: 5 * time.Second, StepTimeout: 3 * time.Second}}
+	// The frozen window only has to outlive the restart. The second engine uses
+	// 1ms limits, so a reset policy would fail immediately; keep enough headroom
+	// that a loaded race run does not expire before the resume dispatches.
+	first := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Limits: Limits{RunTimeout: 30 * time.Second, StepTimeout: 10 * time.Second}}
 	cancel, wait := startEngine(t, &first)
 	select {
 	case <-started:

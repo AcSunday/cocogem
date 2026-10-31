@@ -10,7 +10,11 @@ import type {
 } from "../api/client";
 import { statusText, terminal } from "../api/client";
 import { deliveredRun } from "../lib/delivery";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
 import {
   livenessLabel,
   runDuration,
@@ -21,6 +25,8 @@ import {
 } from "../lib/presentation";
 import { Icon } from "./Icon";
 import { CollaborationTasks } from "./CollaborationTasks";
+
+const cx = scoped(base, controls, layout, conversation);
 
 function eventData(event?: Event): Record<string, unknown> {
   return event?.data && typeof event.data === "object"

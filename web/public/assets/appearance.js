@@ -1,7 +1,8 @@
 // Apply the local preference before the page paints, including before React loads.
+// A removed theme (e.g. deepseek) falls back to the system pair.
 try {
   const appearance = localStorage.getItem("cocogem-appearance");
-  if (["light", "dark", "system", "deepseek"].includes(appearance)) {
+  if (["light", "dark", "system", "warm"].includes(appearance)) {
     document.documentElement.dataset.appearance = appearance;
   }
 } catch {

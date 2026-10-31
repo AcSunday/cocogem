@@ -71,6 +71,9 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 		runOtherNativeHelper(executor, mode, arg)
 		os.Exit(0)
 	}
+	// The host records process ownership right after Start; a fixture that
+	// exits immediately can win that race under load.
+	time.Sleep(100 * time.Millisecond)
 	configPath := arg("--mcp-config")
 	for _, flag := range []string{"--restricted", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence"} {
 		if !strings.Contains(strings.Join(os.Args, " "), flag) {
@@ -213,6 +216,32 @@ func TestRunNativeToolLoop(t *testing.T) {
 	if strings.Join(names, ",") != "read_file" || !strings.Contains(joined, "tool_started,tool_finished") || !strings.Contains(joined, "native_process") || !strings.Contains(joined, "native_session") {
 		t.Fatalf("tools=%v events=%v", names, events)
 	}
+}
+
+func TestClaudeExplicitThinkingIsPassedAsEffort(t *testing.T) {
+	request := testRequest()
+	request.ThinkingLevel = "high"
+	p := fakeProvider("call")
+	command := p.command
+	var launched []string
+	p.command = func(id string, args ...string) *exec.Cmd {
+		for _, arg := range args {
+			if arg == "-p" {
+				launched = append([]string{}, args...)
+				break
+			}
+		}
+		return command(id, args...)
+	}
+	if err := p.Run(context.Background(), request, func(context.Context, string, json.RawMessage) (string, error) { return "ok", nil }, func(string, map[string]any) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index+1 < len(launched); index++ {
+		if launched[index] == "--effort" && launched[index+1] == "high" {
+			return
+		}
+	}
+	t.Fatalf("explicit member thinking was not passed as --effort: %v", launched)
 }
 
 func TestNativeProtocolFailureAndCancellation(t *testing.T) {
@@ -375,12 +404,24 @@ func TestNativeUsageSurvivesPostCheckFailure(t *testing.T) {
 func TestNativeHostInputLimitIsTyped(t *testing.T) {
 	t.Parallel()
 	request := testRequest()
-	request.System = strings.Repeat("x", 100001)
+	request.ContextSize = 1024
+	request.System = strings.Repeat("x", 1025)
 	err := fakeProvider("ok").Run(context.Background(), request, func(context.Context, string, json.RawMessage) (string, error) {
 		return "ok", nil
 	}, func(string, map[string]any) error { return nil })
 	if FailureKindOf(err) != FailureHostInputLimit {
 		t.Fatalf("host input limit kind=%q error=%v", FailureKindOf(err), err)
+	}
+}
+
+func TestNativeWithoutMemberLimitFollowsCLIConfig(t *testing.T) {
+	t.Parallel()
+	request := testRequest()
+	request.System = "A scoped public test.\n" + strings.Repeat("x", 100001)
+	if err := fakeProvider("ok").Run(context.Background(), request, func(context.Context, string, json.RawMessage) (string, error) {
+		return "ok", nil
+	}, func(string, map[string]any) error { return nil }); err != nil {
+		t.Fatalf("empty context_size should leave the limit to the CLI: %v", err)
 	}
 }
 

@@ -1,5 +1,11 @@
 import { useState, type ComponentProps } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { Composer, type EngineeringAction, type WorkflowKey } from "./Composer";
@@ -208,4 +214,46 @@ it("defaults engineering to read-only analysis and switches roles for develop", 
   ).toBeVisible();
   // Assignment controls stay out of the composer.
   expect(screen.queryByText("分工")).not.toBeInTheDocument();
+});
+
+it("uses a filled square stop control in the send theme without changing cancel behavior", async () => {
+  const stop = vi.fn();
+  render(<Example active draft="正在执行" onStop={stop} />);
+  const user = userEvent.setup();
+  const button = screen.getByRole("button", { name: "停止协作" });
+  expect(button.className).toMatch(/_stop_/);
+  expect(button.className).toMatch(/_composer-send_/);
+  const square = button.querySelector("rect");
+  expect(square).toHaveAttribute("fill", "currentColor");
+  await user.click(button);
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+it("shows the full keyboard hint on desktop", () => {
+  render(<Example />);
+  expect(screen.getByLabelText("输入问题")).toHaveAttribute(
+    "placeholder",
+    "描述你的想法及任务，输入 @ 指定成员协作（Enter 发送 · Shift + Enter 换行）",
+  );
+});
+
+it("drops the keyboard hint from the placeholder on narrow screens", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width: 900px"),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+  render(<Example />);
+  await waitFor(() =>
+    expect(screen.getByLabelText("输入问题")).toHaveAttribute(
+      "placeholder",
+      "描述你的想法及任务，输入 @ 指定成员协作",
+    ),
+  );
+  vi.unstubAllGlobals();
 });

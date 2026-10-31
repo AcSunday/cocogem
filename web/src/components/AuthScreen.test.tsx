@@ -9,6 +9,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("shows a loading animation while the workspace connection is pending", () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise<Response>(() => {})),
+  );
+  render(
+    <AuthScreen required={false} error="" connect={vi.fn(async () => {})} />,
+  );
+  expect(
+    screen.getByRole("status", { name: "正在连接工作空间" }),
+  ).toBeInTheDocument();
+});
+
 it("confirms the first password before setting it and clears it after success", async () => {
   const fetch = vi.fn(async (path: string) =>
     Response.json(

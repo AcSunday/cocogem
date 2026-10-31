@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -61,6 +62,9 @@ type Server struct {
 	routerSlots     chan struct{}
 	verified        map[string]string
 	verifiedProgram map[string]string
+	// purgeExpired is a test seam for lifecycle tests; production uses
+	// PurgeExpiredThreads.
+	purgeExpired func(context.Context) (int, error)
 }
 
 // New validates static resources and configures the finite API surface.
@@ -105,6 +109,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/threads/{id}", s.thread)
 	mux.HandleFunc("PATCH /api/v1/threads/{id}", s.updateThread)
 	mux.HandleFunc("DELETE /api/v1/threads/{id}", s.deleteThread)
+	mux.HandleFunc("GET /api/v1/trash", s.trash)
+	mux.HandleFunc("POST /api/v1/threads/{id}/restore", s.restoreThread)
+	mux.HandleFunc("DELETE /api/v1/threads/{id}/permanent", s.permanentDeleteThread)
 	mux.HandleFunc("POST /api/v1/threads/{id}/routing-preview", s.preview)
 	mux.HandleFunc("POST /api/v1/threads/{id}/runs", s.submit)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
@@ -144,13 +151,17 @@ func writeError(rw http.ResponseWriter, r *http.Request, status int, code, messa
 	writeJSON(rw, status, map[string]any{"error": map[string]any{"code": code, "message": message, "request_id": w.NewID(), "details": map[string]any{}}})
 }
 func decode(rw http.ResponseWriter, r *http.Request, out any) bool {
-	r.Body = http.MaxBytesReader(rw, r.Body, 65536)
+	return decodeLimit(rw, r, out, 65536)
+}
+
+func decodeLimit(rw http.ResponseWriter, r *http.Request, out any, limit int64) bool {
+	r.Body = http.MaxBytesReader(rw, r.Body, limit)
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if err := d.Decode(out); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeError(rw, r, 413, "request_too_large", "请求超过 64 KiB")
+			writeError(rw, r, 413, "request_too_large", fmt.Sprintf("请求超过 %d KiB", limit/1024))
 		} else {
 			writeError(rw, r, 400, "invalid_json", "请求字段或 JSON 格式无效")
 		}
@@ -297,6 +308,14 @@ func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
 	if in.Model == "" {
 		in.Model = "default"
 	}
+	if err := w.ValidateExecutionOptions(in.Executor, in.ContextSize, in.ThinkingLevel); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	if in.Executor == "gemini" && in.ThinkingLevel != "" && in.Model == "default" {
+		respond(rw, r, nil, errors.New("Gemini thinking_level requires an explicit model"))
+		return
+	}
 	s.refreshExecutors(r.Context())
 	if len(s.executorSnapshot()) > 0 {
 		if err := s.validateExecutor(in.Executor); err != nil {
@@ -306,12 +325,12 @@ func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
-	_, err := s.config.Model.Complete(ctx, model.Request{Executor: in.Executor, Model: in.Model, System: "Reply with OK only. Do not call tools.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Connection test using public text only."}}}}, MaxTokens: 16}, func(string) error { return nil })
+	_, err := s.config.Model.Complete(ctx, model.Request{Executor: in.Executor, Model: in.Model, ContextSize: in.ContextSize, ThinkingLevel: in.ThinkingLevel, System: "Reply with OK only. Do not call tools.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Connection test using public text only."}}}}, MaxTokens: 16}, func(string) error { return nil })
 	if err != nil {
 		respond(rw, r, nil, fmt.Errorf("CLI 验证失败：%w", err))
 		return
 	}
-	key := in.Executor + ":" + in.Model
+	key := verificationKey(in)
 	if in.Executor == "" {
 		key = "model"
 	}
@@ -334,7 +353,18 @@ func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
 	}
 	executors := append([]ExecutorInfo{}, s.config.Executors...)
 	s.mu.Unlock()
-	writeJSON(rw, 200, VerifyReply{Executor: in.Executor, Model: in.Model, VerifiedAt: at, Executors: executors})
+	writeJSON(rw, 200, VerifyReply{Executor: in.Executor, Model: in.Model, ContextSize: in.ContextSize, ThinkingLevel: in.ThinkingLevel, VerifiedAt: at, Executors: executors})
+}
+
+func verificationKey(in VerifyInput) string {
+	key := in.Executor + ":" + in.Model
+	if in.ContextSize > 0 {
+		key += fmt.Sprintf(":context=%d", in.ContextSize)
+	}
+	if in.ThinkingLevel != "" {
+		key += ":thinking=" + in.ThinkingLevel
+	}
+	return key
 }
 
 func executorSignature(item ExecutorInfo) string {
@@ -559,6 +589,8 @@ func (s *Server) createThread(rw http.ResponseWriter, r *http.Request) {
 	th.WorkspaceID = r.PathValue("id")
 	th.Revision = 1
 	th.UpdatedAt = w.Now()
+	th.DeletedAt, th.PurgeAt = "", ""
+	th.LastRunID, th.LastRunStatus, th.ActiveRunID, th.ActiveRunStatus = "", "", "", ""
 	if th.Workflow == "" {
 		th.Workflow = "free"
 	}
@@ -647,9 +679,14 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, errOwnedProcess)
 		return
 	}
+	var purgeAt string
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
-		if _, err := tx.Thread(id); err != nil {
+		thread, err := tx.ThreadAny(id)
+		if err != nil {
 			return err
+		}
+		if thread.DeletedAt != "" {
+			return store.ErrNotFound
 		}
 		active, err := tx.Active()
 		if err != nil {
@@ -657,6 +694,85 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 		}
 		if slices.ContainsFunc(active, func(run w.Run) bool { return run.ThreadID == id }) {
 			return errRunActive
+		}
+		settings, err := tx.Settings()
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		thread.DeletedAt = now.Format(time.RFC3339Nano)
+		thread.PurgeAt = now.AddDate(0, 0, w.EffectiveRetentionDays(settings.RetentionDays)).Format(time.RFC3339Nano)
+		thread.Revision++
+		purgeAt = thread.PurgeAt
+		return tx.SaveThread(thread)
+	})
+	if err == nil {
+		s.dropProposals(func(p proposal) bool { return p.ThreadID == id })
+	}
+	respond(rw, r, DeleteReply{ID: id, PurgeAt: purgeAt}, err)
+}
+
+func (s *Server) trash(rw http.ResponseWriter, r *http.Request) {
+	var items []TrashItem
+	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+		threads, err := tx.DeletedThreads()
+		if err != nil {
+			return err
+		}
+		workspaces, err := tx.Workspaces()
+		if err != nil {
+			return err
+		}
+		names := make(map[string]string, len(workspaces))
+		for _, workspace := range workspaces {
+			names[workspace.ID] = workspace.Name
+		}
+		items = make([]TrashItem, 0, len(threads))
+		for _, thread := range threads {
+			items = append(items, TrashItem{Thread: thread, WorkspaceName: names[thread.WorkspaceID]})
+		}
+		return nil
+	})
+	respond(rw, r, TrashList{Items: items}, err)
+}
+
+func (s *Server) restoreThread(rw http.ResponseWriter, r *http.Request) {
+	var restored w.Thread
+	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
+		thread, err := tx.ThreadAny(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		if thread.DeletedAt == "" {
+			return store.ErrNotFound
+		}
+		if err := revision(r, thread.Revision); err != nil {
+			return err
+		}
+		if _, err := tx.Workspace(thread.WorkspaceID); err != nil {
+			return err
+		}
+		thread.DeletedAt, thread.PurgeAt = "", ""
+		thread.Revision++
+		thread.UpdatedAt = w.Now()
+		restored = thread
+		return tx.SaveThread(thread)
+	})
+	respond(rw, r, restored, err)
+}
+
+func (s *Server) permanentDeleteThread(rw http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
+		thread, err := tx.ThreadAny(id)
+		if err != nil {
+			return err
+		}
+		if thread.DeletedAt == "" {
+			return store.ErrNotFound
+		}
+		if err := revision(r, thread.Revision); err != nil {
+			return err
 		}
 		return tx.DeleteThread(id)
 	})
@@ -666,13 +782,131 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 	respond(rw, r, DeleteReply{ID: id}, err)
 }
 
+// PurgeExpiredThreads performs the retention cleanup in one bounded write. It
+// runs at startup and from the maintenance ticker, not as a side effect of a
+// list request.
+func (s *Server) PurgeExpiredThreads(ctx context.Context) (int, error) {
+	// Existing trash entries follow the current retention even if the setting
+	// changed in an earlier release; this is idempotent after the first run.
+	if err := s.store.Write(ctx, func(tx *store.Tx) error {
+		settings, err := tx.Settings()
+		if err != nil {
+			return err
+		}
+		return rescheduleTrash(tx, settings.RetentionDays)
+	}); err != nil {
+		return 0, err
+	}
+	// Candidate expiry is read before the owned-process check; the final write
+	// must not trust it because a restore or a second delete may have committed
+	// a fresh retention window in between.
+	cutoff := time.Now().UTC()
+	// Owned child processes are checked outside the serialized store
+	// transactions; the final transaction rechecks active runs and visibility.
+	var expired []w.Thread
+	if err := s.store.Read(ctx, func(tx *store.Tx) error {
+		var err error
+		expired, err = tx.ExpiredThreads(w.Now())
+		return err
+	}); err != nil {
+		return 0, err
+	}
+	candidates := make([]w.Thread, 0, len(expired))
+	for _, thread := range expired {
+		if s.engine != nil {
+			live, err := s.engine.OwnedProcessAlive(ctx, thread.ID)
+			if err != nil {
+				return 0, err
+			}
+			if live {
+				continue
+			}
+		}
+		candidates = append(candidates, thread)
+	}
+	purged := []string{}
+	err := s.store.Write(ctx, func(tx *store.Tx) error {
+		active, err := tx.Active()
+		if err != nil {
+			return err
+		}
+		activeThreads := map[string]bool{}
+		for _, run := range active {
+			activeThreads[run.ThreadID] = true
+		}
+		for _, candidate := range candidates {
+			if activeThreads[candidate.ID] {
+				continue
+			}
+			thread, err := tx.ThreadAny(candidate.ID)
+			if err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					continue
+				}
+				return err
+			}
+			if thread.DeletedAt == "" || thread.PurgeAt == "" {
+				continue
+			}
+			purgeAt, err := time.Parse(time.RFC3339Nano, thread.PurgeAt)
+			if err != nil || purgeAt.After(cutoff) {
+				// The scanned candidate was restored and deleted again, so the
+				// current trash entry still has time left; never purge it early.
+				continue
+			}
+			if err := tx.DeleteThread(thread.ID); err != nil {
+				return err
+			}
+			purged = append(purged, thread.ID)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	if len(purged) > 0 {
+		s.dropProposals(func(p proposal) bool { return slices.Contains(purged, p.ThreadID) })
+	}
+	return len(purged), nil
+}
+
+// StartMaintenance runs startup cleanup and a low-frequency bounded ticker.
+// The returned wait function blocks until the maintenance goroutine has
+// exited, so the shared database is not closed underneath a cleanup write.
+func (s *Server) StartMaintenance(ctx context.Context) (wait func()) {
+	purge := s.PurgeExpiredThreads
+	if s.purgeExpired != nil {
+		purge = s.purgeExpired
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := purge(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("trash cleanup failed", "error", err)
+		}
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := purge(ctx); err != nil && ctx.Err() == nil {
+					slog.Error("trash cleanup failed", "error", err)
+				}
+			}
+		}
+	}()
+	return func() { <-done }
+}
+
 func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if s.engine != nil {
 		var list []w.Thread
 		if err := s.store.Read(r.Context(), func(tx *store.Tx) error {
 			var err error
-			list, err = tx.Threads(id)
+			list, err = tx.ThreadsAny(id)
 			return err
 		}); err != nil {
 			respond(rw, r, nil, err)
@@ -700,7 +934,7 @@ func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 		if slices.ContainsFunc(active, func(run w.Run) bool { return run.WorkspaceID == id }) {
 			return errRunActive
 		}
-		list, err := tx.Threads(id)
+		list, err := tx.ThreadsAny(id)
 		if err != nil {
 			return err
 		}
@@ -1050,6 +1284,18 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 	writeJSON(rw, 202, run)
 }
 
+// visibleRun keeps every child API from exposing a soft-deleted thread.
+func visibleRun(tx *store.Tx, id string) (w.Run, error) {
+	run, err := tx.Run(id)
+	if err != nil {
+		return run, err
+	}
+	if _, err := tx.Thread(run.ThreadID); err != nil {
+		return w.Run{}, err
+	}
+	return run, nil
+}
+
 func (s *Server) run(rw http.ResponseWriter, r *http.Request) {
 	var run w.Run
 	var steps []w.Step
@@ -1057,7 +1303,7 @@ func (s *Server) run(rw http.ResponseWriter, r *http.Request) {
 	var cursor int64
 	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
 		var err error
-		run, err = tx.Run(r.PathValue("id"))
+		run, err = visibleRun(tx, r.PathValue("id"))
 		if err != nil {
 			return err
 		}
@@ -1075,10 +1321,26 @@ func (s *Server) run(rw http.ResponseWriter, r *http.Request) {
 	respond(rw, r, RunView{Run: run, Steps: steps, Attempts: attempts, Cursor: cursor}, err)
 }
 func (s *Server) cancel(rw http.ResponseWriter, r *http.Request) {
+	if err := s.visibleRunRead(r, r.PathValue("id")); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
 	result, err := s.engine.Cancel(r.Context(), r.PathValue("id"))
 	respond(rw, r, result, err)
 }
+
+func (s *Server) visibleRunRead(r *http.Request, id string) error {
+	return s.store.Read(r.Context(), func(tx *store.Tx) error {
+		_, err := visibleRun(tx, id)
+		return err
+	})
+}
+
 func (s *Server) resume(rw http.ResponseWriter, r *http.Request) {
+	if err := s.visibleRunRead(r, r.PathValue("id")); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
 	result, err := s.engine.Resume(r.Context(), r.PathValue("id"))
 	if err != nil {
 		respond(rw, r, nil, err)
@@ -1100,7 +1362,7 @@ func (s *Server) events(rw http.ResponseWriter, r *http.Request) {
 		}
 		after = v
 	}
-	if err := s.store.Read(r.Context(), func(tx *store.Tx) error { _, err := tx.Run(r.PathValue("id")); return err }); err != nil {
+	if err := s.visibleRunRead(r, r.PathValue("id")); err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
@@ -1181,7 +1443,7 @@ func (s *Server) eventHistory(rw http.ResponseWriter, r *http.Request) {
 	}
 	var page store.EventPage
 	err = s.store.Read(r.Context(), func(tx *store.Tx) error {
-		run, err := tx.Run(r.PathValue("id"))
+		run, err := visibleRun(tx, r.PathValue("id"))
 		if err != nil {
 			return err
 		}
@@ -1199,7 +1461,7 @@ func (s *Server) messageContent(rw http.ResponseWriter, r *http.Request) {
 	}
 	var page store.MessageContentPage
 	err = s.store.Read(r.Context(), func(tx *store.Tx) error {
-		run, err := tx.Run(r.PathValue("id"))
+		run, err := visibleRun(tx, r.PathValue("id"))
 		if err != nil {
 			return err
 		}
@@ -1224,12 +1486,23 @@ func (s *Server) messageContent(rw http.ResponseWriter, r *http.Request) {
 
 func (s *Server) source(rw http.ResponseWriter, r *http.Request) {
 	var source w.Source
-	err := s.store.Read(r.Context(), func(tx *store.Tx) error { var err error; source, err = tx.Source(r.PathValue("id")); return err })
+	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+		var err error
+		source, err = tx.Source(r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		_, err = tx.Thread(source.ThreadID)
+		return err
+	})
 	respond(rw, r, source, err)
 }
 func (s *Server) artifacts(rw http.ResponseWriter, r *http.Request) {
 	var artifacts []w.Artifact
 	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+		if _, err := tx.Thread(r.PathValue("id")); err != nil {
+			return err
+		}
 		var err error
 		artifacts, err = tx.Artifacts(r.PathValue("id"))
 		if err != nil {
@@ -1264,7 +1537,15 @@ func (s *Server) artifact(rw http.ResponseWriter, r *http.Request) {
 	v, err := artifactVersion(r)
 	var a w.Artifact
 	if err == nil {
-		err = s.store.Read(r.Context(), func(tx *store.Tx) error { var err error; a, err = tx.Artifact(r.PathValue("id"), v); return err })
+		err = s.store.Read(r.Context(), func(tx *store.Tx) error {
+			var err error
+			a, err = tx.Artifact(r.PathValue("id"), v)
+			if err != nil {
+				return err
+			}
+			_, err = tx.Thread(a.ThreadID)
+			return err
+		})
 	}
 	respond(rw, r, a, err)
 }
@@ -1282,6 +1563,9 @@ func (s *Server) feedback(rw http.ResponseWriter, r *http.Request) {
 			var err error
 			a, err = tx.Artifact(r.PathValue("id"), v)
 			if err != nil {
+				return err
+			}
+			if _, err := tx.Thread(a.ThreadID); err != nil {
 				return err
 			}
 			if err := revision(r, a.Revision); err != nil {
@@ -1312,6 +1596,9 @@ func (s *Server) export(rw http.ResponseWriter, r *http.Request) {
 			}
 			run, err = tx.Run(a.RunID)
 			if err != nil {
+				return err
+			}
+			if _, err := tx.Thread(a.ThreadID); err != nil {
 				return err
 			}
 			sources, err = tx.SourceMetadata(a.ThreadID)

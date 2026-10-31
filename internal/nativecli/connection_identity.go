@@ -27,6 +27,7 @@ type connectionPlan struct {
 	geminiModel    string
 	geminiEnv      map[string]string
 	geminiUnset    []string
+	geminiThinking []any
 }
 
 var connectionPlans = struct {
@@ -173,6 +174,10 @@ func geminiPlan(model string) (connectionPlan, error) {
 			settingsHash = connectionDigest(string(data))
 		}
 	}
+	var settings geminiSettings
+	if len(settingsData) > 0 {
+		_ = json.Unmarshal(settingsData, &settings)
+	}
 	resolved := model
 	if resolved == "" || resolved == "default" {
 		for _, key := range []string{"GEMINI_MODEL", "GOOGLE_GENAI_MODEL", "GEMINI_CLI_MODEL"} {
@@ -182,15 +187,8 @@ func geminiPlan(model string) (connectionPlan, error) {
 			}
 		}
 	}
-	if (resolved == "" || resolved == "default") && len(settingsData) > 0 {
-		var config struct {
-			Model struct {
-				Name string `json:"name"`
-			} `json:"model"`
-		}
-		if json.Unmarshal(settingsData, &config) == nil && config.Model.Name != "" {
-			resolved = config.Model.Name
-		}
+	if (resolved == "" || resolved == "default") && settings.Model.Name != "" {
+		resolved = settings.Model.Name
 	}
 	if resolved == "" || resolved == "default" {
 		resolved = "cli-default"
@@ -217,7 +215,7 @@ func geminiPlan(model string) (connectionPlan, error) {
 	// an unset key must not share an identity.
 	fields["env_present"] = present
 	info := agent.ConnectionInfo{ResolvedModel: resolved, Identity: connectionDigest(fields)}
-	return connectionPlan{executor: "gemini", info: info, geminiModel: resolved, geminiEnv: env, geminiUnset: unset}, nil
+	return connectionPlan{executor: "gemini", info: info, geminiModel: resolved, geminiEnv: env, geminiUnset: unset, geminiThinking: geminiThinkingOverrides(settings)}, nil
 }
 
 func geminiConnectionInfo(model string) (agent.ConnectionInfo, error) {

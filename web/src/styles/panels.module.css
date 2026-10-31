@@ -43,7 +43,7 @@
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: 13px;
 }
 .panel-tabs button:hover:not(:disabled) {
@@ -56,7 +56,7 @@
   font-weight: 500;
 }
 .panel-tabs .count {
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: 12px;
   font-weight: 400;
 }
@@ -380,32 +380,6 @@ dialog dd ul {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent-text);
-}
-.color-picker {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 4px 0;
-}
-.color-dot {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  min-height: 24px;
-  padding: 0;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-.color-dot:hover {
-  transform: scale(1.15);
-}
-.color-dot.selected {
-  border-color: var(--surface);
-  box-shadow: 0 0 0 2px var(--text);
-  transform: scale(1.1);
 }
 .snapshot-member {
   padding: 10px 0;

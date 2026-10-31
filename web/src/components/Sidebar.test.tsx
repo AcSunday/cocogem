@@ -24,7 +24,10 @@ const onEditThread = vi.fn();
 const onRenameThread = vi.fn();
 const onDeleteThread = vi.fn();
 
-function sidebar(threadID = "a") {
+function sidebar(
+  threadID = "a",
+  threadList = [thread("a", "会话 A"), thread("b", "会话 B")],
+) {
   return (
     <Sidebar
       open
@@ -50,7 +53,7 @@ function sidebar(threadID = "a") {
         revision: 1,
         created_at: "",
       }}
-      threads={[thread("a", "会话 A"), thread("b", "会话 B")]}
+      threads={threadList}
       threadID={threadID}
       onWorkspace={() => {}}
       onHome={() => {}}
@@ -127,4 +130,99 @@ it("hands rename and confirmed delete actions to the app", async () => {
   await user.click(screen.getByRole("menuitem", { name: "删除" }));
   expect(onDeleteThread).toHaveBeenCalledWith(thread("a", "会话 A"));
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+});
+
+it("shows accessible active and terminal run states without inventing completion", () => {
+  const running = {
+    ...thread("a", "运行中"),
+    active_run_id: "run-a",
+    active_run_status: "running",
+  };
+  const { rerender } = render(sidebar("a", [running]));
+  expect(
+    screen.getByRole("status", { name: "运行状态：执行中" }),
+  ).toHaveTextContent("");
+  expect(screen.queryByRole("status", { name: "运行状态：已完成" })).toBeNull();
+
+  rerender(
+    sidebar("a", [
+      { ...running, active_run_id: undefined, last_run_status: "succeeded" },
+    ]),
+  );
+  expect(
+    screen.getByRole("status", { name: "运行状态：已完成" }),
+  ).toBeVisible();
+  expect(screen.queryByRole("status", { name: "运行状态：执行中" })).toBeNull();
+
+  rerender(
+    sidebar("a", [
+      { ...running, active_run_id: undefined, last_run_status: "failed" },
+    ]),
+  );
+  expect(screen.getByRole("status", { name: "运行状态：失败" })).toBeVisible();
+  rerender(
+    sidebar("a", [
+      { ...running, active_run_id: undefined, last_run_status: "canceled" },
+    ]),
+  );
+  expect(
+    screen.getByRole("status", { name: "运行状态：已停止" }),
+  ).toBeVisible();
+  rerender(
+    sidebar("a", [
+      { ...running, active_run_id: undefined, last_run_status: "interrupted" },
+    ]),
+  );
+  expect(
+    screen.getByRole("status", { name: "运行状态：运行已中断" }),
+  ).toBeVisible();
+});
+
+it("shows queued, running and canceling states for an active run", () => {
+  const base = thread("a", "排队");
+  const { rerender } = render(
+    sidebar("a", [
+      { ...base, active_run_id: "run", active_run_status: "queued" },
+    ]),
+  );
+  expect(
+    screen.getByRole("status", { name: "运行状态：排队中" }),
+  ).toBeVisible();
+  rerender(
+    sidebar("a", [
+      { ...base, active_run_id: "run", active_run_status: "canceling" },
+    ]),
+  );
+  expect(
+    screen.getByRole("status", { name: "运行状态：正在停止" }),
+  ).toBeVisible();
+});
+
+it("shows the updated time in a right-side tooltip on hover", async () => {
+  const user = userEvent.setup();
+  render(sidebar());
+  expect(screen.queryByRole("tooltip")).toBeNull();
+  await user.hover(screen.getByRole("button", { name: "会话 A" }));
+  expect(await screen.findByRole("tooltip")).toHaveTextContent(
+    "更新于 2026-10-28",
+  );
+  await user.unhover(screen.getByRole("button", { name: "会话 A" }));
+  expect(screen.queryByRole("tooltip")).toBeNull();
+});
+
+it("clears the search after choosing a conversation", async () => {
+  const user = userEvent.setup();
+  render(sidebar());
+  const search = screen.getByLabelText("搜索会话");
+  await user.type(search, "会话 B");
+  expect(screen.queryByRole("button", { name: "会话 A" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "会话 B" }));
+  expect(search).toHaveValue("");
+  expect(screen.getByRole("button", { name: "会话 A" })).toBeInTheDocument();
+});
+
+it("leaves a new empty conversation without a status badge", () => {
+  render(sidebar("a", [thread("empty", "新会话")]));
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(screen.getByRole("button", { name: "新建会话" })).toBeInTheDocument();
 });

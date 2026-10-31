@@ -41,14 +41,24 @@ input[type="checkbox"] {
 }
 .check-label {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   font-size: 13px;
   line-height: 1.6;
 }
+.check-label .tool-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.check-label .check-note {
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+}
 fieldset {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 8px 12px;
   margin: 0;
   padding: 12px 14px;
@@ -62,7 +72,7 @@ legend {
 }
 small,
 .muted {
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: 12px;
 }
 .status {
@@ -72,10 +82,13 @@ small,
   padding: 2px 9px;
   border-radius: 999px;
   background: var(--success-bg);
-  color: var(--success-text);
+  color: light-dark(#047857, #34d399);
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
+}
+:global(:root[data-appearance="warm"]) .status {
+  color: var(--success-text);
 }
 .status::before {
   content: "";
@@ -233,16 +246,65 @@ small,
   padding: 0;
   background: none;
 }
+.mention-wrap {
+  position: relative;
+  display: inline;
+}
 .mention {
   color: var(--accent-text);
   font-weight: 600;
   cursor: help;
-  padding: 2px 4px;
+  padding: 1px 4px;
   border-radius: var(--radius-sm);
   background: var(--accent-soft);
 }
 .mention:hover {
   text-decoration: underline;
+}
+.mention:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.mention-card {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: max-content;
+  max-width: min(280px, 70vw);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  cursor: default;
+}
+.mention-card .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+.mention-detail {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.mention-detail strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.mention-detail span {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
 }
 .skip-link {
   position: absolute;
@@ -343,26 +405,11 @@ small,
 .select-option.highlighted {
   background: var(--surface-3);
 }
+.select-option[aria-selected="true"].highlighted {
+  background: var(--accent-soft);
+}
 .select-option[aria-disabled="true"] {
   color: var(--text-3);
   opacity: 0.55;
   cursor: not-allowed;
-}
-/* DeepSeek harness menus float over the page; chips and dots stay round. */
-:global(:root[data-appearance="deepseek"]) .select-menu {
-  border-color: var(--border);
-  background: rgb(48 49 54 / 94%);
-  backdrop-filter: blur(12px);
-}
-:global(:root[data-appearance="deepseek"])
-  .select-option[aria-selected="true"] {
-  color: var(--text);
-  background: rgb(255 255 255 / 10%);
-}
-:global(:root[data-appearance="deepseek"]) .select-option.highlighted {
-  background: rgb(255 255 255 / 8%);
-}
-:global(:root[data-appearance="deepseek"]) .status,
-:global(:root[data-appearance="deepseek"]) .status::before {
-  corner-shape: round;
 }

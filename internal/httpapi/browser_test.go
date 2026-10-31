@@ -65,7 +65,8 @@ func TestBrowserServer(t *testing.T) {
 	if err := engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { cancel(); engine.Wait() }()
+	maintenanceDone := app.StartMaintenance(ctx)
+	defer func() { cancel(); engine.Wait(); maintenanceDone() }()
 	server := &http.Server{Handler: app.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
@@ -162,7 +163,68 @@ func browserLongTask(ctx context.Context, execute agent.Execute, observe agent.O
 	return nil
 }
 
+const (
+	browserStreamMarker = "Original user task:\n流式界面验收："
+	browserStreamFirst  = "流式第一段：可见的阶段性正文。"
+	browserStreamSecond = "流式第二段：持续追加的正文。"
+	// The browser fixture needs two visible updates while the run is still
+	// processing; 400ms clears the requested 350ms minimum with scheduling slack.
+	browserStreamGap = 400 * time.Millisecond
+)
+
+// browserStreaming emits two parts with ctx-aware pauses so browser tests can
+// observe the first part before the second and both before the run finishes.
+func browserStreaming(ctx context.Context, emit func(string) error) (model.Response, error) {
+	parts := []string{browserStreamFirst, browserStreamSecond}
+	for _, part := range parts {
+		if err := emit(part); err != nil {
+			return model.Response{}, err
+		}
+		if err := browserStreamWait(ctx, browserStreamGap); err != nil {
+			return model.Response{}, err
+		}
+	}
+	return model.Response{StopReason: "end_turn", Blocks: []model.Block{{Type: "text", Text: strings.Join(parts, "")}}}, nil
+}
+
+func browserStreamWait(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func TestBrowserStreamingFixturePacesParts(t *testing.T) {
+	request := model.Request{Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Original user task:\n流式界面验收：给前端做确定性流式断言。"}}}}}
+	parts := []string{}
+	emittedAt := []time.Time{}
+	response, err := browserModel{}.Complete(context.Background(), request, func(text string) error {
+		parts = append(parts, text)
+		emittedAt = append(emittedAt, time.Now())
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 2 || parts[0] != browserStreamFirst || parts[1] != browserStreamSecond {
+		t.Fatalf("streaming fixture parts=%q", parts)
+	}
+	if gap := emittedAt[1].Sub(emittedAt[0]); gap < 350*time.Millisecond {
+		t.Fatalf("streaming fixture gap=%v, want at least 350ms between visible parts", gap)
+	}
+	if len(response.Blocks) != 1 || response.Blocks[0].Text != browserStreamFirst+browserStreamSecond {
+		t.Fatalf("streaming fixture final response=%+v", response.Blocks)
+	}
+}
+
 func (m browserModel) Complete(ctx context.Context, request model.Request, emit func(string) error) (model.Response, error) {
+	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && strings.HasPrefix(request.Messages[0].Content[0].Text, browserStreamMarker) {
+		return browserStreaming(ctx, emit)
+	}
 	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && strings.HasPrefix(request.Messages[0].Content[0].Text, "Original user task:\n等待取消：") {
 		<-ctx.Done()
 		return model.Response{}, ctx.Err()

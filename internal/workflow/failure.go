@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/AcSunday/cocogem/internal/nativecli"
 	w "github.com/AcSunday/cocogem/internal/workspace"
@@ -30,6 +31,84 @@ func failureKind(err error) string {
 		return string(kind)
 	}
 	return failureUnknown
+}
+
+const (
+	autoRetryLimit  = 3 // retries after the initial attempt; at most four attempts
+	autoRetryReason = "transient_retry"
+)
+
+func retryableFailureKind(kind nativecli.FailureKind) bool {
+	switch kind {
+	case nativecli.FailureNetwork, nativecli.FailureQuota, nativecli.FailureProviderTransient:
+		return true
+	default:
+		return false
+	}
+}
+
+// transientRetryable inspects every leaf in a joined/wrapped error tree. One
+// retryable leaf is not enough: cancellation, an uncertain process, auth or any
+// unknown sibling makes the whole failure unsafe to replay.
+func transientRetryable(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	sawRetryable := false
+	var walk func(error) bool
+	walk = func(current error) bool {
+		if current == nil {
+			return false
+		}
+		if joined, ok := current.(interface{ Unwrap() []error }); ok {
+			leaves := joined.Unwrap()
+			if len(leaves) == 0 {
+				return false
+			}
+			for _, leaf := range leaves {
+				if !walk(leaf) {
+					return false
+				}
+			}
+			return true
+		}
+		if failure, ok := current.(*nativecli.Failure); ok {
+			if !retryableFailureKind(failure.Kind) {
+				return false
+			}
+			sawRetryable = true
+			return true
+		}
+		if wrapped := errors.Unwrap(current); wrapped != nil {
+			return walk(wrapped)
+		}
+		// An untyped leaf cannot be proven transient.
+		return false
+	}
+	return walk(err) && sawRetryable
+}
+
+// transientRetryableKind is used when a persisted Attempt must decide whether
+// a later dispatch is an automatic retry after a restart.
+func transientRetryableKind(kind string) bool {
+	return kind == string(nativecli.FailureNetwork) || kind == string(nativecli.FailureQuota) || kind == string(nativecli.FailureProviderTransient)
+}
+
+func (e *Engine) retryDelay(retry int) time.Duration {
+	base := e.RetryBackoff
+	if base <= 0 {
+		base = 250 * time.Millisecond
+	}
+	if retry < 0 {
+		retry = 0
+	}
+	for range retry {
+		if base >= 4*time.Second {
+			return 4 * time.Second
+		}
+		base *= 2
+	}
+	return min(base, 4*time.Second)
 }
 
 // independentFailure returns the first wrapped non-context error, or nil when

@@ -132,6 +132,101 @@ func TestClaudeStatusNoticeDoesNotResetStall(t *testing.T) {
 	}
 }
 
+func TestClaudeAPIRetryStringErrorIsNonProgressNotice(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	events := []capturedEvent{}
+	observe := func(kind string, data map[string]any) error {
+		events = append(events, capturedEvent{kind: kind, data: data})
+		return nil
+	}
+	gate, err := newBridge(ctx, nil, nil, observe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.close()
+	live := newLiveness(ctx, cancel, observe, time.Hour, time.Hour, "stop")
+	live.dispatched()
+	stream := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","tools":[]}`,
+		`{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":625,"error_status":503,"error":"server_error","session_id":"11111111-1111-4111-8111-111111111111","uuid":"u1"}`,
+		`{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}`,
+	}, "\n") + "\n"
+	if err := parseClaude(strings.NewReader(stream), gate, live); err != nil {
+		t.Fatalf("a real API-retry notification was rejected: %v", err)
+	}
+	for _, event := range events {
+		if event.kind == "text" {
+			t.Fatalf("retry notification was rendered as visible text: %v", event.data)
+		}
+	}
+	live.mu.Lock()
+	firstSeen, lastType := live.firstSeen, live.lastType
+	live.mu.Unlock()
+	if firstSeen {
+		t.Fatal("a retry notification refreshed first-response liveness")
+	}
+	if lastType != "system.api_retry" {
+		t.Fatalf("last protocol event=%q, want the retry notice to stay metadata only", lastType)
+	}
+}
+
+func TestClaudeAssistantAPIErrorStringIsNotVisibleText(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	events := []capturedEvent{}
+	observe := func(kind string, data map[string]any) error {
+		events = append(events, capturedEvent{kind: kind, data: data})
+		return nil
+	}
+	gate, err := newBridge(ctx, nil, nil, observe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.close()
+	live := newLiveness(ctx, cancel, observe, time.Hour, time.Hour, "stop")
+	live.dispatched()
+	stream := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","tools":[]}`,
+		`{"type":"assistant","message":{"id":"msg1","content":[{"type":"text","text":"API Error: 503 upstream unavailable"}]},"error":"server_error","is_api_error_message":true}`,
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"11111111-1111-4111-8111-111111111111","errors":["server_error"]}`,
+	}, "\n") + "\n"
+	err = parseClaude(strings.NewReader(stream), gate, live)
+	if err == nil {
+		t.Fatal("terminal API error was accepted as success")
+	}
+	if kind := FailureKindOf(err); kind != FailureProviderTransient {
+		t.Fatalf("terminal API error kind=%q (%v), want provider_transient from the real server_error code", kind, err)
+	}
+	if strings.Contains(err.Error(), "malformed") {
+		t.Fatalf("real string error shape was rejected as malformed: %v", err)
+	}
+	for _, event := range events {
+		if event.kind == "text" {
+			t.Fatalf("assistant API error content leaked as visible text: %v", event.data)
+		}
+	}
+}
+
+func TestClaudeErrorEventAcceptsStringCode(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		line string
+		kind FailureKind
+	}{
+		{"string code", `{"type":"error","error":"authentication_error"}`, FailureAuthentication},
+		{"object code", `{"type":"error","error":{"type":"authentication_error","message":"invalid key"}}`, FailureAuthentication},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stream := `{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","tools":[]}` + "\n" + test.line + "\n"
+			_, err := parseWithEvents(t, nil, stream, parseClaude)
+			if kind := FailureKindOf(err); kind != test.kind {
+				t.Fatalf("error event kind=%q (%v), want %q", kind, err, test.kind)
+			}
+		})
+	}
+}
+
 func TestUnknownToolActionsAreRejected(t *testing.T) {
 	const session = "11111111-1111-4111-8111-111111111111"
 	tests := []struct {

@@ -52,7 +52,7 @@ func schema(t reflect.Type) map[string]any {
 func ref(name string) map[string]any { return map[string]any{"$ref": "#/components/schemas/" + name} }
 func main() {
 	schemas := map[string]any{}
-	for _, value := range []any{w.Workspace{}, w.Agent{}, w.WorkspaceMember{}, w.Settings{}, w.Thread{}, w.RunInput{}, w.Run{}, w.Delivery{}, w.Step{}, w.Attempt{}, w.ProcessRef{}, w.Message{}, w.Source{}, w.Artifact{}, w.Event{}, w.Finding{}, w.ArtifactRef{}, skills.Info{}, httpapi.SystemInfo{}, httpapi.ThreadView{}, httpapi.RunView{}, httpapi.RoutingPreview{}, httpapi.WorkspaceInput{}, httpapi.SettingsInput{}, httpapi.ThreadUpdate{}, httpapi.AuthStatus{}, httpapi.PasswordInput{}, httpapi.SessionReply{}, httpapi.FeedbackInput{}, httpapi.VerifyReply{}, httpapi.VerifyInput{}, httpapi.ExecutorInfo{}, httpapi.DeleteReply{}, httpapi.DirectoryListing{}, workflow.Routing{}, store.MessageContentPage{}, store.EventPage{}} {
+	for _, value := range []any{w.Workspace{}, w.Agent{}, w.WorkspaceMember{}, w.Settings{}, w.Thread{}, w.RunInput{}, w.Run{}, w.Delivery{}, w.Step{}, w.Attempt{}, w.ProcessRef{}, w.Message{}, w.Source{}, w.Artifact{}, w.Event{}, w.Finding{}, w.ArtifactRef{}, skills.Info{}, httpapi.SystemInfo{}, httpapi.ThreadView{}, httpapi.RunView{}, httpapi.RoutingPreview{}, httpapi.WorkspaceInput{}, httpapi.SettingsInput{}, httpapi.ThreadUpdate{}, httpapi.AuthStatus{}, httpapi.PasswordInput{}, httpapi.SessionReply{}, httpapi.FeedbackInput{}, httpapi.VerifyReply{}, httpapi.VerifyInput{}, httpapi.ExecutorInfo{}, httpapi.DeleteReply{}, httpapi.TrashItem{}, httpapi.TrashList{}, httpapi.DirectoryListing{}, workflow.Routing{}, store.MessageContentPage{}, store.EventPage{}} {
 		t := reflect.TypeOf(value)
 		schemas[t.Name()] = schema(t)
 	}
@@ -161,6 +161,7 @@ func main() {
 		{"/api/v1/settings", "get", "settings", "Settings", ""}, {"/api/v1/settings", "patch", "updateSettings", "Settings", "SettingsInput"},
 		{"/api/v1/workspaces/{id}/members/{agentID}", "put", "linkMember", "Agent", "WorkspaceMemberInput"}, {"/api/v1/workspaces/{id}/members/{agentID}", "patch", "updateMember", "Agent", "WorkspaceMemberInput"}, {"/api/v1/workspaces/{id}/members/{agentID}", "delete", "unlinkMember", "DeleteReply", ""},
 		{"/api/v1/workspaces/{id}/threads", "get", "threads", "ThreadList", ""}, {"/api/v1/workspaces/{id}/threads", "post", "createThread", "Thread", "ThreadInput"}, {"/api/v1/threads/{id}", "get", "thread", "ThreadView", ""}, {"/api/v1/threads/{id}", "patch", "updateThread", "Thread", "ThreadUpdate"}, {"/api/v1/threads/{id}", "delete", "deleteThread", "DeleteReply", ""},
+		{"/api/v1/trash", "get", "trash", "TrashList", ""}, {"/api/v1/threads/{id}/restore", "post", "restoreThread", "Thread", "EmptyInput"}, {"/api/v1/threads/{id}/permanent", "delete", "permanentDeleteThread", "DeleteReply", ""},
 		{"/api/v1/threads/{id}/routing-preview", "post", "routingPreview", "RoutingPreview", "RunRequest"}, {"/api/v1/threads/{id}/runs", "post", "submitRun", "Run", "RunRequest"}, {"/api/v1/runs/{id}", "get", "run", "RunView", ""}, {"/api/v1/runs/{id}/cancel", "post", "cancelRun", "Run", "EmptyInput"}, {"/api/v1/runs/{id}/resume", "post", "resumeRun", "Run", "EmptyInput"},
 		{"/api/v1/runs/{id}/events", "get", "runEvents", "Event", ""}, {"/api/v1/runs/{id}/event-history", "get", "runEventHistory", "EventPage", ""}, {"/api/v1/runs/{id}/messages/{messageID}/content", "get", "runMessageContent", "MessageContentPage", ""}, {"/api/v1/sources/{id}", "get", "source", "Source", ""}, {"/api/v1/threads/{id}/artifacts", "get", "artifacts", "ArtifactList", ""}, {"/api/v1/artifacts/{id}/versions/{version}", "get", "artifact", "Artifact", ""}, {"/api/v1/artifacts/{id}/versions/{version}", "patch", "feedback", "Artifact", "FeedbackInput"}, {"/api/v1/artifacts/{id}/versions/{version}/export", "get", "exportArtifact", "Artifact", ""},
 	} {
@@ -176,7 +177,7 @@ func main() {
 			if method != "get" && !strings.HasPrefix(path, "/auth/") {
 				params = append(params, map[string]any{"in": "header", "name": "X-CSRF-Token", "required": true, "schema": map[string]any{"type": "string"}})
 			}
-			if method == "patch" || method == "delete" && strings.Contains(path, "/members/") {
+			if method == "patch" || method == "delete" && (strings.Contains(path, "/members/") || strings.HasSuffix(path, "/permanent")) || path == "/api/v1/threads/{id}/restore" {
 				params = append(params, map[string]any{"in": "header", "name": "If-Match", "required": true, "schema": map[string]any{"type": "string"}})
 			}
 			if (strings.HasSuffix(path, "/runs") || strings.HasSuffix(path, "/resume")) && method == "post" {

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,8 @@ func TestCodexKeepsSelectedConnectionWithoutUserCapabilities(t *testing.T) {
 	t.Setenv("CODEX_HOME", home)
 	config := `model = "native-default-model"
 model_provider = "local_proxy"
+model_context_window = 500000
+model_auto_compact_token_limit = 450000
 [model_providers.local_proxy]
 name = "Selected connection"
 base_url = "https://fixture.invalid/v1"
@@ -53,6 +56,9 @@ command = "never-run-this"
 	if !strings.Contains(raw, "cocogem_connection") || !strings.Contains(raw, "https://fixture.invalid/v1") {
 		t.Fatal("selected connection was not preserved")
 	}
+	if !strings.Contains(raw, "model_context_window=500000") || !strings.Contains(raw, "model_auto_compact_token_limit=450000") {
+		t.Fatal("configured Codex context preset was not forwarded into the scoped launch")
+	}
 	files, _ := os.ReadDir(home)
 	if len(files) != 1 {
 		t.Fatal("connection adaptation wrote unexpected native home files")
@@ -60,6 +66,26 @@ command = "never-run-this"
 	original, err := os.ReadFile(path)
 	if err != nil || string(original) != config {
 		t.Fatal("original native configuration was changed")
+	}
+}
+
+func TestCodexForwardsContextPresetWithoutCustomProvider(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	config := `model = "native-default-model"
+model_context_window = 500000
+model_auto_compact_token_limit = 450000
+`
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	resolved, args, _, err := codexConnectionConfig("default")
+	if err != nil || resolved != "native-default-model" {
+		t.Fatalf("default provider resolution failed: model=%q err=%v", resolved, err)
+	}
+	raw := strings.Join(args, " ")
+	if !strings.Contains(raw, "model_context_window=500000") || !strings.Contains(raw, "model_auto_compact_token_limit=450000") {
+		t.Fatal("configured Codex context preset was not forwarded with the default provider")
 	}
 }
 
@@ -140,6 +166,67 @@ func TestPrepareCodexUsesResolvedDefaultInCatalogAndArguments(t *testing.T) {
 				t.Fatal("catalog and selected model diverged")
 			}
 		}
+	}
+}
+
+func TestCodexConfiguredReasoningEffortSurvivesScopedLaunch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	// No model_providers table: this exercises the openai early-return path.
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("model = \"fixture-model\"\nmodel_reasoning_effort = \"high\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	resolved, args, _, err := codexConnectionConfig("default")
+	if err != nil || resolved != "fixture-model" {
+		t.Fatalf("configured effort changed connection resolution: model=%q err=%v", resolved, err)
+	}
+	if !slices.Contains(args, `model_reasoning_effort="high"`) {
+		t.Fatal("configured Codex reasoning effort was lost on the openai path")
+	}
+	request := testRequest()
+	request.Executor = "codex"
+	request.Model = "default"
+	prepared, _, err := prepareCodex(request, t.TempDir(), &bridge{addr: "127.0.0.1:1234", token: "fixture"}, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(prepared, `model_reasoning_effort="high"`) {
+		t.Fatal("scoped --ignore-user-config launch dropped the configured reasoning effort")
+	}
+}
+
+func TestCodexMemberThinkingReplacesConfiguredEffort(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	config := "model = \"fixture-model\"\nmodel_reasoning_effort = \"high\"\nmodel_provider = \"proxy\"\n[model_providers.proxy]\nname = \"Fixture\"\nbase_url = \"https://fixture.invalid/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n"
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	request := testRequest()
+	request.Executor = "codex"
+	request.Model = "default"
+	request.ThinkingLevel = "low"
+	args, _, err := prepareCodex(request, t.TempDir(), &bridge{addr: "127.0.0.1:1234", token: "fixture"}, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(args, `model_reasoning_effort="high"`) || !slices.Contains(args, `model_reasoning_effort="low"`) {
+		t.Fatalf("explicit member effort did not replace the configured default: %v", args)
+	}
+}
+
+func TestCodexUnsafeReasoningEffortIsNotForwarded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("model = \"fixture-model\"\nmodel_reasoning_effort = \"high value\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, args, _, err := codexConnectionConfig("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "model_reasoning_effort=") }) {
+		t.Fatalf("non-token reasoning effort was forwarded: %v", args)
 	}
 }
 

@@ -1,10 +1,19 @@
 import { Select } from "../Select";
 import { useId, useRef, useState } from "react";
 import type { Workspace, System } from "../../api/client";
-import { cx } from "../../styles/classes";
+import { scoped } from "../../styles/classes";
+import base from "../../styles/base.module.css";
+import controls from "../../styles/controls.module.css";
+import layout from "../../styles/layout.module.css";
+import conversation from "../../styles/conversation.module.css";
+import panels from "../../styles/panels.module.css";
+import members from "../../styles/member-editor.module.css";
+import settings from "../../styles/settings.module.css";
 import { errorText, skillLabel } from "../../lib/presentation";
 import { Modal } from "../Modal";
 import { DirectoryPicker } from "../DirectoryPicker";
+
+const cx = scoped(base, controls, layout, conversation, panels, members, settings);
 
 export function WorkspaceForm({
   current,

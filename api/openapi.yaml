@@ -25,6 +25,9 @@
               "null"
             ]
           },
+          "context_size": {
+            "type": "integer"
+          },
           "disabled": {
             "type": "boolean"
           },
@@ -88,6 +91,9 @@
             "type": "integer"
           },
           "role_description": {
+            "type": "string"
+          },
+          "thinking_level": {
             "type": "string"
           },
           "tools": {
@@ -141,6 +147,9 @@
               "null"
             ]
           },
+          "context_size": {
+            "type": "integer"
+          },
           "disabled": {
             "type": "boolean"
           },
@@ -204,6 +213,9 @@
             "type": "integer"
           },
           "role_description": {
+            "type": "string"
+          },
+          "thinking_level": {
             "type": "string"
           },
           "tools": {
@@ -720,6 +732,9 @@
         "additionalProperties": false,
         "properties": {
           "id": {
+            "type": "string"
+          },
+          "purge_at": {
             "type": "string"
           }
         },
@@ -1397,6 +1412,9 @@
                     "null"
                   ]
                 },
+                "context_size": {
+                  "type": "integer"
+                },
                 "disabled": {
                   "type": "boolean"
                 },
@@ -1460,6 +1478,9 @@
                   "type": "integer"
                 },
                 "role_description": {
+                  "type": "string"
+                },
+                "thinking_level": {
                   "type": "string"
                 },
                 "tools": {
@@ -2384,6 +2405,9 @@
                         "null"
                       ]
                     },
+                    "context_size": {
+                      "type": "integer"
+                    },
                     "disabled": {
                       "type": "boolean"
                     },
@@ -2447,6 +2471,9 @@
                       "type": "integer"
                     },
                     "role_description": {
+                      "type": "string"
+                    },
+                    "thinking_level": {
                       "type": "string"
                     },
                     "tools": {
@@ -3002,6 +3029,9 @@
           "default_coordinator_id": {
             "type": "string"
           },
+          "retention_days": {
+            "type": "integer"
+          },
           "revision": {
             "type": "integer"
           }
@@ -3033,6 +3063,16 @@
           },
           "default_coordinator_id": {
             "type": "string"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3351,6 +3391,12 @@
       "Thread": {
         "additionalProperties": false,
         "properties": {
+          "active_run_id": {
+            "type": "string"
+          },
+          "active_run_status": {
+            "type": "string"
+          },
           "agent_ids": {
             "items": {
               "type": "string"
@@ -3363,7 +3409,19 @@
           "coordinator_id": {
             "type": "string"
           },
+          "deleted_at": {
+            "type": "string"
+          },
           "id": {
+            "type": "string"
+          },
+          "last_run_id": {
+            "type": "string"
+          },
+          "last_run_status": {
+            "type": "string"
+          },
+          "purge_at": {
             "type": "string"
           },
           "revision": {
@@ -3397,6 +3455,12 @@
       "ThreadInput": {
         "additionalProperties": false,
         "properties": {
+          "active_run_id": {
+            "type": "string"
+          },
+          "active_run_status": {
+            "type": "string"
+          },
           "agent_ids": {
             "items": {
               "type": "string"
@@ -3409,7 +3473,19 @@
           "coordinator_id": {
             "type": "string"
           },
+          "deleted_at": {
+            "type": "string"
+          },
           "id": {
+            "type": "string"
+          },
+          "last_run_id": {
+            "type": "string"
+          },
+          "last_run_status": {
+            "type": "string"
+          },
+          "purge_at": {
             "type": "string"
           },
           "revision": {
@@ -3632,6 +3708,9 @@
                           "null"
                         ]
                       },
+                      "context_size": {
+                        "type": "integer"
+                      },
                       "disabled": {
                         "type": "boolean"
                       },
@@ -3695,6 +3774,9 @@
                         "type": "integer"
                       },
                       "role_description": {
+                        "type": "string"
+                      },
+                      "thinking_level": {
                         "type": "string"
                       },
                       "tools": {
@@ -4194,6 +4276,12 @@
           "thread": {
             "additionalProperties": false,
             "properties": {
+              "active_run_id": {
+                "type": "string"
+              },
+              "active_run_status": {
+                "type": "string"
+              },
               "agent_ids": {
                 "items": {
                   "type": "string"
@@ -4206,7 +4294,19 @@
               "coordinator_id": {
                 "type": "string"
               },
+              "deleted_at": {
+                "type": "string"
+              },
               "id": {
+                "type": "string"
+              },
+              "last_run_id": {
+                "type": "string"
+              },
+              "last_run_status": {
+                "type": "string"
+              },
+              "purge_at": {
                 "type": "string"
               },
               "revision": {
@@ -4246,13 +4346,188 @@
         ],
         "type": "object"
       },
+      "TrashItem": {
+        "additionalProperties": false,
+        "properties": {
+          "thread": {
+            "additionalProperties": false,
+            "properties": {
+              "active_run_id": {
+                "type": "string"
+              },
+              "active_run_status": {
+                "type": "string"
+              },
+              "agent_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "coordinator_id": {
+                "type": "string"
+              },
+              "deleted_at": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "last_run_id": {
+                "type": "string"
+              },
+              "last_run_status": {
+                "type": "string"
+              },
+              "purge_at": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "integer"
+              },
+              "title": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "workspace_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "workspace_id",
+              "title",
+              "agent_ids",
+              "coordinator_id",
+              "workflow",
+              "revision",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "workspace_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread",
+          "workspace_name"
+        ],
+        "type": "object"
+      },
+      "TrashList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "thread": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "active_run_id": {
+                      "type": "string"
+                    },
+                    "active_run_status": {
+                      "type": "string"
+                    },
+                    "agent_ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "coordinator_id": {
+                      "type": "string"
+                    },
+                    "deleted_at": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "last_run_id": {
+                      "type": "string"
+                    },
+                    "last_run_status": {
+                      "type": "string"
+                    },
+                    "purge_at": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    },
+                    "workflow": {
+                      "type": "string"
+                    },
+                    "workspace_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "workspace_id",
+                    "title",
+                    "agent_ids",
+                    "coordinator_id",
+                    "workflow",
+                    "revision",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                },
+                "workspace_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "thread",
+                "workspace_name"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "VerifyInput": {
         "additionalProperties": false,
         "properties": {
+          "context_size": {
+            "type": "integer"
+          },
           "executor": {
             "type": "string"
           },
           "model": {
+            "type": "string"
+          },
+          "thinking_level": {
             "type": "string"
           }
         },
@@ -4262,6 +4537,9 @@
       "VerifyReply": {
         "additionalProperties": false,
         "properties": {
+          "context_size": {
+            "type": "integer"
+          },
           "executor": {
             "type": "string"
           },
@@ -4324,6 +4602,9 @@
             ]
           },
           "model": {
+            "type": "string"
+          },
+          "thinking_level": {
             "type": "string"
           },
           "verified_at": {
@@ -5587,6 +5868,122 @@
         }
       }
     },
+    "/api/v1/threads/{id}/permanent": {
+      "delete": {
+        "operationId": "permanentDeleteThread",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteReply"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/threads/{id}/restore": {
+      "post": {
+        "operationId": "restoreThread",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Thread"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
     "/api/v1/threads/{id}/routing-preview": {
       "post": {
         "operationId": "routingPreview",
@@ -5689,6 +6086,33 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/trash": {
+      "get": {
+        "operationId": "trash",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrashList"
                 }
               }
             },

@@ -47,9 +47,9 @@ describe("event delivery", () => {
   it("deduplicates replayed events and preserves sequence order", () => {
     const first = event(2);
     expect(mergeEvents([first], first)).toHaveLength(1);
-    expect(
-      mergeEvents([first], event(1)).map((item) => item.seq),
-    ).toEqual([1, 2]);
+    expect(mergeEvents([first], event(1)).map((item) => item.seq)).toEqual([
+      1, 2,
+    ]);
   });
 
   it("does not treat cancellation intent as terminal", () => {
@@ -59,7 +59,8 @@ describe("event delivery", () => {
 
   it("keeps a bounded recent window without mixing different runs", () => {
     let events: Event[] = [];
-    for (let seq = 1; seq <= 600; seq++) events = mergeEvents(events, event(seq));
+    for (let seq = 1; seq <= 600; seq++)
+      events = mergeEvents(events, event(seq));
     expect(events).toHaveLength(EVENT_WINDOW);
     expect(events[0].seq).toBe(101);
     expect(events.at(-1)?.seq).toBe(600);
@@ -69,9 +70,7 @@ describe("event delivery", () => {
     expect(mixed).toHaveLength(EVENT_WINDOW);
     expect(mixed.filter((item) => item.run_id === "other")).toHaveLength(1);
     expect(
-      mixed
-        .filter((item) => item.run_id === "run")
-        .map((item) => item.seq),
+      mixed.filter((item) => item.run_id === "run").map((item) => item.seq),
     ).toEqual(events.slice(1).map((item) => item.seq));
   });
 
@@ -95,9 +94,7 @@ it("loads one conversation page instead of walking all history", async () => {
     runs: [],
     sources: [],
   };
-  const fetcher = vi
-    .fn()
-    .mockImplementation(async () => Response.json(page));
+  const fetcher = vi.fn().mockImplementation(async () => Response.json(page));
   vi.stubGlobal("fetch", fetcher);
   const result = await loadThreadPage("thread", "cursor-1");
   expect(fetcher).toHaveBeenCalledTimes(1);
@@ -131,9 +128,7 @@ it("bounds a legacy inline message before it reaches the timeline", async () => 
     MAX_MESSAGE_PREVIEW_BYTES,
   );
   expect(bounded.content_truncated).toBe(true);
-  expect(bounded.content_bytes).toBe(
-    new TextEncoder().encode(long).length,
-  );
+  expect(bounded.content_bytes).toBe(new TextEncoder().encode(long).length);
 });
 
 it("cuts previews on UTF-8 boundaries", () => {
@@ -147,10 +142,13 @@ it("cuts previews on UTF-8 boundaries", () => {
 it("keeps byte totals accurate after the preview truncates", () => {
   const text = "a".repeat(256 * 1024);
   const initial = [message({ content: "开头", content_bytes: 6 })];
-  const appended = applyMessageDelta(initial, event(1, {
-    type: "message_delta",
-    data: { message_id: "message", mode: "append", text },
-  }));
+  const appended = applyMessageDelta(
+    initial,
+    event(1, {
+      type: "message_delta",
+      data: { message_id: "message", mode: "append", text },
+    }),
+  );
   const bounded = appended[0];
   expect(bounded.content.startsWith("开头")).toBe(true);
   expect(new TextEncoder().encode(bounded.content).length).toBeLessThanOrEqual(
@@ -161,10 +159,13 @@ it("keeps byte totals accurate after the preview truncates", () => {
   expect(bounded.content_bytes).toBe(afterFirst);
 
   const more = "不应出现";
-  const counted = applyMessageDelta(appended, event(2, {
-    type: "message_delta",
-    data: { message_id: "message", mode: "append", text: more },
-  }));
+  const counted = applyMessageDelta(
+    appended,
+    event(2, {
+      type: "message_delta",
+      data: { message_id: "message", mode: "append", text: more },
+    }),
+  );
   expect(counted).not.toBe(appended);
   expect(counted[0].content).toBe(bounded.content);
   expect(counted[0].content_bytes).toBe(
@@ -173,10 +174,18 @@ it("keeps byte totals accurate after the preview truncates", () => {
   expect(counted[0].content_truncated).toBe(true);
 
   // A replayed lower server total must not shrink the byte count.
-  const replayed = applyMessageDelta(counted, event(3, {
-    type: "message_delta",
-    data: { message_id: "message", mode: "append", text: "", content_bytes: 1 },
-  }));
+  const replayed = applyMessageDelta(
+    counted,
+    event(3, {
+      type: "message_delta",
+      data: {
+        message_id: "message",
+        mode: "append",
+        text: "",
+        content_bytes: 1,
+      },
+    }),
+  );
   expect(replayed[0].content_bytes).toBe(counted[0].content_bytes);
 });
 
@@ -189,10 +198,13 @@ it("applies snapshot deltas with the server's byte metadata", () => {
     content_format: "chunks_v1",
     status: "completed",
   });
-  const next = applyMessageDelta(initial, event(3, {
-    type: "message_delta",
-    data: { message_id: "message", mode: "snapshot", message: snapshot },
-  }));
+  const next = applyMessageDelta(
+    initial,
+    event(3, {
+      type: "message_delta",
+      data: { message_id: "message", mode: "snapshot", message: snapshot },
+    }),
+  );
   expect(next[0]).toMatchObject({
     content: "新预览",
     content_bytes: 9,
@@ -218,12 +230,35 @@ it("never regresses a finished message to an earlier snapshot", () => {
     content_bytes: 21,
     status: "completed",
   });
-  const next = applyMessageDelta([current], event(4, {
-    type: "message_delta",
-    data: { message_id: "message", mode: "snapshot", message: stale },
-  }));
+  const next = applyMessageDelta(
+    [current],
+    event(4, {
+      type: "message_delta",
+      data: { message_id: "message", mode: "snapshot", message: stale },
+    }),
+  );
   expect(next[0].content).toBe("完成的完整回复");
   expect(next[0].status).toBe("completed");
+});
+
+it("lets a reused failed message return to processing for a new attempt", () => {
+  const current = message({
+    content: "第一段",
+    content_bytes: 9,
+    status: "failed",
+    attempt_id: "attempt-1",
+  });
+  const retry = message({
+    content: "第一段第二段",
+    content_bytes: 18,
+    status: "processing",
+    attempt_id: "attempt-2",
+  });
+  expect(mergeMessage(current, retry)).toMatchObject({
+    content: "第一段第二段",
+    content_bytes: 18,
+    status: "processing",
+  });
 });
 
 it("extracts persisted message projections but not append deltas", () => {

@@ -1,11 +1,19 @@
 import { useState } from "react";
 import { api } from "../../api/client";
 import type { Agent, WorkspaceMember } from "../../api/client";
-import { cx } from "../../styles/classes";
+import { scoped } from "../../styles/classes";
+import base from "../../styles/base.module.css";
+import controls from "../../styles/controls.module.css";
+import conversation from "../../styles/conversation.module.css";
+import panels from "../../styles/panels.module.css";
+import members from "../../styles/member-editor.module.css";
+import settings from "../../styles/settings.module.css";
 import { errorText, memberLabel } from "../../lib/presentation";
 import { Avatar } from "../Avatar";
 import { Modal } from "../Modal";
 import { allTools } from "./MembersForm";
+
+const cx = scoped(base, controls, conversation, panels, members, settings);
 
 /**
  * The top member entry manages this workspace's relationships only. Global
@@ -150,8 +158,8 @@ function MemberGrant({
                   );
                 }}
               />
-              {tool}
-              {!allowed && "（全局未允许）"}
+              <span className={cx("tool-name")}>{tool}</span>
+              {!allowed && <span className={cx("check-note")}>全局未允许</span>}
             </label>
           );
         })}

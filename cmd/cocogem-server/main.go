@@ -214,7 +214,10 @@ func run() error {
 	if err := engine.Start(ctx); err != nil {
 		return err
 	}
-	defer func() { stop(); engine.Wait() }()
+	maintenanceDone := server.StartMaintenance(ctx)
+	// Cancel first, then wait for the scheduler and maintenance goroutine so
+	// the deferred db.Close below cannot race a cleanup write.
+	defer func() { stop(); engine.Wait(); maintenanceDone() }()
 	httpServer := &http.Server{Addr: *listen, Handler: server.Handler(), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	fmt.Printf("Cocogem: http://%s/\n", *listen)
 	fmt.Printf("Data: %s\n", dataDir)

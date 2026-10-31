@@ -358,11 +358,12 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 		t.Fatalf("submit expanded the explicit roster: %+v", threadView.Thread)
 	}
 
-	// Avatars accept only the built-in choices; URLs and SVG are rejected.
+	// Avatars accept only verified image uploads; URLs and SVG are rejected.
 	edited := one[0]
-	edited.Avatar = "🐱"
+	const avatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAEElEQVR4nGLSb5wLCAAA//8COAFQWwmV3gAAAABJRU5ErkJggg=="
+	edited.Avatar = avatar
 	call("PATCH", "/api/v1/agents/"+edited.ID, edited, &edited, edited.Revision, 200)
-	if edited.Avatar != "🐱" {
+	if edited.Avatar != avatar {
 		t.Fatalf("avatar was not saved: %+v", edited)
 	}
 	for _, avatar := range []string{"https://example.test/a.svg", "<svg/>", "data:image/svg+xml;base64,AA=="} {
@@ -585,9 +586,10 @@ func TestRoutingProposalCatalogIsAvatarFreeButPermissionSensitive(t *testing.T) 
 		t.Fatalf("seeded members = %d", len(listed.Items))
 	}
 	fox, other := listed.Items[0], listed.Items[1]
-	fox.Avatar = "🦊"
+	const avatar = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAEElEQVR4nGLSb5wLCAAA//8COAFQWwmV3gAAAABJRU5ErkJggg=="
+	fox.Avatar = avatar
 	api.call("PATCH", "/api/v1/agents/"+fox.ID, fox, map[string]string{"If-Match": strconv.Itoa(fox.Revision)}, 200, &fox)
-	if fox.Avatar != "🦊" {
+	if fox.Avatar != avatar {
 		t.Fatalf("avatar was not saved: %+v", fox)
 	}
 	newThread := func(title string) w.Thread {

@@ -190,13 +190,26 @@ roles and capability-based selection without binding names, providers or models.
 Restricting tool configuration must not erase working model authentication.
 Claude forwards the allowlisted Anthropic connection environment, default
 model and effort from its native user settings. Codex uses a TOML parser to
-extract only the selected provider, default model and connection fields;
-nonsecret connection fields enter explicit CLI overrides, while token/header
-values enter only the child's environment. No native profile is overwritten. Hooks, plugins, project instructions, unrelated
-MCP servers and command-based authentication helpers are not inherited.
+extract the selected provider, default model, top-level
+`model_reasoning_effort` and connection fields; nonsecret connection fields
+enter explicit CLI overrides, while token/header values enter only the child's
+environment. A configured effort is forwarded only when it is a simple token,
+and an explicit member effort replaces it. Gemini scoped settings carry only
+allowlisted `thinkingConfig` fields from user `modelConfigs.customOverrides`
+that name a concrete model; other modelConfigs fields and all hooks, tools and
+MCP servers stay host-owned. No native profile is overwritten. Hooks, plugins,
+project instructions, unrelated MCP servers and command-based authentication
+helpers are not inherited.
 Existing config/auth files are not overwritten or copied into application data.
 `github.com/pelletier/go-toml/v2` v2.4.3 (MIT) handles TOML; the standard library
 has no TOML parser, and regex extraction would misread real configurations.
+
+Streamed text comes only from protocol deltas or cumulative snapshots. The
+adapter verifies that a final assistant snapshot extends the already streamed
+prefix and fails the turn closed on a shorter or divergent body instead of
+duplicating or silently dropping it. Some installed Codex versions expose only
+one completed item per turn, so observed event growth does not prove token-level
+streaming for every provider.
 
 Every supported installed CLI has opt-in protocol checks against a local fake
 model endpoint. These prove binary/configuration/MCP compatibility without

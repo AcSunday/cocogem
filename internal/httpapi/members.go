@@ -92,11 +92,14 @@ func (s *Server) createAgent(rw http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createMemberProfile(rw http.ResponseWriter, r *http.Request, workspaceID string) {
 	var agent w.Agent
-	if !decode(rw, r, &agent) {
+	if !decodeLimit(rw, r, &agent, 1<<20) {
 		return
 	}
 	agent.ID, agent.WorkspaceID, agent.Membership, agent.Revision = w.NewID(), workspaceID, nil, 1
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
+		if err := w.ValidateNewAvatar(agent.Avatar); err != nil {
+			return err
+		}
 		if err := s.validateExecutor(agent.Executor); err != nil {
 			return err
 		}
@@ -124,7 +127,7 @@ func revokedTools(previous, next []string) bool {
 
 func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 	var agent w.Agent
-	if !decode(rw, r, &agent) {
+	if !decodeLimit(rw, r, &agent, 1<<20) {
 		return
 	}
 	revoked := false
@@ -135,6 +138,13 @@ func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 		}
 		if err := revision(r, old.Revision); err != nil {
 			return err
+		}
+		// A legacy emoji may survive unrelated edits, but it cannot be newly
+		// selected or replaced with another emoji. The editor clears it.
+		if agent.Avatar != old.Avatar {
+			if err := w.ValidateNewAvatar(agent.Avatar); err != nil {
+				return err
+			}
 		}
 		agent.ID, agent.WorkspaceID, agent.Membership, agent.Revision = old.ID, "", nil, old.Revision+1
 		if err := s.validateExecutor(agent.Executor); err != nil {

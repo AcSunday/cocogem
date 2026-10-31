@@ -12,6 +12,7 @@ import (
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
+	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
 // Provider delegates the tool loop to the native CLI. Its zero value is ready.
@@ -139,6 +140,9 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	if observe == nil || execute == nil {
 		return errors.New("native CLI requires execution and observation handlers")
 	}
+	if err := w.ValidateExecutionOptions(request.Executor, request.ContextSize, request.ThinkingLevel); err != nil {
+		return err
+	}
 	adapter := options.adapter
 	if !options.skipCheck {
 		var err error
@@ -158,8 +162,11 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		command = exec.Command
 	}
 	prompt, err := json.Marshal(request.Messages)
-	if err != nil || len(prompt)+len(request.System) > 100000 {
-		return newFailure(FailureHostInputLimit, "required context exceeds the 100000-byte host input budget")
+	if err != nil {
+		return newFailure(FailureHostInputLimit, "required context could not be encoded for the native CLI")
+	}
+	if budget := model.InputBudget(request.ContextSize); budget > 0 && len(prompt)+len(request.System) > budget {
+		return newFailure(FailureHostInputLimit, "required context exceeds the %d-byte host input budget", budget)
 	}
 	parent := ctx
 	ctx, cancel := context.WithCancel(ctx)
@@ -296,6 +303,9 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		return errors.New("write isolated CLI settings")
 	}
 	args := claudeArgs(configPath, settingsPath, nativeNames)
+	if request.Executor == "claude" && request.ThinkingLevel != "" {
+		args = append(args, "--effort", request.ThinkingLevel)
+	}
 	var env map[string]string
 	switch request.Executor {
 	case "codex":
@@ -305,7 +315,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			env = mergeEnv(env, options.codexEnv)
 		}
 	case "gemini":
-		args, env, err = prepareGemini(request, workdir, gate)
+		args, env, err = prepareGemini(request, workdir, gate, launch)
 		env = mergeEnv(env, options.geminiEnv)
 	}
 	if err != nil {

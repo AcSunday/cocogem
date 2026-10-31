@@ -18,9 +18,15 @@ import {
   runErrorText,
   sessionModeLabel,
 } from "../lib/presentation";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
 import { Markdown } from "./Markdown";
 import { Icon } from "./Icon";
+
+const cx = scoped(base, controls, layout, conversation);
 
 /** Persisted task records keep handoffs visible after streaming or reloading. */
 export function CollaborationTasks({

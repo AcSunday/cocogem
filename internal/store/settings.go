@@ -10,7 +10,7 @@ import (
 func (t *Tx) Settings() (w.Settings, error) {
 	value, err := get[w.Settings](t, "SELECT body FROM settings WHERE id='global'")
 	if errors.Is(err, ErrNotFound) {
-		return w.Settings{Revision: 1, Assignments: map[string]map[string]string{}}, nil
+		return w.Settings{Revision: 1, Assignments: map[string]map[string]string{}, RetentionDays: w.DefaultRetentionDays}, nil
 	}
 	if err != nil {
 		return w.Settings{}, err
@@ -18,6 +18,8 @@ func (t *Tx) Settings() (w.Settings, error) {
 	if value.Assignments == nil {
 		value.Assignments = map[string]map[string]string{}
 	}
+	// Legacy settings have no retention field and use the current default.
+	value.RetentionDays = w.EffectiveRetentionDays(value.RetentionDays)
 	return value, nil
 }
 

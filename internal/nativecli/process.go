@@ -400,11 +400,22 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
 	initialized, finished := false, false
 	sessionID := ""
+	// apiErrorCode is the last provider error code reported by the CLI. It is
+	// only used to classify a terminal failure, never as progress.
+	apiErrorCode := ""
 	anonymous := 0
 	activity := newActivityTracker()
 	nativeCalls := map[string]*nativeCall{}
 	deniedCalls := map[string]*deniedCall{}
 	deniedCount := 0
+	// Partial-message deltas are emitted once; the later complete assistant
+	// frame is compared against a bounded length/digest window and only its
+	// unseen suffix is sent. The visible body is never retained here.
+	streamMessageID := ""
+	streams := newTextStreams()
+	streamKey := func(messageID string, index int) string {
+		return fmt.Sprintf("%s#%d", messageID, index)
+	}
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
@@ -424,13 +435,18 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 			Stream         json.RawMessage `json:"event"`
 			ToolUseResult  json.RawMessage `json:"tool_use_result"`
 			Usage          tokenUsage      `json:"usage"`
-			Error          struct {
-				Type    string `json:"type"`
-				Message string `json:"message"`
-			} `json:"error"`
+			// The installed CLI reports error codes as plain strings (api_retry,
+			// assistant API errors) while fixtures and other versions use an
+			// object; the union is decoded per event type.
+			Error             json.RawMessage `json:"error"`
+			IsAPIErrorMessage bool            `json:"is_api_error_message"`
 		}
 		if err := json.Unmarshal(line, &event); err != nil || event.Type == "" {
 			return newFailure(FailureProtocol, "native CLI emitted a malformed event")
+		}
+		errorCode, errorMessage, errorValid := decodeClaudeError(event.Error)
+		if !errorValid {
+			return newFailure(FailureProtocol, "native CLI emitted a malformed error field")
 		}
 		if finished {
 			return newFailure(FailureProtocol, "native CLI emitted data after its terminal result")
@@ -464,6 +480,9 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 					return err
 				}
 			} else {
+				if errorCode != "" {
+					apiErrorCode = errorCode
+				}
 				live.notice("system." + event.Subtype)
 				if err := gate.notice("system."+event.Subtype, "ignored non-terminal session notification"); err != nil {
 					return err
@@ -472,6 +491,18 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 		case "assistant":
 			if !initialized {
 				return newFailure(FailureProtocol, "native CLI replied before session initialization")
+			}
+			if event.IsAPIErrorMessage {
+				// The installed CLI emits a synthetic assistant frame carrying the
+				// provider error. It is not model output, must not be shown, and
+				// the CLI may still retry, so it never refreshes liveness.
+				if errorCode != "" {
+					apiErrorCode = errorCode
+				}
+				if err := gate.notice("assistant.api_error", "native CLI reported a provider error before a terminal result"); err != nil {
+					return err
+				}
+				continue
 			}
 			var message struct {
 				ID      string `json:"id"`
@@ -556,7 +587,26 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 						live.valid("tool_call")
 					}
 				case "text":
-					if block.Text == "" || !activity.newBlockText(item, index, block.Text) {
+					if block.Text == "" {
+						continue
+					}
+					key := streamKey(item, index)
+					suffix, streamed, err := streams.authoritative(key, block.Text)
+					if err != nil {
+						return newFailure(FailureProtocol, "native CLI complete assistant frame conflicted with streamed text: %v", err)
+					}
+					if streamed {
+						if suffix != "" {
+							if strings.TrimSpace(suffix) != "" {
+								live.valid("text")
+							}
+							if err := gate.emit("text", map[string]any{"text": suffix, "activity": strings.TrimSpace(suffix) != ""}); err != nil {
+								return err
+							}
+						}
+						continue
+					}
+					if !activity.newBlockText(item, index, block.Text) {
 						continue
 					}
 					if strings.TrimSpace(block.Text) == "" {
@@ -582,16 +632,24 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 			if err := gate.recordUsage(event.Usage); err != nil {
 				return err
 			}
-			if kind := terminalFailureKind(event.TerminalReason); kind != "" {
+			terminalReason := event.TerminalReason
+			if terminalReason == "" && apiErrorCode != "" && (event.IsError || event.Subtype != "success") {
+				terminalReason = apiErrorCode
+			}
+			if kind := terminalFailureKind(terminalReason); kind != "" {
 				// A broad structured code such as invalid_request may be refined
 				// by an explicit overflow detail; specific codes stay authoritative.
 				if kind == FailureProtocol && explicitOverflowDetail(event.Result+" "+strings.Join(event.Errors, " ")) {
 					kind = FailureContextOverflow
 				}
-				return confirmedFailure(kind, "native CLI ended with terminal reason %s", safeToken(event.TerminalReason))
+				return confirmedFailure(kind, "native CLI ended with terminal reason %s", safeToken(terminalReason))
 			}
 			if !initialized || event.IsError || event.Subtype != "success" {
-				return classifiedNativeFailure(event.TerminalReason, event.Subtype, event.Result+" "+strings.Join(event.Errors, " "))
+				detail := event.Result + " " + strings.Join(event.Errors, " ")
+				if errorMessage != "" {
+					detail += " " + errorMessage
+				}
+				return classifiedNativeFailure(terminalReason, event.Subtype, detail)
 			}
 			if err := gate.requireTools(); err != nil {
 				return err
@@ -612,24 +670,56 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 				return err
 			}
 			detail := event.Result
-			if event.Error.Message != "" {
-				detail += " " + event.Error.Message
+			if errorMessage != "" {
+				detail += " " + errorMessage
 			}
 			if len(event.Errors) != 0 {
 				detail += " " + strings.Join(event.Errors, " ")
 			}
-			return classifiedNativeFailure(event.Error.Type, "reported_error", detail)
+			return classifiedNativeFailure(errorCode, "reported_error", detail)
 		case "stream_event":
 			if !initialized {
 				return newFailure(FailureProtocol, "native CLI replied before session initialization")
 			}
-			kind, text, _, ok := parseClaudeStream(event.Stream)
+			streamEvent, ok := parseClaudeStream(event.Stream)
 			if !ok {
 				return newFailure(FailureProtocol, "native CLI emitted an invalid stream event")
 			}
-			if kind == "text_delta" && strings.TrimSpace(text) != "" && !activity.duplicateFrame(event.UUID, line) {
-				live.valid("text_delta")
-				if err := gate.activity(activityTextDelta); err != nil {
+			switch streamEvent.kind {
+			case "message_start":
+				if streamEvent.messageID != "" {
+					streamMessageID = streamEvent.messageID
+				}
+				continue
+			case "message_stop":
+				streamMessageID = ""
+				continue
+			}
+			key := streamKey(streamMessageID, streamEvent.index)
+			switch streamEvent.kind {
+			case "block_start":
+				streams.setBlockType(key, streamEvent.blockType)
+				if streamEvent.blockType == "text" && streamEvent.text != "" {
+					if err := emitClaudeDelta(streamEvent.text, key, streams, live, gate); err != nil {
+						return err
+					}
+				}
+			case "text_delta":
+				if streams.blockType(key) == "thinking" {
+					continue
+				}
+				if activity.duplicateFrame(event.UUID, line) {
+					continue
+				}
+				if err := emitClaudeDelta(streamEvent.text, key, streams, live, gate); err != nil {
+					return err
+				}
+			case "thinking_delta":
+				if activity.duplicateFrame(event.UUID, line) || strings.TrimSpace(streamEvent.text) == "" {
+					continue
+				}
+				live.valid("reasoning")
+				if err := gate.activity(activityReasoning); err != nil {
 					return err
 				}
 			}
@@ -752,27 +842,101 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 	return nil
 }
 
+// emitClaudeDelta records the visible prefix and emits exactly the new bytes.
+// The activity event is throttled inside the bridge; visible text is not.
+func emitClaudeDelta(text, key string, streams *textStreams, live *liveness, gate *bridge) error {
+	text, err := streams.delta(key, text)
+	if err != nil {
+		return newFailure(FailureProtocol, "native CLI emitted invalid streamed text: %v", err)
+	}
+	if text == "" {
+		return nil
+	}
+	if strings.TrimSpace(text) != "" {
+		live.valid("text_delta")
+		if err := gate.activity(activityTextDelta); err != nil {
+			return err
+		}
+	}
+	return gate.emit("text", map[string]any{"text": text, "activity": strings.TrimSpace(text) != ""})
+}
+
+type claudeStreamEvent struct {
+	kind      string
+	text      string
+	blockType string
+	messageID string
+	index     int
+}
+
+// decodeClaudeError accepts both shapes emitted by installed CLI versions: a
+// bundled object ({type,message}) and a bare provider code string
+// ("server_error"). Anything else is malformed rather than silently ignored.
+func decodeClaudeError(raw json.RawMessage) (code, message string, ok bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return "", "", true
+	}
+	if trimmed[0] == '"' {
+		if json.Unmarshal(trimmed, &code) != nil {
+			return "", "", false
+		}
+		return code, "", true
+	}
+	var object struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(trimmed, &object) != nil {
+		return "", "", false
+	}
+	return object.Type, object.Message, true
+}
+
 // parseClaudeStream validates the nested API event; the top-level stream_event
-// type alone proves nothing about visible content.
-func parseClaudeStream(raw json.RawMessage) (kind, text string, index int, ok bool) {
+// type alone proves nothing about visible content. Thinking deltas are
+// classified separately and never reach the visible text stream.
+func parseClaudeStream(raw json.RawMessage) (claudeStreamEvent, bool) {
 	if len(raw) == 0 {
-		return "", "", 0, false
+		return claudeStreamEvent{}, false
 	}
 	var stream struct {
 		Type  string `json:"type"`
 		Index int    `json:"index"`
 		Delta struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Thinking string `json:"thinking"`
 		} `json:"delta"`
+		Message struct {
+			ID string `json:"id"`
+		} `json:"message"`
+		ContentBlock struct {
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Thinking string `json:"thinking"`
+		} `json:"content_block"`
 	}
 	if json.Unmarshal(raw, &stream) != nil || stream.Type == "" {
-		return "", "", 0, false
+		return claudeStreamEvent{}, false
 	}
-	if stream.Type == "content_block_delta" && stream.Delta.Type == "text_delta" {
-		return "text_delta", stream.Delta.Text, stream.Index, true
+	event := claudeStreamEvent{messageID: stream.Message.ID, index: stream.Index}
+	switch stream.Type {
+	case "message_start":
+		event.kind = "message_start"
+	case "message_stop":
+		event.kind = "message_stop"
+	case "content_block_start":
+		event.kind, event.blockType, event.text = "block_start", stream.ContentBlock.Type, stream.ContentBlock.Text
+	case "content_block_delta":
+		switch stream.Delta.Type {
+		case "text_delta":
+			event.kind, event.text = "text_delta", stream.Delta.Text
+		case "thinking_delta":
+			event.kind, event.text = "thinking_delta", stream.Delta.Thinking
+		}
 	}
-	return "", "", stream.Index, true
+	return event, true
 }
 
 // Streaming CLIs can emit thousands of partial events per research step;

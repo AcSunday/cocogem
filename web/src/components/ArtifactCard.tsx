@@ -1,7 +1,10 @@
 import type { Artifact } from "../api/client";
 import { artifactTypeLabel } from "../lib/presentation";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import panels from "../styles/panels.module.css";
 import { Icon } from "./Icon";
+
+const cx = scoped(panels);
 
 export function ArtifactCard({
   artifact,

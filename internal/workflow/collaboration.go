@@ -553,6 +553,9 @@ func (e *Engine) getTask(ctx context.Context, run w.Run, input json.RawMessage) 
 }
 
 func (e *Engine) validateMember(tx *store.Tx, run w.Run, id string) error {
+	if _, err := tx.Thread(run.ThreadID); err != nil {
+		return err
+	}
 	i := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == id })
 	if i < 0 {
 		return errors.New("member is outside this run roster")

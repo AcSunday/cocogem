@@ -18,6 +18,7 @@ import type {
   RunInput,
   Step,
   System,
+  Thread,
 } from "../api/client";
 import { App } from "./App";
 
@@ -678,6 +679,10 @@ it("loads persisted handoffs and stops their whole collaboration with the compos
 
 it("uses the run's member snapshot for message avatars, not the current profile", async () => {
   history.replaceState({}, "", "/w/ws/t/thread");
+  const snapshotAvatar =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+  const currentAvatar =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg==";
   const current: Agent = {
     id: "one",
     workspace_id: "ws",
@@ -690,7 +695,7 @@ it("uses the run's member snapshot for message avatars, not the current profile"
     tools: [],
     disabled: false,
     revision: 2,
-    avatar: "🐱",
+    avatar: currentAvatar,
   };
   const thread = {
     id: "thread",
@@ -705,7 +710,7 @@ it("uses the run's member snapshot for message avatars, not the current profile"
   const run = {
     id: "run",
     input: { workflow: "free" },
-    agents: [{ ...current, avatar: "🦊", revision: 1 }],
+    agents: [{ ...current, avatar: snapshotAvatar, revision: 1 }],
     status: "succeeded",
     created_at: "2026-10-24T00:00:00Z",
   } as Run;
@@ -744,8 +749,8 @@ it("uses the run's member snapshot for message avatars, not the current profile"
   render(<App />);
   const timeline = await screen.findByTestId("conversation-timeline");
   expect(await within(timeline).findByText("历史回复")).toBeVisible();
-  expect(within(timeline).getByText("🦊")).toBeVisible();
-  expect(within(timeline).queryByText("🐱")).toBeNull();
+  expect(timeline.querySelector("img")).toHaveAttribute("src", snapshotAvatar);
+  expect(timeline.querySelector(`img[src="${currentAvatar}"]`)).toBeNull();
 });
 
 it("sends workspace skill selections to the API when editing", async () => {
@@ -2569,4 +2574,286 @@ it("submits the explicit engineering action and defaults to analysis", async () 
   // The composer never carries assignment controls; the server resolves the
   // action's role defaults from global settings and the conversation roster.
   expect(inputs[1].assignments).toEqual({});
+});
+
+it("describes conversation deletion as a recoverable trash period", async () => {
+  history.replaceState({}, "", "/w/ws");
+  const keep = {
+    id: "keep",
+    workspace_id: "ws",
+    title: "待删除会话",
+    agent_ids: ["one"],
+    coordinator_id: "one",
+    workflow: "free",
+    revision: 4,
+    updated_at: "2026-10-20T00:00:00Z",
+    last_run_id: "run",
+    last_run_status: "succeeded",
+  };
+  const agent = {
+    id: "one",
+    workspace_id: "ws",
+    display_name: "布偶猫",
+    handle: "ragdoll",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "claude",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, options?: RequestInit) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "空间" }] });
+      if (path.endsWith("/agents")) return Response.json({ items: [agent] });
+      if (path === "/api/v1/settings")
+        return Response.json({
+          revision: 2,
+          default_coordinator_id: "one",
+          assignments: {},
+          retention_days: 45,
+        });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [keep], next_cursor: "" });
+      if (path === "/api/v1/threads/keep" && options?.method === "DELETE")
+        return Response.json({ id: "keep", purge_at: "2026-12-04T00:00:00Z" });
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  const user = userEvent.setup();
+  await screen.findByRole("button", { name: "待删除会话" });
+  await user.click(
+    screen.getByRole("button", { name: "更多会话操作：待删除会话" }),
+  );
+  await user.click(screen.getByRole("menuitem", { name: "删除" }));
+  const dialog = screen.getByRole("dialog", { name: "删除会话" });
+  expect(dialog).toHaveTextContent(
+    "会被移入回收站，保留 45 天。期间可在“设置 → 回收站”恢复；到期后自动清理。",
+  );
+  expect(dialog).not.toHaveTextContent("永久删除");
+});
+
+it("refreshes the visible sidebar from bounded polling", async () => {
+  history.replaceState({}, "", "/w/ws");
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
+  let threads: Thread[] = [
+    {
+      id: "status",
+      workspace_id: "ws",
+      title: "状态会话",
+      agent_ids: ["one"],
+      coordinator_id: "one",
+      workflow: "free",
+      revision: 1,
+      updated_at: "2026-10-20T00:00:00Z",
+      active_run_id: "run",
+      active_run_status: "running",
+    },
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "空间" }] });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: threads, next_cursor: "" });
+      return Response.json({ items: [] });
+    }),
+  );
+  let poll: (() => void) | undefined;
+  vi.spyOn(globalThis, "setInterval").mockImplementation((handler) => {
+    poll = handler as () => void;
+    return 1 as unknown as ReturnType<typeof setInterval>;
+  });
+  render(<App />);
+  expect(
+    await screen.findByRole("status", { name: "运行状态：执行中" }),
+  ).toBeVisible();
+  threads = [
+    {
+      ...threads[0],
+      active_run_id: undefined,
+      active_run_status: undefined,
+      last_run_id: "run",
+      last_run_status: "succeeded",
+    },
+  ];
+  expect(poll).toBeTruthy();
+  await act(async () => {
+    poll?.();
+    await Promise.resolve();
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByRole("status", { name: "运行状态：已完成" }),
+    ).toBeVisible(),
+  );
+});
+
+it("saves retention with the current revision and keeps collaboration settings", async () => {
+  history.replaceState({}, "", "/w/ws");
+  const settings = {
+    revision: 7,
+    default_coordinator_id: "one",
+    assignments: { research: { researcher: "one", critic: "two" } },
+    retention_days: 30,
+  };
+  let patch: { headers: Headers; body: Record<string, unknown> } | undefined;
+  const agent = {
+    id: "one",
+    workspace_id: "ws",
+    display_name: "布偶猫",
+    handle: "ragdoll",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "claude",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, options?: RequestInit) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "空间" }] });
+      if (path.endsWith("/agents")) return Response.json({ items: [agent] });
+      if (path === "/api/v1/settings" && options?.method === "PATCH") {
+        patch = {
+          headers: new Headers(options.headers),
+          body: JSON.parse(String(options.body)),
+        };
+        return Response.json({
+          ...settings,
+          ...patch.body,
+          revision: 8,
+        });
+      }
+      if (path === "/api/v1/settings") return Response.json(settings);
+      if (path === "/api/v1/trash") return Response.json({ items: [] });
+      if (path === "/api/v1/agents") return Response.json({ items: [agent] });
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "设置" }));
+  await user.click(screen.getByRole("tab", { name: "回收站" }));
+  expect(await screen.findByText("回收站为空。")).toBeVisible();
+  const days = screen.getByLabelText("回收站保留天数");
+  await user.clear(days);
+  await user.type(days, "60");
+  await user.click(screen.getByRole("button", { name: "保存保留周期" }));
+  await waitFor(() => expect(patch).toBeTruthy());
+  expect(patch?.headers.get("If-Match")).toBe("7");
+  expect(patch?.body).toMatchObject({
+    default_coordinator_id: "one",
+    assignments: { research: { researcher: "one", critic: "two" } },
+    retention_days: 60,
+  });
+});
+
+it("restores a trashed conversation, refreshes the sidebar and navigates to it", async () => {
+  history.replaceState({}, "", "/w/ws");
+  const restoredThread = {
+    id: "restored",
+    workspace_id: "ws",
+    title: "已恢复会话",
+    agent_ids: ["one"],
+    coordinator_id: "one",
+    workflow: "free",
+    revision: 9,
+    updated_at: "2026-10-20T00:00:00Z",
+  };
+  let restored = false;
+  const agent = {
+    id: "one",
+    workspace_id: "ws",
+    display_name: "布偶猫",
+    handle: "ragdoll",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "claude",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, options?: RequestInit) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "空间" }] });
+      if (path.endsWith("/agents")) return Response.json({ items: [agent] });
+      if (path === "/api/v1/settings")
+        return Response.json({
+          revision: 2,
+          default_coordinator_id: "one",
+          assignments: {},
+          retention_days: 30,
+        });
+      if (path === "/api/v1/trash")
+        return Response.json({
+          items: [
+            {
+              thread: {
+                ...restoredThread,
+                revision: 8,
+                deleted_at: "2026-10-01T00:00:00Z",
+                purge_at: "2026-10-31T00:00:00Z",
+              },
+              workspace_name: "空间",
+            },
+          ],
+        });
+      if (
+        path === "/api/v1/threads/restored/restore" &&
+        options?.method === "POST"
+      ) {
+        restored = true;
+        return Response.json(restoredThread);
+      }
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({
+          items: restored ? [restoredThread] : [],
+          next_cursor: "",
+        });
+      if (path.startsWith("/api/v1/threads/restored?"))
+        return Response.json({
+          thread: restoredThread,
+          messages: { items: [], next_cursor: "" },
+          runs: [],
+          sources: [],
+        });
+      if (path.endsWith("/artifacts")) return Response.json({ items: [] });
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "设置" }));
+  await user.click(screen.getByRole("tab", { name: "回收站" }));
+  await user.click(
+    await screen.findByRole("button", { name: "恢复会话：已恢复会话" }),
+  );
+  await user.click(screen.getByRole("button", { name: "确认恢复" }));
+  expect(
+    await screen.findByRole("heading", { name: "已恢复会话" }),
+  ).toBeVisible();
+  expect(location.pathname).toBe("/w/ws/t/restored");
+  expect(
+    await screen.findByRole("button", { name: "已恢复会话" }),
+  ).toBeVisible();
+  expect(screen.queryByRole("dialog", { name: "设置" })).toBeNull();
 });

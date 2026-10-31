@@ -1115,8 +1115,8 @@ func TestCodexAgentMessageEmitsBoundedTextDeltaActivity(t *testing.T) {
 			t.Fatalf("activity carried more than metadata: %v", activity)
 		}
 	}
-	if len(texts) != 1 || texts[0]["text"] != "visible answer continues\n" || texts[0]["activity"] != true {
-		t.Fatalf("text observations=%v, want only the completed assistant message with activity=true", texts)
+	if len(texts) != 2 || texts[0]["text"] != "visible answer" || texts[0]["activity"] != true || texts[1]["text"] != " continues" || texts[1]["activity"] != true {
+		t.Fatalf("text observations=%v, want two incremental suffixes and no duplicate final frame", texts)
 	}
 	live.mu.Lock()
 	seen := live.firstSeen

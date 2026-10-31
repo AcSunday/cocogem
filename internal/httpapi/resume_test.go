@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/proc"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/testutil"
@@ -271,5 +272,81 @@ func TestDeleteRefusesAliveOwnedProcess(t *testing.T) {
 	}
 	if got := call("DELETE", "/api/v1/threads/"+thread.ID, map[string]any{}); got.Code != 200 {
 		t.Fatalf("dead ownership blocked deletion: %d %s", got.Code, got.Body.String())
+	}
+}
+
+type blockingAdapter struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b blockingAdapter) Check(ctx context.Context, executor string) (agent.AdapterInfo, error) {
+	close(b.entered)
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+		return agent.AdapterInfo{}, ctx.Err()
+	}
+	return agent.AdapterInfo{ID: executor, Installed: true, Supported: true}, nil
+}
+
+// A soft delete committed after the resume visibility guard must not be
+// overwritten by the queued resume.
+func TestHTTPResumeRaceWithSoftDelete(t *testing.T) {
+	s, db, cookie, csrf := pagingServer(t, workflow.DefaultLimits())
+	blocker := blockingAdapter{entered: make(chan struct{}), release: make(chan struct{})}
+	s.engine.Model = testutil.Model{}
+	s.engine.Runners = map[string]agent.Runner{"claude": agent.Loop{Model: testutil.Model{}}}
+	s.engine.Adapters = blocker
+	ws := w.Workspace{ID: w.NewID(), Name: "race", Revision: 1}
+	member := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "review", Handle: "review", Executor: "claude", Model: "default", Revision: 1, Tools: []string{}}
+	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Title: "race", Revision: 1, UpdatedAt: w.Now(), AgentIDs: []string{member.ID}, CoordinatorID: member.ID, Workflow: "free"}
+	policy := w.ExecutionPolicy{}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "interrupted", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID, ExecutionPolicy: &policy, Input: w.RunInput{Message: "retry", Workflow: "free", ResearchScope: "given_sources", Targets: []string{member.ID}}}
+	step := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: member.ID, Role: "responder", Status: "interrupted", Instruction: "reply"}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.SaveWorkspace(ws); err != nil {
+			return err
+		}
+		if err := tx.SaveAgent(member); err != nil {
+			return err
+		}
+		if err := tx.SaveThread(thread); err != nil {
+			return err
+		}
+		if err := tx.InsertRun(run, w.NewID(), "race"); err != nil {
+			return err
+		}
+		return tx.SaveStep(step)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reply := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		reply <- apiCall(s, "POST", "/api/v1/runs/"+run.ID+"/resume", map[string]any{}, cookie, csrf, nil)
+	}()
+	select {
+	case <-blocker.entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("resume never reached adapter check after visibility guard")
+	}
+	deleted := apiCall(s, "DELETE", "/api/v1/threads/"+thread.ID, nil, cookie, csrf, map[string]string{"If-Match": "1"})
+	if deleted.Code != 200 {
+		close(blocker.release)
+		t.Fatalf("soft-delete failed: %d %s", deleted.Code, deleted.Body.String())
+	}
+	close(blocker.release)
+	var resumed *httptest.ResponseRecorder
+	select {
+	case resumed = <-reply:
+	case <-time.After(3 * time.Second):
+		t.Fatal("resume did not complete")
+	}
+	var stored w.Run
+	if err := db.Read(t.Context(), func(tx *store.Tx) error { var err error; stored, err = tx.Run(run.ID); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Code == 202 || stored.Status == "queued" {
+		t.Fatalf("soft-delete committed before resume write, but HTTP resume returned %d and run status=%q: %s", resumed.Code, stored.Status, resumed.Body.String())
 	}
 }

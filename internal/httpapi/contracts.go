@@ -37,10 +37,13 @@ type ExecutorInfo struct {
 	Identity string `json:"-"`
 }
 
-// VerifyInput names the precise CLI and model to verify using a public prompt.
+// VerifyInput names the precise CLI, model and optional execution options to
+// verify using a public prompt. Omitted options keep the CLI's own defaults.
 type VerifyInput struct {
-	Executor string `json:"executor,omitempty"`
-	Model    string `json:"model,omitempty"`
+	Executor      string `json:"executor,omitempty"`
+	Model         string `json:"model,omitempty"`
+	ContextSize   int    `json:"context_size,omitempty"`
+	ThinkingLevel string `json:"thinking_level,omitempty"`
 }
 
 // Page carries a stable list contract and the next opaque cursor.
@@ -90,6 +93,9 @@ type WorkspaceInput struct {
 type SettingsInput struct {
 	DefaultCoordinatorID string                       `json:"default_coordinator_id"`
 	Assignments          map[string]map[string]string `json:"assignments"`
+	// RetentionDays is optional on existing clients; nil keeps the current
+	// value. An explicit out-of-range value is rejected.
+	RetentionDays *int `json:"retention_days,omitempty"`
 }
 
 // ThreadUpdate edits the supplied fields; omitted settings keep their stored values.
@@ -129,13 +135,28 @@ type FeedbackInput struct {
 
 // VerifyReply records explicit provider verification time.
 type VerifyReply struct {
-	Executor   string         `json:"executor,omitempty"`
-	Model      string         `json:"model"`
-	VerifiedAt string         `json:"verified_at"`
-	Executors  []ExecutorInfo `json:"executors,omitempty"`
+	Executor      string         `json:"executor,omitempty"`
+	Model         string         `json:"model"`
+	ContextSize   int            `json:"context_size,omitempty"`
+	ThinkingLevel string         `json:"thinking_level,omitempty"`
+	VerifiedAt    string         `json:"verified_at"`
+	Executors     []ExecutorInfo `json:"executors,omitempty"`
 }
 
-// DeleteReply confirms which object was permanently removed.
+// DeleteReply confirms which object was removed. A soft-deleted thread also
+// reports when it will be purged.
 type DeleteReply struct {
-	ID string `json:"id"`
+	ID      string `json:"id"`
+	PurgeAt string `json:"purge_at,omitempty"`
+}
+
+// TrashItem is one recoverable conversation with its workspace label.
+type TrashItem struct {
+	Thread        w.Thread `json:"thread"`
+	WorkspaceName string   `json:"workspace_name"`
+}
+
+// TrashList is the full bounded local trash projection.
+type TrashList struct {
+	Items []TrashItem `json:"items"`
 }

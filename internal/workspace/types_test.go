@@ -104,6 +104,51 @@ func TestAgentAvatarIsBuiltInOnly(t *testing.T) {
 	}
 }
 
+func TestExecutionOptionsValidation(t *testing.T) {
+	a := Agent{DisplayName: "成员", Handle: "member", Executor: "claude", Model: "default", Tools: []string{}}
+	for _, tc := range []struct {
+		name    string
+		edit    func(*Agent)
+		wantErr bool
+	}{
+		{"empty keeps defaults", func(*Agent) {}, false},
+		{"claude high", func(a *Agent) { a.ThinkingLevel = "high" }, false},
+		{"codex ultra", func(a *Agent) { a.Executor, a.ThinkingLevel = "codex", "ultra" }, false},
+		{"context at minimum", func(a *Agent) { a.ContextSize = MinContextSize }, false},
+		{"context above old ceiling", func(a *Agent) { a.ContextSize = 500000 }, false},
+		{"context below minimum", func(a *Agent) { a.ContextSize = MinContextSize - 1 }, true},
+		{"unsupported level for claude", func(a *Agent) { a.ThinkingLevel = "ultra" }, true},
+		{"unsupported executor level", func(a *Agent) { a.Executor, a.ThinkingLevel = "gemini", "medium" }, true},
+		{"gemini needs explicit model", func(a *Agent) { a.Executor, a.ThinkingLevel = "gemini", "high" }, true},
+		{"gemini with explicit model", func(a *Agent) { a.Executor, a.Model, a.ThinkingLevel = "gemini", "fixture-model", "high" }, false},
+		{"thinking without executor", func(a *Agent) { a.Executor, a.ThinkingLevel = "", "high" }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			copy := a
+			tc.edit(&copy)
+			if err := ValidateAgent(copy, nil, []string{"default", "fixture-model"}, nil); (err != nil) != tc.wantErr {
+				t.Fatalf("error=%v, wantErr=%t", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestRetentionDaysValidation(t *testing.T) {
+	for _, days := range []int{DefaultRetentionDays, MinRetentionDays, MaxRetentionDays} {
+		if err := ValidateRetentionDays(days); err != nil {
+			t.Fatalf("retention %d rejected: %v", days, err)
+		}
+	}
+	for _, days := range []int{0, MinRetentionDays - 1, MaxRetentionDays + 1} {
+		if err := ValidateRetentionDays(days); err == nil {
+			t.Fatalf("retention %d accepted", days)
+		}
+	}
+	if EffectiveRetentionDays(0) != DefaultRetentionDays || EffectiveRetentionDays(7) != 7 {
+		t.Fatal("retention default or explicit value changed")
+	}
+}
+
 func TestSettingsRejectUnknownRolesAndUnavailableMembers(t *testing.T) {
 	agents := []Agent{{ID: "a", DisplayName: "一", Handle: "one", Model: "default"}, {ID: "b", DisplayName: "二", Handle: "two", Model: "default"}, {ID: "off", DisplayName: "停用", Handle: "off", Model: "default", Disabled: true}}
 	valid := Settings{Revision: 1, DefaultCoordinatorID: "a", Assignments: map[string]map[string]string{

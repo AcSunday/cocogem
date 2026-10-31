@@ -48,8 +48,8 @@ Cocogem 是面向本地单用户、使用已有 Claude/Codex/Gemini CLI 的多 A
 
 | 当前事实 | 代码落点 | 本次处理 |
 | --- | --- | --- |
-| 正式 server 使用 native runner/fallback；Go Loop 的 12 轮、累积 100KB、4096 output tokens 不治理 native 内部循环 | `cmd/cocogem-server/main.go`；`internal/workflow/engine.go` | 方案以正式 native 路径为主，保留 Go Loop 测试/兼容边界 |
-| native 初始 `system + messages` 最多 100000 bytes，工具返回不再累加到这个宿主请求 | `internal/nativecli/provider.go` | 保留宿主初始输入边界，引用化减少重复内联，不伪装成模型窗口 |
+| 正式 server 使用 native runner/fallback；Go Loop 的 12 轮、4096 output tokens 不治理 native 内部循环 | `cmd/cocogem-server/main.go`；`internal/workflow/engine.go` | 方案以正式 native 路径为主，保留 Go Loop 测试/兼容边界 |
+| 成员显式设置 `context_size` 时，native 初始 `system + messages` 受该字节预算限制；留空时跟随 CLI 配置，工具返回不再累加到这个宿主请求 | `internal/nativecli/provider.go` | 保留宿主初始输入边界，引用化减少重复内联，不伪装成模型窗口 |
 | 60 次后拒绝所有宿主工具，61–70 次可返回拒绝；第 71 次强停；`publish_artifact` 也会受阻 | `internal/nativecli/bridge.go` | 删除累计次数拒绝和强停，调用序号继续用于身份关联 |
 | `/system` 的默认 `tool_calls` 仍为 30，与 bridge 的 60 不一致 | `internal/httpapi/server.go` | 删除这项限制字段及前端次数承诺，计数变成执行统计 |
 | 三个 native parser 有累计 32MiB、65536 events、256KiB visible text 硬停 | `process.go`、`codex.go`、`gemini.go` | 同批处理累计计数与存储增长，不能只删 1h/6h |
@@ -158,13 +158,13 @@ native 的累计 bytes/events/text 改成统计，不再因为超过 32MiB、655
 
 ## 7. 上下文和证据取回闭环
 
-### 7.1 保留 100000-byte 宿主初始输入边界
+### 7.1 宿主初始输入预算跟随成员配置
 
-native 初始输入超限返回 `host_input_limit`，与 provider `context_overflow` 分开。它是宿主契约，不是模型 token window；不据此实现 85% LLM 摘要或把宿主校验外包给 provider。
+成员显式设置 `context_size` 时，native 初始输入超限返回 `host_input_limit`，与 provider `context_overflow` 分开。它是宿主契约，不是模型 token window；不据此实现 85% LLM 摘要或把宿主校验外包给 provider。留空时不设宿主预算，由 CLI 按其配置的上下文窗口处理。
 
 装配保留：系统/当前职责、用户原任务、当前 Step 指令、权限和运行名单、来源与产物的确切版本、依赖状态、必要限制/分歧索引。长上游正文、被引用产物、工具观察用引用按需取回。必要索引本身仍超限时明确拒绝，不静默丢弃用户选择的输入。
 
-native CLI 仍负责其运行中的上下文窗口与原生 compaction；宿主不假装能替换 CLI 内部会话历史。`internal/agent/loop.go` 的现有 12/60/100KB 测试与兼容限制不在本批放开。
+native CLI 仍负责其运行中的上下文窗口与原生 compaction；宿主不假装能替换 CLI 内部会话历史。`internal/agent/loop.go` 的 12 轮/60 次工具兼容限制不在本批放开；其输入预算仅在成员显式设置时生效。
 
 ### 7.2 同批新增受限 `read_context`
 
@@ -217,11 +217,13 @@ Attempt failed 与 Run failed 是不同层：例如一次上下文耗尽记录�
 
 聚合错误确定性展示：Run 级已配置期限到期优先报告 `run_timeout`；否则只有一个 failed Step 时用其 failure_kind，多个时报告 `multiple_step_failures`，错误摘要按计划 position/Step ID 排序。RunView 中保留全部 Step/Attempt 原因与可恢复性，不能用一个随机先返回的错误覆盖其他失败或 uncertain 诊断。
 
-### 8.2 不做自动重试
+### 8.2 有限自动重试与显式恢复
 
-本轮明确不实现“transient 一律自动重试一次”。只读模型工具仍会捕获新 source、创建 handoff、暂存产物或产生模型费用；进程退出也不能证明外部调用未发生。现有恢复已经有 Attempt、认领和 handoff 去重，不另建一套 retry/extension。
+明确可重放的失败允许初始 1 次 + 最多 3 次自动重试，预算按持久 Attempt 数计算；`errors.Join` 中任一独立不可重试原因、已提交副作用或调用方取消都会阻止重试。没有无界自动续跑，显式恢复仍必须重新校验。
 
-liveness/上下文中断只由现有显式 Resume 重新校验后开启新的 Attempt。服务重启的既有恢复路径继续处理停机留下的 running 检查点，不扩展为 provider 错误的自动重试；已经持久化为 interrupted 的手动检查点在服务重启后仍为 interrupted，不能被 `recoverActive` 无条件重新排队。必要的旧进程归属清理可以执行，但不因此启动模型。Resume 请求幂等、旧进程组已收敛、权限/技能/模型/连接/程序身份一致是前提。
+只读模型工具仍会捕获新 source、创建 handoff、暂存产物或产生模型费用；进程退出也不能证明外部调用未发生。因此重试复用现有 Attempt、认领和 handoff 去重，并在重放前检查副作用、权限、进程收敛及剩余预算。
+
+liveness/上下文中断只由现有显式 Resume 重新校验后开启新的 Attempt。服务重启的既有恢复路径继续处理停机留下的 running 检查点，不能重置 provider 失败的重试预算；已经持久化为 interrupted 的手动检查点在服务重启后仍为 interrupted，不能被 `recoverActive` 无条件重新排队。必要的旧进程归属清理可以执行，但不因此启动模型。Resume 请求幂等、旧进程组已收敛、权限/技能/模型/连接/程序身份一致是前提。
 
 P1 对 context overflow 先退役该失败 session，基于更小的引用化输入计划起 fresh session；不向相同坏会话重复发相同上下文。不设“整个长任务只准恢复一次”的新累计次数上限，因为没有自动续跑循环；每次均由用户显式发起。若同一检查点在没有新输出/捕获的情况下立即重现同一溢出，阻止机械重播，要求实际修改输入计划或新 Run。
 
@@ -286,7 +288,7 @@ P1 对 context overflow 先退役该失败 session，基于更小的引用化输
 4. 三个 parser 分别覆盖超过 70000 事件、32MiB 流和 256KiB 可见正文；单帧超限仍明确失败。
 5. chunk/分页逐字还原正文，中文 UTF-8 边界正确；终态 flush、断线重放、旧 inline fallback、重复投递和并发 cursor 不重不漏。
 6. 浏览器活动状态、事件窗口和单页正文缓冲有界；完整正文可按需读取；用户阅读位置、展开状态不被 SSE 重置。
-7. >64KiB 业务观察产生合法结构化分页，控制回执保持完整；100000-byte 初始输入边界和必要索引超限有明确错误。
+7. >64KiB 业务观察产生合法结构化分页，控制回执保持完整；显式设置的初始输入边界和必要索引超限有明确错误。
 8. `read_context/read_source` 禁止外部引用、越权、未提交并行结果、旧错误版本和非法 cursor；合法上游能读出预览外反证。
 9. init/status/error/usage/空和重复帧不刷新活动；真实新增文本/工具与支持的 reasoning 元数据可以刷新；在途工具受自身期限；首响应不被 init 延长；旧 timer 不取消 successor。
 10. warn 不杀；显式 stop/首响应保存 interrupted；failed+interrupted 不被伪装成全成功；兄弟 Attempt/进程和事务收敛前不提交 Run 终态；failed Attempt 不误等于 failed Step；普通 interrupted 依赖保持 pending；free handoff 失败回传回归。
@@ -312,7 +314,7 @@ Claude Code 在最终条款核对中确认：并行收敛、Step/Attempt 失败�
 | --- | --- |
 | p75/p90 预算和动态延长是否是目标架构 | 不采用；仅允许离线观测，参考项目的执行模型优先 |
 | Codex 曾提出默认 2h stop，Claude 第一轮提出 30m stop | 均无本地依据，撤回；保留 15m warn，stop 显式开启 |
-| Claude 第一轮提议删 100KB 和放开 Go Loop | 撤回；保留宿主边界，聚焦正式 native 路径 |
+| Claude 第一轮提议删 100KB 和放开 Go Loop | 不无条件删除；改为仅在成员显式设置时保留宿主输入边界，聚焦正式 native 路径 |
 | 去掉 256KB 后增长治理可否延后 | 不能；chunks、预览、分页、UI 和模型取回必须同批闭环 |
 | 同一工具输入是否自动阻断 | 不阻断；连续重复提示只是诊断，不是质量阈值 |
 | transient 自动重试 | 本方案不做；复用已有显式检查点恢复，不新增 retry 系统 |

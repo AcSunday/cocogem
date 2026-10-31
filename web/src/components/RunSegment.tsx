@@ -21,19 +21,27 @@ import {
 } from "../lib/delivery";
 import {
   errorText,
-  formatDateTime,
   messageModel,
   roleLabel,
   runDuration,
   runMethod,
   runUsageSummary,
+  runUsageTokens,
+  statusIconName,
 } from "../lib/presentation";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
 import { ArtifactCard } from "./ArtifactCard";
 import { Avatar } from "./Avatar";
+import { Icon } from "./Icon";
 import { MessageCard, rememberCursor, type CursorStack } from "./MessageCard";
 import { RunDivider } from "./RunDivider";
 import { Markdown } from "./Markdown";
+
+const cx = scoped(base, controls, layout, conversation);
 
 type FinalPage = {
   page: MessageContentPage;
@@ -114,8 +122,7 @@ function MissingFinalResults({
     if (!next) return;
     // Loaded pages stay; only missing targets are retried on a fresh expand.
     for (const messageID of messageIDs)
-      if (!items[messageID] && !loading[messageID])
-        void load(messageID, 0, "");
+      if (!items[messageID] && !loading[messageID]) void load(messageID, 0, "");
   };
 
   const cursorAt = (messageID: string, absolute: number) => {
@@ -217,7 +224,10 @@ function MissingFinalResults({
                   <span className={cx("role-chip")}>{roleLabel(role)}</span>
                 )}
               </div>
-              <Markdown text={item.page.content || "本次回复没有正文。"} />
+              <Markdown
+                text={item.page.content || "本次回复没有正文。"}
+                members={agents}
+              />
               {(item.page.has_more ||
                 item.index > 0 ||
                 loading[messageID] ||
@@ -373,7 +383,11 @@ export function RunSegment({
       )
     : [];
   const processCount = steps?.length || processMessages.length;
-  const card = (message: Message) => (
+  // The run snapshot is authoritative for historical names and aliases; the
+  // current workspace roster is only a fallback for legacy records.
+  const mentionMembers = run.agents?.length ? run.agents : members;
+  const badgeStatusIcon = statusIconName(run.status);
+  const card = (message: Message, final = false) => (
     <MessageCard
       key={message.id}
       message={message}
@@ -385,6 +399,8 @@ export function RunSegment({
         run.agents?.find((agent) => agent.id === message.agent_id)?.avatar
       }
       role={steps?.find((step) => step.id === message.step_id)?.role}
+      members={mentionMembers}
+      final={final}
     />
   );
   return (
@@ -392,7 +408,12 @@ export function RunSegment({
       {own
         .filter((message) => message.role === "user")
         .map((message) => (
-          <MessageCard key={message.id} message={message} index={0} />
+          <MessageCard
+            key={message.id}
+            message={message}
+            index={0}
+            members={mentionMembers}
+          />
         ))}
       <RunDivider
         run={run}
@@ -414,25 +435,34 @@ export function RunSegment({
         onSource={onSource}
         onArtifact={onArtifact}
       >
-        {processMessages.map(card)}
+        {processMessages.map((message) => card(message))}
       </RunDivider>
-      {finalMessages.map(card)}
+      {finalMessages.map((message) => card(message, true))}
       {terminal(run.status) && (
         <div className={cx("run-footer-badge-wrap")}>
           <div className={cx("run-footer-badge")} tabIndex={0}>
             <span>{runMethod(run).label}</span>
             <span>·</span>
-            <span>{statusText[run.status]}</span>
+            {badgeStatusIcon && (
+              <span
+                className={cx(`thread-status ${run.status}`)}
+                role="img"
+                aria-label={statusText[run.status]}
+                title={statusText[run.status]}
+              >
+                <Icon name={badgeStatusIcon} size={12} />
+              </span>
+            )}
             {runDuration(run) && (
               <>
                 <span>·</span>
                 <span>{runDuration(run)}</span>
               </>
             )}
-            {runUsageSummary(run, attempts) && (
+            {runUsageTokens(run, attempts) && (
               <>
                 <span>·</span>
-                <span>{runUsageSummary(run, attempts)}</span>
+                <span>{runUsageTokens(run, attempts)}</span>
               </>
             )}
           </div>
@@ -443,7 +473,7 @@ export function RunSegment({
             <div>状态：{statusText[run.status]}</div>
             {runDuration(run) && <div>耗时：{runDuration(run)}</div>}
             {runUsageSummary(run, attempts) && (
-              <div>用量：{runUsageSummary(run, attempts)}</div>
+              <div>{runUsageSummary(run, attempts)}</div>
             )}
             {steps && steps.length > 0 && (
               <div>
@@ -455,9 +485,7 @@ export function RunSegment({
                 ）
               </div>
             )}
-            {run.error && (
-              <div className={cx("error")}>异常：{run.error}</div>
-            )}
+            {run.error && <div className={cx("error")}>异常：{run.error}</div>}
             <small className={cx("muted")}>
               详细日志与交接记录已保存在右侧协作面板
             </small>
@@ -469,13 +497,15 @@ export function RunSegment({
           key={`${run.id}:${missingFinal.join(",")}`}
           runID={run.id}
           messageIDs={missingFinal}
-          agents={run.agents ?? []}
+          agents={run.agents?.length ? run.agents : members}
           steps={steps}
         />
       )}
       {missingArtifacts.length > 0 && (
         <p className={cx("muted")} role="status">
-          {finalArtifacts.length === 0 ? "最终产物正在加载…" : "部分最终产物正在加载…"}
+          {finalArtifacts.length === 0
+            ? "最终产物正在加载…"
+            : "部分最终产物正在加载…"}
           {onRefresh && (
             <button
               type="button"

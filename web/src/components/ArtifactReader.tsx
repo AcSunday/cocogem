@@ -1,6 +1,10 @@
 import { useState } from "react";
 import type { Artifact, Source } from "../api/client";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import panels from "../styles/panels.module.css";
 import {
   artifactTypeLabel,
   findingStatusLabel,
@@ -10,6 +14,8 @@ import {
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { Modal } from "./Modal";
+
+const cx = scoped(base, controls, layout, panels);
 
 /** Reports read best at full width, so they open in a wide dialog rather than the side panel. */
 export function ArtifactReader({

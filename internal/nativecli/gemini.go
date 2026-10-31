@@ -33,7 +33,76 @@ func geminiPolicyBoundary() error {
 	return nil
 }
 
-func prepareGemini(request model.Request, workdir string, gate *bridge) ([]string, map[string]string, error) {
+// Only inference thinking defaults are carried from the user's CLI settings;
+// tools, hooks, scripts, MCP servers and other capabilities never enter the
+// scoped settings.
+type geminiSettings struct {
+	Model struct {
+		Name string `json:"name"`
+	} `json:"model"`
+	ModelConfigs struct {
+		CustomOverrides []geminiOverride `json:"customOverrides"`
+	} `json:"modelConfigs"`
+}
+
+type geminiOverride struct {
+	Match       map[string]any `json:"match"`
+	ModelConfig struct {
+		GenerateContentConfig struct {
+			ThinkingConfig map[string]any `json:"thinkingConfig"`
+		} `json:"generateContentConfig"`
+	} `json:"modelConfig"`
+}
+
+func readGeminiSettings() geminiSettings {
+	file := geminiSettingsFile()
+	if file == "" {
+		return geminiSettings{}
+	}
+	data, err := os.ReadFile(file)
+	if err != nil || len(data) > 1024*1024 {
+		return geminiSettings{}
+	}
+	var settings geminiSettings
+	_ = json.Unmarshal(data, &settings)
+	return settings
+}
+
+// geminiThinkingOverrides keeps concrete-model thinkingConfig overrides from
+// the user settings. Other modelConfigs fields are not forwarded.
+func geminiThinkingOverrides(settings geminiSettings) []any {
+	overrides := []any{}
+	for _, candidate := range settings.ModelConfigs.CustomOverrides {
+		model, _ := candidate.Match["model"].(string)
+		thinking := map[string]any{}
+		for key, value := range candidate.ModelConfig.GenerateContentConfig.ThinkingConfig {
+			switch key {
+			case "thinkingLevel":
+				if _, ok := value.(string); ok {
+					thinking[key] = value
+				}
+			case "thinkingBudget":
+				if _, ok := value.(float64); ok {
+					thinking[key] = value
+				}
+			case "includeThoughts":
+				if _, ok := value.(bool); ok {
+					thinking[key] = value
+				}
+			}
+		}
+		if model == "" || len(thinking) == 0 {
+			continue
+		}
+		overrides = append(overrides, map[string]any{
+			"match":       map[string]any{"model": model},
+			"modelConfig": map[string]any{"generateContentConfig": map[string]any{"thinkingConfig": thinking}},
+		})
+	}
+	return overrides
+}
+
+func prepareGemini(request model.Request, workdir string, gate *bridge, launch *connectionPlan) ([]string, map[string]string, error) {
 	if err := geminiPolicyBoundary(); err != nil {
 		return nil, nil, err
 	}
@@ -60,6 +129,30 @@ func prepareGemini(request model.Request, workdir string, gate *bridge) ([]strin
 		"context":     map[string]any{"fileName": ".cocogem-no-memory-" + gate.token[:12], "includeDirectoryTree": false, "loadMemoryFromIncludeDirectories": false, "memoryBoundaryMarkers": []string{}},
 		"general":     map[string]any{"maxAttempts": 1, "retryFetchErrors": false},
 		"advanced":    map[string]any{"autoConfigureMemory": false, "ignoreLocalEnv": true},
+	}
+	if request.ThinkingLevel != "" {
+		if request.Model == "" || request.Model == "default" {
+			return nil, nil, errors.New("Gemini thinking_level requires an explicit model")
+		}
+		level := strings.ToUpper(request.ThinkingLevel)
+		settings["modelConfigs"] = map[string]any{
+			"customOverrides": []any{map[string]any{
+				"match": map[string]any{"model": request.Model},
+				"modelConfig": map[string]any{"generateContentConfig": map[string]any{
+					"thinkingConfig": map[string]any{"thinkingLevel": level},
+				}},
+			}},
+		}
+	} else {
+		var thinking []any
+		if launch != nil {
+			thinking = launch.geminiThinking
+		} else {
+			thinking = geminiThinkingOverrides(readGeminiSettings())
+		}
+		if len(thinking) > 0 {
+			settings["modelConfigs"] = map[string]any{"customOverrides": thinking}
+		}
 	}
 	encoded, err := json.Marshal(settings)
 	if err != nil {

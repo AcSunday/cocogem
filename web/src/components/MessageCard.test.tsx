@@ -56,11 +56,14 @@ it("shows a short message without full-text controls", () => {
 });
 
 it("shows the avatar supplied by the run snapshot or the name initial", () => {
+  const avatar =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
   const { container, rerender } = render(
-    <MessageCard message={message()} index={0} avatar="🦊" />,
+    <MessageCard message={message()} index={0} avatar={avatar} />,
   );
-  expect(screen.getByText("🦊")).toBeVisible();
+  expect(container.querySelector("img")).toHaveAttribute("src", avatar);
   rerender(<MessageCard message={message()} index={0} avatar="not-allowed" />);
+  expect(container.querySelector("img")).toBeNull();
   expect(screen.getByText("研")).toBeVisible();
   expect(container.querySelector('[aria-hidden="true"]')).not.toHaveTextContent(
     "not-allowed",
@@ -91,7 +94,10 @@ it("shows the model recorded by the message's own attempt", () => {
   expect(screen.getByText("（resolved）")).toBeVisible();
   rerender(
     <MessageCard
-      message={message({ model: "legacy-requested", resolved_model: undefined })}
+      message={message({
+        model: "legacy-requested",
+        resolved_model: undefined,
+      })}
       index={0}
     />,
   );
@@ -356,4 +362,30 @@ it("marks content as still generating instead of presenting the preview as compl
   );
   expect(screen.getByText("生成中")).toBeVisible();
   expect(screen.getByText("正在生成 · 已生成 70000 字节")).toBeVisible();
+});
+
+it("renders known @ mentions with the real profile and leaves unknown text alone", () => {
+  const { container } = render(
+    <MessageCard
+      message={message({
+        content: "请 @ragdoll 复核，@nobody 不需要。",
+        content_bytes: 30,
+        content_truncated: false,
+      })}
+      index={0}
+      members={[
+        {
+          id: "agent",
+          handle: "ragdoll",
+          display_name: "布偶猫",
+          aliases: ["布布"],
+          role_description: "研究资料并核对证据。",
+        },
+      ]}
+    />,
+  );
+  const mention = container.querySelector('span[tabindex="0"]');
+  expect(mention).toHaveTextContent("@ragdoll");
+  expect(screen.getByText(/@nobody/)).toBeVisible();
+  expect(container.querySelectorAll('span[tabindex="0"]')).toHaveLength(1);
 });

@@ -29,7 +29,6 @@ import {
   type Workspace,
 } from "../api/client";
 import { AuthScreen } from "../components/AuthScreen";
-import { ArtifactReader } from "../components/ArtifactReader";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
 import {
@@ -37,16 +36,23 @@ import {
   type EngineeringAction,
   type WorkflowKey,
 } from "../components/Composer";
-import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
 import { RunSegment } from "../components/RunSegment";
-import { SettingsDialog, SnapshotDialog } from "../components/SettingsDialog";
 import { Sidebar } from "../components/Sidebar";
-import { ThreadForm } from "../components/forms/ThreadForm";
-import { ThreadRenameForm } from "../components/forms/ThreadRenameForm";
-import { WorkspaceForm } from "../components/forms/WorkspaceForm";
-import { WorkspaceMembersForm } from "../components/forms/WorkspaceMembersForm";
+import { Welcome } from "../components/Welcome";
+import {
+  eventAttempt,
+  eventRun,
+  eventStep,
+  mergeAttempt,
+  mergeByID,
+  mergeRun,
+  mergeStep,
+  mergeThreadView,
+  withRunWarnings,
+} from "./merge";
+import { AppModals, type ModalState } from "./AppModals";
 import {
   conversationCoordinator,
   errorText,
@@ -57,193 +63,19 @@ import {
   threadTitle,
   workflows,
 } from "../lib/presentation";
-import { cx } from "../styles/classes";
+import { scoped } from "../styles/classes";
+import base from "../styles/base.module.css";
+import controls from "../styles/controls.module.css";
+import layout from "../styles/layout.module.css";
+import conversation from "../styles/conversation.module.css";
+import panels from "../styles/panels.module.css";
+
+const cx = scoped(base, controls, layout, conversation, panels);
 
 const pathSelection = () => {
   const match = location.pathname.match(/^\/w\/([^/]+)(?:\/t\/([^/]+))?/);
   return { workspace: match?.[1] ?? "", thread: match?.[2] ?? "" };
 };
-
-const scenarios = [
-  {
-    key: "discussion",
-    icon: "discussion",
-    title: "一起讨论",
-    description: "让不同观点独立表达，再梳理共识与分歧。",
-    sample: "比较自己实现 Agent Loop 和使用 Agent 框架的取舍。",
-  },
-  {
-    key: "research",
-    icon: "research",
-    title: "做一次 Research",
-    description: "查找资料、核对来源，形成可追溯的报告。",
-    sample: "研究多 Agent 协作的适用场景，说明证据和限制。",
-  },
-  {
-    key: "engineering",
-    icon: "code",
-    title: "工程协作",
-    description: "只读分析或受控开发，保留 diff 与测试证据。",
-    sample: "分析示例仓库如何区分成员身份与任务职责。",
-  },
-] as const;
-
-type ModalState =
-  | { kind: "workspace" | "edit-workspace" | "agents" | "settings" }
-  | { kind: "thread" }
-  | { kind: "edit-thread"; thread?: Thread }
-  | { kind: "snapshot"; run: Run }
-  | { kind: "artifact" }
-  | { kind: "rename-thread"; thread: Thread }
-  | { kind: "delete-thread"; thread: Thread }
-  | { kind: "delete-workspace"; workspace: Workspace };
-
-const stepTerminal = new Set([
-  "succeeded",
-  "failed",
-  "canceled",
-  "interrupted",
-  "skipped",
-]);
-const attemptTerminal = new Set([
-  "succeeded",
-  "failed",
-  "canceled",
-  "interrupted",
-  "uncertain",
-  "blocked",
-]);
-
-/** A persisted run only moves forward; a stale HTTP snapshot must not revive it. */
-function mergeRun(current: Run, incoming: Run): Run {
-  return terminal(current.status) && !terminal(incoming.status)
-    ? current
-    : incoming;
-}
-
-function mergeStep(current: Step, incoming: Step): Step {
-  return stepTerminal.has(current.status) && !stepTerminal.has(incoming.status)
-    ? current
-    : incoming;
-}
-
-function mergeAttempt(current: Attempt, incoming: Attempt): Attempt {
-  return attemptTerminal.has(current.status) &&
-    !attemptTerminal.has(incoming.status)
-    ? current
-    : incoming;
-}
-
-/**
- * Steps and attempts are append-only within a run, and an event-history page
- * can be a partial window. Merge into the known items instead of replacing
- * them, so a bounded seed or a stale snapshot never drops or repeats records.
- */
-function mergeByID<T extends { id: string }>(
-  current: T[] | undefined,
-  incoming: T[],
-  merge: (current: T, incoming: T) => T,
-) {
-  const items = new Map<string, T>();
-  for (const item of current ?? []) if (item.id) items.set(item.id, item);
-  for (const item of incoming) {
-    if (!item.id) continue;
-    const previous = items.get(item.id);
-    items.set(item.id, previous ? merge(previous, item) : item);
-  }
-  return [...items.values()];
-}
-
-function withRunWarnings(
-  current: Record<string, Event[]>,
-  runID: string,
-  warnings: Event[],
-) {
-  if (!warnings.length) {
-    if (!(runID in current)) return current;
-    const copy = { ...current };
-    delete copy[runID];
-    return copy;
-  }
-  return current[runID] === warnings
-    ? current
-    : { ...current, [runID]: warnings };
-}
-
-/**
- * A refresh may return a snapshot started before the last SSE frame. Merge
- * message bodies by id and keep runs terminal, so a reload cannot move the
- * loaded page backwards.
- */
-function mergeThreadView(
-  current: ThreadView | undefined,
-  loaded: ThreadView,
-  samePage: boolean,
-  startConfirmed: Record<string, number>,
-  messageWatermark: Record<string, number>,
-): ThreadView {
-  if (!current || current.thread.id !== loaded.thread.id) return loaded;
-  const known = new Map(current.messages.items.map((item) => [item.id, item]));
-  const seen = new Set<string>();
-  const items = loaded.messages.items.map((message) => {
-    seen.add(message.id);
-    const previous = known.get(message.id);
-    if (!previous) return message;
-    // Only a message event that landed after this request started can be
-    // newer than the consistent snapshot the server just returned.
-    const applied = messageWatermark[message.id] ?? 0;
-    const base = startConfirmed[message.run_id] ?? 0;
-    return applied > base ? mergeMessage(previous, message) : message;
-  });
-  if (samePage)
-    for (const message of current.messages.items) {
-      if (seen.has(message.id)) continue;
-      const applied = messageWatermark[message.id] ?? 0;
-      const base = startConfirmed[message.run_id] ?? 0;
-      if (applied > base) items.push(message);
-    }
-  return {
-    ...loaded,
-    messages: { ...loaded.messages, items },
-    runs: loaded.runs.map((run) => {
-      const previous = current.runs.find((item) => item.id === run.id);
-      return previous ? mergeRun(previous, run) : run;
-    }),
-  };
-}
-
-const eventObject = (event: Event) =>
-  event.data && typeof event.data === "object"
-    ? (event.data as Record<string, unknown>)
-    : {};
-
-function eventRun(event: Event) {
-  if (!event.type.startsWith("run_")) return undefined;
-  const data = eventObject(event);
-  return typeof data.id === "string" && typeof data.status === "string"
-    ? (data as unknown as Run)
-    : undefined;
-}
-
-function eventStep(event: Event) {
-  if (!event.type.startsWith("step_")) return undefined;
-  const data = eventObject(event);
-  return typeof data.id === "string" &&
-    data.id !== "" &&
-    typeof data.status === "string"
-    ? (data as unknown as Step)
-    : undefined;
-}
-
-function eventAttempt(event: Event) {
-  if (!event.type.startsWith("attempt_")) return undefined;
-  const data = eventObject(event);
-  return typeof data.id === "string" &&
-    data.id !== "" &&
-    typeof data.status === "string"
-    ? (data as unknown as Attempt)
-    : undefined;
-}
 
 export function App() {
   const [system, setSystem] = useState<System>();
@@ -667,6 +499,30 @@ function WorkspaceApp({
       setThreads([]);
     }
   }, [ready, workspaceID, loadMembers, loadThreads, loadGlobalAgents]);
+  // A bounded visible-page refresh keeps sidebar statuses current when another
+  // tab, a scheduled run, or a conversation that is not open changes state.
+  useEffect(() => {
+    if (!ready || !workspaceID) return;
+    let inFlight = false;
+    const refresh = async () => {
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      try {
+        await loadThreads(workspaceID);
+      } catch {
+        // The main actions surface errors; background polling stays quiet.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = setInterval(() => void refresh(), 2000);
+    const onVisibility = () => void refresh();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ready, workspaceID, loadThreads]);
   useEffect(() => {
     if (ready && threadID) {
       setView(undefined);
@@ -898,6 +754,9 @@ function WorkspaceApp({
         const next = nextLiveness(previous ?? [], event);
         return withRunWarnings(current, event.run_id, next);
       });
+      // Run lifecycle frames change the sidebar's queued/running/final state;
+      // refresh the lightweight list instead of walking every thread.
+      if (event.type.startsWith("run_")) void loadThreads(workspaceID);
       // Replayed deltas predate the loaded snapshot; only newer ones update it.
       if (
         event.type === "message_delta" &&
@@ -932,7 +791,6 @@ function WorkspaceApp({
         stream.close();
         setConnection("");
         void refreshThread(thread);
-        void loadThreads(workspaceID);
       }
     };
     stream.onerror = () => {
@@ -1482,258 +1340,37 @@ function WorkspaceApp({
           />
         </div>
       </section>
-      {(modal?.kind === "workspace" || modal?.kind === "edit-workspace") &&
-        system && (
-          <WorkspaceForm
-            current={modal.kind === "edit-workspace" ? workspace : undefined}
-            system={system}
-            close={close}
-            onDelete={
-              modal.kind === "edit-workspace" && workspace
-                ? () => setModal({ kind: "delete-workspace", workspace })
-                : undefined
-            }
-            save={async (value) => {
-              const saved = await api<Workspace>(
-                value.id
-                  ? `/api/v1/workspaces/${value.id}`
-                  : "/api/v1/workspaces",
-                value.id ? "PATCH" : "POST",
-                {
-                  name: value.name,
-                  description: value.description,
-                  root: value.root,
-                  skill_ids: value.skill_ids,
-                },
-                value.id ? { "If-Match": String(value.revision) } : {},
-              );
-              await loadSpaces();
-              close();
-              if (!value.id) navigate(saved.id);
-            }}
-          />
-        )}
-      {modal?.kind === "agents" && workspaceID && (
-        <WorkspaceMembersForm
-          agents={agents}
-          catalog={globalAgents}
-          workspaceID={workspaceID}
-          refresh={() => loadMembers(workspaceID)}
-          close={close}
-        />
-      )}
-      {(modal?.kind === "thread" || modal?.kind === "edit-thread") &&
-        workspace && (
-          <ThreadForm
-            current={
-              modal.kind === "edit-thread"
-                ? (modal.thread ?? view?.thread)
-                : undefined
-            }
-            agents={available}
-            defaultCoordinatorID={settings?.default_coordinator_id}
-            close={close}
-            save={async (value) => {
-              const th = await api<Thread>(
-                value.id
-                  ? `/api/v1/threads/${value.id}`
-                  : `/api/v1/workspaces/${workspaceID}/threads`,
-                value.id ? "PATCH" : "POST",
-                {
-                  title: value.title,
-                  agent_ids: value.agent_ids,
-                  coordinator_id: value.coordinator_id,
-                  workflow: value.workflow,
-                },
-                value.id ? { "If-Match": String(value.revision) } : {},
-              );
-              setWorkflowChoices((current) => ({
-                ...current,
-                [th.id]: th.workflow as WorkflowKey,
-              }));
-              if (value.id)
-                setView((current) =>
-                  current?.thread.id === th.id
-                    ? { ...current, thread: th }
-                    : current,
-                );
-              close();
-              await loadThreads(workspaceID);
-              if (!value.id) navigate(workspaceID, th.id);
-            }}
-          />
-        )}
-      {modal?.kind === "snapshot" && (
-        <SnapshotDialog run={modal.run} close={close} />
-      )}
-      {modal?.kind === "settings" && system && (
-        <SettingsDialog
-          system={system}
-          setSystem={setSystem}
-          close={close}
-          lock={lock}
-          settings={settings}
-          saveSettings={async (value) => {
-            const saved = await api<Settings>(
-              "/api/v1/settings",
-              "PATCH",
-              value,
-              { "If-Match": String(settings?.revision ?? 0) },
-            );
-            setSettings(saved);
-            return saved;
-          }}
-          agents={globalAgents}
-          saveAgent={async (value) => {
-            const saved = await api<Agent>(
-              value.id ? `/api/v1/agents/${value.id}` : "/api/v1/agents",
-              value.id ? "PATCH" : "POST",
-              value,
-              value.id ? { "If-Match": String(value.revision) } : {},
-            );
-            await loadGlobalAgents();
-            if (workspaceID) await loadMembers(workspaceID);
-            return saved;
-          }}
-        />
-      )}
-      {modal?.kind === "artifact" && artifact && (
-        <ArtifactReader
-          artifact={artifact}
-          sources={view?.sources ?? []}
-          close={close}
-          onFeedback={(value) => void saveFeedback(value)}
-          onReference={() => {
-            setArtifactRef(artifact);
-            close();
-            setPanelOpen(false);
-            requestAnimationFrame(() =>
-              document.getElementById("composer-input")?.focus(),
-            );
-          }}
-          onSource={(id) => {
-            close();
-            openSource(id);
-          }}
-          onError={(error) => setError(errorText(error))}
-        />
-      )}
-      {modal?.kind === "rename-thread" && (
-        <ThreadRenameForm
-          thread={modal.thread}
-          close={close}
-          save={async (title) => {
-            // The title-only update leaves members, coordinator and workflow untouched.
-            const saved = await api<Thread>(
-              `/api/v1/threads/${modal.thread.id}`,
-              "PATCH",
-              { title },
-              { "If-Match": String(modal.thread.revision) },
-            );
-            setView((current) =>
-              current?.thread.id === saved.id
-                ? { ...current, thread: saved }
-                : current,
-            );
-            close();
-            await loadThreads(workspaceID);
-          }}
-        />
-      )}
-      {modal?.kind === "delete-thread" && (
-        <ConfirmDialog
-          title="删除会话"
-          action="删除会话"
-          close={close}
-          confirm={async () => {
-            await api(`/api/v1/threads/${modal.thread.id}`, "DELETE");
-            close();
-            pendingSubmission.current.delete(modal.thread.id);
-            await loadThreads(workspaceID);
-            if (modal.thread.id === threadID) navigate(workspaceID);
-          }}
-        >
-          <p>
-            “{modal.thread.title}
-            ”的消息、协作记录、来源和产物会被永久删除，无法恢复。
-          </p>
-        </ConfirmDialog>
-      )}
-      {modal?.kind === "delete-workspace" && (
-        <ConfirmDialog
-          title="删除工作空间"
-          action="删除工作空间"
-          close={close}
-          confirm={async () => {
-            await api(`/api/v1/workspaces/${modal.workspace.id}`, "DELETE");
-            close();
-            const spaces = await loadSpaces();
-            navigate(spaces[0]?.id ?? "");
-          }}
-        >
-          <p>
-            “{modal.workspace.name}”及其中的 {threads.length}{" "}
-            个会话、成员关联、来源和产物会被永久删除，无法恢复。全局成员档案会保留。
-          </p>
-        </ConfirmDialog>
-      )}
-    </div>
-  );
-}
-
-/** Without a workspace there is one thing to do; with one, scenarios prefill the composer. */
-function Welcome({
-  workspace,
-  members,
-  onCreate,
-  onPick,
-}: {
-  workspace?: Workspace;
-  members: number;
-  onCreate: () => void;
-  onPick: (key: WorkflowKey, sample: string) => void;
-}) {
-  if (!workspace)
-    return (
-      <div className={cx("welcome")}>
-        <h1>把问题交给一个团队。</h1>
-        <div className={cx("onboarding")}>
-          <p>Cocogem 让几位成员分工研究、互相质疑，再汇总成有来源的结论。</p>
-          <ol>
-            <li>创建工作空间，选择可以跨空间复用的成员</li>
-            <li>选择讨论、Research 或工程协作，提出问题</li>
-            <li>查看过程、来源和报告，继续追问</li>
-          </ol>
-          <button className={cx("primary")} onClick={onCreate}>
-            <Icon name="plus" /> 创建第一个工作空间
-          </button>
-        </div>
-      </div>
-    );
-  return (
-    <div className={cx("welcome")}>
-      <h1>把问题交给一个团队。</h1>
-      <p className={cx("intro")}>
-        直接提出问题，也可以附上链接。成员会主动查证、交流与复核，把过程和结论留在这里。
-      </p>
-      <div className={cx("scenario-grid")}>
-        {scenarios.map((item) => (
-          <button
-            key={item.key}
-            className={cx("scenario")}
-            onClick={() => onPick(item.key, item.sample)}
-          >
-            <span className={cx("scenario-icon")}>
-              <Icon name={item.icon} size={18} />
-            </span>
-            <strong>{item.title}</strong>
-            <p>{item.description}</p>
-          </button>
-        ))}
-      </div>
-      <p className={cx("welcome-note")}>
-        {members} 位成员已就位。可以描述你需要的分工，或输入 @ 指定成员。
-      </p>
+      <AppModals
+        modal={modal}
+        setModal={setModal}
+        close={close}
+        system={system}
+        setSystem={setSystem}
+        workspace={workspace}
+        workspaceID={workspaceID}
+        threadID={threadID}
+        agents={agents}
+        globalAgents={globalAgents}
+        view={view}
+        settings={settings}
+        setSettings={setSettings}
+        artifact={artifact}
+        threads={threads}
+        lock={lock}
+        navigate={navigate}
+        loadSpaces={loadSpaces}
+        loadMembers={loadMembers}
+        loadThreads={loadThreads}
+        loadGlobalAgents={loadGlobalAgents}
+        setView={setView}
+        setWorkflowChoices={setWorkflowChoices}
+        setArtifactRef={setArtifactRef}
+        setPanelOpen={setPanelOpen}
+        setError={setError}
+        openSource={openSource}
+        saveFeedback={saveFeedback}
+        pendingSubmission={pendingSubmission.current}
+      />
     </div>
   );
 }

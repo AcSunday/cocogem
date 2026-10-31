@@ -51,7 +51,7 @@ func TestClaudePreservesOnlyConnectionSettings(t *testing.T) {
 	if strings.Contains(string(encoded), "unsafe command") || strings.Contains(string(encoded), "unsafe-plugin") || strings.Contains(string(encoded), "mcpServers") {
 		t.Fatal("tool customizations escaped the connection allowlist")
 	}
-	if got["disableAllHooks"] != true || got["model"] != "configured-model" {
+	if got["disableAllHooks"] != true || got["model"] != "configured-model" || got["effortLevel"] != "high" {
 		t.Fatal("safe settings missing")
 	}
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "environment-token")

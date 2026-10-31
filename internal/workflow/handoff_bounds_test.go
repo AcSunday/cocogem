@@ -15,9 +15,9 @@ import (
 )
 
 // TestHandoffBoundsStructuredArtifactAndKeepsArtifactJSONRetrieval covers a
-// deliverable whose body is short but whose structured tail is far beyond the
-// 100000-byte host input budget. The handoff must stay bounded and explicit,
-// while the dependent step can still page the complete artifact_json.
+// deliverable whose body is short but whose structured tail is far beyond a
+// bounded host input. The handoff must stay bounded and explicit, while the
+// dependent step can still page the complete artifact_json.
 func TestHandoffBoundsStructuredArtifactAndKeepsArtifactJSONRetrieval(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
 	if err != nil {

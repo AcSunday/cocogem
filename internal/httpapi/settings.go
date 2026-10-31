@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
@@ -38,7 +39,14 @@ func (s *Server) updateSettings(rw http.ResponseWriter, r *http.Request) {
 		if assignments == nil {
 			assignments = map[string]map[string]string{}
 		}
-		value = w.Settings{Revision: current.Revision + 1, DefaultCoordinatorID: in.DefaultCoordinatorID, Assignments: assignments}
+		retention := current.RetentionDays
+		if in.RetentionDays != nil {
+			retention = *in.RetentionDays
+		}
+		if err := w.ValidateRetentionDays(retention); err != nil {
+			return err
+		}
+		value = w.Settings{Revision: current.Revision + 1, DefaultCoordinatorID: in.DefaultCoordinatorID, Assignments: assignments, RetentionDays: retention}
 		agents, err := tx.GlobalAgents()
 		if err != nil {
 			return err
@@ -46,9 +54,40 @@ func (s *Server) updateSettings(rw http.ResponseWriter, r *http.Request) {
 		if err := w.ValidateSettings(value, agents); err != nil {
 			return err
 		}
-		return tx.SaveSettings(value)
+		if err := tx.SaveSettings(value); err != nil {
+			return err
+		}
+		if in.RetentionDays != nil {
+			return rescheduleTrash(tx, retention)
+		}
+		return nil
 	})
 	respond(rw, r, value, err)
+}
+
+// rescheduleTrash applies the current retention period to conversations already
+// in the trash, so their displayed purge time matches the setting. Purge time is
+// lifecycle metadata, so this leaves thread revisions untouched.
+func rescheduleTrash(tx *store.Tx, retention int) error {
+	threads, err := tx.DeletedThreads()
+	if err != nil {
+		return err
+	}
+	for _, thread := range threads {
+		deleted, err := time.Parse(time.RFC3339Nano, thread.DeletedAt)
+		if err != nil {
+			continue
+		}
+		purgeAt := deleted.AddDate(0, 0, w.EffectiveRetentionDays(retention)).Format(time.RFC3339Nano)
+		if thread.PurgeAt == purgeAt {
+			continue
+		}
+		thread.PurgeAt = purgeAt
+		if err := tx.SaveThread(thread); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // routingCatalog keeps presentation-only avatars out of routing validity.
