@@ -274,6 +274,8 @@ examples/          可公开的样例资料
 
 ## 验证与验收
 
+GitHub Actions 在 push 与 Pull Request 时只运行 test 任务：保留 Go 版本和操作系统矩阵，安装依赖后执行 `make test`。构建、契约、浏览器、安全扫描和候选包命令保留为本地验证入口；工作流不执行打包、发布或部署。
+
 | 命令 | 验证范围 |
 | --- | --- |
 | make test | Node 脚本、gofmt、go vet、全包 race/shuffle、终端 CLI 集成、前端 Lint/类型/单元测试 |
