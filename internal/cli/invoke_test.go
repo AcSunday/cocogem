@@ -35,6 +35,7 @@ func TestSessionEvents(t *testing.T) {
 		{name: "claude", parse: parseClaudeEvent, input: `{"type":"system","subtype":"init","session_id":"` + testSessionID + `"}`},
 		{name: "codex", parse: parseCodexEvent, input: `{"type":"thread.started","thread_id":"` + testSessionID + `"}`},
 		{name: "gemini", parse: parseGeminiEvent, input: `{"type":"init","session_id":"` + testSessionID + `"}`},
+		{name: "pi", parse: new(piEvents).parse, input: `{"type":"session","id":"` + testSessionID + `"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

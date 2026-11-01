@@ -11,7 +11,7 @@ check-contract: contract
 	git diff --exit-code -- api/openapi.yaml web/src/api/schema.ts
 
 probe-cli:
-	COCOGEM_CHECK_INSTALLED_CLAUDE=1 COCOGEM_CHECK_INSTALLED_CODEX=1 COCOGEM_CHECK_INSTALLED_GEMINI=1 go test -run 'TestInstalled(Claude|Codex|Gemini)ToolRegistry' -v ./internal/nativecli
+	COCOGEM_CHECK_INSTALLED_CLAUDE=1 COCOGEM_CHECK_INSTALLED_CODEX=1 COCOGEM_CHECK_INSTALLED_GEMINI=1 COCOGEM_CHECK_INSTALLED_PI=1 go test -run 'TestInstalled(Claude|Codex|Gemini|Pi)' -v ./internal/nativecli
 
 probe-isolation:
 	COCOGEM_CHECK_INSTALLED_ISOLATION=1 go test -run TestInstalledIsolationProbes -v ./internal/nativecli

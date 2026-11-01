@@ -83,14 +83,30 @@ export function App() {
   const [error, setError] = useState("");
   const connect = useCallback(async () => {
     setError("");
-    try {
-      const info = await api<System>("/api/v1/system");
-      setCSRF(info.csrf_token);
-      setSystem(info);
-      setRequired(false);
-    } catch (error) {
-      if (error instanceof APIError && error.status === 401) setRequired(true);
-      else setError(errorText(error));
+    // The dev server and local service start together; retry while the
+    // service is still coming up so the loading state stays visible instead
+    // of flashing a one-off connection error.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const info = await api<System>("/api/v1/system");
+        setCSRF(info.csrf_token);
+        setSystem(info);
+        setRequired(false);
+        return;
+      } catch (error) {
+        if (error instanceof APIError && error.status === 401) {
+          setRequired(true);
+          return;
+        }
+        const transient =
+          error instanceof APIError &&
+          (error.status === 0 || error.status >= 500);
+        if (!transient || attempt >= 4) {
+          setError(errorText(error));
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+      }
     }
   }, []);
   useEffect(() => {

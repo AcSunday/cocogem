@@ -217,6 +217,10 @@ func runIsolationProbe(ctx context.Context, info agent.AdapterInfo) probeResult 
 			"GOOGLE_GENAI_USE_VERTEXAI": "false",
 			"GOOGLE_GENAI_USE_GCA":      "false",
 		}
+	case "pi":
+		// Pi has no endpoint environment override; preparePi writes a scoped
+		// models.json provider that points at the local probe.
+		options.piProbeURL = server.url
 	}
 	err = (Provider{}).run(ctx, request, execute, observe, options)
 	if violation := server.failure(); violation != "" {
@@ -320,6 +324,13 @@ func (p *probeServer) handle(w http.ResponseWriter, r *http.Request) {
 		} else {
 			writeGeminiText(w)
 		}
+	case "pi":
+		w.Header().Set("Content-Type", "text/event-stream")
+		if turn == 1 {
+			writePiTool(w)
+		} else {
+			writePiText(w)
+		}
 	default:
 		http.Error(w, "probe", http.StatusBadRequest)
 	}
@@ -395,6 +406,23 @@ func (p *probeServer) validateTools(body []byte) {
 				}
 			}
 		}
+	case "pi":
+		var payload struct {
+			Tools []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tools"`
+		}
+		if json.Unmarshal(body, &payload) != nil {
+			return
+		}
+		for _, tool := range payload.Tools {
+			name := tool.Function.Name
+			if !strings.HasPrefix(name, "mcp__cocogem__") || !probeToolName(strings.TrimPrefix(name, "mcp__cocogem__")) {
+				p.fail(name)
+			}
+		}
 	}
 }
 
@@ -454,6 +482,19 @@ func writeGeminiTool(w http.ResponseWriter, body []byte) {
 
 func writeGeminiText(w http.ResponseWriter) {
 	writeSSEJSON(w, map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"role": "model", "parts": []any{map[string]any{"text": "isolation probe complete"}}}, "finishReason": "STOP", "index": 0}}, "usageMetadata": map[string]any{"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2}})
+}
+
+func writePiTool(w http.ResponseWriter) {
+	writeSSEJSON(w, map[string]any{"id": "chatcmpl-probe", "object": "chat.completion.chunk", "created": 1, "model": "cocogem-probe", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "call_probe", "type": "function", "function": map[string]any{"name": "mcp__cocogem__probe", "arguments": ""}}}}, "finish_reason": nil}}})
+	writeSSEJSON(w, map[string]any{"id": "chatcmpl-probe", "object": "chat.completion.chunk", "created": 1, "model": "cocogem-probe", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "function": map[string]any{"arguments": "{}"}}}}, "finish_reason": nil}}})
+	writeSSEJSON(w, map[string]any{"id": "chatcmpl-probe", "object": "chat.completion.chunk", "created": 1, "model": "cocogem-probe", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+	fmt.Fprint(w, "data: [DONE]\n\n")
+}
+
+func writePiText(w http.ResponseWriter) {
+	writeSSEJSON(w, map[string]any{"id": "chatcmpl-probe", "object": "chat.completion.chunk", "created": 1, "model": "cocogem-probe", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": "isolation probe complete"}, "finish_reason": nil}}})
+	writeSSEJSON(w, map[string]any{"id": "chatcmpl-probe", "object": "chat.completion.chunk", "created": 1, "model": "cocogem-probe", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+	fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
 func writeSSEJSON(w http.ResponseWriter, value any) {

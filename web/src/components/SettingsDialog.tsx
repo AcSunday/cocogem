@@ -502,7 +502,7 @@ function ServiceSettings({
               >
                 {(system.executors?.length
                   ? system.executors.map((item) => item.id)
-                  : ["claude", "codex", "gemini"]
+                  : ["claude", "codex", "gemini", "pi"]
                 ).map((id) => (
                   <option key={id} value={id}>
                     {id}

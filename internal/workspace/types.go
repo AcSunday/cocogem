@@ -50,6 +50,8 @@ func ThinkingLevels(executor string) []string {
 		// The installed Gemini CLI exposes thinkingLevel LOW/HIGH through its
 		// scoped modelConfigs.generateContentConfig, not a CLI flag.
 		return []string{"low", "high"}
+	case "pi":
+		return []string{"low", "medium", "high", "xhigh", "max"}
 	default:
 		return nil
 	}
@@ -555,10 +557,10 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	if !handlePattern.MatchString(a.Handle) {
 		return errors.New("handle must match [a-z][a-z0-9-]{1,31}")
 	}
-	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "gemini"}, a.Executor) {
+	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "gemini", "pi"}, a.Executor) {
 		return errors.New("executor is not supported")
 	}
-	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "gemini" {
+	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "gemini" || a.Executor == "pi" {
 		if len(a.Model) > 150 || strings.TrimSpace(a.Model) == "" || strings.HasPrefix(a.Model, "-") || strings.ContainsAny(a.Model, "\r\n\x00") {
 			return errors.New("CLI model must be default or a model identifier")
 		}

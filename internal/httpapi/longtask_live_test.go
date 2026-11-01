@@ -149,8 +149,8 @@ func TestLiveLongTaskEvidence(t *testing.T) {
 		if candidate == "" || slices.Contains(clis, candidate) {
 			continue
 		}
-		if !slices.Contains([]string{"claude", "codex", "gemini"}, candidate) {
-			t.Fatalf("COCOGEM_LIVE_LONG_TASK_CLI must be claude, codex or gemini, got %q", candidate)
+		if !slices.Contains([]string{"claude", "codex", "gemini", "pi"}, candidate) {
+			t.Fatalf("COCOGEM_LIVE_LONG_TASK_CLI must be claude, codex, gemini or pi, got %q", candidate)
 		}
 		clis = append(clis, candidate)
 	}

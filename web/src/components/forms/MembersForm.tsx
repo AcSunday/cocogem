@@ -41,12 +41,13 @@ const readOnlyTools = [
 ];
 const engineeringTools = ["write_file", "patch_file", "run_test"];
 export const allTools = [...readOnlyTools, ...engineeringTools];
-const executors = ["claude", "codex", "gemini"];
+const executors = ["claude", "codex", "gemini", "pi"];
 /** Empty keeps the CLI's own default; only these explicit levels are forwarded. */
 const thinkingLevels: Record<string, string[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
   codex: ["low", "medium", "high", "xhigh", "ultra", "max"],
   gemini: ["low", "high"],
+  pi: ["low", "medium", "high", "xhigh", "max"],
 };
 const minContextSize = 1024;
 const avatarMaxBytes = 512 * 1024;

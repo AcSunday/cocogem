@@ -6,7 +6,7 @@
 ```text
 cocogem/
 ├── cmd/
-│   ├── cocogem/           # 原生 Claude/Codex/Gemini CLI 入口
+│   ├── cocogem/           # 原生 Claude/Codex/Gemini/Pi CLI 入口
 │   ├── cocogem-server/    # Web 服务入口
 │   ├── contract/          # OpenAPI 生成
 │   ├── checksecrets/      # 已跟踪文件的凭证检查

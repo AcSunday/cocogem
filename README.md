@@ -101,7 +101,7 @@ CLI 的认证和模型访问仍由对应供应商管理。宿主仅按白名单�
 
 ## 运行
 
-需要 Go 1.26.10+，以及可直接调用的本机 CLI：Claude Code（`claude --version`）、Codex（`codex --version`）或 Gemini（`gemini --version`）。沿用 CLI 已有的 API Key、服务地址、供应商和模型配置，无需额外登录或另配模型密钥。
+需要 Go 1.26.10+，以及可直接调用的本机 CLI：Claude Code（`claude --version`）、Codex（`codex --version`）、Gemini（`gemini --version`）或 Pi（`pi --version`）。沿用 CLI 已有的 API Key、服务地址、供应商和模型配置，无需额外登录或另配模型密钥。
 
 默认使用 Claude：
 
@@ -115,6 +115,7 @@ go run ./cmd/cocogem "你好，请用一句话介绍自己"
 go run ./cmd/cocogem claude "你好，请用一句话介绍自己"
 go run ./cmd/cocogem codex "你好，请用一句话介绍自己"
 go run ./cmd/cocogem gemini "你好，请用一句话介绍自己"
+go run ./cmd/cocogem pi "你好，请用一句话介绍自己"
 ```
 
 ## 恢复会话
@@ -130,6 +131,9 @@ go run ./cmd/cocogem claude --resume latest "刚才的数字是多少？"
 
 go run ./cmd/cocogem gemini "记住口令 blue-cat"
 go run ./cmd/cocogem gemini --resume latest "刚才的口令是什么？"
+
+go run ./cmd/cocogem pi "记住暗号 green-fox"
+go run ./cmd/cocogem pi --resume latest "刚才的暗号是什么？"
 ```
 
 也可以指定原生 CLI 会话 UUID：
@@ -138,13 +142,13 @@ go run ./cmd/cocogem gemini --resume latest "刚才的口令是什么？"
 go run ./cmd/cocogem codex --resume 12345678-1234-1234-1234-123456789abc "继续这个会话"
 ```
 
-`--resume` 放在提示词之前。`latest` 只读取本目录、本 CLI 的记录；没有记录或记录损坏时会报错。恢复失败也会报错，不自动新建会话。Claude、Codex、Gemini 的会话不能互换，恢复时返回的会话 ID 必须与请求一致。
+`--resume` 放在提示词之前。`latest` 只读取本目录、本 CLI 的记录；没有记录或记录损坏时会报错。恢复失败也会报错，不自动新建会话。Claude、Codex、Gemini、Pi 的会话不能互换，恢复时返回的会话 ID 必须与请求一致。
 
 `.cocogem/` 只保存 CLI 名称和会话 ID；聊天历史仍由各 CLI 保存。如果原生 CLI 删除了历史、启用了临时会话，或换了账号/工作目录，记录的 ID 可能无法恢复。文件以 0600 权限创建，通过临时文件加重命名更新，调用失败时不覆盖上次成功记录。
 
 ## 统一 Go 接口
 
-三个 CLI 共用同一个调用函数：
+四个 CLI 共用同一个调用函数：
 
 ```go
 func Invoke(cli string, request Request, output io.Writer) (Result, error)
@@ -164,7 +168,7 @@ _, err = cli.Invoke("codex", cli.Request{
 return err
 ```
 
-把 `"codex"` 换成 `"claude"` 或 `"gemini"` 即可。`Request.SessionID` 留空时新建会话。Go 接口不读写 `.cocogem/`，调用方可以自行保存 ID；命令行入口负责本地记录。
+把 `"codex"` 换成 `"claude"`、`"gemini"` 或 `"pi"` 即可。`Request.SessionID` 留空时新建会话。Go 接口不读写 `.cocogem/`，调用方可以自行保存 ID；命令行入口负责本地记录。
 
 ## 编译和文件结构
 
@@ -175,6 +179,7 @@ go build -o /tmp/cocogem ./cmd/cocogem
 /tmp/cocogem "你好，请用一句话介绍自己"
 /tmp/cocogem codex "你好，请用一句话介绍自己"
 /tmp/cocogem gemini "你好，请用一句话介绍自己"
+/tmp/cocogem pi "你好，请用一句话介绍自己"
 ```
 
 CLI 入口位于 `cmd/cocogem/main.go`，调用逻辑、事件解析及会话记录位于
@@ -217,13 +222,22 @@ gemini --output-format stream-json --approval-mode plan --prompt="你的问题"
 
 Gemini 使用 plan 模式。若本机开启了目录信任检查，需要先在交互式 `gemini` 中确认当前目录。
 
-统一的 `runCLI()` 负责子进程生命周期，三个 CLI 文件分别解析自己的事件：
+Pi 调用相当于：
+
+```sh
+printf '%s' "你的问题" | pi --mode json --print --
+```
+
+提示词通过标准输入传入，避免被 `@file` 语法当成附件；`--mode json` 输出逐行会话事件。
+
+统一的 `runCLI()` 负责子进程生命周期，四个 CLI 文件分别解析自己的事件：
 
 - Claude：打印 `assistant.message.content` 中 `type` 为 `text` 的块，跳过 system、result 等事件。
 - Codex：打印 `item.completed` 中 `item.type` 为 `agent_message` 的 `item.text`，跳过中间更新、推理和工具事件；遇到 `turn.failed` 时返回错误。
 - Gemini：连续写出 `message` 中 `role` 为 `assistant` 的 `content` 增量，在成功的 `result` 事件后换行；错误结果返回错误。
+- Pi：写出 `message_update` 中 `assistantMessageEvent.type` 为 `text_delta` 的 `delta`，在 `agent_settled` 时核对最终 assistant 消息后换行。重试耗尽、模型错误、中止、输出长度截断或缺失终态均返回错误，不覆盖最近成功会话；中间失败允许 Pi 先完成自己的重试。
 
-会话 ID 分别来自 Claude 的 `system/init.session_id`、Codex 的 `thread.started.thread_id`、Gemini 的 `init.session_id`。恢复时使用 `claude --resume ID`、`codex exec resume ID`、`gemini --resume ID`；Codex 的只读沙箱参数仍在 `exec` 层显式设置。
+会话 ID 分别来自 Claude 的 `system/init.session_id`、Codex 的 `thread.started.thread_id`、Gemini 的 `init.session_id`、Pi 的 `session.id`。恢复时使用 `claude --resume ID`、`codex exec resume ID`、`gemini --resume ID`、`pi --session ID`；Codex 的只读沙箱参数仍在 `exec` 层显式设置。
 
 Claude/Codex 每条完整回复后换行，Gemini 的增量片段直接拼接。Codex 的协议参见 [OpenAI 官方文档](https://learn.chatgpt.com/docs/non-interactive-mode#make-output-machine-readable)。
 

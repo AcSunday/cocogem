@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  api,
+  APIError,
   applyMessageDelta,
   boundedMessage,
   EVENT_WINDOW,
@@ -319,4 +321,62 @@ it("requests message content pages and run event history", async () => {
   expect(fetcher.mock.calls[1][0]).toBe(
     "/api/v1/runs/run/event-history?limit=100&after=42",
   );
+});
+
+describe("api transport errors", () => {
+  it("turns an empty upstream failure into a retryable service error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 500 })),
+    );
+    const error = (await api("/api/v1/system").catch(
+      (caught) => caught,
+    )) as APIError;
+    expect(error.status).toBe(500);
+    expect(error.message).toContain("本地服务暂时不可用");
+    expect(error.message).not.toContain("JSON");
+  });
+
+  it("keeps the server error message from a JSON failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "密码不正确" } },
+          { status: 401 },
+        ),
+      ),
+    );
+    const error = (await api("/auth/login", "POST", {}).catch(
+      (caught) => caught,
+    )) as APIError;
+    expect(error.status).toBe(401);
+    expect(error.message).toBe("密码不正确");
+  });
+
+  it("reports a rejected fetch as an unavailable service", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
+    );
+    const error = (await api("/api/v1/system").catch(
+      (caught) => caught,
+    )) as APIError;
+    expect(error.status).toBe(0);
+    expect(error.message).toContain("无法连接本地服务");
+  });
+
+  it("rejects a successful response with an empty body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 200 })),
+    );
+    const error = (await api("/api/v1/system").catch(
+      (caught) => caught,
+    )) as APIError;
+    expect(error.status).toBe(0);
+    expect(error.message).toContain("空响应");
+  });
 });

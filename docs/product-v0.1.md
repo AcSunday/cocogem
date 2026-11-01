@@ -51,11 +51,13 @@ Cocogem 在产品定义与交互实现上恪守**克制与极简**原则：
 | F09 | 可靠性 | 持久记录、有限排队、幂等提交、断线续读、取消与启动恢复 |
 | F10 | 开源工程 | 文档、许可证、贡献说明、CI、契约测试、浏览器端到端测试 |
 
-网页执行以本机已可用的 Claude/Codex/Gemini CLI 为载体，直接复用 CLI 现有连接与模型配置，不要求额外登录或配置模型 API Key。成员显式选择 CLI，模型默认沿用该 CLI 的默认值，也可指定。已有 API Key/服务地址/供应商设置按连接字段白名单复用，不强制改为 OAuth，也不要求重新登录。安装与版本探测不等于连接或模型已验证。
+网页执行以本机已可用的 Claude/Codex/Gemini/Pi CLI 为载体，直接复用 CLI 现有连接与模型配置，不要求额外登录或配置模型 API Key。成员显式选择 CLI，模型默认沿用该 CLI 的默认值，也可指定。已有 API Key/服务地址/供应商设置按连接字段白名单复用，不强制改为 OAuth，也不要求重新登录。安装与版本探测不等于连接或模型已验证。
 
-CLI 负责模型调用和工具循环，Go 负责成员身份、路由、上下文工作包、流程调度、权限、来源和产物。网页运行只从成员现有工具授权派生 CLI 原生只读能力，不新增授权开关：`read_file→Read`、`list_files→Glob`、`search_content→Grep`；仅在 `auto`/`web_discovery` 范围下 `web_search→WebSearch`、`fetch_url→WebFetch`。`given_sources` 和空 scope 不启用原生联网，宿主 `fetch_url` 范围保持不变。原生工具与本步受控 MCP 工具并存：系统提示按本步实际启用项列出原生工具名及对应 MCP fallback，并只把这些 MCP 工具说明为在该原生工具失败（引用确切错误）或无可使用内容后使用；这是提示与工具描述层面的优先约束，不是硬性拦截，MCP 后备始终保留。`Bash`/`Edit`/`Write` 及内置 `Task`/`Agent`/`Skill` 等不暴露。Claude 原生文件读取使用 `--restricted`、独立配置目录、工作区根作为 cwd 和敏感路径 deny；实测 deny 只对 cwd 生效、不覆盖 `--add-dir`，因此文件步骤不使用 `--add-dir` 读取工作区，并以隔离环境变量禁用 `CLAUDE.md` 自动加载；纯联网或无文件步骤仍用空 cwd。配置目录不可被原生工具读取，工作区根不安全时降级为 MCP 文件工具。Codex 的合并 web 工具只在成员同时具备两项联网授权且范围允许发现时启用，并向 scoped provider 声明 Responses web 能力；上游不支持时按实际错误显示，结果按线索保存；Gemini 的 stream-json 工具结果不暴露实际返回正文，因此保持 MCP 联网并记录能力缺口。不能可靠限制工具的 CLI 版本必须标记不支持并阻止启动，不能为兼容放宽权限。现有独立终端 CLI 行为保持兼容，其默认权限不代表网页权限。
+CLI 负责模型调用和工具循环，Go 负责成员身份、路由、上下文工作包、流程调度、权限、来源和产物。网页运行只从成员现有工具授权派生 CLI 原生只读能力，不新增授权开关：`read_file→Read`、`list_files→Glob`、`search_content→Grep`；仅在 `auto`/`web_discovery` 范围下 `web_search→WebSearch`、`fetch_url→WebFetch`。`given_sources` 和空 scope 不启用原生联网，宿主 `fetch_url` 范围保持不变。原生工具与本步受控 MCP 工具并存：系统提示按本步实际启用项列出原生工具名及对应 MCP fallback，并只把这些 MCP 工具说明为在该原生工具失败（引用确切错误）或无可使用内容后使用；这是提示与工具描述层面的优先约束，不是硬性拦截，MCP 后备始终保留。`Bash`/`Edit`/`Write` 及内置 `Task`/`Agent`/`Skill` 等不暴露。Claude 原生文件读取使用 `--restricted`、独立配置目录、工作区根作为 cwd 和敏感路径 deny；实测 deny 只对 cwd 生效、不覆盖 `--add-dir`，因此文件步骤不使用 `--add-dir` 读取工作区，并以隔离环境变量禁用 `CLAUDE.md` 自动加载；纯联网或无文件步骤仍用空 cwd。配置目录不可被原生工具读取，工作区根不安全时降级为 MCP 文件工具。Codex 的合并 web 工具只在成员同时具备两项联网授权且范围允许发现时启用，并向 scoped provider 声明 Responses web 能力；上游不支持时按实际错误显示，结果按线索保存；Gemini 的 stream-json 工具结果不暴露实际返回正文，因此保持 MCP 联网并记录能力缺口；Pi 的 read/bash/edit/write 没有与工作区根绑定的 deny 规则，因此不派生原生文件工具，只使用受控 MCP 工具。不能可靠限制工具的 CLI 版本必须标记不支持并阻止启动，不能为兼容放宽权限。现有独立终端 CLI 行为保持兼容，其默认权限不代表网页权限。
 
 在线搜索优先使用 Brave Search（`BRAVE_SEARCH_API_KEY`）。未配置 Brave 时使用无密钥公共搜索回退（Bing RSS，失败后 DuckDuckGo HTML），可用 `COCOGEM_SEARCH_PROVIDER=auto|brave|bing|duckduckgo|public|off` 控制。需要代理访问公共网页时，用 `COCOGEM_WEB_PROXY` 指定 http/https/socks5 地址，或设为 `env` 复用 `HTTPS_PROXY`/`HTTP_PROXY`，或设为 `system` 复用 macOS 已配置的 HTTP/HTTPS/SOCKS 代理（只读取代理主机和端口，不读取 PAC、订阅或凭据）；`make dev` 未设置时使用 `system`，显式空值保持直连。同一解析结果仅在启用原生联网的步骤传给 CLI 子进程，并合并既有 `NO_PROXY`、保留 loopback MCP 直连；它也可能影响该子进程的模型连接路径，这一点在文档中明示。原生联网的实际域名安全检查和网络策略由 CLI/供应商负责，不是 Go `ValidateURL`/DNS/重定向/SSRF 保证；宿主 `fetch_url` 仍是受控路径。探测请求不带代理解析结果。Web 会话默认按任务自主研究（`research_scope=auto`）：用户可在消息中直接贴公共 URL，也可不提供链接；成员按需要主动搜索、读取原文和独立复核，不要求用户预先整理资料。搜索不可用时仍可读取公开 URL 和本地资料，并明确说明搜索限制，不静默改成已有知识回答。API 显式请求 `web_discovery` 时缺少搜索仍报不可用，旧 `given_sources` 及历史 Run 的范围保持兼容。搜索查询会发送给对应搜索服务。
+
+Pi 连接检查通过禁用模型工具和用户资源的本地 RPC `get_state` 解析实际 `provider/model`、API、endpoint 与推理默认，不发送模型请求。每次执行冻结连接文件、环境、明确模型和推理默认；恢复时供应商、模型或上游变化会阻止继续，OAuth/API Key 的正常刷新不改变连接身份。网页执行将有效思考增量记为无正文的进度元数据，并按 assistant 响应去重累计用量；输出 token 上限造成的截断不算成功交付。真实二进制的本地协议检查使用 `COCOGEM_CHECK_INSTALLED_PI=1 go test -run TestInstalledPi -v ./internal/nativecli`，该检查不代表真实供应商或跨平台验收。
 
 ### 2.2 后续版本
 
@@ -172,7 +174,7 @@ handle 和显式别名在同一工作空间的路由词表中不得指向多个�
 ### 2026-10-30 执行选项、自动重试与清理
 
 - 成员可显式设置 `context_size`（UTF-8 输入字节预算）与 `thinking_level`。`context_size` 为空或 0 时跟随执行 CLI 按其配置的上下文窗口处理；显式值必须不小于 1024 字节，由 Cocogem 作为该成员的输入预算上限。保存成员、派发和连接验证使用同一校验。
-- `thinking_level` 为空表示沿用该 CLI 已有配置默认，平台不伪造一个值：Claude 沿用本机设置中的 effort 并保留显式 `--effort` 覆盖；Codex 将配置顶层的 `model_reasoning_effort` 以简单 token 白名单转交 scoped `--ignore-user-config` 启动，openai 默认连接路径同样转交；Gemini 只把用户设置中匹配具体模型的 `modelConfigs.customOverrides[].modelConfig.generateContentConfig.thinkingConfig` 的 `thinkingLevel`/`thinkingBudget`/`includeThoughts` 带入 scoped settings。成员显式选择优先于配置默认。Codex 的其他配置字段、Gemini 的其他 modelConfigs 字段以及 hooks、tools、scripts、MCP 均不转交；非简单 token 的 Codex effort 不转交。Gemini 的 `thinking_level` 必须配合显式模型。转交的配置默认属于连接身份快照；上游配置改变后，旧的中断 Run 按连接变化阻止续跑，而不是静默换 effort。
+- `thinking_level` 为空表示沿用该 CLI 已有配置默认，平台不伪造一个值：Claude 沿用本机设置中的 effort 并保留显式 `--effort` 覆盖；Codex 将配置顶层的 `model_reasoning_effort` 以简单 token 白名单转交 scoped `--ignore-user-config` 启动，openai 默认连接路径同样转交；Gemini 只把用户设置中匹配具体模型的 `modelConfigs.customOverrides[].modelConfig.generateContentConfig.thinkingConfig` 的 `thinkingLevel`/`thinkingBudget`/`includeThoughts` 带入 scoped settings；Pi 转交 `defaultProvider`/`defaultModel`/`defaultThinkingLevel`/`modelThinkingLevels` 等连接设置，成员显式选择通过 `--thinking` 覆盖。成员显式选择优先于配置默认。Codex 的其他配置字段、Gemini 的其他 modelConfigs 字段以及 hooks、tools、scripts、MCP 均不转交；非简单 token 的 Codex effort 不转交。Gemini 的 `thinking_level` 必须配合显式模型。转交的配置默认属于连接身份快照；上游配置改变后，旧的中断 Run 按连接变化阻止续跑，而不是静默换 effort。
 - Step 遇到明确可重放的失败（如网络错误）会自动重试，最多初始 1 次 + 3 次重试；预算按持久 Attempt 数计算，重启或改写原因标签不能重置。任一独立不可重试失败（认证、权限、取消、进程不确定、未知、上下文超限）、已提交副作用或调用方取消都会阻止自动重试。
 - 回收站清理在启动和每 10 分钟维护时执行，只删除 `purge_at` 已到期、无活动 Run、无存活平台拥有进程的会话；最终写事务重新读取当前 `purge_at`，因此恢复或重新删除产生的新保留期不会被旧扫描提前清理。删除默认保留 7 天，可在设置中改为 1–3650 天；修改后回收站中的会话会按新周期重新计算清理时间，启动维护也会校正旧条目。
 - 增量正文只来自真实 CLI 帧并持久化为 `message_chunks`；SSE `message_delta` 不靠定时器伪造。Claude/Gemini 的增量与最终快照会校验前缀并去重，最终快照更短或前缀改变按协议失败处理，不静默丢弃或重复。实测部分真实 Codex 调用只发一帧完整 `item.completed`，因此不能宣称所有 CLI 逐字流式。
@@ -818,7 +820,7 @@ M0 的基础契约按版本演进，M1 起开始落地安全边界和取消，�
 
 ## 17. 实现依据与原型来源
 
-当前可复用代码：`internal/cli/invoke.go` 的统一请求/结果与校验，`internal/cli/runner.go` 的子进程和 NDJSON 读取，三个 CLI 的解析器，`internal/cli/session.go` 的本地记录，以及对应测试。它们保留原生 CLI 学习路径；Web 的事件、身份隔离、权限与持久运行由独立的 `internal/httpapi`、`internal/agent`、`internal/workflow` 和 `internal/store` 模块提供。
+当前可复用代码：`internal/cli/invoke.go` 的统一请求/结果与校验，`internal/cli/runner.go` 的子进程和 NDJSON 读取，各 CLI 的解析器，`internal/cli/session.go` 的本地记录，以及对应测试。它们保留原生 CLI 学习路径；Web 的事件、身份隔离、权限与持久运行由独立的 `internal/httpapi`、`internal/agent`、`internal/workflow` 和 `internal/store` 模块提供。
 
 参考项目：[Clowder AI，固定版本 466d454](https://github.com/zts212653/clowder-ai/tree/466d4549fe2d75c9cc5c96b9497f47e464d13cf2)。借鉴统一执行事件、Agent Loop、上下文和团队协作思路，采用本项目自己的领域模型与界面。参考文档和实际代码不一致时，以固定版本实现及当前项目测试证据核对。
 

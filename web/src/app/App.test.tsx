@@ -106,6 +106,30 @@ it("applies and saves the appearance, including when browser storage is unavaila
   expect(document.documentElement).toHaveAttribute("data-appearance", "system");
 });
 
+it("keeps the loading animation and retries while the local service starts", async () => {
+  let attempts = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      if (path === "/api/v1/system") {
+        attempts++;
+        return attempts < 3
+          ? new Response("", { status: 500 })
+          : Response.json(system);
+      }
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  expect(
+    screen.getByRole("status", { name: "正在连接工作空间" }),
+  ).toBeInTheDocument();
+  expect(
+    await screen.findByLabelText("外观模式", undefined, { timeout: 4000 }),
+  ).toBeInTheDocument();
+  expect(attempts).toBe(3);
+});
+
 it("keeps linked drafts and exact artifact versions through theme and stream updates", async () => {
   history.replaceState({}, "", "/w/ws/t/thread");
   const thread = {

@@ -42,6 +42,8 @@ func TestMemberExecutionOptionsCRUD(t *testing.T) {
 	create(w.Agent{DisplayName: "low", Handle: "low", Executor: "claude", Model: "default", ContextSize: w.MinContextSize - 1, Tools: []string{}}, 400)
 	create(w.Agent{DisplayName: "bad", Handle: "bad", Executor: "claude", Model: "default", ThinkingLevel: "ultra", Tools: []string{}}, 400)
 	create(w.Agent{DisplayName: "gemini", Handle: "gemini", Executor: "gemini", Model: "default", ThinkingLevel: "high", Tools: []string{}}, 400)
+	create(w.Agent{DisplayName: "pi", Handle: "pi-agent", Executor: "pi", Model: "default", ThinkingLevel: "high", Tools: []string{}}, 200)
+	create(w.Agent{DisplayName: "pi-bad", Handle: "pi-bad", Executor: "pi", Model: "default", ThinkingLevel: "ultra", Tools: []string{}}, 400)
 
 	agent.ContextSize, agent.ThinkingLevel = 4096, "low"
 	rw := apiCall(s, "PATCH", "/api/v1/agents/"+agent.ID, agent, cookie, csrf, map[string]string{"If-Match": strconv.Itoa(agent.Revision)})

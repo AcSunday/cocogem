@@ -18,7 +18,7 @@ func validateSessionID(id string) error {
 }
 
 func sessionPath(dir, cli string) (string, error) {
-	if cli != "claude" && cli != "codex" && cli != "gemini" {
+	if cli != "claude" && cli != "codex" && cli != "gemini" && cli != "pi" {
 		return "", fmt.Errorf("unsupported CLI: %q", cli)
 	}
 	return filepath.Join(dir, cli+".json"), nil

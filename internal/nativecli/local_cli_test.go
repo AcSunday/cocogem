@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -119,6 +120,109 @@ func TestInstalledCodexToolRegistry(t *testing.T) {
 	for _, name := range []string{"mcp__cocogem__read_file", "mcp__cocogem__read_context", "mcp__cocogem__read_source"} {
 		if !seen[name] {
 			t.Fatalf("host tool %s missing from the Codex tool menu", name)
+		}
+	}
+}
+
+// Opt-in installed-binary check: the real Pi CLI runs against a local fake
+// OpenAI-compatible model, so no provider credentials are used. It proves the
+// scoped MCP inventory reaches the model and a host tool result continues the
+// loop; it is not provider or model-quality evidence.
+func TestInstalledPiToolRegistry(t *testing.T) {
+	if os.Getenv("COCOGEM_CHECK_INSTALLED_PI") != "1" {
+		t.Skip("set COCOGEM_CHECK_INSTALLED_PI=1 for a local provider-free binary check")
+	}
+	home := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", home)
+	requests := make(chan []string, 8)
+	var turns atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Role string `json:"role"`
+			} `json:"messages"`
+			Tools []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tools"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil {
+			http.Error(w, "invalid JSON", 400)
+			return
+		}
+		names := make([]string, 0, len(input.Tools))
+		for _, tool := range input.Tools {
+			names = append(names, tool.Function.Name)
+		}
+		requests <- names
+		w.Header().Set("Content-Type", "text/event-stream")
+		send := func(value map[string]any) {
+			raw, _ := json.Marshal(value)
+			fmt.Fprintf(w, "data: %s\n\n", raw)
+		}
+		hasToolResult := false
+		for _, message := range input.Messages {
+			if message.Role == "tool" {
+				hasToolResult = true
+			}
+		}
+		if turns.Add(1) == 1 && !hasToolResult {
+			send(map[string]any{"id": "chatcmpl-pi", "object": "chat.completion.chunk", "created": 1, "model": input.Model, "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "call_pi", "type": "function", "function": map[string]any{"name": "mcp__cocogem__read_file", "arguments": ""}}}}, "finish_reason": nil}}})
+			send(map[string]any{"id": "chatcmpl-pi", "object": "chat.completion.chunk", "created": 1, "model": input.Model, "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "function": map[string]any{"arguments": `{"path":"README.md"}`}}}}, "finish_reason": nil}}})
+			send(map[string]any{"id": "chatcmpl-pi", "object": "chat.completion.chunk", "created": 1, "model": input.Model, "choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}})
+		} else {
+			send(map[string]any{"id": "chatcmpl-pi", "object": "chat.completion.chunk", "created": 1, "model": input.Model, "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": "public fixture answer"}, "finish_reason": nil}}})
+			send(map[string]any{"id": "chatcmpl-pi", "object": "chat.completion.chunk", "created": 1, "model": input.Model, "choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"}}, "usage": map[string]any{"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+	models := `{"providers":{"local":{"name":"Local","baseUrl":"` + server.URL + `/v1","api":"openai-completions","apiKey":"cocogem-local-dummy","models":[{"id":"cocogem-local-fixture","name":"Fixture","reasoning":false,"input":["text"],"contextWindow":128000,"maxTokens":8192}]}}}`
+	settings := `{"defaultProvider":"local","defaultModel":"cocogem-local-fixture","defaultThinkingLevel":"off"}`
+	if err := os.WriteFile(filepath.Join(home, "models.json"), []byte(models), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "settings.json"), []byte(settings), 0600); err != nil {
+		t.Fatal(err)
+	}
+	request := testRequest()
+	request.Executor = "pi"
+	request.Model = "cocogem-local-fixture"
+	request.RequiredTools = []string{"read_file"}
+	request.FirstResponseTimeout = 30 * time.Second
+	request.StallTimeout = 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	var calls atomic.Int32
+	var piInput, piOutput int
+	err := (Provider{}).Run(ctx, request, func(context.Context, string, json.RawMessage) (string, error) {
+		calls.Add(1)
+		return `{"source":"public fixture"}`, nil
+	}, func(kind string, data map[string]any) error {
+		if kind == "usage" {
+			piInput, _ = data["input_tokens"].(int)
+			piOutput, _ = data["output_tokens"].(int)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("native loop host calls=%d", calls.Load())
+	}
+	if piInput != 6 || piOutput != 8 {
+		t.Fatalf("two Pi model calls should total input=6 output=8, got %d/%d", piInput, piOutput)
+	}
+	if len(requests) < 2 {
+		t.Fatal("native binary did not complete a tool call and model continuation")
+	}
+	for len(requests) > 0 {
+		names := <-requests
+		if len(names) != 1 || names[0] != "mcp__cocogem__read_file" {
+			t.Fatalf("unexpected native tool registry %v", names)
 		}
 	}
 }
@@ -315,7 +419,7 @@ func TestInstalledIsolationProbes(t *testing.T) {
 	if os.Getenv("COCOGEM_CHECK_INSTALLED_ISOLATION") != "1" {
 		t.Skip("set COCOGEM_CHECK_INSTALLED_ISOLATION=1 for installed isolation probes")
 	}
-	for _, id := range []string{"claude", "codex", "gemini"} {
+	for _, id := range []string{"claude", "codex", "gemini", "pi"} {
 		t.Run(id, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()

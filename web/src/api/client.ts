@@ -222,24 +222,58 @@ export async function api<T>(
   body?: unknown,
   headers: Record<string, string> = {},
 ): Promise<T> {
-  const response = await fetch(path, {
-    method,
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      ...(method !== "GET" ? { "X-CSRF-Token": csrf } : {}),
-      ...headers,
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  const result = await response.json();
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...(method !== "GET" ? { "X-CSRF-Token": csrf } : {}),
+        ...headers,
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (error) {
+    // A stopped local service or proxy failure rejects before any HTTP status.
+    // Keep a caller-supplied message, but localize the browser's network text.
+    const raw = error instanceof Error ? error.message : "";
+    const unavailable =
+      !raw ||
+      /fetch failed|failed to fetch|networkerror|load failed/i.test(raw);
+    throw new APIError(
+      unavailable ? "无法连接本地服务；请确认服务正在运行。" : raw,
+      0,
+    );
+  }
+  // A proxy or an aborted upstream can answer with an empty or non-JSON body.
+  // Parsing it blindly would surface a raw browser SyntaxError instead of a
+  // retryable service error.
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    throw new APIError("读取本地服务响应失败；请确认服务正在运行。", 0);
+  }
+  let result: { error?: { message?: string } } | undefined;
+  if (text.trim()) {
+    try {
+      result = JSON.parse(text) as { error?: { message?: string } };
+    } catch {
+      result = undefined;
+    }
+  }
   if (!response.ok) {
     if (response.status === 401 && path.startsWith("/api/"))
       window.dispatchEvent(new Event("cocogem:unauthorized"));
-    throw new APIError(
-      result.error?.message ?? `HTTP ${response.status}`,
-      response.status,
-    );
+    const fallback =
+      response.status >= 500
+        ? "本地服务暂时不可用；请确认服务正在运行。"
+        : `HTTP ${response.status}`;
+    throw new APIError(result?.error?.message ?? fallback, response.status);
+  }
+  if (result === undefined) {
+    throw new APIError("本地服务返回了空响应；请确认服务正在运行。", 0);
   }
   return result as T;
 }

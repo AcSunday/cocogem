@@ -23,7 +23,7 @@ func TestCommand(t *testing.T) {
 	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build CLI: %v\n%s", err, out)
 	}
-	for _, provider := range []string{"claude", "codex", "gemini"} {
+	for _, provider := range []string{"claude", "codex", "gemini", "pi"} {
 		t.Run(provider, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
@@ -41,6 +41,11 @@ case "$0" in
     ;;
   *gemini)
     printf '%s\n' '{"type":"init","session_id":"` + session + `"}' '{"type":"message","role":"assistant","content":"hello"}' '{"type":"result","status":"success"}'
+    ;;
+  *pi)
+    cat > prompt.txt
+    if [ -f pi-result.jsonl ]; then cat pi-result.jsonl; exit 0; fi
+    printf '%s\n' '{"type":"session","id":"` + session + `"}' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hello"}}' '{"type":"message_end","message":{"role":"assistant","stopReason":"stop"}}' '{"type":"agent_settled","aborted":false}'
     ;;
 esac
 `
@@ -92,7 +97,7 @@ esac
 			if err := json.Unmarshal(before, &record); err != nil || record.CLI != provider || record.SessionID != session {
 				t.Fatalf("session=%s error=%v", before, err)
 			}
-			if provider == "codex" {
+			if provider == "codex" || provider == "pi" {
 				body, err := os.ReadFile(filepath.Join(dir, "prompt.txt"))
 				if err != nil || string(body) != prompt {
 					t.Fatalf("stdin=%q error=%v", body, err)
@@ -107,6 +112,28 @@ esac
 			after, err := os.ReadFile(sessionPath)
 			if err != nil || !bytes.Equal(before, after) {
 				t.Fatalf("failed call changed session: %s error=%v", after, err)
+			}
+			if provider == "pi" {
+				for _, test := range []struct{ name, tail, diagnostic string }{
+					{"authentication", `{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"synthetic invalid api key"}}` + "\n" + `{"type":"agent_settled","aborted":false}`, "synthetic invalid api key"},
+					{"truncation", `{"type":"message_end","message":{"role":"assistant","stopReason":"length"}}` + "\n" + `{"type":"agent_settled","aborted":false}`, "truncated"},
+					{"missing terminal", `{"type":"message_end","message":{"role":"assistant","stopReason":"stop"}}`, "terminal result"},
+				} {
+					t.Run(test.name, func(t *testing.T) {
+						stream := `{"type":"session","id":"87654321-4321-4321-4321-cba987654321"}` + "\n" + test.tail + "\n"
+						if err := os.WriteFile(filepath.Join(dir, "pi-result.jsonl"), []byte(stream), 0600); err != nil {
+							t.Fatal(err)
+						}
+						_, diagnostics := run(1, false, "pi", "public fixture prompt")
+						if !strings.Contains(diagnostics, test.diagnostic) {
+							t.Fatalf("diagnostics=%q, want %q", diagnostics, test.diagnostic)
+						}
+						after, err := os.ReadFile(sessionPath)
+						if err != nil || !bytes.Equal(before, after) {
+							t.Fatalf("protocol failure overwrote the successful session, err=%v", err)
+						}
+					})
+				}
 			}
 		})
 	}

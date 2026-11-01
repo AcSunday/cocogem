@@ -38,6 +38,8 @@ func Invoke(cli string, request Request, output io.Writer) (Result, error) {
 		result, err = runCodex(request, output)
 	case "gemini":
 		result, err = runGemini(request, output)
+	case "pi":
+		result, err = runPi(request, output)
 	default:
 		return Result{}, fmt.Errorf("unsupported CLI: %q", cli)
 	}

@@ -84,4 +84,4 @@
 
 ## CLI 兼容
 
-`write_file`、`patch_file` 与 `run_test` 是宿主 MCP 工具，不是 CLI 原生工具；Claude/Codex/Gemini 三个适配器通过同一 scoped MCP 桥暴露它们，因此不需要放宽任何 CLI 的 `Bash`/`Write`/`Edit` 权限，也没有新增品牌或模型绑定。现有安装、隔离参数与连接探测仍按原规则门禁；工程能力探测不到沙箱时只拒绝 `run_test`，不影响只读分析或其他工作方式。
+`write_file`、`patch_file` 与 `run_test` 是宿主 MCP 工具，不是 CLI 原生工具；Claude/Codex/Gemini/Pi 适配器通过同一 scoped MCP 桥暴露它们，因此不需要放宽任何 CLI 的 `Bash`/`Write`/`Edit` 权限，也没有新增品牌或模型绑定。现有安装、隔离参数与连接探测仍按原规则门禁；工程能力探测不到沙箱时只拒绝 `run_test`，不影响只读分析或其他工作方式。

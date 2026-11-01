@@ -61,8 +61,8 @@ func (p Provider) CheckConnection(ctx context.Context, executor, model string) e
 
 // Discover probes version and isolation flags; connection still needs an explicit call.
 func Discover(ctx context.Context) []ExecutorInfo {
-	result := make([]ExecutorInfo, 0, 3)
-	for _, id := range []string{"claude", "codex", "gemini"} {
+	result := make([]ExecutorInfo, 0, 4)
+	for _, id := range []string{"claude", "codex", "gemini", "pi"} {
 		info, _ := Inspect(ctx, id)
 		result = append(result, ExecutorInfo{ID: info.ID, Installed: info.Installed, Version: info.Version, Supported: info.Supported, Reason: info.Reason, Adapter: info.Adapter, Isolation: info.Isolation, Program: info.Program, Identity: info.Identity, Capabilities: info.Capabilities})
 	}
@@ -129,6 +129,7 @@ type runOptions struct {
 	codexEnv       map[string]string
 	geminiEnv      map[string]string
 	geminiUnset    []string
+	piProbeURL     string
 }
 
 // Run starts a fresh isolated native session and exposes only this step's tools.
@@ -273,6 +274,16 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			}
 		}
 	}
+	if request.Executor == "pi" && !options.skipCheck && launch == nil {
+		plan, err := p.piPlan(ctx, request.Model)
+		if err != nil {
+			return err
+		}
+		if request.ExpectedConnection.Identity != "" && request.ExpectedConnection.Identity != plan.info.Identity {
+			return errors.New("Pi model or upstream changed before launch")
+		}
+		launch = &plan
+	}
 	server := map[string]any{"type": "http", "url": gate.url(), "headers": map[string]string{"Authorization": "Bearer " + gate.token}}
 	config := map[string]any{"mcpServers": map[string]any{"cocogem": server}}
 	encoded, err := json.Marshal(config)
@@ -317,6 +328,8 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	case "gemini":
 		args, env, err = prepareGemini(request, workdir, gate, launch)
 		env = mergeEnv(env, options.geminiEnv)
+	case "pi":
+		args, env, err = preparePi(request, workdir, gate, options.piProbeURL, launch)
 	}
 	if err != nil {
 		return err
@@ -334,7 +347,10 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		// web is enabled; loopback MCP and existing NO_PROXY entries stay direct.
 		env = mergeEnv(env, nativeProxyEnv(request.NativeProxy, os.Getenv("NO_PROXY")+","+os.Getenv("no_proxy")))
 	}
-	if request.Executor != "codex" && request.Model != "" && request.Model != "default" {
+	if request.Executor == "pi" && request.ThinkingLevel != "" {
+		args = append(args, "--thinking", request.ThinkingLevel)
+	}
+	if request.Executor != "codex" && request.Executor != "pi" && request.Model != "" && request.Model != "default" {
 		if strings.HasPrefix(request.Model, "-") || len(request.Model) > 200 {
 			return errors.New("invalid CLI model")
 		}
@@ -342,6 +358,9 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	}
 	cmd := command(request.Executor, args...)
 	cmd.Dir = cwdDir
+	if request.Executor == "pi" && launch != nil {
+		cmd.Env = append([]string{}, launch.piEnv...)
+	}
 	if len(env) != 0 {
 		if cmd.Env == nil {
 			cmd.Env = os.Environ()

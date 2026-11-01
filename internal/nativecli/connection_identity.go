@@ -28,6 +28,12 @@ type connectionPlan struct {
 	geminiEnv      map[string]string
 	geminiUnset    []string
 	geminiThinking []any
+	piAuth         []byte
+	piModels       []byte
+	piSettings     []byte
+	piEnv          []string
+	piModel        string
+	piThinking     string
 }
 
 var connectionPlans = struct {
@@ -53,8 +59,8 @@ func cachedPlan(executor, identity string) (connectionPlan, bool) {
 }
 
 // InspectConnection resolves the actual model and a non-secret upstream identity.
-func (p Provider) InspectConnection(_ context.Context, executor, model string) (agent.ConnectionInfo, error) {
-	plan, err := resolveConnection(executor, model)
+func (p Provider) InspectConnection(ctx context.Context, executor, model string) (agent.ConnectionInfo, error) {
+	plan, err := p.resolveConnection(ctx, executor, model)
 	if err != nil {
 		return agent.ConnectionInfo{}, err
 	}
@@ -62,7 +68,7 @@ func (p Provider) InspectConnection(_ context.Context, executor, model string) (
 	return plan.info, nil
 }
 
-func resolveConnection(executor, model string) (connectionPlan, error) {
+func (p Provider) resolveConnection(ctx context.Context, executor, model string) (connectionPlan, error) {
 	switch executor {
 	case "claude":
 		return claudePlan(model)
@@ -70,6 +76,8 @@ func resolveConnection(executor, model string) (connectionPlan, error) {
 		return codexPlan(model)
 	case "gemini":
 		return geminiPlan(model)
+	case "pi":
+		return p.piPlan(ctx, model)
 	default:
 		return connectionPlan{}, errors.New("不支持的 CLI")
 	}

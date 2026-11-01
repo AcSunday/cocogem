@@ -124,6 +124,8 @@ func streamProcess(ctx context.Context, executor string, cmd *exec.Cmd, gate *br
 		streamErr = parseCodex(stdout, gate, live)
 	case "gemini":
 		streamErr = parseGemini(stdout, gate, live)
+	case "pi":
+		streamErr = parsePi(stdout, gate, live)
 	default:
 		streamErr = parseClaude(stdout, gate, live)
 	}
