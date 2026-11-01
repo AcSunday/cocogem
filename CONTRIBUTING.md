@@ -1,8 +1,8 @@
 # Contributing
 
 Use Go 1.26.10+ and Node.js 22.12+ (Node.js 24 LTS is recommended).
-Read [the product specification](docs/product-v0.1.md) before changing behavior.
-Follow [the project layout](docs/project-layout.md) when adding files.
+Read [the product document](docs/product.md) before changing behavior.
+Follow its [project layout](docs/product.md#项目结构) when adding files.
 
 Each pull request should implement one reviewable feature or fix, include tests,
 and describe the user-visible result, validation, limitations and migrations.
@@ -33,5 +33,6 @@ COCOGEM_CHECK_INSTALLED_CODEX=1 COCOGEM_CHECK_INSTALLED_GEMINI=1 \
 
 These opt-in checks use synthetic connection configuration and a loopback fake
 model endpoint. They must not be reported as live provider quality tests.
-Actual page-based collaboration uses the maintainer's CLI connection settings
-and only public sample tasks; record it separately in the alignment review.
+Actual page-based collaboration uses existing CLI connection settings and only
+public sample tasks. Report the actual CLI, provider outcome and limitations
+separately in the pull request; never label synthetic tests as live verification.

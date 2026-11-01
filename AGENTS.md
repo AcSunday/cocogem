@@ -1,6 +1,6 @@
 # Development rules
 
-- Product scope and acceptance criteria: `docs/product-v0.1.md`.
+- Product scope and acceptance criteria: `docs/product.md`.
 - Use `cc-skills-golang:golang-how-to` for Go work and load applicable skills.
 - Go 1.26.9 or newer in the 1.26 line; standard library HTTP and explicit constructor injection.
 - Keep command entry points in `cmd/` and implementation in `internal/`.
@@ -8,7 +8,7 @@
 - The local Claude/Codex/Gemini CLIs are already usable. Reuse their existing API key, endpoint, provider and model settings; do not require login, OAuth or extra Cocogem keys. Diagnose configuration forwarding and the actual error before suggesting credential changes.
 - Implement each feature with behavioral tests; commit only after its checks pass.
 - Commit messages follow Conventional Commits (`feat: ...`, `fix: ...`, `test: ...`).
-- Follow `docs/project-layout.md` and co-locate tests with their implementations.
+- Follow the project layout in `docs/product.md` and co-locate tests with their implementations.
 - Keep API/OpenAPI, frontend generated types, fixtures and tests in sync.
 - Never commit credentials, captured user data, databases or build output.
 - Do not mark real-provider/platform verification complete based on fake tests.

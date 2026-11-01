@@ -18,8 +18,14 @@ descendants. The authenticated directory browser obeys the same scope and only
 lists accessible folder names and paths, skipping hidden, known sensitive and
 symlink entries. It never returns file contents or changes a workspace binding.
 Paths are canonicalized before storage; known sensitive directories
-and symlink escapes are rejected. File tools remain read-only and scoped to the
-workspace binding. Active runs block changes to that binding.
+and symlink escapes are rejected. File tools are scoped to the workspace binding
+and remain read-only outside explicitly selected engineering development runs.
+Development additionally requires global and workspace write/test grants;
+reviewers receive no host write tools. Project tests can still change allowed
+files, so verified delivery requires matching project-tree evidence. Test
+execution uses the macOS OS sandbox; Linux test execution is currently blocked.
+Active runs block changes to the directory binding. See the
+[product document](docs/product.md#工具与执行边界) for the full tool boundaries.
 
 Report vulnerabilities through GitHub's private vulnerability reporting for
 this repository when available. If it is unavailable, open an issue requesting
