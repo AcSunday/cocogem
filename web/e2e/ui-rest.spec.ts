@@ -126,6 +126,9 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   });
   const search = sidebar.getByLabel("搜索会话");
   const searchField = search.locator("xpath=..");
+  const placeholderOpacity = () => search.evaluate(
+    (element) => getComputedStyle(element, "::placeholder").opacity,
+  );
   const surface2 = await themeColor(page, "--surface-2");
   const border = await themeColor(page, "--border");
   const transparent = "rgba(0, 0, 0, 0)";
@@ -135,6 +138,7 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   await expect(workspaceSwitch).toBeEnabled();
   await expect(newThread).toBeEnabled();
   await page.mouse.move(1, 1);
+  await expect.poll(placeholderOpacity).toBe("1");
   for (const control of [workspaceSwitch, newThread, searchField]) {
     await expect(control).toHaveCSS("background-color", transparent);
     await expect(control).toHaveCSS("border-top-color", transparent);
@@ -166,6 +170,18 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   await expect(search).toBeFocused();
   await expect(searchField).toHaveCSS("background-color", surface2);
   await expect(searchField).toHaveCSS("border-top-color", border);
+  await expect.poll(placeholderOpacity).toBe("0");
+  await search.fill("不存在的会话标题");
+  await expect(sidebar.getByText("没有匹配的会话。")).toBeVisible();
+  await search.clear();
+  await expect(sidebar.getByRole("button", { name: "UI 状态验收", exact: true }))
+    .toBeVisible();
+  await expect.poll(placeholderOpacity).toBe("0");
+  await search.press("Tab");
+  await expect.poll(placeholderOpacity).toBe("1");
+  await search.click();
+  await expect(search).toBeFocused();
+  await expect.poll(placeholderOpacity).toBe("0");
 
   const input = page.getByLabel("输入问题");
   const send = page.getByRole("button", { name: "发送", exact: true });

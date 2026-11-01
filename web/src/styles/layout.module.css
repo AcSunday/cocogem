@@ -114,6 +114,9 @@
 .search input:focus {
   box-shadow: none;
 }
+.search input:focus::placeholder {
+  opacity: 0;
+}
 .section-label {
   display: flex;
   justify-content: space-between;
