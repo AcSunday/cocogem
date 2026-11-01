@@ -151,6 +151,80 @@ func codexWebOutput(status string, results, failure json.RawMessage) (string, st
 	return output, statusValue, false
 }
 
+func codexResourceTool(name string) bool {
+	return name == "list_mcp_resources" || name == "list_mcp_resource_templates" || name == "read_mcp_resource"
+}
+
+type codexResourceCall struct {
+	server string
+	tool   string
+	args   struct {
+		Server string `json:"server"`
+		URI    string `json:"uri"`
+		Cursor string `json:"cursor"`
+	}
+}
+
+func codexResourceTarget(server, tool string, arguments json.RawMessage) (codexResourceCall, error) {
+	call := codexResourceCall{server: server, tool: tool}
+	decoder := json.NewDecoder(bytes.NewReader(arguments))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&call.args) != nil || decoder.Decode(new(any)) != io.EOF {
+		return call, newFailure(FailureProtocol, "Codex resource helper has invalid arguments")
+	}
+	if tool == "read_mcp_resource" {
+		if server == "cocogem" && call.args.Server == "cocogem" && call.args.URI != "" && call.args.Cursor == "" {
+			return call, nil
+		}
+	} else if call.args.URI == "" && (server == "cocogem" && call.args.Server == "cocogem" || server == "codex" && call.args.Server == "") {
+		return call, nil
+	}
+	return call, newFailure(FailureProtocol, "Codex resource helper targeted an unapproved server")
+}
+
+// Codex always offers resource helpers. The scoped bridge has no resources:
+// only empty discovery or its exact method-not-found refusal is recoverable.
+func (call codexResourceCall) unavailable(status string, result, failure json.RawMessage) bool {
+	if status == "failed" && (len(result) == 0 || string(result) == "null") && call.server == "cocogem" {
+		var detail struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(failure, &detail) != nil {
+			return false
+		}
+		method := "resources/list"
+		target := "`cocogem`"
+		if call.tool == "list_mcp_resource_templates" {
+			method = "resources/templates/list"
+		} else if call.tool == "read_mcp_resource" {
+			method, target = "resources/read", target+" ("+call.args.URI+")"
+		}
+		return detail.Message == method+" failed: "+method+" failed for "+target+": Mcp error: -32601: method not found"
+	}
+	if status != "completed" || call.server != "codex" || call.tool == "read_mcp_resource" || len(failure) != 0 && string(failure) != "null" {
+		return false
+	}
+	var output struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		StructuredContent json.RawMessage `json:"structured_content"`
+		IsError           bool            `json:"isError"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(result))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&output) != nil || decoder.Decode(new(any)) != io.EOF || output.IsError || len(output.Content) != 1 || output.Content[0].Type != "text" || len(output.StructuredContent) != 0 && string(output.StructuredContent) != "null" {
+		return false
+	}
+	key := "resources"
+	if call.tool == "list_mcp_resource_templates" {
+		key = "resourceTemplates"
+	}
+	var inventory map[string]json.RawMessage
+	return json.Unmarshal([]byte(output.Content[0].Text), &inventory) == nil && len(inventory) == 1 && string(bytes.TrimSpace(inventory[key])) == "[]"
+}
+
 func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
@@ -160,6 +234,7 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 	agentText := newTextStreams()
 	finishedItems := map[string]bool{}
 	webPending := map[string]bool{}
+	resourcePending := map[string]codexResourceCall{}
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
@@ -169,16 +244,18 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 			Type     string `json:"type"`
 			ThreadID string `json:"thread_id"`
 			Item     struct {
-				ID      string          `json:"id"`
-				Type    string          `json:"type"`
-				Text    string          `json:"text"`
-				Server  string          `json:"server"`
-				Tool    string          `json:"tool"`
-				Status  string          `json:"status"`
-				Query   string          `json:"query"`
-				Action  json.RawMessage `json:"action"`
-				Results json.RawMessage `json:"results"`
-				Error   json.RawMessage `json:"error"`
+				ID        string          `json:"id"`
+				Type      string          `json:"type"`
+				Text      string          `json:"text"`
+				Server    string          `json:"server"`
+				Tool      string          `json:"tool"`
+				Status    string          `json:"status"`
+				Query     string          `json:"query"`
+				Action    json.RawMessage `json:"action"`
+				Results   json.RawMessage `json:"results"`
+				Result    json.RawMessage `json:"result"`
+				Arguments json.RawMessage `json:"arguments"`
+				Error     json.RawMessage `json:"error"`
 			} `json:"item"`
 			Error struct {
 				Type    string `json:"type"`
@@ -271,6 +348,30 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 				}
 			case "plan", "todo_list", "reasoning_summary":
 			case "mcp_tool_call":
+				if codexResourceTool(event.Item.Tool) {
+					call, err := codexResourceTarget(event.Item.Server, event.Item.Tool, event.Item.Arguments)
+					if err != nil {
+						return err
+					}
+					if finishedItems[event.Item.ID] || resourcePending[event.Item.ID].tool != "" && resourcePending[event.Item.ID] != call {
+						return newFailure(FailureProtocol, "Codex resource helper changed or reused its identity")
+					}
+					resourcePending[event.Item.ID] = call
+					if activity.newTool(event.Item.ID, "") {
+						live.valid("tool_call")
+					}
+					if event.Type == "item.completed" {
+						if !call.unavailable(event.Item.Status, event.Item.Result, event.Item.Error) {
+							return newFailure(FailureProtocol, "Codex resource helper returned an unapproved result")
+						}
+						delete(resourcePending, event.Item.ID)
+						finishedItems[event.Item.ID] = true
+						if err := gate.notice("codex.resource_unavailable", "Scoped MCP has no resources; continue with the supplied host tools"); err != nil {
+							return err
+						}
+					}
+					break
+				}
 				if event.Item.Server != "cocogem" || gate.schemas[event.Item.Tool] == nil {
 					return newFailure(FailureProtocol, "native CLI requested an unapproved MCP tool: %s", safeToken(event.Item.Tool))
 				}
@@ -324,6 +425,9 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 			}
 			if len(webPending) != 0 {
 				return newFailure(FailureProtocol, "native CLI ended with an unresolved native web call")
+			}
+			if len(resourcePending) != 0 {
+				return newFailure(FailureProtocol, "native CLI ended with an unresolved MCP resource helper")
 			}
 			finished = true
 		case "turn.failed":

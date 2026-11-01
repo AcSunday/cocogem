@@ -122,7 +122,8 @@ func TestInstalledCodexConfiguredConnection(t *testing.T) {
 	request := testRequest()
 	request.Executor = "codex"
 	request.Tools = nil
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// A cold run also performs the installed-binary isolation probe.
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	err := (Provider{}).Run(ctx, request, func(context.Context, string, json.RawMessage) (string, error) {
 		t.Fatal("unexpected tool call")
