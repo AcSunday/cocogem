@@ -1911,13 +1911,6 @@ func isBlockedError(err error) bool {
 	return strings.Contains(err.Error(), capabilityBlockedPrefix) || strings.Contains(err.Error(), connectionBlockedPrefix) || strings.Contains(err.Error(), connectionChangedPrefix) || strings.Contains(err.Error(), "required_tools_unavailable:")
 }
 
-func isCapabilityBlocked(step w.Step) bool {
-	if step.Status != "interrupted" {
-		return false
-	}
-	return strings.HasPrefix(step.Error, capabilityBlockedPrefix) || strings.HasPrefix(step.Error, connectionBlockedPrefix) || strings.HasPrefix(step.Error, connectionChangedPrefix) || strings.Contains(step.Error, "required_tools_unavailable:")
-}
-
 func (e *Engine) report(err error) {
 	select {
 	case e.Errors <- err:

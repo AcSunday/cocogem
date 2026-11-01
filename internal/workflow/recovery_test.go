@@ -121,10 +121,6 @@ func TestDefaultLimitsLeaveWallClockOpen(t *testing.T) {
 	if limits.RunTimeout != 0 || limits.StepTimeout != 0 || limits.FirstResponse != 10*time.Minute || limits.Stall != 15*time.Minute || limits.StallAction != "warn" {
 		t.Fatalf("unexpected defaults: %+v", limits)
 	}
-	passed := Limits{RunTimeout: 0, StepTimeout: 0, FirstResponse: 0, Stall: 0, StallAction: "stop"}
-	if got := passed.WithDefaults(); got != passed {
-		t.Fatalf("parsed zero was overwritten: %+v", got)
-	}
 }
 
 func TestRunTimeoutHasItsOwnReason(t *testing.T) {

@@ -288,7 +288,7 @@ export function methodEventLabel(event: Event) {
  * Only confirmed activity clears a warning. An explicit false wins even when a
  * snapshot carries old content, and snapshots without the flag prove nothing.
  */
-export function activityEvent(event: Event) {
+function activityEvent(event: Event) {
   const data = eventData(event);
   if (data.activity === false) return false;
   if (progressEvents.has(event.type)) return true;

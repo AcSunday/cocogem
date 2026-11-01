@@ -18,7 +18,3 @@ type Limits struct {
 func DefaultLimits() Limits {
 	return Limits{FirstResponse: 10 * time.Minute, Stall: 15 * time.Minute, StallAction: "warn"}
 }
-
-// WithDefaults is retained for older callers. Defaults belong to the
-// configuration entry; a parsed zero already means disabled and is preserved.
-func (l Limits) WithDefaults() Limits { return l }

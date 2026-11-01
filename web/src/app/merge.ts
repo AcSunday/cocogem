@@ -125,7 +125,7 @@ export function mergeThreadView(
   };
 }
 
-export const eventObject = (event: Event) =>
+const eventObject = (event: Event) =>
   event.data && typeof event.data === "object"
     ? (event.data as Record<string, unknown>)
     : {};

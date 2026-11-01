@@ -92,14 +92,6 @@ func claudePlan(model string) (connectionPlan, error) {
 	return connectionPlan{executor: "claude", info: info, claudeSettings: settings}, nil
 }
 
-func claudeConnectionInfo(model string) (agent.ConnectionInfo, error) {
-	plan, err := claudePlan(model)
-	if err != nil {
-		return agent.ConnectionInfo{}, err
-	}
-	return plan.info, nil
-}
-
 func claudeInfoFromSettings(settings map[string]any, model string) agent.ConnectionInfo {
 	env, _ := settings["env"].(map[string]string)
 	resolved := model
@@ -224,14 +216,6 @@ func geminiPlan(model string) (connectionPlan, error) {
 	fields["env_present"] = present
 	info := agent.ConnectionInfo{ResolvedModel: resolved, Identity: connectionDigest(fields)}
 	return connectionPlan{executor: "gemini", info: info, geminiModel: resolved, geminiEnv: env, geminiUnset: unset, geminiThinking: geminiThinkingOverrides(settings)}, nil
-}
-
-func geminiConnectionInfo(model string) (agent.ConnectionInfo, error) {
-	plan, err := geminiPlan(model)
-	if err != nil {
-		return agent.ConnectionInfo{}, err
-	}
-	return plan.info, nil
 }
 
 func geminiSettingsFile() string {

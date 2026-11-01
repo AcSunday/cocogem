@@ -30,7 +30,7 @@ const MAX_CONTENT_CURSORS = 64;
  * silent: the delivered message is the evidence. Live states pulse, failures
  * stand out.
  */
-export function messageStatusKind(
+function messageStatusKind(
   status: string,
 ): "live" | "error" | "warn" | "done" {
   if (status === "processing" || status === "queued" || status === "running")
