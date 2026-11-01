@@ -473,8 +473,8 @@ it("uploads, clears and rejects avatars without touching workspace grants", asyn
   );
 });
 
-it("persists an arbitrary color after save and reload", async () => {
-  const agent = member({ id: "colored" });
+it("saves member identity without color controls or color storage", async () => {
+  const agent = member({ id: "neutral" });
   const save = vi.fn(async (value: Agent) => value);
   const renderForm = () =>
     render(
@@ -489,17 +489,17 @@ it("persists an arbitrary color after save and reload", async () => {
   renderForm();
   const user = userEvent.setup();
   await open(user, /布偶猫/);
-  const hex = screen.getByLabelText("专属颜色");
-  await user.clear(hex);
-  await user.type(hex, "#123456");
+  expect(screen.queryByLabelText("专属颜色")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("原生颜色选择")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "保存成员" }));
-  expect(localStorage.getItem("cocogem.member-colors")).toContain("#123456");
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ id: agent.id }));
+  expect(localStorage.getItem("cocogem.member-colors")).toBeNull();
   cleanup();
 
   renderForm();
   await open(user, /布偶猫/);
-  expect(screen.getByLabelText("专属颜色")).toHaveValue("#123456");
-  expect(screen.getByLabelText("原生颜色选择")).toHaveValue("#123456");
+  expect(screen.queryByLabelText("专属颜色")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("显示名")).toHaveValue(agent.display_name);
 });
 
 it("verifies the exact current executor, model and optional options", async () => {

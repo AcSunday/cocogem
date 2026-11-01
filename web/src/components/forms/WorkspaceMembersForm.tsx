@@ -55,17 +55,22 @@ export function WorkspaceMembersForm({
           <button
             type="button"
             key={profile.id}
+            aria-label={`${memberLabel(profile)} · ${member ? "已加入" : "可加入"}`}
             aria-pressed={selected?.profile.id === profile.id}
             onClick={() => setSelectedID(profile.id)}
           >
             <Avatar
               name={profile.display_name}
-              id={profile.id}
               avatar={profile.avatar}
               small
             />
-            {memberLabel(profile)}
-            {member ? " · 已加入" : " · 可加入"}
+            <span className={cx("member-picker-identity")}>
+              <strong title={profile.display_name}>{profile.display_name}</strong>
+              <small title={`@${profile.handle}`}>@{profile.handle}</small>
+            </span>
+            <span className={cx("member-picker-status")}>
+              {member ? "已加入" : "可加入"}
+            </span>
           </button>
         ))}
       </div>

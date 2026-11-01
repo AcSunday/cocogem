@@ -129,19 +129,10 @@
 }
 .run-process {
   margin: 8px 0 12px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--radius-md);
-  background: var(--surface-2);
+  background: transparent;
   overflow: hidden;
-  transition: all 0.15s ease;
-}
-/* Collapsed collaboration is a quiet summary line, not a framed card. */
-.run-process:not([open]) {
-  border-color: transparent;
-  background: transparent;
-}
-.run-process:not([open]) > summary {
-  background: transparent;
 }
 .run-process > summary {
   display: flex;
@@ -155,13 +146,9 @@
   color: var(--text-2);
   font-size: 12.5px;
   font-weight: 500;
-  background: var(--surface);
-  border-bottom: 1px solid transparent;
+  background: transparent;
   user-select: none;
   transition: background 0.12s ease;
-}
-.run-process[open] > summary {
-  border-bottom-color: var(--border);
 }
 .run-process > summary:hover {
   background: var(--surface-hover, var(--surface-2));
@@ -179,7 +166,7 @@
 }
 .run-footer-badge-wrap {
   display: flex;
-  width: min(calc(100% - 46px), 72ch);
+  width: calc(100% - 46px);
   margin: 4px 0 12px 46px;
   position: relative;
   justify-content: flex-end;
@@ -326,11 +313,9 @@
 .member-message .message-meta strong {
   color: var(--text);
 }
-/* Chat-style bubbles: incoming replies stay neutral, only the avatar keeps the
- * member's color so identity never tints the message surface. */
 .member-message .message-body {
   width: fit-content;
-  max-width: min(100%, 72ch);
+  max-width: 100%;
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -339,8 +324,6 @@
 }
 .member-message .avatar {
   margin-top: 1px;
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--member-color, transparent) 40%, transparent);
 }
 .final-message .message-body {
   width: 100%;
@@ -430,7 +413,6 @@
 }
 .final-result {
   width: 100%;
-  max-width: 72ch;
 }
 .run-artifacts {
   display: grid;
@@ -449,40 +431,48 @@
   border-radius: 10px;
   font-size: 16px;
   font-weight: 500;
+  background: var(--avatar-bg, var(--surface-2));
+  color: var(--avatar-ink, var(--text-2));
+  overflow: hidden;
+}
+/* Muted blue, sage, teal, lavender, rose, ochre, slate and terracotta. */
+.avatar-tone-0 {
+  --avatar-bg: light-dark(#e6edf5, #243346);
+  --avatar-ink: light-dark(#385575, #b5c8e2);
+}
+.avatar-tone-1 {
+  --avatar-bg: light-dark(#e6ede5, #2a392f);
+  --avatar-ink: light-dark(#425d48, #bdd0ba);
+}
+.avatar-tone-2 {
+  --avatar-bg: light-dark(#e0eeee, #233b3c);
+  --avatar-ink: light-dark(#376262, #acd0cc);
+}
+.avatar-tone-3 {
+  --avatar-bg: light-dark(#ece8f2, #343045);
+  --avatar-ink: light-dark(#635279, #cbbddd);
+}
+.avatar-tone-4 {
+  --avatar-bg: light-dark(#f3e7eb, #432f39);
+  --avatar-ink: light-dark(#7d5362, #ddbbc8);
+}
+.avatar-tone-5 {
+  --avatar-bg: light-dark(#f3ecdf, #403828);
+  --avatar-ink: light-dark(#78613d, #d7c59e);
+}
+.avatar-tone-6 {
+  --avatar-bg: light-dark(#e8ebef, #2c3541);
+  --avatar-ink: light-dark(#505f73, #bac7d9);
+}
+.avatar-tone-7 {
+  --avatar-bg: light-dark(#f3e7e1, #413128);
+  --avatar-ink: light-dark(#855b49, #dfbda9);
 }
 .avatar-sm {
   width: 28px;
   height: 28px;
   border-radius: 8px;
   font-size: 13px;
-}
-.tone-0,
-.tone-1,
-.tone-2,
-.tone-3 {
-  --member-bg: var(--accent-soft);
-  --member-ink: var(--accent-text);
-  --member-line: light-dark(#c2876f, #ab735d);
-}
-.tone-1 {
-  --member-bg: light-dark(#e8eddf, #2b3328);
-  --member-ink: light-dark(#50613e, #bbcea7);
-  --member-line: light-dark(#99a47f, #7d9167);
-}
-.tone-2 {
-  --member-bg: light-dark(#e1eaf0, #28343b);
-  --member-ink: light-dark(#436477, #a3c5d9);
-  --member-line: light-dark(#8babbc, #648a9e);
-}
-.tone-3 {
-  --member-bg: light-dark(#f4ead6, #3b3224);
-  --member-ink: light-dark(#7a5b2b, #dcc18d);
-  --member-line: light-dark(#bda16e, #ac905a);
-}
-.avatar {
-  background: var(--member-bg);
-  color: var(--member-ink);
-  overflow: hidden;
 }
 .avatar-image img {
   width: 100%;
@@ -718,9 +708,6 @@
   }
   .message {
     gap: 10px;
-  }
-  .member-message .message-body {
-    max-width: 100%;
   }
   .final-results,
   .run-artifacts {

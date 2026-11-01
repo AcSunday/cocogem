@@ -14,7 +14,6 @@ import {
   bytesLabel,
   errorText,
   formatMessageTime,
-  getMemberColor,
   messageModel,
   roleLabel,
 } from "../lib/presentation";
@@ -71,14 +70,12 @@ export function rememberCursor(
 
 export function MessageCard({
   message,
-  index,
   role,
   avatar,
   members = [],
   final = false,
 }: {
   message: Message;
-  index: number;
   role?: string;
   avatar?: string;
   members?: MentionMember[];
@@ -151,27 +148,17 @@ export function MessageCard({
   const hasNewContent =
     !!page && (message.content_bytes ?? 0) > (page.content_bytes ?? 0);
   const shown = open && page ? page.content : message.content;
-  const memberColor = !user
-    ? getMemberColor(message.agent_id || message.id)
-    : undefined;
   return (
     <article
       className={cx(
         `message ${user ? "user-message" : "member-message"} ${final ? "final-message" : ""}`,
       )}
-      style={
-        memberColor
-          ? ({ "--member-color": memberColor.color } as Record<string, string>)
-          : undefined
-      }
       aria-label={user ? "你的消息" : undefined}
     >
       {!user && (
         <Avatar
           name={message.agent_name}
-          id={message.agent_id}
           avatar={avatar}
-          index={index}
         />
       )}
       <div className={cx("message-content")}>

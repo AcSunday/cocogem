@@ -7,12 +7,7 @@ import {
   executionPolicyRows,
   failureKindLabel,
   formatMessageTime,
-  getMemberColor,
-  getMemberColorId,
-  isMemberColor,
   latestSources,
-  memberColorHex,
-  setMemberColorId,
   limitLabel,
   livenessFromAttempts,
   mergeAttemptLiveness,
@@ -47,24 +42,6 @@ const agent = (id: string, extra: Partial<Agent> = {}): Agent => ({
   disabled: false,
   revision: 1,
   ...extra,
-});
-
-it("persists arbitrary hex colors and maps legacy palette ids", () => {
-  localStorage.clear();
-  setMemberColorId("member", "#12AbEf");
-  expect(getMemberColorId("member")).toBe("#12abef");
-  expect(getMemberColor("member")).toEqual({
-    id: "custom",
-    name: "自定义颜色",
-    color: "#12abef",
-  });
-  setMemberColorId("legacy", "violet");
-  expect(getMemberColorId("legacy")).toBe("#8b5cf6");
-  expect(memberColorHex("violet")).toBe("#8b5cf6");
-  expect(memberColorHex("#ABCDEF")).toBe("#abcdef");
-  expect(isMemberColor("#abcdef")).toBe(true);
-  expect(isMemberColor("not-a-color")).toBe(false);
-  localStorage.clear();
 });
 
 it("explains native protocol mismatches without proposing new credentials", () => {

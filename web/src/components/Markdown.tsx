@@ -197,7 +197,6 @@ function Mention({
           >
             <Avatar
               name={agent.display_name}
-              id={agent.id}
               avatar={agent.avatar}
             />
             <span className={cx("mention-detail")}>

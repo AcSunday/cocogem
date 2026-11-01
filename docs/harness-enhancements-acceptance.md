@@ -4,7 +4,7 @@
 
 | 需求 | 最终行为 | 主要证据 |
 | --- | --- | --- |
-| 1. 成员专属颜色 | 原生可拖动颜色面板，支持任意 `#RRGGBB`；按成员 ID 在本机保存并应用到消息色条与气泡 | `MembersForm.test.tsx`、`presentation.test.ts`、`member-profiles.spec.ts` |
+| 1. 成员专属颜色（2026-11-01 移除） | 删除颜色设置、持久化与专属外圈，启动时清除旧浏览器颜色记录；默认首字头像改为按完整显示名自动映射低饱和配色，图片保持原样，原实现没有数据库字段 | `Avatar.test.tsx`、`MembersForm.test.tsx`、`appearance.spec.ts`、`member-profiles.spec.ts` |
 | 2. 成员卡片 | 设置展示独立成员卡片，点击进入完整编辑，支持返回列表、新建与保存 | `MembersForm.test.tsx`、`member-profiles.spec.ts` |
 | 3. 上传头像 | 仅接受完整解码的 PNG/JPEG；默认名称首字，可替换或清除；旧历史身份不改写 | `avatar_test.go`、`members_avatar_test.go`、App/RunSegment 快照测试、成员浏览器测试 |
 | 4. 模型与选项 | 精确 CLI/模型验证，空模型沿用默认；上下文大小限制与思考等级进入保存、验证、Run 快照及执行；上下文留空跟随 CLI 配置 | `model_options_test.go`、`request_test.go`、各 CLI 配置测试、成员浏览器测试 |

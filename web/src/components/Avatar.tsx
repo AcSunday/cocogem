@@ -1,4 +1,4 @@
-import { initial, memberTone } from "../lib/presentation";
+import { initial } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import controls from "../styles/controls.module.css";
 import conversation from "../styles/conversation.module.css";
@@ -11,25 +11,30 @@ const imageAvatar = /^data:image\/(?:png|jpeg);base64,[a-z0-9+/=]+$/i;
 export const memberImage = (avatar?: string) =>
   avatar && imageAvatar.test(avatar) ? avatar : "";
 
-/** A member's uploaded image or initial on a stable tone; decorative, the name is always shown beside it. */
+/** Hash the full name, not the initial, into the eight CSS palette pairs. */
+function nameTone(name: string) {
+  let hash = 2166136261;
+  for (const character of name.trim().normalize("NFC")) {
+    hash = Math.imul(hash ^ character.codePointAt(0)!, 16777619);
+  }
+  return (hash >>> 0) % 8;
+}
+
+/** A member's uploaded image or name-colored initial; decorative, with the name shown beside it. */
 export function Avatar({
   name,
-  id,
   avatar,
-  index = 0,
   small,
 }: {
   name: string;
-  id?: string;
   avatar?: string;
-  index?: number;
   small?: boolean;
 }) {
   const image = memberImage(avatar);
   return (
     <span
       className={cx(
-        `avatar tone-${id ? memberTone(id) : Math.max(0, index) % 4} ${small ? "avatar-sm" : ""} ${image ? "avatar-image" : ""}`,
+        `avatar ${small ? "avatar-sm" : ""} ${image ? "avatar-image" : `avatar-tone-${nameTone(name)}`}`,
       )}
       aria-hidden="true"
     >

@@ -151,8 +151,65 @@ test("browser, server and scheduler execute research, independent review and res
   await expect(process.locator(":scope > summary")).toHaveText(
     /协作已完成 · \d+ 条过程/,
   );
+  const finalMessage = page.getByRole("article").filter({
+    has: page.getByText(
+      "动态协作最终汇总：研究与独立复核已完成，保留证据不足；最终纪要已保存。",
+      { exact: true },
+    ),
+  });
+  // The avatar stays in its own gutter; the reply and footer reach the same
+  // right edge as the composer, even beyond the old 72ch limit.
+  for (const width of [1126, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    const composer = (await page.locator("form").boundingBox())!;
+    const message = (await finalMessage.boundingBox())!;
+    const body = (await finalMessage
+      .locator('[class*="message-body"]')
+      .boundingBox())!;
+    const footer = (await page
+      .locator('[class*="run-footer-badge-wrap"]')
+      .boundingBox())!;
+    expect(message.x).toBeCloseTo(composer.x, 0);
+    expect(message.width).toBeCloseTo(composer.width, 0);
+    expect(body.x + body.width).toBeCloseTo(composer.x + composer.width, 0);
+    expect(footer.x + footer.width).toBeCloseTo(composer.x + composer.width, 0);
+  }
+  await expect(process).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(process).toHaveCSS("border-top-width", "0px");
   await process.locator(":scope > summary").click();
   await expect(process).toHaveAttribute("open");
+  await page.mouse.move(1, 1);
+  await expect(process).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(process).toHaveCSS("border-top-width", "0px");
+  await expect(process.locator(":scope > summary")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await expect(process.locator(":scope > summary")).toHaveCSS(
+    "border-bottom-width",
+    "0px",
+  );
+  const processMessage = process.getByRole("article").first();
+  const processBody = (await processMessage
+    .locator('[class*="message-body"]')
+    .boundingBox())!;
+  const processColumn = (await processMessage
+    .locator('[class*="message-content"]').first()
+    .boundingBox())!;
+  expect(processBody.width).toBeLessThan(processColumn.width);
+  await expect(processMessage.locator('[class*="avatar"]').first()).toHaveCSS(
+    "box-shadow",
+    "none",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
+  const mobileBody = (await finalMessage
+    .locator('[class*="message-body"]')
+    .boundingBox())!;
+  expect(mobileBody.x + mobileBody.width).toBeLessThanOrEqual(390);
+  await page.setViewportSize({ width: 1440, height: 900 });
   const tasks = page.getByRole("list", { name: "协作任务" });
   const researchTask = tasks.locator("details").filter({
     has: page.locator("summary").getByText("资料员", { exact: true }),

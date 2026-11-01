@@ -371,10 +371,44 @@ dialog dd ul {
   border-top: 1px solid var(--border);
 }
 .member-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   margin-bottom: 14px;
+}
+.member-picker > button {
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 64px;
+  padding: 10px 12px;
+  text-align: left;
+}
+.member-picker-identity {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+}
+.member-picker-identity > strong,
+.member-picker-identity > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-picker-identity > strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.member-picker-identity > small {
+  color: var(--text-2);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.member-picker-status {
+  flex-shrink: 0;
+  color: var(--text-2);
+  font-size: 11px;
 }
 .member-picker button[aria-pressed="true"] {
   border-color: var(--accent);
@@ -460,6 +494,9 @@ dialog dd ul {
   }
 }
 @media (max-width: 700px) {
+  .member-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
   dialog,
   dialog.wide {
     width: 100vw;

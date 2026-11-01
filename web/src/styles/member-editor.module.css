@@ -140,24 +140,6 @@
   font-size: 13px;
   font-weight: 500;
 }
-.color-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.color-row input[type="color"] {
-  width: 46px;
-  min-width: 46px;
-  height: 36px;
-  padding: 2px;
-  cursor: pointer;
-}
-.color-hex {
-  width: 120px;
-  font-family: var(--font-mono);
-  text-transform: lowercase;
-}
 .avatar-field {
   display: flex;
   align-items: flex-start;
@@ -167,8 +149,6 @@
   display: inline-flex;
   flex: none;
   border-radius: 10px;
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--member-color, transparent) 40%, transparent);
 }
 .avatar-controls {
   display: grid;

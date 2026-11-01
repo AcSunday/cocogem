@@ -9,13 +9,7 @@ import conversation from "../../styles/conversation.module.css";
 import panels from "../../styles/panels.module.css";
 import members from "../../styles/member-editor.module.css";
 import settings from "../../styles/settings.module.css";
-import {
-  errorText,
-  getMemberColorId,
-  memberColorHex,
-  randomMemberColorHex,
-  setMemberColorId,
-} from "../../lib/presentation";
+import { errorText } from "../../lib/presentation";
 import { Avatar, memberImage } from "../Avatar";
 import { Modal } from "../Modal";
 import { Select } from "../Select";
@@ -52,7 +46,6 @@ const thinkingLevels: Record<string, string[]> = {
 const minContextSize = 1024;
 const avatarMaxBytes = 512 * 1024;
 const avatarMaxDimension = 2048;
-const hexColor = /^#[0-9a-f]{6}$/i;
 const handlePattern = /^[a-z][a-z0-9-]{1,31}$/;
 const names = (value: string) =>
   value
@@ -207,7 +200,6 @@ export function MembersForm({
         >
           <Avatar
             name={agent.display_name}
-            id={agent.id}
             avatar={agent.avatar}
           />
           <span className={cx("member-info")}>
@@ -274,13 +266,6 @@ function MemberEditor({
   const uid = useId();
   const field = (name: string) => `${uid}-${name}`;
   const [value, setValue] = useState<Agent>(() => editable(initialAgent));
-  const [color, setColor] = useState(() => {
-    const saved = initialAgent.id
-      ? memberColorHex(getMemberColorId(initialAgent.id))
-      : "";
-    const hex = saved || randomMemberColorHex();
-    return { hex, text: hex };
-  });
   const [aliases, setAliases] = useState(
     (initialAgent.aliases ?? []).join(","),
   );
@@ -399,10 +384,6 @@ function MemberEditor({
       setError("请选择执行 CLI。");
       return;
     }
-    if (!hexColor.test(color.text)) {
-      setError("颜色格式应为 #RRGGBB。");
-      return;
-    }
     if (!contextValid) {
       setError(
         "上下文大小限制必须是不小于 1024 的整数（字节），或留空跟随执行 CLI 默认。",
@@ -423,7 +404,6 @@ function MemberEditor({
       thinking_level: value.thinking_level || undefined,
     })
       .then((savedAgent) => {
-        if (savedAgent.id) setMemberColorId(savedAgent.id, color.hex);
         setValue(savedAgent);
         setSaved(true);
         if (savedAgent.id) onSaved(savedAgent);
@@ -510,52 +490,11 @@ function MemberEditor({
               />
             </>
           )}
-          <label htmlFor={field("color")}>专属颜色</label>
-          <div className={cx("color-row")}>
-            <input
-              type="color"
-              aria-label="原生颜色选择"
-              value={color.hex}
-              onChange={(event) => {
-                setSaved(false);
-                setColor({ hex: event.target.value, text: event.target.value });
-              }}
-            />
-            <input
-              id={field("color")}
-              className={cx("color-hex")}
-              value={color.text}
-              aria-describedby={field("color-hint")}
-              onChange={(event) => {
-                const text = event.target.value;
-                setSaved(false);
-                setColor((current) => ({
-                  hex: hexColor.test(text) ? text.toLowerCase() : current.hex,
-                  text,
-                }));
-              }}
-              onBlur={() =>
-                setColor((current) =>
-                  hexColor.test(current.text)
-                    ? { hex: current.text.toLowerCase(), text: current.text }
-                    : { ...current, text: current.hex },
-                )
-              }
-            />
-            <span className={cx("muted")}>#RRGGBB</span>
-          </div>
-          <small id={field("color-hint")}>
-            用于消息头像外圈标识，仅保存在本机；可选任意颜色。
-          </small>
           <span className={cx("field-label")}>头像</span>
-          <div
-            className={cx("avatar-field")}
-            style={{ "--member-color": color.hex } as Record<string, string>}
-          >
+          <div className={cx("avatar-field")}>
             <span className={cx("avatar-preview")}>
               <Avatar
                 name={value.display_name || "新成员"}
-                id={value.id || undefined}
                 avatar={value.avatar}
               />
             </span>

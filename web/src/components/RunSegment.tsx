@@ -202,14 +202,7 @@ function MissingFinalResults({
                   <>
                     <Avatar
                       name={name}
-                      id={meta?.agent_id}
                       avatar={agent?.avatar}
-                      index={Math.max(
-                        0,
-                        agents.findIndex(
-                          (candidate) => candidate.id === meta?.agent_id,
-                        ),
-                      )}
                       small
                     />
                     <strong>{name}</strong>
@@ -391,10 +384,6 @@ export function RunSegment({
     <MessageCard
       key={message.id}
       message={message}
-      index={Math.max(
-        0,
-        members.findIndex((member) => member.id === message.agent_id),
-      )}
       avatar={
         run.agents?.find((agent) => agent.id === message.agent_id)?.avatar
       }
@@ -411,7 +400,6 @@ export function RunSegment({
           <MessageCard
             key={message.id}
             message={message}
-            index={0}
             members={mentionMembers}
           />
         ))}

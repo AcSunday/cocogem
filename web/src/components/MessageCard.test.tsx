@@ -46,7 +46,6 @@ it("shows a short message without full-text controls", () => {
         content_truncated: false,
         content_bytes: 9,
       })}
-      index={0}
     />,
   );
   expect(screen.getByText("短回复")).toBeVisible();
@@ -59,10 +58,10 @@ it("shows the avatar supplied by the run snapshot or the name initial", () => {
   const avatar =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
   const { container, rerender } = render(
-    <MessageCard message={message()} index={0} avatar={avatar} />,
+    <MessageCard message={message()} avatar={avatar} />,
   );
   expect(container.querySelector("img")).toHaveAttribute("src", avatar);
-  rerender(<MessageCard message={message()} index={0} avatar="not-allowed" />);
+  rerender(<MessageCard message={message()} avatar="not-allowed" />);
   expect(container.querySelector("img")).toBeNull();
   expect(screen.getByText("研")).toBeVisible();
   expect(container.querySelector('[aria-hidden="true"]')).not.toHaveTextContent(
@@ -70,16 +69,24 @@ it("shows the avatar supplied by the run snapshot or the name initial", () => {
   );
 });
 
-it("keeps member identity colors when names or roster positions change", () => {
+it("colors default avatars by the displayed name rather than the member ID", () => {
   const { container, rerender } = render(
-    <MessageCard message={message()} index={0} />,
+    <MessageCard message={message()} />,
   );
   const avatar = container.querySelector('[aria-hidden="true"]');
-  const tone = avatar?.className;
-  rerender(
-    <MessageCard message={message({ agent_name: "新的称呼" })} index={3} />,
+  const originalClass = avatar?.className;
+  expect(originalClass).toContain("avatar-tone-");
+  expect(container.querySelector("article")).not.toHaveAttribute("style");
+  rerender(<MessageCard message={message({ agent_id: "another-member" })} />);
+  expect(container.querySelector('[aria-hidden="true"]')?.className).toBe(
+    originalClass,
   );
-  expect(container.querySelector('[aria-hidden="true"]')?.className).toBe(tone);
+  rerender(
+    <MessageCard message={message({ agent_name: "新的称呼" })} />,
+  );
+  expect(container.querySelector('[aria-hidden="true"]')?.className).not.toBe(
+    originalClass,
+  );
   expect(screen.getByText("新的称呼")).toBeVisible();
 });
 
@@ -87,7 +94,6 @@ it("shows the model recorded by the message's own attempt", () => {
   const { rerender } = render(
     <MessageCard
       message={message({ model: "requested", resolved_model: "resolved" })}
-      index={0}
     />,
   );
   expect(screen.getByText("研究成员")).toBeVisible();
@@ -98,7 +104,6 @@ it("shows the model recorded by the message's own attempt", () => {
         model: "legacy-requested",
         resolved_model: undefined,
       })}
-      index={0}
     />,
   );
   expect(screen.getByText("（legacy-requested）")).toBeVisible();
@@ -108,14 +113,12 @@ it("labels default and unresolved models without claiming a resolved model", () 
   const { rerender } = render(
     <MessageCard
       message={message({ model: "default", resolved_model: "cli-default" })}
-      index={0}
     />,
   );
   expect(screen.getByText("（CLI 默认模型）")).toBeVisible();
   rerender(
     <MessageCard
       message={message({ model: "default", resolved_model: undefined })}
-      index={0}
     />,
   );
   expect(screen.getByText("（CLI 默认模型）")).toBeVisible();
@@ -130,7 +133,6 @@ it("never shows a model for the user's own message", () => {
         model: "default",
         resolved_model: "resolved",
       })}
-      index={0}
     />,
   );
   expect(screen.getByText("你")).toBeVisible();
@@ -154,7 +156,7 @@ it("replaces the current page while walking the full text, then keeps its state 
     .mockResolvedValueOnce(Response.json(page()));
   vi.stubGlobal("fetch", fetcher);
   const user = userEvent.setup();
-  const { rerender } = render(<MessageCard message={message()} index={0} />);
+  const { rerender } = render(<MessageCard message={message()} />);
   expect(screen.getByText("消息预览")).toBeVisible();
   expect(screen.getByText("全文 90000 字节 · 当前为部分预览")).toBeVisible();
   expect(document.body.textContent).not.toContain("chunks_v1");
@@ -171,7 +173,7 @@ it("replaces the current page while walking the full text, then keeps its state 
   expect(fetcher.mock.calls[1][0]).toContain("cursor=cursor-2");
 
   rerender(
-    <MessageCard message={message({ content: "更新后的预览" })} index={0} />,
+    <MessageCard message={message({ content: "更新后的预览" })} />,
   );
   expect(screen.getByText("第二页正文")).toBeVisible();
   expect(fetcher).toHaveBeenCalledTimes(2);
@@ -188,7 +190,7 @@ it("shows loading and retryable errors without exposing protocol fields", async 
     .mockResolvedValueOnce(Response.json(page({ has_more: false })));
   vi.stubGlobal("fetch", fetcher);
   const user = userEvent.setup();
-  render(<MessageCard message={message()} index={0} />);
+  render(<MessageCard message={message()} />);
   await user.click(screen.getByRole("button", { name: "展开全文" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("读取失败");
   expect(document.body.textContent).not.toContain("chunks_v1");
@@ -212,7 +214,7 @@ it("retries the exact page that failed instead of reloading the previous page", 
     );
   vi.stubGlobal("fetch", fetcher);
   const user = userEvent.setup();
-  render(<MessageCard message={message()} index={0} />);
+  render(<MessageCard message={message()} />);
   await user.click(screen.getByRole("button", { name: "展开全文" }));
   await screen.findByText("第一页正文");
   await user.click(screen.getByRole("button", { name: "查看下一页全文" }));
@@ -241,7 +243,6 @@ it("ignores a page that resolves after the card switched to another message", as
   const { rerender } = render(
     <MessageCard
       message={message({ id: "old-message", content: "旧消息" })}
-      index={0}
     />,
   );
   await user.click(screen.getByRole("button", { name: "展开全文" }));
@@ -252,7 +253,6 @@ it("ignores a page that resolves after the card switched to another message", as
         run_id: "run-2",
         content: "新消息预览",
       })}
-      index={0}
     />,
   );
   expect(screen.getByText("新消息预览")).toBeVisible();
@@ -296,7 +296,7 @@ it("offers the newest snapshot after appends without moving the reader there", a
     );
   vi.stubGlobal("fetch", fetcher);
   const user = userEvent.setup();
-  const { rerender } = render(<MessageCard message={message()} index={0} />);
+  const { rerender } = render(<MessageCard message={message()} />);
   await user.click(screen.getByRole("button", { name: "展开全文" }));
   await screen.findByText("第一页正文");
   await user.click(screen.getByRole("button", { name: "查看下一页全文" }));
@@ -306,7 +306,6 @@ it("offers the newest snapshot after appends without moving the reader there", a
   rerender(
     <MessageCard
       message={message({ content_bytes: 120000, status: "completed" })}
-      index={0}
     />,
   );
   expect(screen.getByText("第二页正文")).toBeVisible();
@@ -342,12 +341,11 @@ it("separates an empty reply still generating from one that ended empty", () => 
   const { rerender } = render(
     <MessageCard
       message={message({ ...empty, status: "processing" })}
-      index={0}
     />,
   );
   expect(screen.getByText("正在准备回复…")).toBeVisible();
   for (const status of ["interrupted", "canceled", "failed", "completed"]) {
-    rerender(<MessageCard message={message({ ...empty, status })} index={0} />);
+    rerender(<MessageCard message={message({ ...empty, status })} />);
     expect(screen.queryByText("正在准备回复…")).not.toBeInTheDocument();
     expect(screen.getByText("本次回复没有正文。")).toBeVisible();
   }
@@ -357,7 +355,6 @@ it("marks content as still generating instead of presenting the preview as compl
   render(
     <MessageCard
       message={message({ status: "processing", content_bytes: 70000 })}
-      index={0}
     />,
   );
   expect(screen.getByText("生成中")).toBeVisible();
@@ -372,7 +369,6 @@ it("renders known @ mentions with the real profile and leaves unknown text alone
         content_bytes: 30,
         content_truncated: false,
       })}
-      index={0}
       members={[
         {
           id: "agent",

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Agent, WorkspaceMember } from "../../api/client";
@@ -34,6 +34,42 @@ const member = (agent: Agent, grant: WorkspaceMember) => ({
   workspace_id: "ws",
   tools: grant.tools,
   membership: grant,
+});
+
+it("keeps full member names accessible and supports keyboard selection", async () => {
+  const first = profile({ id: "first" });
+  const long = profile({
+    id: "long",
+    display_name: "负责复杂需求拆解与边界复核的长名字成员",
+    handle: "member-with-a-long-handle",
+    tools: ["web_search"],
+  });
+  render(
+    <WorkspaceMembersForm
+      agents={[]}
+      catalog={[first, long]}
+      workspaceID="ws"
+      refresh={async () => {}}
+      close={() => {}}
+    />,
+  );
+  const target = screen.getByRole("button", {
+    name: `${long.display_name} (@${long.handle}) · 可加入`,
+  });
+  expect(within(target).getByTitle(long.display_name)).toHaveTextContent(
+    long.display_name,
+  );
+  expect(within(target).getByTitle(`@${long.handle}`)).toHaveTextContent(
+    `@${long.handle}`,
+  );
+  expect(target).toHaveAttribute("aria-pressed", "false");
+  const user = userEvent.setup();
+  target.focus();
+  await user.keyboard("{Enter}");
+  expect(target).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByText(/当前实际生效：web_search。/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "first (@first) · 可加入" }))
+    .toHaveAttribute("aria-pressed", "false");
 });
 
 it("only shows workspace grants and the effective tool intersection", async () => {

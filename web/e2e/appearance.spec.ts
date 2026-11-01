@@ -2,6 +2,29 @@ import { expect, test } from "@playwright/test";
 
 test.use({ baseURL: process.env.COCOGEM_TEST_BASE });
 
+test("removes legacy member colors while preserving unrelated preferences", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("cocogem.member-colors", '{"member":"#123456"}');
+    localStorage.setItem("cocogem-appearance", "dark");
+    localStorage.setItem("unrelated-preference", "keep");
+  });
+  await page.route("**/assets/*.js", (route) =>
+    route.request().url().endsWith("/appearance.js")
+      ? route.continue()
+      : route.abort(),
+  );
+  await page.goto("/");
+  expect(
+    await page.evaluate(() => localStorage.getItem("cocogem.member-colors")),
+  ).toBeNull();
+  expect(
+    await page.evaluate(() => localStorage.getItem("unrelated-preference")),
+  ).toBe("keep");
+  await expect(page.locator("html")).toHaveAttribute("data-appearance", "dark");
+});
+
 test("restores explicit appearance before React loads", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.addInitScript(() =>

@@ -1139,7 +1139,6 @@ function WorkspaceApp({
                   <Avatar
                     key={agent.id}
                     name={agent.display_name}
-                    id={agent.id}
                     avatar={agent.avatar}
                     small
                   />
