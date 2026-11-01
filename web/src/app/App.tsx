@@ -946,7 +946,11 @@ function WorkspaceApp({
       await refreshThread(id);
       await loadThreads(workspaceID);
     } catch (error) {
-      if (error instanceof APIError && error.status < 500) {
+      if (
+        error instanceof APIError &&
+        error.status > 0 &&
+        error.status < 500
+      ) {
         pendingSubmission.current.delete(currentThread.current);
         setPendingRequest(false);
       }
