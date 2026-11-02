@@ -419,7 +419,7 @@ func TestInstalledIsolationProbes(t *testing.T) {
 	if os.Getenv("COCOGEM_CHECK_INSTALLED_ISOLATION") != "1" {
 		t.Skip("set COCOGEM_CHECK_INSTALLED_ISOLATION=1 for installed isolation probes")
 	}
-	for _, id := range []string{"claude", "codex", "gemini", "pi"} {
+	for _, id := range []string{"claude", "codex", "gemini", "pi", "opencode"} {
 		t.Run(id, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()

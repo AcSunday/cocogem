@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { RunDivider } from "./RunDivider";
 import type { Attempt, Event, Run, Step } from "../api/client";
@@ -464,4 +464,44 @@ it("keeps each running step's warning and counts partial known usage", () => {
     screen.queryByText("长时间无进展 · 已 900 秒"),
   ).not.toBeInTheDocument();
   expect(screen.getByText("等待工具 · 已 5 秒")).toBeVisible();
+});
+
+it("offers retry for a failed run even when it is not the latest", async () => {
+  const retry = vi.fn();
+  render(
+    <RunDivider
+      run={{
+        ...run,
+        status: "failed",
+        error: "provider returned an invalid result",
+      }}
+      index={2}
+      latest={false}
+      busy={false}
+      onSnapshot={() => {}}
+      onRetry={retry}
+      onResume={() => {}}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "重新运行" })).toBeEnabled();
+  await userEvent.click(screen.getByRole("button", { name: "重试此轮" }));
+  expect(retry).toHaveBeenCalledTimes(1);
+});
+
+it("does not offer a new run for interrupted checkpoints", () => {
+  render(
+    <RunDivider
+      run={{ ...run, status: "interrupted", error: "service restarted" }}
+      index={1}
+      latest
+      busy={false}
+      onSnapshot={() => {}}
+      onRetry={() => {}}
+      onResume={() => {}}
+    />,
+  );
+  expect(
+    screen.queryByRole("button", { name: "重新运行" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "继续执行" })).toBeVisible();
 });

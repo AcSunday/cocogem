@@ -236,7 +236,7 @@ func TestStartupRecoveryPreservesPartialEvidence(t *testing.T) {
 	}
 }
 
-func TestArtifactRevisionAndFIFORecovery(t *testing.T) {
+func TestArtifactRevisionAndRunRecovery(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -252,8 +252,8 @@ func TestArtifactRevisionAndFIFORecovery(t *testing.T) {
 	defer func() { cancel(); e.Wait() }()
 	one := awaitRun(t, s, first.ID)
 	two := awaitRun(t, s, second.ID)
-	if one.Status != "succeeded" || two.Status != "succeeded" || one.FinishedAt > two.FinishedAt {
-		t.Fatal("FIFO was not preserved")
+	if one.Status != "succeeded" || two.Status != "succeeded" {
+		t.Fatal("independent runs did not settle", one.Status, two.Status)
 	}
 	var original w.Artifact
 	var next w.Run

@@ -221,6 +221,8 @@ func runIsolationProbe(ctx context.Context, info agent.AdapterInfo) probeResult 
 		// Pi has no endpoint environment override; preparePi writes a scoped
 		// models.json provider that points at the local probe.
 		options.piProbeURL = server.url
+	case "opencode":
+		options.openCodeProbeURL = server.url
 	}
 	err = (Provider{}).run(ctx, request, execute, observe, options)
 	if violation := server.failure(); violation != "" {
@@ -324,10 +326,10 @@ func (p *probeServer) handle(w http.ResponseWriter, r *http.Request) {
 		} else {
 			writeGeminiText(w)
 		}
-	case "pi":
+	case "pi", "opencode":
 		w.Header().Set("Content-Type", "text/event-stream")
 		if turn == 1 {
-			writePiTool(w)
+			writeOpenCodeProbeTool(w, p.id)
 		} else {
 			writePiText(w)
 		}
@@ -406,7 +408,7 @@ func (p *probeServer) validateTools(body []byte) {
 				}
 			}
 		}
-	case "pi":
+	case "pi", "opencode":
 		var payload struct {
 			Tools []struct {
 				Function struct {
@@ -419,7 +421,11 @@ func (p *probeServer) validateTools(body []byte) {
 		}
 		for _, tool := range payload.Tools {
 			name := tool.Function.Name
-			if !strings.HasPrefix(name, "mcp__cocogem__") || !probeToolName(strings.TrimPrefix(name, "mcp__cocogem__")) {
+			prefix := "mcp__cocogem__"
+			if p.id == "opencode" {
+				prefix = "cocogem_"
+			}
+			if !strings.HasPrefix(name, prefix) || !probeToolName(strings.TrimPrefix(name, prefix)) {
 				p.fail(name)
 			}
 		}
@@ -500,4 +506,20 @@ func writePiText(w http.ResponseWriter) {
 func writeSSEJSON(w http.ResponseWriter, value any) {
 	raw, _ := json.Marshal(value)
 	fmt.Fprintf(w, "data: %s\n\n", raw)
+}
+
+func writeOpenCodeProbeTool(w http.ResponseWriter, executor string) {
+	if executor == "pi" {
+		writePiTool(w)
+		return
+	}
+	names := []string{"cocogem_probe", "cocogem_read_context", "cocogem_read_source"}
+	args := []string{`{}`, `{"kind":"message","id":"message-probe","max_bytes":64}`, `{"source_id":"source-probe","max_bytes":64}`}
+	calls := make([]any, 0, len(names))
+	for i, name := range names {
+		calls = append(calls, map[string]any{"index": i, "id": fmt.Sprintf("probe_%d", i), "type": "function", "function": map[string]any{"name": name, "arguments": args[i]}})
+	}
+	writeSSEJSON(w, map[string]any{"id": "probe", "object": "chat.completion.chunk", "created": 1, "model": "cocogem-probe", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": calls}, "finish_reason": nil}}})
+	writeSSEJSON(w, map[string]any{"id": "probe", "object": "chat.completion.chunk", "created": 1, "model": "cocogem-probe", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+	fmt.Fprint(w, "data: [DONE]\n\n")
 }

@@ -4,7 +4,7 @@
 
 ## 定位与范围
 
-Cocogem 是面向本地单用户的多 Agent 协作工作空间。它调用本机已可用的 Claude Code、Codex、Gemini 或 Pi，让成员围绕同一个任务讨论、研究、分析工程或执行受控开发，并保存消息、来源、交接过程和交付物。
+Cocogem 是面向本地单用户的多 Agent 协作工作空间。它调用本机已可用的 Claude Code、Codex、Gemini、Pi 或 OpenCode，让成员围绕同一个任务讨论、研究、分析工程或执行受控开发，并保存消息、来源、交接过程和交付物。
 
 产品以对话和交付为中心：默认展示问题、成员回复及最终成果，执行过程按需展开。用户选择成员与任务目标；平台负责身份、权限、有限计划、来源引用及状态恢复，不按 CLI 品牌推定成员能力。
 
@@ -36,7 +36,7 @@ Cocogem 是面向本地单用户的多 Agent 协作工作空间。它调用本�
 
 成员创建与编辑不依赖当前是否存在空间，新档案不会自动加入空间。「设置 → 协作」保存默认协调者和各内置流程的角色分工；显式选择优先，默认值只从当前空间已启用且有必要权限的成员中生效，不扩大成员名单和授权。互斥角色必须由不同成员承担。已有会话和运行中的快照不被全局默认值改写。
 
-成员模型为空或 `default` 时沿用本机 CLI 配置。`context_size` 是宿主输入的 UTF-8 字节预算，0 表示沿用 CLI 默认，显式值至少 1024 字节，不能当成模型 token 窗口。`thinking_level` 为空沿用 CLI 配置，显式值按适配器校验：
+成员模型为空或 `default` 时沿用本机 CLI 配置。`context_size` 是宿主输入的估算 token 预算，0 表示沿用 CLI 默认，显式值至少 1024 tokens；它只用于宿主限制，不改变 CLI 自身的上下文窗口。已有配置数值保留，但单位按估算 token 重新解释。`thinking_level` 为空沿用 CLI 配置，显式值按适配器校验：
 
 | CLI | 可显式选择的 thinking 级别 |
 | --- | --- |
@@ -44,6 +44,7 @@ Cocogem 是面向本地单用户的多 Agent 协作工作空间。它调用本�
 | Codex | low、medium、high、xhigh、ultra、max |
 | Gemini | low、high |
 | Pi | low、medium、high、xhigh、max |
+| OpenCode | 从当前模型的原生 variants 动态读取；留空沿用本机或 `provider/model#variant` 配置 |
 
 头像支持本地 PNG/JPEG 上传：最多 512 KiB、单边不超过 2048 像素，检查 MIME、尺寸和完整解码。拒绝远程 URL、SVG 和非法图像；旧内置图案可继续显示与清空，新档案只使用上传图像或默认头像。头像不进入模型提示。
 
@@ -122,7 +123,9 @@ Cocogem 是面向本地单用户的多 Agent 协作工作空间。它调用本�
 
 Web 每个步骤使用新会话和隔离配置，复用本机 CLI 现有 API Key、endpoint、provider、默认模型和允许的执行配置；不继承无关 hooks、插件、外部 MCP、技能或通用工具权限。模型错误按实际原因报告，不能用要求 CLI 登录代替配置转发诊断。
 
-Claude 可按有效授权启用 Read、Glob、Grep、WebSearch、WebFetch；Codex 不开放原生文件工具，原生合并联网工具要求搜索和读取授权同时存在。Gemini 的流式工具结果不提供完整可捕获正文，保持 MCP 文件/联网；Pi 关闭原生读、写、编辑及 shell，通过受限 MCP 使用宿主工具。
+Claude 可按有效授权启用 Read、Glob、Grep、WebSearch、WebFetch；Codex 不开放原生文件工具，原生合并联网工具要求搜索和读取授权同时存在。Gemini 的流式工具结果不提供完整可捕获正文，保持 MCP 文件/联网；Pi 关闭原生读、写、编辑及 shell，通过受限 MCP 使用宿主工具。OpenCode v2.2.5+ 使用独立临时服务，关闭原生工具及技能发现，通过同一受限 MCP 使用宿主工具；先等待 MCP 连接及工具目录刷新，再开始模型回合。Web 直接订阅独立服务的 `session.text.delta` 增量事件，约每 100 毫秒推送页面；文本块结束时校验完整正文，防止增量重复、缺失或前缀冲突，执行成功事件与有效最终步骤同时成立才算完成。
+
+OpenCode 复用用户配置目录（支持 JSON/JSONC、`OPENCODE_CONFIG`、`OPENCODE_CONFIG_CONTENT` 及连接字段的环境/文件变量）、有效凭据与 `provider/model` 默认选择。Web 每步只复制连接配置和有效凭据到临时目录，不复制用户数据库、会话历史、成员提示、插件或外部 MCP。连接检查冻结实际模型、供应商与端点；`provider/model#variant` 可指定供应商支持的变体，成员思考级别按当前模型声明的 variants 动态显示，可通过 thinking_level 显式选择；选择优先于模型标识中的 #variant，不支持的值在执行前拒绝。未知模型、认证失败、截断与缺失完成结果均按失败处理。
 
 Codex 内置的 MCP 资源助手不等于宿主工具授权。平台不提供资源读取：仅将空资源发现结果或 scoped bridge 明确返回的“不支持该资源方法”视为可继续的反馈，并记录诊断通知，让模型继续使用本步已授权工具。非空资源结果、陌生服务器、未知工具及缺少完成结果的调用仍终止执行。
 
@@ -146,7 +149,7 @@ CLI 原生工具库存由 CLI 强制限制，解析器再核对调用和结果�
 
 来源保存捕获内容、类型、标识、时间、完整性及截断信息。文件行号、网页正文、原生工具观察、diff 与测试记录各自保留来源性质。搜索结果和未读取的 URL 仅为线索，不能提升成已核实结论；没有公开搜索或原文时明确说明限制。
 
-每个步骤只读取派发时冻结的可见范围，包括必要的共享历史和确切上游产物。未提交、失败、其他会话和未授权兄弟步骤的正文不能进入证据。长消息、来源和产物支持基于确切引用的分页，模型输入预算不截断已保存的原始正文。最近失败、取消或中断的状态可作为诊断上下文，但不是研究依据。
+每个步骤只读取派发时冻结的可见范围，包括必要的共享历史和确切上游产物。未提交内容、失败消息正文、其他会话和未授权兄弟步骤的正文不能进入证据；最近失败轮次中已成功提交的回复仍可作为共享历史上下文，但不自动升级为交付或已验证结论。长消息、来源和产物支持基于确切引用的分页，模型输入预算不截断已保存的原始正文。最近失败、取消或中断的状态可作为诊断上下文，但不是研究依据。
 
 成功 Run 在同一事务中记录最终消息 ID 和确切 `产物ID@版本号`。会话的正式产物列表以该交付记录为准，不按最后时间戳或最新版本猜测。中间草稿保留为可追溯历史；旧记录没有 Delivery 时不推断、不回填，保留原有终态产物可见性。
 
@@ -156,13 +159,19 @@ CLI 原生工具库存由 CLI 强制限制，解析器再核对调用和结果�
 
 Run 可处于 queued、running、succeeded、failed、canceled、interrupted。页面显示排队、执行中、等待工具/上游、停滞告警、失败及待继续等可读状态；协议通知和心跳不自动算作有效进展。
 
-当前使用单个 FIFO worker 处理 Run，同一计划中独立步骤可并行。默认不设 Run 或步骤累计时长上限，不保证长任务费用和存储有总额上限；可以通过环境变量启用期限。默认等待首个有效响应 10 分钟、无有效进展 15 分钟后告警；默认 warn 只报告，选择 stop 才终止停滞步骤。0 关闭对应检测，非法或负数配置拒绝启动。
+当前使用有界并发调度处理独立会话的 Run，默认最多同时执行 4 个，可用 `COCOGEM_MAX_PARALLEL_RUNS` 调整为 1–16；同一会话最多一个活跃 Run，因此会话内保持串行，同一计划中独立步骤仍可并行。默认不设 Run 或步骤累计时长上限，不保证长任务费用和存储有总额上限；可以通过环境变量启用期限。默认等待首个有效响应 10 分钟、无有效进展 15 分钟后告警；默认 warn 只报告，选择 stop 才终止停滞步骤。0 关闭对应检测，非法或负数配置拒绝启动。
 
 网络、限流和供应商暂态错误最多自动重试 3 次，即最多 4 次尝试，使用有上限的退避；认证、未知错误、用户取消、期限、结果不确定或已提交交接不能盲目重放。失败尝试和重试原因独立持久化。
 
 服务停止或异常退出后，先核对旧执行租约和进程归属，只处理本平台记录且身份匹配的进程。已完成步骤不重跑，未完成步骤从持久检查点继续；无法核实的结果保留中断并要求人工处理。用户取消的协作不会自动复活。
 
 显式「继续执行」会重新验证 CLI 程序、模型/连接、目录绑定和权限。模型、供应商或服务地址变化时保留检查点并要求新 Run；恢复是新的执行尝试，不等于恢复用户原生交互 session。失败的子任务仍可将缺口回传协调者，整轮保留真实失败状态。
+
+失败或取消的 Run 可以「重新运行」：平台按原接受输入创建新的 queued Run，并用 `retry_of_run_id` 关联来源；不回写或复活原 Run，也不重复用户消息。重试使用当前成员、权限、目录与连接配置，不能补足已失效的成员或授权。重试请求在已有同源重试排队时重复提交会返回原 Run，避免重复排队。
+
+后续追问会带上会话内最近一轮已提交消息；即使该轮最终失败或中断，成员先前已完成并提交的回复仍作为共享历史进入上下文，失败、未完成或其他会话的正文不会进入。完整轮次优先于零散片段，四人讨论在常规长度内可整轮保留；更早的完整成功轮次在有界预算内继续保留，超长内容通过确切 ID 分页读取。
+
+共享历史默认上限为 128 条消息 / 64,000 估算 tokens；成员显式设置 `context_size` 时，其历史预算按该输入 token 预算的 60% 缩放，其余留给当前任务、角色指令、上游交接、来源指针和工具定义。成员未设置 `context_size` 时使用服务默认值，可通过 `COCOGEM_HISTORY_MESSAGES` 和 `COCOGEM_HISTORY_TOKENS` 调整。token 数使用保守估算（ASCII 约 4 字节/token，非 ASCII 字符按 1 token/字符），不保证与供应商 tokenizer 完全一致；单条消息预览默认约 4K tokens，大上下文成员最高约 32K tokens，超出部分仍可通过 `read_context` 读取完整正文。
 
 ## 配置与启动
 
@@ -192,6 +201,9 @@ make build
 | BRAVE_SEARCH_API_KEY | 可选，仅用于 Brave 在线搜索，无关模型连接 |
 | COCOGEM_WEB_PROXY | 默认直连；env 使用代理环境变量，system 读取 macOS 系统代理，也可指定 HTTP/HTTPS/SOCKS5 地址 |
 | COCOGEM_RUN_TIMEOUT / COCOGEM_STEP_TIMEOUT | 0，关闭累计期限；支持 Go duration，如 2h |
+| COCOGEM_MAX_PARALLEL_RUNS | 4；同时执行的独立会话 Run 数，范围 1–16 |
+| COCOGEM_HISTORY_MESSAGES | 128；默认共享历史消息条数，范围 1–1000 |
+| COCOGEM_HISTORY_TOKENS | 64000；默认共享历史估算 token 预算，范围 1024–2000000 |
 | COCOGEM_FIRST_RESPONSE_TIMEOUT | 10m；0 关闭首响应检测 |
 | COCOGEM_STALL_TIMEOUT | 15m；0 关闭无进展检测 |
 | COCOGEM_STALL_ACTION | warn；stop 才停止停滞执行 |
@@ -213,11 +225,12 @@ go run ./cmd/cocogem "你好"                 # 默认 Claude
 go run ./cmd/cocogem codex "记住项目名 Cocogem"
 go run ./cmd/cocogem codex --resume latest "项目名是什么？"
 go run ./cmd/cocogem gemini --resume <session-id> "继续"
+go run ./cmd/cocogem opencode "你好"
 ```
 
-CLI 名支持 claude、codex、gemini、pi，选择参数和 `--resume` 放在提示词之前。默认新建会话，成功后将真实 session ID 写到 stderr，并以 0600 权限原子更新当前目录 `.cocogem/<cli>.json`。`latest` 只读本目录、本 CLI 的最近成功记录；缺失、损坏或恢复失败时报错，不静默新建，失败不覆盖旧记录。
+CLI 名支持 claude、codex、gemini、pi、opencode，选择参数和 `--resume` 放在提示词之前。默认新建会话，成功后将真实 session ID 写到 stderr，并以 0600 权限原子更新当前目录 `.cocogem/<cli>.json`。`latest` 只读本目录、本 CLI 的最近成功记录；缺失、损坏或恢复失败时报错，不静默新建，失败不覆盖旧记录。
 
-原生历史由对应 CLI 管理，会话不能跨 CLI 互换。提示词使用独立 argv 或 stdin 传递，不进行 shell 拼接。终端模式遵守原生 CLI 自身权限，不作为网页执行隔离边界。实现及兼容测试保留在 `internal/cli/`，不提供公共 Go SDK。
+原生历史由对应 CLI 管理，会话不能跨 CLI 互换。OpenCode 保留 `ses_` 原生会话 ID，其他 CLI 保留 UUID。提示词使用独立 argv 或 stdin 传递，不进行 shell 拼接。终端模式遵守原生 CLI 自身权限，不作为网页执行隔离边界。实现及兼容测试保留在 `internal/cli/`，不提供公共 Go SDK。
 
 ## 项目结构
 
@@ -263,10 +276,10 @@ examples/          可公开的样例资料
 
 | 分组 | 主要接口 |
 | --- | --- |
-| 服务与配置 | system、system/verify、directories、settings、auth/logout |
+| 服务与配置 | system、system/verify、system/model-options、directories、settings、auth/logout |
 | 空间与成员 | workspaces、agents、workspaces/{id}/members/{agentID} |
 | 会话与清理 | threads/{id}、trash、threads/{id}/restore、threads/{id}/permanent |
-| 路由与运行 | threads/{id}/routing-preview、threads/{id}/runs、runs/{id}、cancel、resume |
+| 路由与运行 | threads/{id}/routing-preview、threads/{id}/runs、runs/{id}、cancel、resume、retry |
 | 输出与历史 | runs/{id}/events（SSE）、event-history、messages/{messageID}/content |
 | 来源与产物 | sources/{id}、threads/{id}/artifacts、artifacts/{id}/versions/{version} 及 export |
 
@@ -296,7 +309,7 @@ GitHub Actions 在 push 与 Pull Request 时只运行 test 任务：保留 Go �
 - 路由歧义不误派发，显式收件人优先，自由协作只经受控 MCP 派发，内置流程保持接受的计划。
 - 研究和工程复核读取确切上游成果，分歧与证据缺口进入最终产物，草稿不冒充交付。
 - 工程开发显式授权、路径/哈希/内容限制、独立复测与工程树证据成立；只读模式绝不升级。
-- 停止、暂态重试、重启、显式恢复、权限撤销和不确定进程均保留真实状态，不重复交接或复活已取消任务。
+- 停止、暂态重试、失败重跑、并行会话、重启、显式恢复、权限撤销和不确定进程均保留真实状态，不重复交接或复活已取消任务。
 - 长正文完整保存并有界读取，SSE 重放与快照合并正确，回收站恢复/过期清理及数据备份有效。
 - Enter/换行、IME、@ 补全、移动端、主题、键盘焦点和可访问性保持兼容。
 

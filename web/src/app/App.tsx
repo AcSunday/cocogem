@@ -987,6 +987,25 @@ function WorkspaceApp({
       setBusy(false);
     }
   }
+  async function retry(runID: string) {
+    if (busy || active) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/v1/runs/${runID}/retry`, "POST", {});
+      settledSteps.current.delete(runID);
+      follows.current = true;
+      messageCursorRef.current = "";
+      viewCursor.current = "";
+      setMessageCursor("");
+      await refreshThread(threadID);
+      await loadThreads(workspaceID);
+    } catch (error) {
+      setError(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function saveFeedback(value: string) {
     if (!artifact) return;
     try {
@@ -1254,11 +1273,9 @@ function WorkspaceApp({
                       }
                       events={run.id === inspectedRun?.id ? events : undefined}
                       latest={run.id === currentRun?.id}
-                      busy={busy}
+                      busy={busy || active}
                       onSnapshot={() => setModal({ kind: "snapshot", run })}
-                      onRetry={() =>
-                        void send({ ...run.input, retry_of_run_id: run.id })
-                      }
+                      onRetry={() => void retry(run.id)}
                       onResume={() => void resume(run.id)}
                       onRefresh={() =>
                         void refreshThread(threadID).catch((error) =>

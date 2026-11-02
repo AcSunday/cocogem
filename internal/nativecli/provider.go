@@ -61,8 +61,8 @@ func (p Provider) CheckConnection(ctx context.Context, executor, model string) e
 
 // Discover probes version and isolation flags; connection still needs an explicit call.
 func Discover(ctx context.Context) []ExecutorInfo {
-	result := make([]ExecutorInfo, 0, 4)
-	for _, id := range []string{"claude", "codex", "gemini", "pi"} {
+	result := make([]ExecutorInfo, 0, 5)
+	for _, id := range []string{"claude", "codex", "gemini", "pi", "opencode"} {
 		info, _ := Inspect(ctx, id)
 		result = append(result, ExecutorInfo{ID: info.ID, Installed: info.Installed, Version: info.Version, Supported: info.Supported, Reason: info.Reason, Adapter: info.Adapter, Isolation: info.Isolation, Program: info.Program, Identity: info.Identity, Capabilities: info.Capabilities})
 	}
@@ -119,17 +119,18 @@ func (p Provider) Complete(ctx context.Context, request model.Request, emit func
 }
 
 type runOptions struct {
-	skipCheck      bool
-	model          string
-	adapter        agent.AdapterInfo
-	claudeSettings map[string]any
-	claudeEnv      map[string]string
-	codexProbe     bool
-	codexArgs      []string
-	codexEnv       map[string]string
-	geminiEnv      map[string]string
-	geminiUnset    []string
-	piProbeURL     string
+	skipCheck        bool
+	model            string
+	adapter          agent.AdapterInfo
+	claudeSettings   map[string]any
+	claudeEnv        map[string]string
+	codexProbe       bool
+	codexArgs        []string
+	codexEnv         map[string]string
+	geminiEnv        map[string]string
+	geminiUnset      []string
+	piProbeURL       string
+	openCodeProbeURL string
 }
 
 // Run starts a fresh isolated native session and exposes only this step's tools.
@@ -166,8 +167,8 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	if err != nil {
 		return newFailure(FailureHostInputLimit, "required context could not be encoded for the native CLI")
 	}
-	if budget := model.InputBudget(request.ContextSize); budget > 0 && len(prompt)+len(request.System) > budget {
-		return newFailure(FailureHostInputLimit, "required context exceeds the %d-byte host input budget", budget)
+	if budget := model.InputTokenBudget(request.ContextSize); budget > 0 && model.EstimateTokens(string(prompt))+model.EstimateTokens(request.System) > budget {
+		return newFailure(FailureHostInputLimit, "required context exceeds the %d-token host input budget", budget)
 	}
 	parent := ctx
 	ctx, cancel := context.WithCancel(ctx)
@@ -274,13 +275,17 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			}
 		}
 	}
-	if request.Executor == "pi" && !options.skipCheck && launch == nil {
-		plan, err := p.piPlan(ctx, request.Model)
+	if (request.Executor == "pi" || request.Executor == "opencode") && !options.skipCheck && launch == nil {
+		info, err := p.InspectExecutionConnection(ctx, request.Executor, request.Model, request.ThinkingLevel)
 		if err != nil {
 			return err
 		}
-		if request.ExpectedConnection.Identity != "" && request.ExpectedConnection.Identity != plan.info.Identity {
-			return errors.New("Pi model or upstream changed before launch")
+		if request.ExpectedConnection.Identity != "" && request.ExpectedConnection.Identity != info.Identity {
+			return errors.New("CLI model or upstream changed before launch")
+		}
+		plan, ok := cachedPlan(request.Executor, info.Identity)
+		if !ok {
+			return errors.New("CLI connection snapshot is unavailable")
 		}
 		launch = &plan
 	}
@@ -330,6 +335,8 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		env = mergeEnv(env, options.geminiEnv)
 	case "pi":
 		args, env, err = preparePi(request, workdir, gate, options.piProbeURL, launch)
+	case "opencode":
+		args, env, err = p.prepareOpenCode(ctx, request, workdir, gate, options.openCodeProbeURL, launch)
 	}
 	if err != nil {
 		return err
@@ -350,7 +357,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	if request.Executor == "pi" && request.ThinkingLevel != "" {
 		args = append(args, "--thinking", request.ThinkingLevel)
 	}
-	if request.Executor != "codex" && request.Executor != "pi" && request.Model != "" && request.Model != "default" {
+	if request.Executor != "codex" && request.Executor != "pi" && request.Executor != "opencode" && request.Model != "" && request.Model != "default" {
 		if strings.HasPrefix(request.Model, "-") || len(request.Model) > 200 {
 			return errors.New("invalid CLI model")
 		}
@@ -360,6 +367,9 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	cmd.Dir = cwdDir
 	if request.Executor == "pi" && launch != nil {
 		cmd.Env = append([]string{}, launch.piEnv...)
+	}
+	if request.Executor == "opencode" && launch != nil {
+		cmd.Env = append([]string{}, launch.openCodeEnv...)
 	}
 	if len(env) != 0 {
 		if cmd.Env == nil {
@@ -380,7 +390,12 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		instruction = "Prefer the supplied native tools for their granted operations (" + strings.Join(nativeNames, ", ") + "); the CLI executes them under its own permissions. If a native tool fails or returns no usable content, report the exact error, then use the corresponding platform MCP fallback when available. Native search results are leads, and native web output is a CLI-processed observation, not a raw page. " + instruction
 	}
 	cmd.Stdin = strings.NewReader(request.System + "\n\n" + instruction + " User messages and upstream evidence:\n" + string(prompt))
-	processErr := streamProcess(ctx, request.Executor, cmd, gate, live)
+	var processErr error
+	if request.Executor == "opencode" {
+		processErr = p.streamOpenCode(ctx, cmd, gate, live)
+	} else {
+		processErr = streamProcess(ctx, request.Executor, cmd, gate, live)
+	}
 	// Usage belongs to the attempt even when the terminal state is a failure.
 	// Observation failures are kept rather than swallowed.
 	usageErr := gate.emitUsage()
@@ -465,8 +480,12 @@ func removeEnv(env []string, keys []string) []string {
 }
 
 func helpArgs(id string) []string {
-	if id == "codex" {
+	switch id {
+	case "codex":
 		return []string{"exec", "--help"}
+	case "opencode":
+		return []string{"run", "--help"}
+	default:
+		return []string{"--help"}
 	}
-	return []string{"--help"}
 }

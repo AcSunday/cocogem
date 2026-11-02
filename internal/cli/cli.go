@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const usage = `用法：cocogem [claude|codex|gemini|pi] [--resume latest|会话ID] "你的问题"`
+const usage = `用法：cocogem [claude|codex|gemini|pi|opencode] [--resume latest|会话ID] "你的问题"`
 
 type options struct {
 	CLI    string
@@ -34,7 +34,7 @@ func parseArgs(args []string) (options, error) {
 	if len(args) > 1 && !strings.HasPrefix(args[0], "-") {
 		opt.CLI, args = args[0], args[1:]
 	}
-	if opt.CLI != "claude" && opt.CLI != "codex" && opt.CLI != "gemini" && opt.CLI != "pi" {
+	if opt.CLI != "claude" && opt.CLI != "codex" && opt.CLI != "gemini" && opt.CLI != "pi" && opt.CLI != "opencode" {
 		return options{}, fmt.Errorf("%s\n不支持的 CLI：%s", usage, opt.CLI)
 	}
 	if len(args) == 0 || strings.TrimSpace(args[len(args)-1]) == "" {
@@ -60,7 +60,7 @@ func parseArgs(args []string) (options, error) {
 		return options{}, fmt.Errorf("resume must be latest or a session UUID")
 	}
 	if opt.Resume != "" && opt.Resume != "latest" {
-		if err := validateSessionID(opt.Resume); err != nil {
+		if err := validateCLISessionID(opt.CLI, opt.Resume); err != nil {
 			return options{}, err
 		}
 	}

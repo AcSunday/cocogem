@@ -93,6 +93,54 @@ func TestLongTaskLimitsAreConfigurable(t *testing.T) {
 	}
 }
 
+func TestParallelRunConfiguration(t *testing.T) {
+	t.Setenv("COCOGEM_MAX_PARALLEL_RUNS", "")
+	parallel, err := loadParallelRuns()
+	if err != nil || parallel != workflow.DefaultMaxParallelRuns {
+		t.Fatalf("default parallel runs = %d, %v", parallel, err)
+	}
+	t.Setenv("COCOGEM_MAX_PARALLEL_RUNS", "7")
+	parallel, err = loadParallelRuns()
+	if err != nil || parallel != 7 {
+		t.Fatalf("configured parallel runs = %d, %v", parallel, err)
+	}
+	for _, value := range []string{"0", "-1", "17", "many"} {
+		t.Setenv("COCOGEM_MAX_PARALLEL_RUNS", value)
+		if _, err := loadParallelRuns(); err == nil {
+			t.Fatalf("invalid parallel runs %q accepted", value)
+		}
+	}
+}
+
+func TestHistoryBudgetConfiguration(t *testing.T) {
+	for _, key := range []string{"COCOGEM_HISTORY_MESSAGES", "COCOGEM_HISTORY_TOKENS"} {
+		t.Setenv(key, "")
+	}
+	limits, err := loadHistoryLimits()
+	if err != nil || limits != workflow.DefaultHistoryLimits() {
+		t.Fatalf("default history limits = %+v, %v", limits, err)
+	}
+	t.Setenv("COCOGEM_HISTORY_MESSAGES", "320")
+	t.Setenv("COCOGEM_HISTORY_TOKENS", "1000000")
+	limits, err = loadHistoryLimits()
+	if err != nil || limits.Messages != 320 || limits.Tokens != 1000000 {
+		t.Fatalf("configured history limits = %+v, %v", limits, err)
+	}
+	for _, value := range []string{"0", "-1", "1001", "many"} {
+		t.Setenv("COCOGEM_HISTORY_MESSAGES", value)
+		if _, err := loadHistoryLimits(); err == nil {
+			t.Fatalf("invalid history messages %q accepted", value)
+		}
+	}
+	t.Setenv("COCOGEM_HISTORY_MESSAGES", "128")
+	for _, value := range []string{"0", "1023", "2000001", "many"} {
+		t.Setenv("COCOGEM_HISTORY_TOKENS", value)
+		if _, err := loadHistoryLimits(); err == nil {
+			t.Fatalf("invalid history tokens %q accepted", value)
+		}
+	}
+}
+
 func TestSearchProviderSelection(t *testing.T) {
 	for _, test := range []struct {
 		key, provider string

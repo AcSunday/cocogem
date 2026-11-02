@@ -23,11 +23,14 @@ func TestCommand(t *testing.T) {
 	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build CLI: %v\n%s", err, out)
 	}
-	for _, provider := range []string{"claude", "codex", "gemini", "pi"} {
+	for _, provider := range []string{"claude", "codex", "gemini", "pi", "opencode"} {
 		t.Run(provider, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			const session = "12345678-1234-1234-1234-123456789abc"
+			session := "12345678-1234-1234-1234-123456789abc"
+			if provider == "opencode" {
+				session = "ses_abcdefghijklmnopqrstuvwxyz"
+			}
 			stub := `#!/bin/sh
 printf '%s\n' "$@" > args.txt
 if [ "$COCOGEM_TEST_FAIL" = 1 ]; then exit 7; fi
@@ -46,6 +49,15 @@ case "$0" in
     cat > prompt.txt
     if [ -f pi-result.jsonl ]; then cat pi-result.jsonl; exit 0; fi
     printf '%s\n' '{"type":"session","id":"` + session + `"}' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"hello"}}' '{"type":"message_end","message":{"role":"assistant","stopReason":"stop"}}' '{"type":"agent_settled","aborted":false}'
+    ;;
+  *opencode)
+    if [ "$1" = api ]; then
+      if [ -f missing-session ]; then exit 4; fi
+      exit 0
+    fi
+    cat > prompt.txt
+    if [ -f opencode-result.jsonl ]; then cat opencode-result.jsonl; exit 0; fi
+    printf '%s\n' '{"type":"text","sessionID":"` + session + `","part":{"text":"hello"}}' '{"type":"step_finish","sessionID":"` + session + `","part":{"reason":"stop"}}'
     ;;
 esac
 `
@@ -97,7 +109,7 @@ esac
 			if err := json.Unmarshal(before, &record); err != nil || record.CLI != provider || record.SessionID != session {
 				t.Fatalf("session=%s error=%v", before, err)
 			}
-			if provider == "codex" || provider == "pi" {
+			if provider == "codex" || provider == "pi" || provider == "opencode" {
 				body, err := os.ReadFile(filepath.Join(dir, "prompt.txt"))
 				if err != nil || string(body) != prompt {
 					t.Fatalf("stdin=%q error=%v", body, err)
@@ -113,6 +125,29 @@ esac
 			if err != nil || !bytes.Equal(before, after) {
 				t.Fatalf("failed call changed session: %s error=%v", after, err)
 			}
+			if provider == "opencode" {
+				if err := os.WriteFile(filepath.Join(dir, "missing-session"), nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+				_, diagnostic := run(1, false, "opencode", "--resume", "latest", "public continuation")
+				if !strings.Contains(diagnostic, "session is missing or unavailable") {
+					t.Fatalf("resume error=%q", diagnostic)
+				}
+				if err := os.Remove(filepath.Join(dir, "missing-session")); err != nil {
+					t.Fatal(err)
+				}
+				for _, tail := range []string{`{"type":"text","sessionID":"ses_zyxwvutsrqponmlkjihgfedcba","part":{"text":"partial"}}`, `{"type":"step_finish","sessionID":"ses_zyxwvutsrqponmlkjihgfedcba","part":{"reason":"length"}}`} {
+					if err := os.WriteFile(filepath.Join(dir, "opencode-result.jsonl"), []byte(tail+"\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+					run(1, false, "opencode", "public failure fixture")
+					after, err := os.ReadFile(sessionPath)
+					if err != nil || !bytes.Equal(before, after) {
+						t.Fatal("failed OpenCode turn overwrote the saved session")
+					}
+				}
+			}
+
 			if provider == "pi" {
 				for _, test := range []struct{ name, tail, diagnostic string }{
 					{"authentication", `{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"synthetic invalid api key"}}` + "\n" + `{"type":"agent_settled","aborted":false}`, "synthetic invalid api key"},

@@ -176,7 +176,8 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 			fmt.Fprintf(&contextText, "\nCommitted current-run message message_id=%s agent_id=%s step_id=%s run_id=%s status=%s from %s:\n%s\n", m.ID, m.AgentID, m.StepID, m.RunID, m.Status, m.AgentName, content)
 		}
 	}
-	for _, m := range recentHistory(history, run.ID, 12, 16000) {
+	limits := e.historyLimitsFor(a)
+	for _, m := range recentHistory(history, run.ID, limits.Messages, limits.Tokens) {
 		// Shared history is the same frozen window the read scope exposed; it
 		// never advertises a message read_context would refuse.
 		if scope == nil {
@@ -350,8 +351,8 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 	if err != nil {
 		return request, err
 	}
-	if budget := model.InputBudget(a.ContextSize); budget > 0 && len(encoded)+len(request.System) > budget {
-		return request, &nativecli.Failure{Kind: nativecli.FailureHostInputLimit, Reason: fmt.Sprintf("required context exceeds the %d-byte host input budget; reduce mandatory references, selection scope or raise the member context_size", budget)}
+	if budget := model.InputTokenBudget(a.ContextSize); budget > 0 && model.EstimateTokens(string(encoded))+model.EstimateTokens(request.System) > budget {
+		return request, &nativecli.Failure{Kind: nativecli.FailureHostInputLimit, Reason: fmt.Sprintf("required context exceeds the %d-token host input budget; reduce mandatory references, selection scope or raise the member context_size", budget)}
 	}
 	return request, nil
 }

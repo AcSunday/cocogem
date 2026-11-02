@@ -196,6 +196,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/runs/{id}/retry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["retryRun"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/settings": {
     parameters: {
       query?: never;
@@ -236,6 +252,22 @@ export interface paths {
       cookie?: never;
     };
     get: operations["system"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/system/model-options": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["modelOptions"];
     put?: never;
     post?: never;
     delete?: never;
@@ -508,6 +540,7 @@ export interface components {
       aliases: string[] | null;
       avatar?: string;
       capabilities?: string[] | null;
+      /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
       context_size?: number;
       disabled: boolean;
       display_name: string;
@@ -532,6 +565,7 @@ export interface components {
       aliases?: string[] | null;
       avatar?: string;
       capabilities?: string[] | null;
+      /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
       context_size?: number;
       disabled?: boolean;
       display_name: string;
@@ -773,6 +807,10 @@ export interface components {
       message_id: string;
       next_cursor?: string;
     };
+    ModelOptions: {
+      resolved_model: string;
+      thinking_levels: string[];
+    };
     PasswordInput: {
       password: string;
     };
@@ -832,6 +870,7 @@ export interface components {
             aliases: string[] | null;
             avatar?: string;
             capabilities?: string[] | null;
+            /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
             context_size?: number;
             disabled: boolean;
             display_name: string;
@@ -1067,6 +1106,7 @@ export interface components {
               aliases: string[] | null;
               avatar?: string;
               capabilities?: string[] | null;
+              /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
               context_size?: number;
               disabled: boolean;
               display_name: string;
@@ -1381,6 +1421,7 @@ export interface components {
               aliases: string[] | null;
               avatar?: string;
               capabilities?: string[] | null;
+              /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
               context_size?: number;
               disabled: boolean;
               display_name: string;
@@ -1570,12 +1611,14 @@ export interface components {
         | null;
     };
     VerifyInput: {
+      /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
       context_size?: number;
       executor?: string;
       model?: string;
       thinking_level?: string;
     };
     VerifyReply: {
+      /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
       context_size?: number;
       executor?: string;
       executors?:
@@ -2119,6 +2162,43 @@ export interface operations {
       };
     };
   };
+  retryRun: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   settings: {
     parameters: {
       query?: never;
@@ -2231,6 +2311,39 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["SystemInfo"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  modelOptions: {
+    parameters: {
+      query: {
+        executor: "opencode";
+        /** @description OpenCode provider/model, provider/model#variant, or default. Reads the local catalog without an upstream prompt. */
+        model?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ModelOptions"];
         };
       };
       /** @description Structured error */

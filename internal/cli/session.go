@@ -17,8 +17,20 @@ func validateSessionID(id string) error {
 	return nil
 }
 
+var openCodeSessionPattern = regexp.MustCompile(`^ses_[a-zA-Z0-9]{20,64}$`)
+
+func validateCLISessionID(cli, id string) error {
+	if cli == "opencode" {
+		if !openCodeSessionPattern.MatchString(id) {
+			return fmt.Errorf("invalid OpenCode session ID: %q", id)
+		}
+		return nil
+	}
+	return validateSessionID(id)
+}
+
 func sessionPath(dir, cli string) (string, error) {
-	if cli != "claude" && cli != "codex" && cli != "gemini" && cli != "pi" {
+	if cli != "claude" && cli != "codex" && cli != "gemini" && cli != "pi" && cli != "opencode" {
 		return "", fmt.Errorf("unsupported CLI: %q", cli)
 	}
 	return filepath.Join(dir, cli+".json"), nil
@@ -40,7 +52,7 @@ func loadSession(dir, cli string) (string, error) {
 	if result.CLI != cli {
 		return "", fmt.Errorf("saved session belongs to %q, not %q", result.CLI, cli)
 	}
-	if err := validateSessionID(result.SessionID); err != nil {
+	if err := validateCLISessionID(result.CLI, result.SessionID); err != nil {
 		return "", err
 	}
 	return result.SessionID, nil
@@ -51,7 +63,7 @@ func saveSession(dir string, result Result) error {
 	if err != nil {
 		return err
 	}
-	if err := validateSessionID(result.SessionID); err != nil {
+	if err := validateCLISessionID(result.CLI, result.SessionID); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {

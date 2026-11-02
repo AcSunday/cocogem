@@ -114,13 +114,16 @@ func TestExecutionOptionsValidation(t *testing.T) {
 		{"empty keeps defaults", func(*Agent) {}, false},
 		{"claude high", func(a *Agent) { a.ThinkingLevel = "high" }, false},
 		{"codex ultra", func(a *Agent) { a.Executor, a.ThinkingLevel = "codex", "ultra" }, false},
-		{"context at minimum", func(a *Agent) { a.ContextSize = MinContextSize }, false},
+		{"context at minimum", func(a *Agent) { a.ContextSize = MinContextTokens }, false},
 		{"context above old ceiling", func(a *Agent) { a.ContextSize = 500000 }, false},
-		{"context below minimum", func(a *Agent) { a.ContextSize = MinContextSize - 1 }, true},
+		{"context below minimum", func(a *Agent) { a.ContextSize = MinContextTokens - 1 }, true},
 		{"unsupported level for claude", func(a *Agent) { a.ThinkingLevel = "ultra" }, true},
 		{"unsupported executor level", func(a *Agent) { a.Executor, a.ThinkingLevel = "gemini", "medium" }, true},
 		{"gemini needs explicit model", func(a *Agent) { a.Executor, a.ThinkingLevel = "gemini", "high" }, true},
 		{"gemini with explicit model", func(a *Agent) { a.Executor, a.Model, a.ThinkingLevel = "gemini", "fixture-model", "high" }, false},
+		{"opencode high", func(a *Agent) { a.Executor, a.ThinkingLevel = "opencode", "high" }, false},
+		{"opencode custom variant", func(a *Agent) { a.Executor, a.ThinkingLevel = "opencode", "custom-effort" }, false},
+		{"opencode invalid variant", func(a *Agent) { a.Executor, a.ThinkingLevel = "opencode", "high#low" }, true},
 		{"thinking without executor", func(a *Agent) { a.Executor, a.ThinkingLevel = "", "high" }, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -194,7 +197,7 @@ func TestTerminal(t *testing.T) {
 }
 
 func TestNativeExecutorUsesItsOwnModelSelection(t *testing.T) {
-	for _, executor := range []string{"claude", "codex", "gemini"} {
+	for _, executor := range []string{"claude", "codex", "gemini", "pi", "opencode"} {
 		t.Run(executor, func(t *testing.T) {
 			a := Agent{DisplayName: "研究员", Handle: "research", Executor: executor, Model: "default"}
 			if err := ValidateAgent(a, nil, nil, nil); err != nil {

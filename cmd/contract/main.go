@@ -56,6 +56,8 @@ func main() {
 		t := reflect.TypeOf(value)
 		schemas[t.Name()] = schema(t)
 	}
+	schemas["ModelOptions"] = schema(reflect.TypeFor[httpapi.ModelOptions]())
+	schemas["ModelOptions"].(map[string]any)["properties"].(map[string]any)["thinking_levels"].(map[string]any)["type"] = "array"
 	schemas["PasswordInput"].(map[string]any)["properties"].(map[string]any)["password"] = map[string]any{"type": "string", "minLength": 12, "maxLength": 128, "writeOnly": true}
 	schemas["Event"].(map[string]any)["description"] = "Persisted per-run event. seq is strictly increasing; clients deduplicate (run_id,seq)."
 	props := func(name string) map[string]any { return schemas[name].(map[string]any)["properties"].(map[string]any) }
@@ -153,6 +155,7 @@ func main() {
 	schemas["ThreadInput"] = schema(reflect.TypeFor[w.Thread]())
 	schemas["ThreadInput"].(map[string]any)["required"] = []string{"title"}
 	for _, endpoint := range [][5]string{
+		{"/api/v1/system/model-options", "get", "modelOptions", "ModelOptions", ""},
 		{"/api/v1/directories", "get", "directories", "DirectoryListing", ""},
 		{"/auth/status", "get", "authStatus", "AuthStatus", ""}, {"/auth/setup", "post", "setupPassword", "SessionReply", "PasswordInput"}, {"/auth/login", "post", "login", "SessionReply", "PasswordInput"}, {"/api/v1/auth/logout", "post", "logout", "AuthStatus", "EmptyInput"}, {"/api/v1/system", "get", "system", "SystemInfo", ""}, {"/api/v1/system/verify", "post", "verify", "VerifyReply", "VerifyInput"},
 		{"/api/v1/workspaces", "get", "workspaces", "WorkspaceList", ""}, {"/api/v1/workspaces", "post", "createWorkspace", "Workspace", "WorkspaceInput"}, {"/api/v1/workspaces/{id}", "patch", "updateWorkspace", "Workspace", "WorkspaceInput"}, {"/api/v1/workspaces/{id}", "delete", "deleteWorkspace", "DeleteReply", ""},
@@ -162,7 +165,7 @@ func main() {
 		{"/api/v1/workspaces/{id}/members/{agentID}", "put", "linkMember", "Agent", "WorkspaceMemberInput"}, {"/api/v1/workspaces/{id}/members/{agentID}", "patch", "updateMember", "Agent", "WorkspaceMemberInput"}, {"/api/v1/workspaces/{id}/members/{agentID}", "delete", "unlinkMember", "DeleteReply", ""},
 		{"/api/v1/workspaces/{id}/threads", "get", "threads", "ThreadList", ""}, {"/api/v1/workspaces/{id}/threads", "post", "createThread", "Thread", "ThreadInput"}, {"/api/v1/threads/{id}", "get", "thread", "ThreadView", ""}, {"/api/v1/threads/{id}", "patch", "updateThread", "Thread", "ThreadUpdate"}, {"/api/v1/threads/{id}", "delete", "deleteThread", "DeleteReply", ""},
 		{"/api/v1/trash", "get", "trash", "TrashList", ""}, {"/api/v1/threads/{id}/restore", "post", "restoreThread", "Thread", "EmptyInput"}, {"/api/v1/threads/{id}/permanent", "delete", "permanentDeleteThread", "DeleteReply", ""},
-		{"/api/v1/threads/{id}/routing-preview", "post", "routingPreview", "RoutingPreview", "RunRequest"}, {"/api/v1/threads/{id}/runs", "post", "submitRun", "Run", "RunRequest"}, {"/api/v1/runs/{id}", "get", "run", "RunView", ""}, {"/api/v1/runs/{id}/cancel", "post", "cancelRun", "Run", "EmptyInput"}, {"/api/v1/runs/{id}/resume", "post", "resumeRun", "Run", "EmptyInput"},
+		{"/api/v1/threads/{id}/routing-preview", "post", "routingPreview", "RoutingPreview", "RunRequest"}, {"/api/v1/threads/{id}/runs", "post", "submitRun", "Run", "RunRequest"}, {"/api/v1/runs/{id}", "get", "run", "RunView", ""}, {"/api/v1/runs/{id}/cancel", "post", "cancelRun", "Run", "EmptyInput"}, {"/api/v1/runs/{id}/resume", "post", "resumeRun", "Run", "EmptyInput"}, {"/api/v1/runs/{id}/retry", "post", "retryRun", "Run", "EmptyInput"},
 		{"/api/v1/runs/{id}/events", "get", "runEvents", "Event", ""}, {"/api/v1/runs/{id}/event-history", "get", "runEventHistory", "EventPage", ""}, {"/api/v1/runs/{id}/messages/{messageID}/content", "get", "runMessageContent", "MessageContentPage", ""}, {"/api/v1/sources/{id}", "get", "source", "Source", ""}, {"/api/v1/threads/{id}/artifacts", "get", "artifacts", "ArtifactList", ""}, {"/api/v1/artifacts/{id}/versions/{version}", "get", "artifact", "Artifact", ""}, {"/api/v1/artifacts/{id}/versions/{version}", "patch", "feedback", "Artifact", "FeedbackInput"}, {"/api/v1/artifacts/{id}/versions/{version}/export", "get", "exportArtifact", "Artifact", ""},
 	} {
 		add(endpoint[0], endpoint[1], endpoint[2], endpoint[3], endpoint[4])
@@ -171,6 +174,9 @@ func main() {
 		for method, rawOperation := range raw.(map[string]any) {
 			op := rawOperation.(map[string]any)
 			params, _ := op["parameters"].([]any)
+			if path == "/api/v1/system/model-options" {
+				params = append(params, map[string]any{"in": "query", "name": "executor", "required": true, "schema": map[string]any{"type": "string", "enum": []string{"opencode"}}}, map[string]any{"in": "query", "name": "model", "schema": map[string]any{"type": "string", "maxLength": 150}, "description": "OpenCode provider/model, provider/model#variant, or default. Reads the local catalog without an upstream prompt."})
+			}
 			if path == "/api/v1/directories" {
 				params = append(params, map[string]any{"in": "query", "name": "path", "description": "Existing local directory; empty starts at allowed roots or the home directory. Does not bind a workspace.", "schema": map[string]any{"type": "string", "maxLength": 4096}})
 			}
@@ -180,7 +186,7 @@ func main() {
 			if method == "patch" || method == "delete" && (strings.Contains(path, "/members/") || strings.HasSuffix(path, "/permanent")) || path == "/api/v1/threads/{id}/restore" {
 				params = append(params, map[string]any{"in": "header", "name": "If-Match", "required": true, "schema": map[string]any{"type": "string"}})
 			}
-			if (strings.HasSuffix(path, "/runs") || strings.HasSuffix(path, "/resume")) && method == "post" {
+			if (strings.HasSuffix(path, "/runs") || strings.HasSuffix(path, "/resume") || strings.HasSuffix(path, "/retry")) && method == "post" {
 				if strings.HasSuffix(path, "/runs") {
 					params = append(params, map[string]any{"in": "header", "name": "Idempotency-Key", "required": true, "schema": map[string]any{"type": "string", "minLength": 16, "maxLength": 100}})
 				}
@@ -213,6 +219,29 @@ func main() {
 	}
 	stream := paths["/api/v1/runs/{id}/events"].(map[string]any)["get"].(map[string]any)
 	stream["responses"].(map[string]any)["200"] = map[string]any{"description": "SSE: each data field is an Event JSON object; id is seq. Heartbeats carry no business sequence.", "content": map[string]any{"text/event-stream": map[string]any{"schema": ref("Event")}}}
+	// context_size is a member-facing token budget, not a byte limit. The same
+	// property appears in agents, run/thread snapshots and verification inputs.
+	var describeContextSize func(any)
+	describeContextSize = func(value any) {
+		switch node := value.(type) {
+		case map[string]any:
+			if properties, ok := node["properties"].(map[string]any); ok {
+				if field, ok := properties["context_size"].(map[string]any); ok {
+					field["description"] = "Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024."
+				}
+			}
+			for _, child := range node {
+				describeContextSize(child)
+			}
+		case []any:
+			for _, child := range node {
+				describeContextSize(child)
+			}
+		}
+	}
+	for _, value := range schemas {
+		describeContextSize(value)
+	}
 	doc := map[string]any{"openapi": "3.1.0", "info": map[string]any{"title": "Cocogem local workspace API", "version": "0.1.0"}, "paths": paths, "components": map[string]any{"schemas": schemas, "securitySchemes": map[string]any{"localSession": map[string]any{"type": "apiKey", "in": "cookie", "name": "cocogem_session"}}}, "security": []any{map[string]any{"localSession": []string{}}}}
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

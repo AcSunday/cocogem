@@ -831,11 +831,16 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 // persisted inputs and verified runtime identity. Timeouts, attempts, session
 // IDs and clocks are deliberately absent.
 func (e *Engine) planDigestFor(tx *store.Tx, run w.Run, step w.Step, adapter agent.AdapterInfo, connection agent.ConnectionInfo, sourceIDs []string) (string, error) {
-	previews, err := tx.MessagePreviews(run.ThreadID, 6000)
+	member := w.Agent{ID: step.AgentID}
+	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
+		member = run.Agents[index]
+	}
+	previews, err := tx.MessagePreviews(run.ThreadID, e.historyPreviewBytes(run))
 	if err != nil {
 		return "", err
 	}
-	selected := recentHistory(previews, run.ID, 12, 16000)
+	limits := e.historyLimitsFor(member)
+	selected := recentHistory(previews, run.ID, limits.Messages, limits.Tokens)
 	historyIDs := make([]string, 0, len(selected))
 	for _, message := range selected {
 		historyIDs = append(historyIDs, message.ID)
@@ -847,10 +852,6 @@ func (e *Engine) planDigestFor(tx *store.Tx, run w.Run, step w.Step, adapter age
 	scope, err := buildReadScope(tx, run, step, historyIDs, sources)
 	if err != nil {
 		return "", err
-	}
-	member := w.Agent{ID: step.AgentID}
-	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
-		member = run.Agents[index]
 	}
 	return inputPlanDigest(tx, step, run, member.Model, connection, adapter, scope, e.allowedTools(run, member, step), sources)
 }

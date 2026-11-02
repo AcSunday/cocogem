@@ -524,7 +524,7 @@ it("verifies the exact current executor, model and optional options", async () =
     screen.getByLabelText("模型（留空使用 CLI 默认）"),
     "chosen-model",
   );
-  await user.type(screen.getByLabelText("上下文大小限制"), "5000");
+  await user.type(screen.getByLabelText("上下文预算（tokens）"), "5000");
   await chooseOption(
     user,
     screen.getByLabelText("思考等级（留空保持 CLI 默认）"),
@@ -548,12 +548,12 @@ it("verifies the exact current executor, model and optional options", async () =
   resolveFetch(Response.json({ verified_at: "2026-10-30T00:00:00Z" }));
   expect(
     await screen.findByText(
-      "已验证当前执行 CLI、模型、上下文大小限制和思考等级。",
+      "已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。",
     ),
   ).toBeInTheDocument();
   await user.type(screen.getByLabelText("模型（留空使用 CLI 默认）"), "x");
   expect(
-    screen.queryByText("已验证当前执行 CLI、模型、上下文大小限制和思考等级。"),
+    screen.queryByText("已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。"),
   ).not.toBeInTheDocument();
 });
 
@@ -575,14 +575,14 @@ it("sends no execution overrides when the model, budget and thinking are empty",
   );
   const user = userEvent.setup();
   await open(user, /布偶猫/);
-  expect(screen.getByLabelText("上下文大小限制")).toHaveValue(null);
+  expect(screen.getByLabelText("上下文预算（tokens）")).toHaveValue(null);
   expect(screen.getByLabelText("思考等级（留空保持 CLI 默认）")).toHaveValue(
     "",
   );
   await user.click(screen.getByRole("button", { name: "验证模型连接" }));
   expect(
     await screen.findByText(
-      "已验证当前执行 CLI、模型、上下文大小限制和思考等级。",
+      "已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。",
     ),
   ).toBeInTheDocument();
   const [, options] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
@@ -610,7 +610,7 @@ it("accepts an explicit context limit above the former platform ceiling", async 
   );
   const user = userEvent.setup();
   await open(user, /布偶猫/);
-  await user.type(screen.getByLabelText("上下文大小限制"), "500000");
+  await user.type(screen.getByLabelText("上下文预算（tokens）"), "500000");
   await user.click(screen.getByRole("button", { name: "保存成员" }));
   expect(save).toHaveBeenCalledWith(
     expect.objectContaining({ context_size: 500000 }),
@@ -689,4 +689,178 @@ it("reuses a global member identity without creating a new profile", async () =>
     },
   );
   expect(save).not.toHaveBeenCalled();
+});
+
+it("preserves OpenCode member identity and its native model variant", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        resolved_model: "fixture/model#high",
+        thinking_levels: [],
+      }),
+    ),
+  );
+  const save = vi.fn(async (value: Agent) => ({
+    ...value,
+    revision: value.revision + 1,
+  }));
+  render(
+    <MembersForm
+      agents={[member({ executor: "opencode", model: "fixture/model#high" })]}
+      system={system(["opencode"])}
+      workspaceID="ws"
+      close={() => {}}
+      save={save}
+    />,
+  );
+  const user = userEvent.setup();
+  await open(user, /布偶猫/);
+  expect(screen.getByLabelText("执行 CLI")).toHaveValue("opencode");
+  expect(screen.getByLabelText("模型（留空使用 CLI 默认）")).toHaveValue(
+    "fixture/model#high",
+  );
+  expect(screen.getByLabelText("思考等级（留空保持 CLI 默认）")).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "保存成员" }));
+  expect(save).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      id: "stable",
+      revision: 3,
+      executor: "opencode",
+      model: "fixture/model#high",
+      tools: ["read_file"],
+    }),
+  );
+});
+
+it("loads model thinking variants and verifies the selected OpenCode effort", async () => {
+  const fetcher = vi.fn(async (path: string) =>
+    path.includes("model-options")
+      ? Response.json({
+          resolved_model: "fixture/model",
+          thinking_levels: ["low", "high", "custom-effort"],
+        })
+      : Response.json({ verified_at: "2026-11-02T00:00:00Z" }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const save = vi.fn(async (value: Agent) => value);
+  render(
+    <MembersForm
+      agents={[member({ executor: "opencode", model: "fixture/model" })]}
+      system={system(["opencode"])}
+      workspaceID="ws"
+      close={() => {}}
+      save={save}
+    />,
+  );
+  const user = userEvent.setup();
+  await open(user, /布偶猫/);
+  const thinking = screen.getByLabelText("思考等级（留空保持 CLI 默认）");
+  await waitFor(() => expect(thinking).toBeEnabled());
+  await chooseOption(user, thinking, "custom-effort");
+  await user.click(screen.getByRole("button", { name: "验证模型连接" }));
+  await screen.findByText(
+    "已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。",
+  );
+  const verification = fetcher.mock.calls.find(
+    (call) => call[0] === "/api/v1/system/verify",
+  ) as unknown as [string, RequestInit];
+  expect(JSON.parse(String(verification[1].body))).toMatchObject({
+    executor: "opencode",
+    model: "fixture/model",
+    thinking_level: "custom-effort",
+  });
+  await user.click(screen.getByRole("button", { name: "保存成员" }));
+  expect(save).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      executor: "opencode",
+      thinking_level: "custom-effort",
+    }),
+  );
+});
+
+it("clears a thinking override when switching to an OpenCode model without variants", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) =>
+      Response.json({
+        resolved_model: "fixture/model",
+        thinking_levels: path.includes("other") ? [] : ["high"],
+      }),
+    ),
+  );
+  const save = vi.fn(async (value: Agent) => value);
+  render(
+    <MembersForm
+      agents={[
+        member({
+          executor: "opencode",
+          model: "fixture/model",
+          thinking_level: "high",
+        }),
+      ]}
+      system={system(["opencode"])}
+      workspaceID="ws"
+      close={() => {}}
+      save={save}
+    />,
+  );
+  const user = userEvent.setup();
+  await open(user, /布偶猫/);
+  const thinking = screen.getByLabelText("思考等级（留空保持 CLI 默认）");
+  await waitFor(() => expect(thinking).toBeEnabled());
+  await user.clear(screen.getByLabelText("模型（留空使用 CLI 默认）"));
+  await user.type(
+    screen.getByLabelText("模型（留空使用 CLI 默认）"),
+    "other/model",
+  );
+  await screen.findByText("当前模型未声明可选思考变体，沿用本机配置。");
+  expect(thinking).toBeDisabled();
+  expect(thinking).toHaveValue("");
+  await user.click(screen.getByRole("button", { name: "保存成员" }));
+  expect(save).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      model: "other/model",
+      thinking_level: undefined,
+    }),
+  );
+});
+
+it("reports OpenCode capability errors without discarding the saved thinking override", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json(
+        { error: { message: "model catalog unavailable" } },
+        { status: 503 },
+      ),
+    ),
+  );
+  const save = vi.fn(async (value: Agent) => value);
+  render(
+    <MembersForm
+      agents={[
+        member({
+          executor: "opencode",
+          model: "fixture/model",
+          thinking_level: "high",
+        }),
+      ]}
+      system={system(["opencode"])}
+      workspaceID="ws"
+      close={() => {}}
+      save={save}
+    />,
+  );
+  const user = userEvent.setup();
+  await open(user, /布偶猫/);
+  await screen.findByText(/无法读取思考级别：model catalog unavailable/);
+  expect(screen.getByLabelText("思考等级（留空保持 CLI 默认）")).toHaveValue(
+    "high",
+  );
+  await user.click(screen.getByRole("button", { name: "保存成员" }));
+  expect(save).not.toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "当前模型不支持此思考级别",
+  );
 });

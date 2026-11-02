@@ -38,7 +38,7 @@ func runCLI(name string, cmd *exec.Cmd, parse eventParser, output io.Writer) (Re
 	if waitErr != nil {
 		return result, fmt.Errorf("%s exited: %w", name, waitErr)
 	}
-	if err := validateSessionID(sessionID); err != nil {
+	if err := validateCLISessionID(name, sessionID); err != nil {
 		return result, fmt.Errorf("%s did not return a valid session ID: %w", name, err)
 	}
 	return result, nil

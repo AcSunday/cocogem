@@ -405,7 +405,7 @@ func TestNativeHostInputLimitIsTyped(t *testing.T) {
 	t.Parallel()
 	request := testRequest()
 	request.ContextSize = 1024
-	request.System = strings.Repeat("x", 1025)
+	request.System = strings.Repeat("x", 5000)
 	err := fakeProvider("ok").Run(context.Background(), request, func(context.Context, string, json.RawMessage) (string, error) {
 		return "ok", nil
 	}, func(string, map[string]any) error { return nil })

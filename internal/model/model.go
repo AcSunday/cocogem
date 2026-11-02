@@ -11,16 +11,6 @@ import (
 // the native CLI bridge, the execution prompt and the product contract.
 const MaxToolCalls = 60
 
-// InputBudget returns the member's explicit host input byte budget. Zero means
-// the request follows the CLI's own configured context window, so the host does
-// not impose a ceiling.
-func InputBudget(contextSize int) int {
-	if contextSize <= 0 {
-		return 0
-	}
-	return contextSize
-}
-
 // Block is visible text, a structured tool request or its associated result.
 type Block struct {
 	Type      string          `json:"type"`
@@ -61,9 +51,10 @@ type Request struct {
 	FirstResponseTimeout time.Duration `json:"-"`
 	StallTimeout         time.Duration `json:"-"`
 	StallAction          string        `json:"-"`
-	// ContextSize is the optional host-enforced input budget in bytes; 0 follows
-	// the CLI's configured context window. ThinkingLevel is an explicit CLI
-	// effort option; empty keeps the CLI's own configured default.
+	// ContextSize is the optional host-enforced input budget in estimated
+	// tokens; 0 follows the CLI's configured context window. ThinkingLevel is
+	// an explicit CLI effort option; empty keeps the CLI's own configured
+	// default.
 	ContextSize   int    `json:"-"`
 	ThinkingLevel string `json:"-"`
 	// NativeTools are the CLI-owned capabilities derived from the member's

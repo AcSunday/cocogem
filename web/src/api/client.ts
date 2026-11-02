@@ -15,6 +15,7 @@ export type Source = components["schemas"]["Source"];
 export type Artifact = components["schemas"]["Artifact"];
 export type Event = components["schemas"]["Event"];
 export type System = components["schemas"]["SystemInfo"];
+export type ModelOptions = components["schemas"]["ModelOptions"];
 export type Routing = components["schemas"]["Routing"];
 export type ThreadView = components["schemas"]["ThreadView"];
 export type RunView = components["schemas"]["RunView"];
@@ -73,8 +74,7 @@ const messageTerminalStatus = new Set([
   "failed",
 ]);
 
-const messageTerminal = (status: string) =>
-  messageTerminalStatus.has(status);
+const messageTerminal = (status: string) => messageTerminalStatus.has(status);
 
 const messageBytes = (message: Message) =>
   Math.max(

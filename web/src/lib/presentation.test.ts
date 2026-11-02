@@ -164,6 +164,7 @@ it("describes disabled limits and hides the removed tool-call counter", () => {
   expect(limitLabel("tool_calls", 30)).toBe("");
   expect(limitLabel("handoffs", 12)).toContain("12 个任务");
   expect(limitLabel("queued_runs", 20)).toContain("20 次协作");
+  expect(limitLabel("parallel_runs", 4)).toContain("4 个会话");
   expect(limitLabel("handoff_depth", 4)).toContain("4 层");
 });
 
@@ -173,7 +174,7 @@ it("explains host input, context overflow and interrupted kinds without retry pr
     expect(text).not.toContain(kind);
     expect(text).toContain("不会自动重试");
   }
-  expect(runErrorText("host_input_limit: 100000 bytes")).toContain(
+  expect(runErrorText("host_input_limit: 100000 tokens")).toContain(
     "输入上限不足以容纳本次初始输入",
   );
   expect(runErrorText("context_overflow: maximum context")).toContain(

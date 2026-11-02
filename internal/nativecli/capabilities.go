@@ -25,6 +25,7 @@ type adapterSpec struct {
 
 // Version is diagnostic evidence and a minimum known-incompatible guard, never a whitelist.
 var adapters = map[string]adapterSpec{
+	"opencode": {name: "opencode", adapter: "opencode-server-events", minVersion: [3]int{2, 2, 5}, flags: []string{"--format", "--model", "--agent", "--standalone"}, capabilities: []string{"event_stream", "scoped_mcp", "tool_allowlist", "model_variants"}},
 	"claude": {
 		name: "claude", adapter: "claude-stream-json", minVersion: [3]int{2, 0, 0},
 		flags:        []string{"--restricted", "--tools", "--strict-mcp-config", "--setting-sources", "--permission-prompts", "--no-session-persistence", "--settings", "--disable-slash-commands"},

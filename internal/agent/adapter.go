@@ -36,3 +36,19 @@ type ConnectionInfo struct {
 type ConnectionInspector interface {
 	InspectConnection(context.Context, string, string) (ConnectionInfo, error)
 }
+
+// ExecutionConnectionInspector includes model-specific execution selection.
+type ExecutionConnectionInspector interface {
+	InspectExecutionConnection(context.Context, string, string, string) (ConnectionInfo, error)
+}
+
+// ModelOptions contains only public capabilities of the resolved local model.
+type ModelOptions struct {
+	ResolvedModel  string   `json:"resolved_model"`
+	ThinkingLevels []string `json:"thinking_levels"`
+}
+
+// ModelOptionsProvider resolves choices without calling the upstream model.
+type ModelOptionsProvider interface {
+	ModelOptions(context.Context, string, string) (ModelOptions, error)
+}

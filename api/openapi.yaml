@@ -26,6 +26,7 @@
             ]
           },
           "context_size": {
+            "description": "Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024.",
             "type": "integer"
           },
           "disabled": {
@@ -148,6 +149,7 @@
             ]
           },
           "context_size": {
+            "description": "Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024.",
             "type": "integer"
           },
           "disabled": {
@@ -1167,6 +1169,25 @@
         ],
         "type": "object"
       },
+      "ModelOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "resolved_model": {
+            "type": "string"
+          },
+          "thinking_levels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "resolved_model",
+          "thinking_levels"
+        ],
+        "type": "object"
+      },
       "PasswordInput": {
         "additionalProperties": false,
         "properties": {
@@ -1413,6 +1434,7 @@
                   ]
                 },
                 "context_size": {
+                  "description": "Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024.",
                   "type": "integer"
                 },
                 "disabled": {
@@ -2406,6 +2428,7 @@
                       ]
                     },
                     "context_size": {
+                      "description": "Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024.",
                       "type": "integer"
                     },
                     "disabled": {
@@ -3709,6 +3732,7 @@
                         ]
                       },
                       "context_size": {
+                        "description": "Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024.",
                         "type": "integer"
                       },
                       "disabled": {
@@ -4519,6 +4543,7 @@
         "additionalProperties": false,
         "properties": {
           "context_size": {
+            "description": "Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024.",
             "type": "integer"
           },
           "executor": {
@@ -4538,6 +4563,7 @@
         "additionalProperties": false,
         "properties": {
           "context_size": {
+            "description": "Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024.",
             "type": "integer"
           },
           "executor": {
@@ -5483,6 +5509,61 @@
         }
       }
     },
+    "/api/v1/runs/{id}/retry": {
+      "post": {
+        "operationId": "retryRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
     "/api/v1/settings": {
       "get": {
         "operationId": "settings",
@@ -5609,6 +5690,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/system/model-options": {
+      "get": {
+        "operationId": "modelOptions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "executor",
+            "required": true,
+            "schema": {
+              "enum": [
+                "opencode"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "OpenCode provider/model, provider/model#variant, or default. Reads the local catalog without an upstream prompt.",
+            "in": "query",
+            "name": "model",
+            "schema": {
+              "maxLength": 150,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelOptions"
                 }
               }
             },

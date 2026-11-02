@@ -143,7 +143,7 @@ export function runErrorText(error = "", status = "") {
   if (status === "canceled" || /context canceled/.test(error))
     return "已按你的要求停止。";
   if (error.includes("host_input_limit"))
-    return "成员设置的输入上限不足以容纳本次初始输入，任务没有开始执行；请缩短问题、改用来源引用或调高该成员的上下文大小限制。不会自动重试。";
+    return "成员设置的输入上限不足以容纳本次初始输入，任务没有开始执行；请缩短问题、改用来源引用或调高该成员的上下文预算（tokens）。不会自动重试。";
   if (error.includes("context_overflow"))
     return "CLI 的上下文窗口已超出容量，本次尝试未完成；检查点已保留，需要你确认后继续。不会自动重试。";
   if (/failure_kind[=:]\s*interrupted|^interrupted(?:[:：]|$)/.test(error))
@@ -192,7 +192,7 @@ export function runErrorText(error = "", status = "") {
 /** Machine failure kinds need a clear reason without promising an automatic retry. */
 export const failureKindLabel = labels({
   host_input_limit:
-    "成员设置的输入上限不足以容纳本次初始输入，任务没有开始执行；请缩短问题、改用来源引用或调高该成员的上下文大小限制。不会自动重试。",
+    "成员设置的输入上限不足以容纳本次初始输入，任务没有开始执行；请缩短问题、改用来源引用或调高该成员的上下文预算（tokens）。不会自动重试。",
   context_overflow:
     "CLI 上下文窗口已超出容量，本次尝试未完成；检查点已保留，需要你确认后继续。不会自动重试。",
   process_uncertain:
@@ -503,6 +503,7 @@ export const limitLabel = (key: string, value: number) => {
     {
       members: `每个会话最多 ${value} 位成员`,
       queued_runs: `最多排队 ${value} 次协作`,
+      parallel_runs: `最多同时执行 ${value} 个会话`,
       run_seconds: `单次协作最长为 ${Math.round(value / 60)} 分钟`,
       step_seconds: `单个步骤最长为 ${Math.round(value / 60)} 分钟`,
       first_response_seconds: `等待首个有效响应最多 ${Math.round(value / 60)} 分钟`,

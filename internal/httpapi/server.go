@@ -88,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /auth/login", s.authenticate)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/v1/system", s.system)
+	mux.HandleFunc("GET /api/v1/system/model-options", s.modelOptions)
 	mux.HandleFunc("GET /api/v1/directories", s.directories)
 	mux.HandleFunc("POST /api/v1/system/verify", s.verify)
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspaces)
@@ -117,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", s.cancel)
 	mux.HandleFunc("POST /api/v1/runs/{id}/resume", s.resume)
+	mux.HandleFunc("POST /api/v1/runs/{id}/retry", s.retry)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", s.events)
 	mux.HandleFunc("GET /api/v1/runs/{id}/event-history", s.eventHistory)
 	mux.HandleFunc("GET /api/v1/runs/{id}/messages/{messageID}/content", s.messageContent)
@@ -193,6 +195,9 @@ func respond(rw http.ResponseWriter, r *http.Request, value any, err error) {
 	if errors.Is(err, workflow.ErrRecoveryUncertain) {
 		status, code = 409, "recovery_uncertain"
 	}
+	if errors.Is(err, workflow.ErrQueueFull) {
+		status, code = 429, "queue_full"
+	}
 	if strings.Contains(err.Error(), "capability_blocked:") {
 		status, code = 503, "capability_blocked"
 	}
@@ -250,6 +255,11 @@ func (s *Server) system(rw http.ResponseWriter, r *http.Request) {
 	}
 	limits := map[string]int{"members": 4, "queued_runs": 20, "handoffs": 12, "steps": 32, "handoff_depth": 4}
 	if s.engine != nil {
+		parallel := s.engine.MaxParallelRuns
+		if parallel <= 0 {
+			parallel = workflow.DefaultMaxParallelRuns
+		}
+		limits["parallel_runs"] = parallel
 		limits["run_seconds"] = int(s.engine.Limits.RunTimeout.Seconds())
 		limits["step_seconds"] = int(s.engine.Limits.StepTimeout.Seconds())
 		limits["first_response_seconds"] = int(s.engine.Limits.FirstResponse.Seconds())
@@ -1193,7 +1203,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if len(active) >= 21 {
+		if len(active) >= workflow.MaxActiveRuns {
 			return &RequestError{429, "queue_full", "执行队列已满"}
 		}
 		if slices.ContainsFunc(active, func(r w.Run) bool { return r.ThreadID == th.ID }) {
@@ -1342,6 +1352,21 @@ func (s *Server) resume(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.engine.Resume(r.Context(), r.PathValue("id"))
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	writeJSON(rw, 202, result)
+}
+
+// retry queues a new run from a failed or canceled run without re-routing the
+// original request. The source run stays terminal and linked by input.
+func (s *Server) retry(rw http.ResponseWriter, r *http.Request) {
+	if err := s.visibleRunRead(r, r.PathValue("id")); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	result, err := s.engine.Retry(r.Context(), r.PathValue("id"))
 	if err != nil {
 		respond(rw, r, nil, err)
 		return

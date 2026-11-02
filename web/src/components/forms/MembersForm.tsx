@@ -1,6 +1,11 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../../api/client";
-import type { Agent, System, WorkspaceMember } from "../../api/client";
+import type {
+  Agent,
+  System,
+  WorkspaceMember,
+  ModelOptions,
+} from "../../api/client";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -35,7 +40,7 @@ const readOnlyTools = [
 ];
 const engineeringTools = ["write_file", "patch_file", "run_test"];
 export const allTools = [...readOnlyTools, ...engineeringTools];
-const executors = ["claude", "codex", "gemini", "pi"];
+const executors = ["claude", "codex", "gemini", "pi", "opencode"];
 /** Empty keeps the CLI's own default; only these explicit levels are forwarded. */
 const thinkingLevels: Record<string, string[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
@@ -43,7 +48,7 @@ const thinkingLevels: Record<string, string[]> = {
   gemini: ["low", "high"],
   pi: ["low", "medium", "high", "xhigh", "max"],
 };
-const minContextSize = 1024;
+const minContextTokens = 1024;
 const avatarMaxBytes = 512 * 1024;
 const avatarMaxDimension = 2048;
 const handlePattern = /^[a-z][a-z0-9-]{1,31}$/;
@@ -198,10 +203,7 @@ export function MembersForm({
           className={cx("member-card")}
           onClick={() => setEditing({ key: agent.id, agent })}
         >
-          <Avatar
-            name={agent.display_name}
-            avatar={agent.avatar}
-          />
+          <Avatar name={agent.display_name} avatar={agent.avatar} />
           <span className={cx("member-info")}>
             <strong>{agent.display_name || "未命名成员"}</strong>
             <span className={cx("member-handle")}>
@@ -285,7 +287,58 @@ function MemberEditor({
     key: string;
     error: string;
   } | null>(null);
-  const levels = thinkingLevels[value.executor ?? ""] ?? [];
+  const [variantState, setVariantState] = useState<{
+    key: string;
+    levels: string[];
+    error: string;
+    loading: boolean;
+  }>({ key: "", levels: [], error: "", loading: false });
+  const modelKey = value.model.trim() || "default";
+  useEffect(() => {
+    if (value.executor !== "opencode") return;
+    let active = true;
+    const timer = setTimeout(() => {
+      setVariantState({ key: modelKey, levels: [], error: "", loading: true });
+      void api<ModelOptions>(
+        `/api/v1/system/model-options?executor=opencode&model=${encodeURIComponent(modelKey)}`,
+      )
+        .then((options) => {
+          if (active)
+            setVariantState({
+              key: modelKey,
+              levels: options.thinking_levels,
+              error: "",
+              loading: false,
+            });
+        })
+        .catch((failure) => {
+          if (active)
+            setVariantState({
+              key: modelKey,
+              levels: [],
+              error: errorText(failure),
+              loading: false,
+            });
+        });
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [value.executor, modelKey]);
+  const openCode = value.executor === "opencode";
+  const variantCurrent = variantState.key === modelKey;
+  const levels = openCode
+    ? variantCurrent
+      ? variantState.levels
+      : []
+    : (thinkingLevels[value.executor ?? ""] ?? []);
+  const variantLoading = openCode && (!variantCurrent || variantState.loading);
+  const variantError = openCode && variantCurrent ? variantState.error : "";
+  const levelValid =
+    !openCode ||
+    !value.thinking_level ||
+    (!variantLoading && !variantError && levels.includes(value.thinking_level));
   const model = value.model.trim() || "default";
   const geminiNeedsModel = value.executor === "gemini" && model === "default";
   const executorInfo = system.executors?.find(
@@ -295,7 +348,7 @@ function MemberEditor({
   const contextNumber = contextText ? Number(contextText) : 0;
   const contextValid =
     !contextText ||
-    (Number.isInteger(contextNumber) && contextNumber >= minContextSize);
+    (Number.isInteger(contextNumber) && contextNumber >= minContextTokens);
   const verifyKey = [
     value.executor,
     model,
@@ -343,7 +396,14 @@ function MemberEditor({
       setVerifyState({
         key: verifyKey,
         error:
-          "上下文大小限制必须是不小于 1024 的整数（字节），或留空跟随执行 CLI 默认。",
+          "上下文预算必须是不小于 1024 的整数（tokens），或留空跟随执行 CLI 默认。",
+      });
+      return;
+    }
+    if (!levelValid) {
+      setVerifyState({
+        key: verifyKey,
+        error: "当前模型不支持此思考级别，请重新选择。",
       });
       return;
     }
@@ -386,8 +446,12 @@ function MemberEditor({
     }
     if (!contextValid) {
       setError(
-        "上下文大小限制必须是不小于 1024 的整数（字节），或留空跟随执行 CLI 默认。",
+        "上下文预算必须是不小于 1024 的整数（tokens），或留空跟随执行 CLI 默认。",
       );
+      return;
+    }
+    if (!levelValid) {
+      setError("当前模型不支持此思考级别，请重新选择。");
       return;
     }
     if (geminiNeedsModel && value.thinking_level) {
@@ -583,10 +647,15 @@ function MemberEditor({
             <input
               id={field("model")}
               value={value.model === "default" ? "" : value.model}
-              placeholder="CLI 默认模型"
+              placeholder={
+                value.executor === "opencode"
+                  ? "provider/model 或 provider/model#variant"
+                  : "CLI 默认模型"
+              }
               onChange={(event) =>
                 update({
                   model: event.target.value || "default",
+                  ...(openCode ? { thinking_level: "" } : {}),
                   ...(value.executor === "gemini" &&
                   (!event.target.value.trim() ||
                     event.target.value.trim() === "default")
@@ -609,11 +678,11 @@ function MemberEditor({
             的供应商与登录配置，不需要额外登录或密钥；模型留空时按 CLI
             默认模型验证。
           </small>
-          <label htmlFor={field("context")}>上下文大小限制</label>
+          <label htmlFor={field("context")}>上下文预算（tokens）</label>
           <input
             id={field("context")}
             type="number"
-            min={minContextSize}
+            min={minContextTokens}
             step={1}
             inputMode="numeric"
             value={contextSize}
@@ -629,8 +698,8 @@ function MemberEditor({
             }}
           />
           <small id={field("context-hint")}>
-            留空时由所选 CLI 按其配置的上下文窗口处理；填写字节数后，Cocogem
-            会按该值限制本成员的输入大小。
+            留空时由所选 CLI 按其配置的上下文窗口处理；填写估算 token
+            数后，Cocogem 会按该值限制本成员的输入大小。
           </small>
           <label htmlFor={field("thinking")}>
             思考等级（留空保持 CLI 默认）
@@ -638,10 +707,22 @@ function MemberEditor({
           <Select
             id={field("thinking")}
             value={value.thinking_level ?? ""}
-            disabled={!value.executor || !levels.length || geminiNeedsModel}
+            disabled={
+              !value.executor ||
+              (!levels.length && !value.thinking_level) ||
+              geminiNeedsModel ||
+              variantLoading
+            }
             onChange={(thinking) => update({ thinking_level: thinking })}
           >
             <option value="">保持 CLI 默认</option>
+            {openCode &&
+              value.thinking_level &&
+              !levels.includes(value.thinking_level) && (
+                <option value={value.thinking_level}>
+                  {value.thinking_level}（待校验）
+                </option>
+              )}
             {levels.map((level) => (
               <option key={level} value={level}>
                 {level}
@@ -653,10 +734,20 @@ function MemberEditor({
               Gemini 选择思考等级前必须填写明确模型，不能留空使用默认。
             </small>
           )}
-          <small>留空时沿用 CLI 已有的思考等级配置。</small>
+          <small>
+            {value.executor === "opencode"
+              ? variantLoading
+                ? "正在读取当前模型支持的思考级别…"
+                : variantError
+                  ? `无法读取思考级别：${variantError}`
+                  : levels.length
+                    ? "按当前模型提供的变体选择，留空沿用本机或模型标识中的配置。"
+                    : "当前模型未声明可选思考变体，沿用本机配置。"
+              : "留空时沿用 CLI 已有的思考等级配置。"}
+          </small>
           {verified && (
             <p role="status" className={cx("verify-ok")}>
-              已验证当前执行 CLI、模型、上下文大小限制和思考等级。
+              已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。
             </p>
           )}
           {verifyError && (

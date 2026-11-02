@@ -22,7 +22,7 @@ func Invoke(cli string, request Request, output io.Writer) (Result, error) {
 		return Result{}, fmt.Errorf("prompt must not be empty")
 	}
 	if request.SessionID != "" {
-		if err := validateSessionID(request.SessionID); err != nil {
+		if err := validateCLISessionID(cli, request.SessionID); err != nil {
 			return Result{}, err
 		}
 	}
@@ -40,10 +40,16 @@ func Invoke(cli string, request Request, output io.Writer) (Result, error) {
 		result, err = runGemini(request, output)
 	case "pi":
 		result, err = runPi(request, output)
+	case "opencode":
+		result, err = runOpenCode(request, output)
 	default:
 		return Result{}, fmt.Errorf("unsupported CLI: %q", cli)
 	}
-	if err == nil && request.SessionID != "" && !strings.EqualFold(result.SessionID, request.SessionID) {
+	sameSession := strings.EqualFold(result.SessionID, request.SessionID)
+	if cli == "opencode" {
+		sameSession = result.SessionID == request.SessionID
+	}
+	if err == nil && request.SessionID != "" && !sameSession {
 		return result, fmt.Errorf("%s resumed a different session: got %s, want %s", cli, result.SessionID, request.SessionID)
 	}
 	return result, err

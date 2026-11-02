@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -129,6 +130,42 @@ func limitSeconds(limits workflow.Limits) map[string]int {
 		"stall_seconds":          int(limits.Stall.Seconds()),
 	}
 }
+
+// loadParallelRuns resolves how many independent conversations may execute at
+// once. The database still allows only one active run per conversation.
+func loadParallelRuns() (int, error) {
+	value := strings.TrimSpace(os.Getenv("COCOGEM_MAX_PARALLEL_RUNS"))
+	if value == "" {
+		return workflow.DefaultMaxParallelRuns, nil
+	}
+	parallel, err := strconv.Atoi(value)
+	if err != nil || parallel < 1 || parallel > 16 {
+		return 0, errors.New("COCOGEM_MAX_PARALLEL_RUNS must be an integer from 1 to 16")
+	}
+	return parallel, nil
+}
+
+// loadHistoryLimits resolves the fallback shared-history budget. Members with
+// an explicit context_size scale their own window instead.
+func loadHistoryLimits() (workflow.HistoryLimits, error) {
+	limits := workflow.DefaultHistoryLimits()
+	if value := strings.TrimSpace(os.Getenv("COCOGEM_HISTORY_MESSAGES")); value != "" {
+		messages, err := strconv.Atoi(value)
+		if err != nil || messages < 1 || messages > 1000 {
+			return limits, errors.New("COCOGEM_HISTORY_MESSAGES must be an integer from 1 to 1000")
+		}
+		limits.Messages = messages
+	}
+	if value := strings.TrimSpace(os.Getenv("COCOGEM_HISTORY_TOKENS")); value != "" {
+		tokens, err := strconv.Atoi(value)
+		if err != nil || tokens < 1024 || tokens > 2_000_000 {
+			return limits, errors.New("COCOGEM_HISTORY_TOKENS must be an integer from 1024 to 2000000")
+		}
+		limits.Tokens = tokens
+	}
+	return limits, nil
+}
+
 func run() error {
 	var roots rootsFlag
 	listen := flag.String("listen", "127.0.0.1:8741", "Loopback listener")
@@ -180,6 +217,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	parallelRuns, err := loadParallelRuns()
+	if err != nil {
+		return err
+	}
+	historyLimits, err := loadHistoryLimits()
+	if err != nil {
+		return err
+	}
 	native := nativecli.Provider{}
 	runners := map[string]agent.Runner{}
 	discover := func(ctx context.Context) []httpapi.ExecutorInfo {
@@ -206,7 +251,7 @@ func run() error {
 	defer db.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	engine := &workflow.Engine{Store: db, AllowedRoots: roots, AllowedModels: models, Model: native, Runners: runners, Fallback: native, Adapters: native, Limits: limits, Web: web, NativeProxy: web.ProxyURL()}
+	engine := &workflow.Engine{Store: db, AllowedRoots: roots, AllowedModels: models, Model: native, Runners: runners, Fallback: native, Adapters: native, Limits: limits, History: historyLimits, MaxParallelRuns: parallelRuns, Web: web, NativeProxy: web.ProxyURL()}
 	server, err := httpapi.New(httpapi.Config{Host: *listen, AuthFile: filepath.Join(dataDir, "auth.json"), WebDir: *webDir, Models: models, Roots: roots, ModelConfigured: configured, SearchConfigured: web.SearchEnabled(), SearchProvider: web.SearchProvider(), Model: native, Executors: executors, Discover: discover, Limits: limitSeconds(limits)}, db, engine)
 	if err != nil {
 		return err

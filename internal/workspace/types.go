@@ -33,13 +33,12 @@ type Workspace struct {
 var AvatarChoices = []string{"🐱", "🦊", "🦉", "🐼", "🐰", "🐻", "🐧", "🐯"}
 
 // Context budget and thinking-level limits are shared by CRUD, run snapshots
-// and native invocation. ContextSize is measured in UTF-8 input bytes; empty
+// and native invocation. ContextSize is an estimated token budget; empty
 // follows the CLI's configured context window.
-const MinContextSize = 1024
+const MinContextTokens = 1024
 
-// ThinkingLevels returns the explicit effort choices the installed adapter can
-// pass through. Gemini exposes no safe per-invocation effort switch here, so
-// its only supported value is empty (keep the CLI configuration default).
+// ThinkingLevels returns fixed effort choices; OpenCode discovers its model
+// variants at runtime instead of assuming the same choices for every model.
 func ThinkingLevels(executor string) []string {
 	switch executor {
 	case "claude":
@@ -60,10 +59,16 @@ func ThinkingLevels(executor string) []string {
 // ValidateExecutionOptions checks options before persistence and again before
 // dispatch. An unsupported combination is an explicit error, never ignored.
 func ValidateExecutionOptions(executor string, contextSize int, thinking string) error {
-	if contextSize != 0 && contextSize < MinContextSize {
-		return fmt.Errorf("context_size must be 0 (CLI default) or at least %d bytes", MinContextSize)
+	if contextSize != 0 && contextSize < MinContextTokens {
+		return fmt.Errorf("context_size must be 0 (CLI default) or at least %d estimated tokens", MinContextTokens)
 	}
 	if thinking == "" {
+		return nil
+	}
+	if executor == "opencode" {
+		if strings.TrimSpace(thinking) != thinking || len(thinking) > 100 || strings.ContainsAny(thinking, "#\r\n\x00") {
+			return errors.New("invalid OpenCode thinking variant")
+		}
 		return nil
 	}
 	levels := ThinkingLevels(executor)
@@ -88,8 +93,8 @@ type Agent struct {
 	Avatar          string   `json:"avatar,omitempty"`
 	Executor        string   `json:"executor,omitempty"`
 	Model           string   `json:"model"`
-	// ContextSize is an optional host input budget in bytes. Empty (0) follows
-	// the CLI's configured context window.
+	// ContextSize is an optional host input budget in estimated tokens. Empty
+	// (0) follows the CLI's configured context window.
 	ContextSize   int              `json:"context_size,omitempty"`
 	ThinkingLevel string           `json:"thinking_level,omitempty"`
 	Tools         []string         `json:"tools"`
@@ -557,10 +562,10 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	if !handlePattern.MatchString(a.Handle) {
 		return errors.New("handle must match [a-z][a-z0-9-]{1,31}")
 	}
-	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "gemini", "pi"}, a.Executor) {
+	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "gemini", "pi", "opencode"}, a.Executor) {
 		return errors.New("executor is not supported")
 	}
-	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "gemini" || a.Executor == "pi" {
+	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "gemini" || a.Executor == "pi" || a.Executor == "opencode" {
 		if len(a.Model) > 150 || strings.TrimSpace(a.Model) == "" || strings.HasPrefix(a.Model, "-") || strings.ContainsAny(a.Model, "\r\n\x00") {
 			return errors.New("CLI model must be default or a model identifier")
 		}

@@ -17,31 +17,31 @@ func TestRecentHistoryPrefersWholeLatestRounds(t *testing.T) {
 	history := append(round("old", strings.Repeat("a", 16000)), round("new", "latest correction")...)
 	history = append(history, round("current", "current question")...)
 	for _, tc := range []struct {
-		name      string
-		count     int
-		byteLimit int
-		want      []string
+		name       string
+		count      int
+		tokenLimit int
+		want       []string
 	}{
-		{"byte budget", 12, 16000, []string{"new-user", "new-reply"}},
+		{"token budget", 12, 4000, []string{"new-user", "new-reply"}},
 		{"message budget", 3, 50000, []string{"new-user", "new-reply"}},
 		// A newest round that does not fit by count keeps its final reply.
 		{"latest round over count", 1, 50000, []string{"new-reply"}},
-		// A newest round that does not fit by bytes keeps real IDs in bounded previews.
+		// A newest round that does not fit by tokens keeps real IDs in bounded previews.
 		{"latest round too large", 12, 5, []string{"new-user", "new-reply"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := recentHistory(history, "current", tc.count, tc.byteLimit)
+			got := recentHistory(history, "current", tc.count, tc.tokenLimit)
 			ids := []string{}
-			bytes := 0
+			tokens := 0
 			for _, message := range got {
 				ids = append(ids, message.ID)
-				bytes += len(message.Content)
+				tokens += messageTokens(message)
 			}
 			if !slices.Equal(ids, tc.want) {
 				t.Fatalf("history IDs=%v, want %v", ids, tc.want)
 			}
-			if bytes > tc.byteLimit {
-				t.Fatalf("history preview used %d bytes, budget %d", bytes, tc.byteLimit)
+			if tokens > tc.tokenLimit {
+				t.Fatalf("history preview used %d tokens, budget %d", tokens, tc.tokenLimit)
 			}
 		})
 	}
@@ -53,24 +53,101 @@ func TestRecentHistoryPrefersWholeLatestRounds(t *testing.T) {
 	}
 }
 
+func TestRecentHistoryKeepsCommittedContextFromLatestFailedRound(t *testing.T) {
+	history := []w.Message{
+		{ID: "old-user", RunID: "old", Role: "user", Content: "earlier question", Status: "completed"},
+		{ID: "old-reply", RunID: "old", Role: "assistant", Content: "earlier answer", Status: "completed"},
+		{ID: "failed-user", RunID: "failed", Role: "user", Content: "discussion question", Status: "completed"},
+		{ID: "failed-view", RunID: "failed", Role: "assistant", Content: "committed independent view", Status: "completed"},
+		{ID: "failed-final", RunID: "failed", Role: "assistant", Content: "uncommitted failure body", Status: "failed"},
+	}
+	got := recentHistory(history, "current", 12, 16000)
+	ids := make([]string, 0, len(got))
+	for _, message := range got {
+		ids = append(ids, message.ID)
+		if message.Content == "uncommitted failure body" {
+			t.Fatal("failed message body entered shared history")
+		}
+	}
+	if !slices.Equal(ids, []string{"old-user", "old-reply", "failed-user", "failed-view"}) {
+		t.Fatalf("history IDs=%v", ids)
+	}
+}
+
+func TestOlderIncompleteRoundsDoNotCrowdOutCommittedRounds(t *testing.T) {
+	history := []w.Message{
+		{ID: "old-user", RunID: "old", Role: "user", Content: "old question", Status: "completed"},
+		{ID: "old-reply", RunID: "old", Role: "assistant", Content: "old answer", Status: "completed"},
+		{ID: "older-failed-view", RunID: "older-failed", Role: "assistant", Content: "older failed attempt", Status: "completed"},
+		{ID: "older-failed-error", RunID: "older-failed", Role: "assistant", Content: "older failure body", Status: "failed"},
+		{ID: "latest-user", RunID: "latest", Role: "user", Content: "latest question", Status: "completed"},
+		{ID: "latest-reply", RunID: "latest", Role: "assistant", Content: "latest answer", Status: "completed"},
+	}
+	got := recentHistory(history, "current", 12, 16000)
+	ids := make([]string, 0, len(got))
+	for _, message := range got {
+		ids = append(ids, message.ID)
+	}
+	if !slices.Equal(ids, []string{"old-user", "old-reply", "latest-user", "latest-reply"}) {
+		t.Fatalf("history IDs=%v", ids)
+	}
+}
+
+func TestHistoryLimitsScaleWithMemberContextAndStayBounded(t *testing.T) {
+	e := Engine{}
+	fallback := e.historyLimitsFor(w.Agent{})
+	if fallback != DefaultHistoryLimits() || fallback.Messages != 128 || fallback.Tokens != 64000 {
+		t.Fatalf("fallback history limits = %+v", fallback)
+	}
+	if preview := fallback.previewBytes(); preview != 16000 {
+		t.Fatalf("fallback preview = %d, want 16000", preview)
+	}
+	small := e.historyLimitsFor(w.Agent{ContextSize: 100000})
+	if small.Tokens != 60000 {
+		t.Fatalf("small member history tokens = %d, want 60000", small.Tokens)
+	}
+	large := e.historyLimitsFor(w.Agent{ContextSize: 4_000_000})
+	if large.Tokens != 2_400_000 {
+		t.Fatalf("large member history tokens = %d, want 2400000", large.Tokens)
+	}
+	if preview := large.previewBytes(); preview != 128000 {
+		t.Fatalf("large member preview = %d, want capped 128000", preview)
+	}
+	run := w.Run{Agents: []w.Agent{{ContextSize: 100000}, {ContextSize: 4_000_000}}}
+	if preview := e.historyPreviewBytes(run); preview != 128000 {
+		t.Fatalf("run preview = %d, want largest member preview 128000", preview)
+	}
+}
+
+func TestFullDiscussionRoundFitsSharedHistory(t *testing.T) {
+	history := []w.Message{{ID: "task", RunID: "discussion", Role: "user", Content: "原问题", Status: "completed"}}
+	for i := 0; i < 14; i++ {
+		history = append(history, w.Message{ID: fmt.Sprintf("reply-%02d", i), RunID: "discussion", Role: "assistant", Content: strings.Repeat("观", 500), Status: "completed"})
+	}
+	selected := recentHistory(history, "follow-up", historyMessages, historyTokens)
+	if len(selected) != len(history) {
+		t.Fatalf("full discussion history selected=%d, want %d", len(selected), len(history))
+	}
+}
+
 func TestLatestOverBudgetHistoryRoundKeepsFinalReplyAndRealIDs(t *testing.T) {
 	history := []w.Message{{ID: "latest-user", RunID: "previous-research", Role: "user", Status: "completed", Content: "研究问题"}}
 	for _, id := range []string{"research", "critique", "response", "recheck", "final"} {
 		history = append(history, w.Message{ID: id, RunID: "previous-research", Role: "assistant", Status: "completed", Content: strings.Repeat("e", 4000)})
 	}
-	selected := recentHistory(history, "follow-up", 12, 16000)
+	selected := recentHistory(history, "follow-up", 12, 2000)
 	if len(selected) != len(history) {
 		t.Fatalf("over-budget latest round was erased: selected=%d want=%d", len(selected), len(history))
 	}
-	bytes := 0
+	tokens := 0
 	for i, message := range selected {
-		bytes += len(message.Content)
+		tokens += messageTokens(message)
 		if message.ID != history[i].ID || message.RunID != "previous-research" || message.Status != "completed" || message.Role != history[i].Role {
 			t.Fatalf("bounded preview lost identity at %d: %+v", i, message)
 		}
 	}
-	if bytes > 16000 {
-		t.Fatalf("bounded preview used %d bytes, budget 16000", bytes)
+	if tokens > 2000 {
+		t.Fatalf("bounded preview used %d tokens, budget 2000", tokens)
 	}
 	if !selected[1].ContentTruncated || !selected[len(selected)-1].ContentTruncated {
 		t.Fatal("cut previews are not marked truncated")

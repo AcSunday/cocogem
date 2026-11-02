@@ -157,7 +157,7 @@ export function RunDivider({
   };
   const duration = runDuration(run);
   const usage = runUsageSummary(run, attempts);
-  const failed = ["failed", "interrupted", "canceled"].includes(run.status);
+  const retryable = ["failed", "canceled"].includes(run.status);
   const activeTool = terminal(run.status)
     ? undefined
     : events
@@ -207,6 +207,9 @@ export function RunDivider({
       <div className={cx("run-card-head")}>
         <span className={cx("run-index")}>第 {index} 次</span>
         <span title={reason || undefined}>{workflow}</span>
+        {run.input.retry_of_run_id && (
+          <span className={cx("muted")}>重试</span>
+        )}
         {reason && (
           <span className={cx("muted")} title={reason}>
             {reason.length > 80 ? `${reason.slice(0, 80)}…` : reason}
@@ -278,7 +281,7 @@ export function RunDivider({
           >
             <Icon name="settings" size={14} />
           </button>
-          {latest && failed && (
+          {retryable && (
             <button
               type="button"
               className={cx("ghost small")}
@@ -342,6 +345,16 @@ export function RunDivider({
           role="status"
         >
           {runErrorText(run.error, run.status)}
+          {retryable && (
+            <button
+              type="button"
+              className={cx("ghost small")}
+              onClick={onRetry}
+              disabled={busy}
+            >
+              <Icon name="refresh" size={14} /> 重试此轮
+            </button>
+          )}
         </p>
       )}
     </section>

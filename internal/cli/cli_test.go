@@ -31,6 +31,8 @@ func TestParseArgs(t *testing.T) {
 		{name: "explicit claude", args: []string{"claude", "hello"}, wantCLI: "claude", want: "hello"},
 		{name: "codex", args: []string{"codex", "hello"}, wantCLI: "codex", want: "hello"},
 		{name: "gemini", args: []string{"gemini", "hello"}, wantCLI: "gemini", want: "hello"},
+		{name: "opencode", args: []string{"opencode", "hello"}, wantCLI: "opencode", want: "hello"},
+		{name: "opencode resume", args: []string{"opencode", "--resume", testOpenCodeSession, "hello"}, wantCLI: "opencode", want: "hello", resume: testOpenCodeSession},
 		{name: "pi", args: []string{"pi", "hello"}, wantCLI: "pi", want: "hello"},
 		{name: "prompt can start with dash", args: []string{"-hello"}, wantCLI: "claude", want: "-hello"},
 		{name: "missing prompt", wantErr: true},

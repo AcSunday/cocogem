@@ -23,7 +23,12 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-// Engine owns one durable FIFO worker and each run's cancellation context.
+// DefaultMaxParallelRuns bounds how many conversations execute at once. The
+// database keeps at most one active run per conversation, so this only controls
+// independent conversations; steps inside one plan already run in parallel.
+const DefaultMaxParallelRuns = 4
+
+// Engine owns a bounded durable dispatcher and each run's cancellation context.
 type Engine struct {
 	Store         *store.Store
 	Model         model.Model
@@ -35,6 +40,12 @@ type Engine struct {
 	AllowedRoots  []string
 	AllowedModels []string
 	Limits        Limits
+	// History bounds committed conversation history inlined per attempt. Zero
+	// uses DefaultHistoryLimits; explicit member context_size scales it.
+	History HistoryLimits
+	// MaxParallelRuns bounds independent conversations executing at once.
+	// Zero uses DefaultMaxParallelRuns.
+	MaxParallelRuns int
 	// RetryBackoff is the base delay for automatic transient retries. Tests
 	// may lower it; production uses a bounded exponential backoff.
 	RetryBackoff time.Duration
@@ -166,13 +177,52 @@ func (e *Engine) CancelMember(ctx context.Context, workspaceID, agentID string) 
 	return cancelErr
 }
 
+type dispatchedRun struct {
+	id       string
+	threadID string
+}
+
+func (e *Engine) maxParallelRuns() int {
+	if e.MaxParallelRuns > 0 {
+		return e.MaxParallelRuns
+	}
+	return DefaultMaxParallelRuns
+}
+
+// worker dispatches queued runs from independent conversations concurrently.
+// A reservation map prevents two local workers from renewing the same run
+// claim, and running thread ids keep a conversation serial even if legacy data
+// contains more than one active run.
 func (e *Engine) worker(ctx context.Context) {
 	defer close(e.done)
+	limit := e.maxParallelRuns()
 	deferred := map[string]time.Time{}
+	reserved := map[string]bool{}
+	running := map[string]string{}
+	finished := make(chan dispatchedRun, limit)
+	var executing sync.WaitGroup
+	drain := func() {
+		for {
+			select {
+			case done := <-finished:
+				delete(reserved, done.id)
+				delete(running, done.threadID)
+			default:
+				return
+			}
+		}
+	}
 	for {
+		drain()
+		now := time.Now()
+		for id, until := range deferred {
+			if !now.Before(until) {
+				delete(deferred, id)
+			}
+		}
 		wake := e.Store.Changed()
 		if ctx.Err() != nil {
-			return
+			break
 		}
 		var next *w.Run
 		err := e.Store.Read(ctx, func(tx *store.Tx) error {
@@ -180,15 +230,20 @@ func (e *Engine) worker(ctx context.Context) {
 			if err != nil {
 				return err
 			}
+			now := time.Now()
 			for _, r := range runs {
-				if until, ok := deferred[r.ID]; ok && time.Now().Before(until) {
+				if r.Status != "queued" || reserved[r.ID] {
 					continue
 				}
-				if r.Status == "queued" {
-					copy := r
-					next = &copy
-					break
+				if _, busy := running[r.ThreadID]; busy {
+					continue
 				}
+				if until, ok := deferred[r.ID]; ok && now.Before(until) {
+					continue
+				}
+				copy := r
+				next = &copy
+				break
 			}
 			return nil
 		})
@@ -196,48 +251,60 @@ func (e *Engine) worker(ctx context.Context) {
 			if ctx.Err() == nil {
 				e.report(err)
 			}
-			return
+			break
 		}
-		if next == nil {
+		if next == nil || len(running) >= limit {
 			var retry <-chan time.Time
 			if len(deferred) > 0 {
 				retry = time.After(250 * time.Millisecond)
 			}
 			select {
 			case <-ctx.Done():
-				return
 			case <-wake:
-				continue
+			case done := <-finished:
+				delete(reserved, done.id)
+				delete(running, done.threadID)
 			case <-retry:
 				for id, until := range deferred {
 					if time.Now().After(until) {
 						delete(deferred, id)
 					}
 				}
-				continue
 			}
+			continue
 		}
+		// Reserve locally before the durable claim: claim treats a repeated
+		// owner as a renewable lease, so two workers must never race one run.
+		reserved[next.ID] = true
 		claimed, err := e.claim(ctx, next.ID)
 		if err != nil {
+			delete(reserved, next.ID)
 			if ctx.Err() == nil {
 				e.report(err)
 			}
-			return
+			break
 		}
 		if !claimed {
 			// Another live server owns this run; try a later queued run first.
+			delete(reserved, next.ID)
 			deferred[next.ID] = time.Now().Add(2 * time.Second)
 			select {
 			case <-ctx.Done():
-				return
 			case <-time.After(250 * time.Millisecond):
 			}
 			continue
 		}
 		delete(deferred, next.ID)
-		e.executeRun(ctx, *next)
-		e.release(context.WithoutCancel(ctx), next.ID)
+		running[next.ThreadID] = next.ID
+		executing.Add(1)
+		go func(run w.Run) {
+			defer executing.Done()
+			e.executeRun(ctx, run)
+			e.release(context.WithoutCancel(ctx), run.ID)
+			finished <- dispatchedRun{id: run.ID, threadID: run.ThreadID}
+		}(*next)
 	}
+	executing.Wait()
 }
 
 func (e *Engine) executeRun(parent context.Context, run w.Run) {
@@ -338,7 +405,7 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 				}
 			}
 		}
-		history, err = tx.MessagePreviews(run.ThreadID, 6000)
+		history, err = tx.MessagePreviews(run.ThreadID, e.historyPreviewBytes(run))
 		if err != nil {
 			return err
 		}
@@ -484,7 +551,7 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		var groupSources []w.Source
 		err = e.Store.Read(ctx, func(tx *store.Tx) error {
 			var readErr error
-			groupHistory, readErr = tx.MessagePreviews(run.ThreadID, 6000)
+			groupHistory, readErr = tx.MessagePreviews(run.ThreadID, e.historyPreviewBytes(run))
 			if readErr != nil {
 				return readErr
 			}
@@ -985,7 +1052,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		}
 		if adapter.Supported {
 			var connectionErr error
-			connection, connectionKnown, connectionErr = e.connectionInfo(ctx, a.Executor, a.Model)
+			connection, connectionKnown, connectionErr = e.connectionInfo(ctx, a.Executor, a.Model, a.ThinkingLevel)
 			if connectionErr != nil {
 				adapter.Supported = false
 				adapter.Reason = "连接配置不可用: " + connectionErr.Error()
@@ -1159,7 +1226,8 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 				return err
 			}
 		}
-		selected := recentHistory(history, run.ID, 12, 16000)
+		limits := e.historyLimitsFor(a)
+		selected := recentHistory(history, run.ID, limits.Messages, limits.Tokens)
 		historyIDs := make([]string, 0, len(selected))
 		for _, message := range selected {
 			historyIDs = append(historyIDs, message.ID)

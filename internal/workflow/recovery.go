@@ -466,9 +466,13 @@ func (e *Engine) reconcileAttempt(attempt w.Attempt) attemptVerdict {
 	return attemptVerdict{status: "interrupted", reason: "service restarted; the owned process group was stopped and its result is unknown; continuing from saved context", recovery: "owned_process_reclaimed"}
 }
 
-func (e *Engine) connectionInfo(ctx context.Context, executor, model string) (agent.ConnectionInfo, bool, error) {
+func (e *Engine) connectionInfo(ctx context.Context, executor, model, thinking string) (agent.ConnectionInfo, bool, error) {
 	if e.Adapters == nil {
 		return agent.ConnectionInfo{}, false, nil
+	}
+	if inspector, ok := e.Adapters.(agent.ExecutionConnectionInspector); ok {
+		info, err := inspector.InspectExecutionConnection(ctx, executor, model, thinking)
+		return info, true, err
 	}
 	if inspector, ok := e.Adapters.(agent.ConnectionInspector); ok {
 		info, err := inspector.InspectConnection(ctx, executor, model)
@@ -549,7 +553,7 @@ func (e *Engine) checkAdapters(ctx context.Context, run w.Run, steps []w.Step, a
 		}
 		key := member.Executor + "\x00" + member.Model
 		if !checkedConnection[key] {
-			connection, known, err := e.connectionInfo(ctx, member.Executor, member.Model)
+			connection, known, err := e.connectionInfo(ctx, member.Executor, member.Model, member.ThinkingLevel)
 			if err != nil {
 				return connectionBlockedPrefix + " " + member.Executor + ": 连接配置不可用: " + err.Error(), changes
 			}
@@ -760,7 +764,7 @@ func (e *Engine) Resume(ctx context.Context, id string) (w.Run, error) {
 		value := identity{}
 		if member.Executor != "" && e.Adapters != nil {
 			value.adapter, _ = e.Adapters.Check(ctx, member.Executor)
-			value.connection, _, _ = e.connectionInfo(ctx, member.Executor, member.Model)
+			value.connection, _, _ = e.connectionInfo(ctx, member.Executor, member.Model, member.ThinkingLevel)
 		}
 		identities[step.ID] = value
 	}

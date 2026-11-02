@@ -80,7 +80,7 @@ Use `COCOGEM_DATA_DIR` to choose the data directory and `--allow-root /absolute/
 | Engineering analysis and development | Analysis stays read-only; explicitly authorized development combines changes, tests, independent review, and fixes |
 | Reusable members | Share global profiles across workspaces, with separate roles, models, execution options, avatars, and tool grants |
 | Sources and deliverables | Inspect captured sources, exact report versions, and human feedback; export Markdown or JSON |
-| Long tasks and recovery | Stream output, stop tasks, inspect failures, and resume from checkpoints while retaining completed steps and history |
+| Long tasks and recovery | Stream output, run independent conversations in parallel, stop tasks, inspect failures, retry failed runs, and resume from checkpoints while retaining completed steps and history |
 | Everyday workspace tools | Search, rename, and restore conversations; choose light, dark, warm, or system appearance |
 
 The development test tool currently requires the macOS sandbox. Linux blocks test execution while its sandbox remains unverified. See the [product guide (Chinese)](docs/product.md#工具与执行边界) for permissions and platform boundaries.
@@ -93,6 +93,7 @@ The development test tool currently requires the macOS sandbox. Linux blocks tes
 | Codex | `codex` | exec JSON, scoped MCP, and native web access when authorized |
 | Gemini CLI | `gemini` | stream-json and scoped MCP; host tools handle files and web access |
 | Pi | `pi` | JSON and scoped MCP; native file and shell tools stay disabled |
+| OpenCode | `opencode` | v2.2.5+ live text deltas and scoped MCP through a private server; model thinking variants are detected automatically |
 
 Availability depends on the installed CLI's protocol, isolation capabilities, and actual model connection. An installed CLI does not imply a verified connection. Open Settings → Service (设置 → 服务) for diagnostics and connection verification.
 
@@ -103,7 +104,7 @@ go run ./cmd/cocogem codex "Remember that this project is called Cocogem"
 go run ./cmd/cocogem codex --resume latest "What is the project called?"
 ```
 
-Replace `codex` with `claude`, `gemini`, or `pi`. Omitting the CLI name selects Claude. Terminal session references live in `.cocogem/` under the current directory, separately from isolated web collaboration sessions. See the [product guide (Chinese)](docs/product.md#原生命令行) for arguments, output, and session recovery.
+Replace `codex` with `claude`, `gemini`, `pi`, or `opencode`. Omitting the CLI name selects Claude. Terminal session references live in `.cocogem/` under the current directory, separately from isolated web collaboration sessions. See the [product guide (Chinese)](docs/product.md#原生命令行) for arguments, output, and session recovery.
 
 ## How It Works
 

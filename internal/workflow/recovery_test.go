@@ -1568,6 +1568,29 @@ func (c *staticInspector) InspectConnection(context.Context, string, string) (ag
 	return c.connection, c.err
 }
 
+type executionInspector struct {
+	*staticInspector
+	thinking string
+}
+
+func (c *executionInspector) InspectExecutionConnection(_ context.Context, executor, selected, thinking string) (agent.ConnectionInfo, error) {
+	c.thinking = thinking
+	return agent.ConnectionInfo{ResolvedModel: selected + "#" + thinking, Identity: "selected-variant"}, nil
+}
+
+func TestConnectionInfoFreezesThinkingSelection(t *testing.T) {
+	inspector := &executionInspector{staticInspector: &staticInspector{connection: agent.ConnectionInfo{ResolvedModel: "unselected", Identity: "unselected"}}}
+	e := Engine{Adapters: inspector}
+	info, known, err := e.connectionInfo(t.Context(), "opencode", "fixture/model", "high")
+	if err != nil || !known || info.ResolvedModel != "fixture/model#high" || inspector.thinking != "high" {
+		t.Fatalf("execution selection lost: %+v %v", info, err)
+	}
+	previous := w.Attempt{Status: "interrupted", ResolvedModel: "fixture/model#low", ConnectionID: "previous-variant"}
+	if reason := connectionChanged(previous, info, known); reason == "" {
+		t.Fatal("resume accepted a changed reasoning variant")
+	}
+}
+
 func TestResumeBlocksChangedResolvedModelOrUpstream(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
 	if err != nil {
