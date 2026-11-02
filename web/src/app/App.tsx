@@ -8,14 +8,12 @@ import {
   mergeMessage,
   loadThreadPage,
   applyMessageDelta,
-  eventMessage,
   eventHistory,
   EVENT_WINDOW,
   type Agent,
   type Artifact,
   type Attempt,
   type Event,
-  type Message,
   type Routing,
   type Run,
   type RunInput,
@@ -42,9 +40,6 @@ import { RunSegment } from "../components/RunSegment";
 import { Sidebar } from "../components/Sidebar";
 import { Welcome } from "../components/Welcome";
 import {
-  eventAttempt,
-  eventRun,
-  eventStep,
   mergeAttempt,
   mergeByID,
   mergeRun,
@@ -52,6 +47,7 @@ import {
   mergeThreadView,
   withRunWarnings,
 } from "./merge";
+import { collectRunWindow } from "./stream";
 import { AppModals, type ModalState } from "./AppModals";
 import {
   conversationCoordinator,
@@ -614,36 +610,15 @@ function WorkspaceApp({
         );
         if (canceled) return;
         const items = [...(page.items ?? [])].sort((a, b) => a.seq - b.seq);
-        let newest = 0;
-        let seeded: Event[] = [];
-        const messages: { seq: number; message: Message }[] = [];
-        const steps = new Map<string, Step>();
-        const attempts = new Map<string, Attempt>();
-        let runSnapshot: Run | undefined;
-        for (const event of items) {
-          newest = Math.max(newest, event.seq);
-          seeded = mergeEvents(seeded, event);
-          if (event.run_id !== id) continue;
-          const message = eventMessage(event);
-          if (message && message.run_id === id)
-            messages.push({ seq: event.seq, message });
-          const run = eventRun(event);
-          if (run?.id === id)
-            runSnapshot = runSnapshot ? mergeRun(runSnapshot, run) : run;
-          const step = eventStep(event);
-          if (step?.run_id === id) {
-            const previous = steps.get(step.id);
-            steps.set(step.id, previous ? mergeStep(previous, step) : step);
-          }
-          const attempt = eventAttempt(event);
-          if (attempt?.run_id === id) {
-            const previous = attempts.get(attempt.id);
-            attempts.set(
-              attempt.id,
-              previous ? mergeAttempt(previous, attempt) : attempt,
-            );
-          }
-        }
+        const window = collectRunWindow(items, id);
+        const {
+          events: seeded,
+          messages,
+          steps,
+          attempts,
+          run: runSnapshot,
+          newest,
+        } = window;
         setEvents(seeded);
         const warningsSnapshot = snapshotWarnings;
         setLivenessByRun((current) => {
@@ -698,15 +673,15 @@ function WorkspaceApp({
               ? current
               : { ...current, runs };
           });
-        if (steps.size)
+        if (steps.length)
           setStepsByRun((current) => ({
             ...current,
-            [id]: mergeByID(current[id], [...steps.values()], mergeStep),
+            [id]: mergeByID(current[id], steps, mergeStep),
           }));
-        if (attempts.size)
+        if (attempts.length)
           setAttemptsByRun((current) => ({
             ...current,
-            [id]: mergeByID(current[id], [...attempts.values()], mergeAttempt),
+            [id]: mergeByID(current[id], attempts, mergeAttempt),
           }));
         confirmedSeq.current[id] = Math.max(
           confirmedSeq.current[id] ?? 0,
