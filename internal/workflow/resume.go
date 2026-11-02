@@ -151,68 +151,14 @@ func (e *Engine) Resume(ctx context.Context, id string) (w.Run, error) {
 			return run, errors.New("shared skill version changed; start a new run")
 		}
 	}
-	for _, attempt := range attempts {
-		uncertain := attempt.Status == "uncertain" || attempt.FailureKind == string(nativecli.FailureProcessUncertain) || attempt.Recovery == recoveryProcessUncertain
-		if uncertain && attempt.Process == nil {
-			// Without a recorded identity there is no way to prove the owned
-			// group exited; never skip it and dispatch beside it.
-			return run, ErrRecoveryUncertain
-		}
-		if attempt.Status == "succeeded" || attempt.Status == "blocked" || attempt.Status == "failed" {
-			continue
-		}
-		if attempt.Process == nil {
-			continue
-		}
-		if attempt.Process.Start == "" || attempt.Process.PGID <= 0 || attempt.Process.PGID != attempt.Process.PID {
-			return run, ErrRecoveryUncertain
-		}
-		if alive, err := proc.GroupAlive(attempt.Process.PGID); err != nil || alive {
-			return run, ErrRecoveryUncertain
-		}
-		if !uncertain {
-			continue
-		}
-		if current, err := proc.Inspect(attempt.Process.PID); err == nil {
-			if current.Start != attempt.Process.Start {
-				return run, ErrRecoveryUncertain
-			}
-		} else if !errors.Is(err, proc.ErrNotRunning) {
-			return run, ErrRecoveryUncertain
-		}
-		if alive, err := proc.GroupAlive(attempt.Process.PGID); err != nil || alive {
-			return run, ErrRecoveryUncertain
-		}
+	if err := e.verifyResumeProcesses(attempts); err != nil {
+		return run, err
 	}
 	reason, changes := e.checkAdapters(ctx, run, steps, attempts)
 	if reason != "" {
 		return run, errors.New(reason)
 	}
-	type identity struct {
-		adapter    agent.AdapterInfo
-		connection agent.ConnectionInfo
-	}
-	identities := map[string]identity{}
-	for _, step := range steps {
-		if step.Status == "succeeded" || step.Status == "skipped" || step.Status == "failed" {
-			continue
-		}
-		latest := latestAttempt(attempts, step.ID)
-		if latest == nil || latest.FailureKind != string(nativecli.FailureContextOverflow) || latest.Recovery != "context_fresh" {
-			continue
-		}
-		index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID })
-		if index < 0 {
-			continue
-		}
-		member := run.Agents[index]
-		value := identity{}
-		if member.Executor != "" && e.Adapters != nil {
-			value.adapter, _ = e.Adapters.Check(ctx, member.Executor)
-			value.connection, _, _ = e.connectionInfo(ctx, member.Executor, member.Model, member.ThinkingLevel)
-		}
-		identities[step.ID] = value
-	}
+	identities := e.resumeIdentities(ctx, run, steps, attempts)
 	var expiredResumeErr error
 	err := e.Store.Write(ctx, func(tx *store.Tx) error {
 		current, err := tx.Run(id)
@@ -404,4 +350,75 @@ func latestAttempt(attempts []w.Attempt, stepID string) *w.Attempt {
 		}
 	}
 	return latest
+}
+
+// verifyResumeProcesses refuses to reopen a checkpoint while any recorded
+// process group may still be alive or its ownership cannot be proven.
+func (e *Engine) verifyResumeProcesses(attempts []w.Attempt) error {
+	for _, attempt := range attempts {
+		uncertain := attempt.Status == "uncertain" || attempt.FailureKind == string(nativecli.FailureProcessUncertain) || attempt.Recovery == recoveryProcessUncertain
+		if uncertain && attempt.Process == nil {
+			// Without a recorded identity there is no way to prove the owned
+			// group exited; never skip it and dispatch beside it.
+			return ErrRecoveryUncertain
+		}
+		if attempt.Status == "succeeded" || attempt.Status == "blocked" || attempt.Status == "failed" {
+			continue
+		}
+		if attempt.Process == nil {
+			continue
+		}
+		if attempt.Process.Start == "" || attempt.Process.PGID <= 0 || attempt.Process.PGID != attempt.Process.PID {
+			return ErrRecoveryUncertain
+		}
+		if alive, err := proc.GroupAlive(attempt.Process.PGID); err != nil || alive {
+			return ErrRecoveryUncertain
+		}
+		if !uncertain {
+			continue
+		}
+		if current, err := proc.Inspect(attempt.Process.PID); err == nil {
+			if current.Start != attempt.Process.Start {
+				return ErrRecoveryUncertain
+			}
+		} else if !errors.Is(err, proc.ErrNotRunning) {
+			return ErrRecoveryUncertain
+		}
+		if alive, err := proc.GroupAlive(attempt.Process.PGID); err != nil || alive {
+			return ErrRecoveryUncertain
+		}
+	}
+	return nil
+}
+
+type resumeIdentity struct {
+	adapter    agent.AdapterInfo
+	connection agent.ConnectionInfo
+}
+
+// resumeIdentities freezes the adapter and connection of every step that needs
+// a fresh-attempt replay check, before the final resume transaction begins.
+func (e *Engine) resumeIdentities(ctx context.Context, run w.Run, steps []w.Step, attempts []w.Attempt) map[string]resumeIdentity {
+	identities := map[string]resumeIdentity{}
+	for _, step := range steps {
+		if step.Status == "succeeded" || step.Status == "skipped" || step.Status == "failed" {
+			continue
+		}
+		latest := latestAttempt(attempts, step.ID)
+		if latest == nil || latest.FailureKind != string(nativecli.FailureContextOverflow) || latest.Recovery != "context_fresh" {
+			continue
+		}
+		index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID })
+		if index < 0 {
+			continue
+		}
+		member := run.Agents[index]
+		value := resumeIdentity{}
+		if member.Executor != "" && e.Adapters != nil {
+			value.adapter, _ = e.Adapters.Check(ctx, member.Executor)
+			value.connection, _, _ = e.connectionInfo(ctx, member.Executor, member.Model, member.ThinkingLevel)
+		}
+		identities[step.ID] = value
+	}
+	return identities
 }
