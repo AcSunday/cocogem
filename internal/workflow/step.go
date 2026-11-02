@@ -2,19 +2,14 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"log/slog"
 	"slices"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/nativecli"
 	"github.com/AcSunday/cocogem/internal/store"
-	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -64,9 +59,6 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	var stepDeadline time.Time
 	var previousDraft *w.Artifact
 	var retiredSession string
-	// A retry may only replay a step that has not committed a host or external
-	// side effect. This flag is set before any mutating tool executes.
-	var mutated atomic.Bool
 	err := e.Store.Write(ctx, func(tx *store.Tx) error {
 		current, err := tx.Run(run.ID)
 		if err != nil {
@@ -307,363 +299,27 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		stepCtx, stopStep = context.WithCancel(ctx)
 	}
 	defer stopStep()
-	var internalFailure atomic.Bool
-	writer := newMessageWriter(e.Store, stepCtx, 100*time.Millisecond, run.ID, step.ID, a.ID, attempt.ID, message, messageSeq, func(err error) {
-		internalFailure.Store(true)
+	rt := &stepRuntime{
+		ctx:            ctx,
+		stepCtx:        stepCtx,
+		engine:         e,
+		run:            run,
+		step:           step,
+		agent:          a,
+		allowed:        allowed,
+		required:       required,
+		scope:          scope,
+		attempt:        attempt,
+		sources:        slices.Clone(sourceSnapshot),
+		nativeCaptured: map[string]bool{},
+		retiredSession: retiredSession,
+	}
+	rt.writer = newMessageWriter(e.Store, stepCtx, 100*time.Millisecond, run.ID, step.ID, a.ID, attempt.ID, message, messageSeq, func(err error) {
+		rt.internalFailed.Store(true)
 		e.report(err)
 		stopStep()
 	})
-	var stateMu sync.Mutex
-	var execWG sync.WaitGroup
-	execClosed := false
-	sources := slices.Clone(sourceSnapshot)
-	nativeCaptured := map[string]bool{}
-	// A previous attempt's draft is recovery evidence for the prompt and the
-	// checkpoint digest only. It is never published on behalf of the resumed
-	// step: the model must re-read, revalidate and submit it again.
-	var published *w.Artifact
-	publishAttempts := 0
-	delegated := false
-	capture := func(source w.Source) (w.Source, error) {
-		source.ID = w.NewID()
-		source.WorkspaceID = run.WorkspaceID
-		source.ThreadID = run.ThreadID
-		source.RunID = run.ID
-		source.CaptureStepID = step.ID
-		source.ContentDigest = contentDigest(source.Content)
-		metadata := source
-		metadata.Content = ""
-		err := e.Store.Write(ctx, func(tx *store.Tx) error {
-			if err := tx.SaveSource(source); err != nil {
-				return err
-			}
-			return tx.AppendEvent(run.ID, step.ID, a.ID, "source_captured", metadata)
-		})
-		if err == nil {
-			stateMu.Lock()
-			// Only bounded metadata is retained in memory; exact bodies are
-			// read by ID from the store when a tool explicitly requests them.
-			sources = append(sources, metadata)
-			stateMu.Unlock()
-		}
-		return source, err
-	}
-	execute := func(callCtx context.Context, name string, input json.RawMessage) (string, error) {
-		stateMu.Lock()
-		if execClosed {
-			stateMu.Unlock()
-			return "", errors.New("step is no longer accepting tool calls")
-		}
-		execWG.Add(1)
-		stateMu.Unlock()
-		defer execWG.Done()
-		if permissionErr := e.Store.Read(callCtx, func(tx *store.Tx) error { return e.validateMember(tx, run, step.AgentID) }); permissionErr != nil {
-			return "", permissionErr
-		}
-		if (name == "write_file" || name == "patch_file" || name == "run_test") && !slices.Contains(allowed, name) {
-			return "", errors.New("tool is not granted for this step's role and engineering action")
-		}
-		switch name {
-		case "read_skill":
-			return e.readSkill(callCtx, run, step, input)
-		case "read_context":
-			return e.readContext(callCtx, run, step, scope, input)
-		case "handoff_task":
-			mutated.Store(true)
-			result, handoffErr := e.submitHandoff(callCtx, run, step, input)
-			if handoffErr == nil {
-				stateMu.Lock()
-				delegated = true
-				stateMu.Unlock()
-			}
-			return result, handoffErr
-		case "get_task":
-			return e.getTask(callCtx, run, input)
-		case "choose_workflow":
-			mutated.Store(true)
-			return e.chooseWorkflow(callCtx, run, step, input)
-		case "read_source":
-			stateMu.Lock()
-			snapshot := slices.Clone(sources)
-			stateMu.Unlock()
-			return e.readSource(callCtx, run, snapshot, input)
-		case "list_sources":
-			stateMu.Lock()
-			snapshot := slices.Clone(sources)
-			stateMu.Unlock()
-			return e.listSources(callCtx, run, snapshot, input)
-		}
-		if name == "web_search" && run.Input.ResearchScope != "web_discovery" && run.Input.ResearchScope != "auto" {
-			return "", errors.New("web discovery is outside this run scope")
-		}
-		if name == "fetch_url" && run.Input.ResearchScope != "web_discovery" && run.Input.ResearchScope != "auto" {
-			var in struct {
-				URL string `json:"url"`
-			}
-			if err := tools.Decode(input, &in); err != nil {
-				return "", err
-			}
-			stateMu.Lock()
-			snapshot := slices.Clone(sources)
-			stateMu.Unlock()
-			if !slices.Contains(run.Input.SourceURLs, in.URL) && !slices.ContainsFunc(snapshot, func(s w.Source) bool { return s.URL == in.URL }) {
-				return "", errors.New("URL is outside the selected given-source research scope")
-			}
-		}
-		if name != "publish_artifact" {
-			if slices.Contains([]string{"write_file", "patch_file", "run_test"}, name) {
-				mutated.Store(true)
-			}
-			return tools.Execute(callCtx, name, input, tools.Scope{Root: run.Workspace.Root, Web: e.Web, Capture: capture})
-		}
-		mutated.Store(true)
-		allowedPublisher, permissionErr := e.mayPublish(callCtx, run, step)
-		if permissionErr != nil {
-			return "", permissionErr
-		}
-		if !allowedPublisher {
-			return "", errors.New("intermediate steps cannot publish a formal artifact; finish this step and let the final delivery step publish")
-		}
-		stateMu.Lock()
-		if publishAttempts >= 4 {
-			stateMu.Unlock()
-			return "", errors.New("publication retry budget exceeded; finish this step with the accepted or previous valid content")
-		}
-		publishAttempts++
-		stateMu.Unlock()
-		var payload struct {
-			Type        string      `json:"type"`
-			Title       string      `json:"title"`
-			Body        string      `json:"body"`
-			Findings    []w.Finding `json:"findings"`
-			SourceIDs   []string    `json:"source_ids"`
-			Limitations []string    `json:"limitations"`
-		}
-		if err := tools.Decode(input, &payload); err != nil {
-			return "", err
-		}
-		artifact := w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: run.ID, StepID: step.ID, Type: payload.Type, Title: payload.Title, Body: payload.Body, Findings: payload.Findings, SourceIDs: payload.SourceIDs, Limitations: payload.Limitations, Feedback: "unreviewed", CreatedAt: w.Now()}
-		stateMu.Lock()
-		knownSources := slices.Clone(sources)
-		stateMu.Unlock()
-		ensureNativeObservationDisclosure(&artifact, knownSources)
-		if err := ValidateArtifact(artifact, required, knownSources); err != nil {
-			return "", err
-		}
-		if err := ValidateEngineeringEvidence(artifact, run, knownSources); err != nil {
-			return "", err
-		}
-		// Persist the unpublished payload on the attempt immediately; a process
-		// interruption must not turn a submitted draft back into guessable text.
-		draft := artifact
-		draftCtx, draftCancel := context.WithTimeout(context.WithoutCancel(callCtx), 5*time.Second)
-		draftErr := e.Store.Write(draftCtx, func(tx *store.Tx) error {
-			current, err := tx.Attempt(attempt.ID)
-			if err != nil {
-				return err
-			}
-			current.DraftArtifact = &draft
-			return tx.SaveAttempt(current)
-		})
-		draftCancel()
-		if draftErr != nil {
-			return "", draftErr
-		}
-		stateMu.Lock()
-		published = &artifact
-		attempt.DraftArtifact = &draft
-		stateMu.Unlock()
-		return `{"accepted":true,"publication":"after_step_success"}`, nil
-	}
-	observe := func(kind string, data map[string]any) error {
-		if stringValue(data["origin"]) == "native" && stepCtx.Err() != nil {
-			// Revocation, user cancel or a frozen deadline already stopped
-			// this step; native output emitted afterwards is not evidence.
-			return nil
-		}
-		if kind == "tool_started" || kind == "tool_finished" {
-			slog.Info(kind, "run_id", run.ID, "step_id", step.ID, "agent_id", a.ID, "tool_call_id", data["tool_call_id"], "tool", data["name"], "status", data["status"])
-		}
-		if kind == "tool_finished" && stringValue(data["origin"]) == "native" {
-			callID := stringValue(data["tool_call_id"])
-			stateMu.Lock()
-			duplicate := callID != "" && nativeCaptured[callID]
-			if callID != "" {
-				nativeCaptured[callID] = true
-			}
-			stateMu.Unlock()
-			if !duplicate {
-				if source, ok := nativeSource(run, data); ok {
-					saved, err := capture(source)
-					if err != nil {
-						return err
-					}
-					data["source_id"] = saved.ID
-				}
-			}
-			data = nativeEventPayload(data)
-		}
-		stateMu.Lock()
-		defer stateMu.Unlock()
-		if execClosed {
-			return nil
-		}
-		if writer.SnapshotError() != nil {
-			return writer.SnapshotError()
-		}
-		switch kind {
-		case "text":
-			text := stringValue(data["text"])
-			if text == "" {
-				return nil
-			}
-			// The adapter decides whether a frame is real activity; a missing
-			// flag (test runner, non-native loop) falls back to non-blank text.
-			activity, explicit := data["activity"].(bool)
-			if !explicit {
-				activity = strings.TrimSpace(text) != ""
-			}
-			if activity {
-				return writer.Append(text)
-			}
-			// Non-progress text is still persisted exactly, just not credited
-			// as liveness.
-			return writer.AppendDuplicate(text)
-		case "reasoning":
-			// Reasoning content never enters storage; only its support flag.
-			supported, _ := data["supported"].(bool)
-			return e.Store.Write(ctx, func(tx *store.Tx) error {
-				return tx.AppendEvent(run.ID, step.ID, a.ID, "reasoning", map[string]any{"supported": supported})
-			})
-		case "native_activity":
-			activityKind := stringValue(data["kind"])
-			if activityKind != "reasoning" && activityKind != "text_delta" {
-				return errors.New("native_activity kind must be reasoning or text_delta")
-			}
-			return e.Store.Write(ctx, func(tx *store.Tx) error {
-				if err := touchAttempt(tx, attempt.ID, w.Now()); err != nil {
-					return err
-				}
-				return tx.AppendEvent(run.ID, step.ID, a.ID, "native_activity", map[string]any{"kind": activityKind})
-			})
-		case "liveness_warning":
-			warning := &w.LivenessWarning{
-				State:          stringValue(data["state"]),
-				SilenceSeconds: max(0, intValue(data["silence_seconds"])),
-				LastEventType:  stringValue(data["last_event_type"]),
-				ProcessAlive:   boolValue(data["process_alive"]),
-				ToolActive:     boolValue(data["tool_active"]),
-				ObservedAt:     w.Now(),
-			}
-			return e.Store.Write(ctx, func(tx *store.Tx) error {
-				current, err := tx.Attempt(attempt.ID)
-				if err != nil {
-					return err
-				}
-				current.LivenessWarning = warning
-				if err := tx.SaveAttempt(current); err != nil {
-					return err
-				}
-				attempt = current
-				return tx.AppendEvent(run.ID, step.ID, a.ID, "liveness_warning", warning)
-			})
-		case "usage":
-			known, _ := data["known"].(bool)
-			turn := stringValue(data["semantics"]) == "turn"
-			input, output := int64(intValue(data["input_tokens"])), int64(intValue(data["output_tokens"]))
-			// Native usage is emitted after cancellation/stall cleanup, so the
-			// write cannot depend on the stopped step context.
-			usageCtx, usageCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer usageCancel()
-			return e.Store.Write(usageCtx, func(tx *store.Tx) error {
-				current, err := tx.Attempt(attempt.ID)
-				if err != nil {
-					return err
-				}
-				if turn {
-					if known {
-						current.InputTokens += input
-						current.OutputTokens += output
-						if current.UsageCompleteness == "" || current.UsageCompleteness == "known" {
-							current.UsageCompleteness = "known"
-						} else {
-							current.UsageCompleteness = "partial"
-						}
-					} else if current.UsageCompleteness == "known" || current.InputTokens > 0 || current.OutputTokens > 0 {
-						current.UsageCompleteness = "partial"
-					} else {
-						current.UsageCompleteness = "unknown"
-					}
-				} else if known {
-					current.InputTokens, current.OutputTokens = input, output
-					current.UsageCompleteness = "known"
-				} else if input > 0 || output > 0 {
-					// The native CLI can report one side of a cumulative pair.
-					if input > 0 {
-						current.InputTokens = input
-					}
-					if output > 0 {
-						current.OutputTokens = output
-					}
-					current.UsageCompleteness = "partial"
-				} else if current.UsageCompleteness == "" {
-					current.UsageCompleteness = "unknown"
-				}
-				current.UsageKnown = current.UsageCompleteness == "known"
-				if err := tx.SaveAttempt(current); err != nil {
-					return err
-				}
-				attempt = current
-				return tx.AppendEvent(run.ID, step.ID, a.ID, "usage_updated", data)
-			})
-		case "native_adapter", "native_session", "native_process", "tool_started", "tool_finished":
-			return e.Store.Write(ctx, func(tx *store.Tx) error {
-				current, err := tx.Attempt(attempt.ID)
-				if err != nil {
-					return err
-				}
-				changed := false
-				if identity, _ := data["identity"].(string); identity != "" && current.CLIIdentity != "" && current.CLIIdentity != identity {
-					changed = true
-				}
-				switch kind {
-				case "native_adapter":
-					current.CLIVersion, _ = data["version"].(string)
-					current.CLIProgram, _ = data["program"].(string)
-					current.CLIIdentity, _ = data["identity"].(string)
-					current.Adapter, _ = data["adapter"].(string)
-				case "native_session":
-					session := stringValue(data["session_id"])
-					if attempt.Recovery == "context_fresh" && retiredSession != "" && session == retiredSession {
-						return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "context_fresh_reused_session: the native CLI reused the retired session; fresh recovery was not confirmed"}
-					}
-					current.SessionID = session
-					current.SessionMode, _ = data["mode"].(string)
-				case "native_process":
-					current.Process = &w.ProcessRef{PID: intValue(data["pid"]), PGID: intValue(data["pgid"]), Start: stringValue(data["start"]), Executable: stringValue(data["executable"])}
-				}
-				if kind == "tool_started" || kind == "tool_finished" {
-					current.LastProgress = w.Now()
-					current.LivenessWarning = nil
-				}
-				if err := tx.SaveAttempt(current); err != nil {
-					return err
-				}
-				attempt = current
-				if changed {
-					if err := tx.AppendEvent(run.ID, step.ID, a.ID, "cli_changed", map[string]any{"executor": current.Executor, "previous_identity": attempt.CLIIdentity, "current_identity": current.CLIIdentity, "version": current.CLIVersion}); err != nil {
-						return err
-					}
-				}
-				return tx.AppendEvent(run.ID, step.ID, a.ID, kind, data)
-			})
-		default:
-			return e.Store.Write(ctx, func(tx *store.Tx) error {
-				return tx.AppendEvent(run.ID, step.ID, a.ID, kind, data)
-			})
-		}
-	}
-	request, requestErr := e.buildRequest(stepCtx, run, step, a, allowed, required, connection, adapter, message, handoff, scope, history, all, sourceSnapshot, previousDraft, attempt)
+	request, requestErr := e.buildRequest(stepCtx, run, step, a, allowed, required, connection, adapter, message, handoff, scope, history, all, sourceSnapshot, previousDraft, rt.attempt)
 	if requestErr != nil {
 		err = requestErr
 	} else if err = stepCtx.Err(); err != nil {
@@ -676,32 +332,32 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		if runner == nil {
 			err = errors.New(capabilityBlockedPrefix + " " + a.Executor + ": selected CLI executor is unavailable")
 		} else {
-			err = runner.Run(stepCtx, request, execute, observe)
+			err = runner.Run(stepCtx, request, rt.executeTool, rt.observeEvent)
 		}
 	} else {
-		err = (agent.Loop{Model: e.Model}).Run(stepCtx, request, execute, observe)
+		err = (agent.Loop{Model: e.Model}).Run(stepCtx, request, rt.executeTool, rt.observeEvent)
 	}
-	stateMu.Lock()
-	execClosed = true
-	stateMu.Unlock()
-	execWG.Wait()
-	if closeErr := writer.Close(); closeErr != nil && err == nil {
+	rt.mu.Lock()
+	rt.closed = true
+	rt.mu.Unlock()
+	rt.execWG.Wait()
+	if closeErr := rt.writer.Close(); closeErr != nil && err == nil {
 		err = closeErr
 	} else if closeErr != nil {
 		e.report(closeErr)
 	}
-	message = writer.Snapshot()
-	stateMu.Lock()
-	publishedCopy := published
-	delegatedCopy := delegated
-	knownSources := slices.Clone(sources)
-	stateMu.Unlock()
+	message = rt.writer.Snapshot()
+	rt.mu.Lock()
+	publishedCopy := rt.published
+	delegatedCopy := rt.delegated
+	knownSources := slices.Clone(rt.sources)
+	rt.mu.Unlock()
 	step, attempt, saveErr := e.settleStep(ctx, stepSettlement{
 		run:             run,
 		step:            step,
 		agent:           a,
 		required:        required,
-		attempt:         attempt,
+		attempt:         rt.attempt,
 		message:         message,
 		published:       publishedCopy,
 		delegated:       delegatedCopy,
@@ -709,7 +365,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		stepCtx:         stepCtx,
 		stepDeadline:    stepDeadline,
 		checkpoint:      checkpoint,
-		internalFailure: internalFailure.Load(),
+		internalFailure: rt.internalFailed.Load(),
 		cause:           err,
 	})
 	// Automatic retries create a fresh Attempt and Message after the failed
@@ -718,7 +374,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	// eligible; the persisted reason keeps the budget across restarts.
 	if saveErr == nil &&
 		step.Status == "failed" && attempt.Status == "failed" &&
-		ctx.Err() == nil && !mutated.Load() &&
+		ctx.Err() == nil && !rt.mutated.Load() &&
 		// attempt.Number is durable and includes the current attempt, so the
 		// budget survives restart and cannot be reset by relabelling reasons.
 		attempt.Number <= autoRetryLimit &&
@@ -734,7 +390,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 				"failure_kind":      attempt.FailureKind,
 				"reason":            autoRetryReason,
 				"backoff_millis":    delay.Milliseconds(),
-				"side_effects_seen": mutated.Load(),
+				"side_effects_seen": rt.mutated.Load(),
 			})
 		})
 		if eventErr != nil {
