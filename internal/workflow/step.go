@@ -696,173 +696,22 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	delegatedCopy := delegated
 	knownSources := slices.Clone(sources)
 	stateMu.Unlock()
-	if err == nil && required != "" && publishedCopy == nil && !delegatedCopy {
-		err = &nativecli.Failure{Kind: nativecli.FailureKind(failureArtifactContract), Reason: "required artifact was not submitted"}
-	}
-	runExpired := ctx.Err() == context.DeadlineExceeded
-	stepDeadlineExpired := !stepDeadline.IsZero() && !time.Now().Before(stepDeadline) && errors.Is(stepCtx.Err(), context.DeadlineExceeded)
-	if err == nil && stepCtx.Err() != nil {
-		err = stepCtx.Err()
-	}
-	outcome := stepOutcome{step: "succeeded", attempt: "succeeded"}
-	if err != nil {
-		checkpointed := checkpoint != nil && checkpoint.by(step.ID)
-		outcome = classifyStepError(err, stepCtx.Err(), checkpointed, internalFailure.Load(), runExpired, stepDeadlineExpired)
-	}
-	step.Status = outcome.step
-	step.Error = outcome.reason
-	step.FailureKind = outcome.kind
-	if step.Status == "succeeded" {
-		step.Error = ""
-		step.FailureKind = ""
-	}
-	attempt.Status = outcome.attempt
-	attempt.Error = outcome.reason
-	attempt.FailureKind = outcome.kind
-	if outcome.recovery != "" {
-		attempt.Recovery = outcome.recovery
-	}
-	attempt.FinishedAt = w.Now()
-	if step.Status != "succeeded" && publishedCopy != nil {
-		draft := *publishedCopy
-		attempt.DraftArtifact = &draft
-	} else if step.Status == "succeeded" {
-		attempt.DraftArtifact = nil
-	}
-	if outcome.kind == failureCheckpointInterrupt && checkpoint != nil {
-		if description := checkpoint.describe(); description != "" {
-			step.Error = "checkpoint_interrupted: " + description
-			attempt.Error = step.Error
-		}
-	}
-	if step.Status == "interrupted" && checkpoint != nil {
-		checkpoint.request(step.ID, step.Error)
-	}
-	switch step.Status {
-	case "succeeded":
-		message.Status = "completed"
-	case "interrupted":
-		message.Status = "interrupted"
-	case "canceled":
-		message.Status = "canceled"
-	default:
-		message.Status = "failed"
-	}
-	if step.Status == "succeeded" && publishedCopy != nil {
-		if validationErr := ValidateArtifact(*publishedCopy, required, knownSources); validationErr != nil {
-			step.Status, message.Status, attempt.Status = "failed", "failed", "failed"
-			step.Error, attempt.Error = validationErr.Error(), validationErr.Error()
-			step.FailureKind, attempt.FailureKind = "artifact_contract", "artifact_contract"
-			attempt.DraftArtifact = publishedCopy
-		}
-	}
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	saveErr := e.Store.Write(cleanup, func(tx *store.Tx) error {
-		steps, err := tx.Steps(run.ID)
-		if err != nil {
-			return err
-		}
-		// Re-read the run: this step may itself have selected a workflow.
-		current, err := tx.Run(run.ID)
-		if err != nil {
-			return err
-		}
-		formal := map[string]bool{}
-		for _, final := range finalSteps(effectiveInput(current), steps) {
-			formal[final.ID] = true
-		}
-		if publishedCopy != nil && step.Status == "succeeded" && formal[step.ID] {
-			if len(current.Input.ArtifactRefs) > 0 {
-				ref := current.Input.ArtifactRefs[0]
-				previous, err := tx.Artifact(ref.ID, ref.Version)
-				if err != nil {
-					return err
-				}
-				if previous.Type == publishedCopy.Type {
-					versions, err := tx.Artifacts(run.ThreadID)
-					if err != nil {
-						return err
-					}
-					publishedCopy.ID = previous.ID
-					for _, v := range versions {
-						if v.ID == previous.ID {
-							publishedCopy.Version = max(publishedCopy.Version, v.Version+1)
-						}
-					}
-				}
-			}
-			if err := tx.SaveArtifact(*publishedCopy); err != nil {
-				return err
-			}
-			if err := tx.AppendEvent(run.ID, step.ID, a.ID, "artifact_published", publishedCopy); err != nil {
-				return err
-			}
-		}
-		if publishedCopy != nil && step.Status == "succeeded" && !formal[step.ID] {
-			// A root that delegated, or a superseded continuation, keeps its
-			// submission as attempt evidence; it must never become formal.
-			draft := *publishedCopy
-			attempt.DraftArtifact = &draft
-		}
-		if stored, readErr := tx.Attempt(attempt.ID); readErr == nil {
-			stored.Status = attempt.Status
-			stored.Error = attempt.Error
-			stored.FailureKind = attempt.FailureKind
-			stored.Recovery = attempt.Recovery
-			stored.RecoveredFrom = attempt.RecoveredFrom
-			stored.SessionID = attempt.SessionID
-			stored.SessionMode = attempt.SessionMode
-			stored.DraftArtifact = attempt.DraftArtifact
-			stored.UsageKnown = attempt.UsageKnown
-			stored.UsageCompleteness = attempt.UsageCompleteness
-			stored.InputTokens = attempt.InputTokens
-			stored.OutputTokens = attempt.OutputTokens
-			stored.FinishedAt = attempt.FinishedAt
-			attempt = stored
-		}
-		if digest, err := checkpointDigest(tx, run.ID, run.ThreadID, step.ID, attempt.SourceIDs, attempt.DraftArtifact); err == nil {
-			attempt.CheckpointDigest = digest
-		}
-		if err := tx.SaveAttempt(attempt); err != nil {
-			return err
-		}
-		if err := tx.SaveMessage(message); err != nil {
-			return err
-		}
-		if err := tx.SaveStep(step); err != nil {
-			return err
-		}
-		if err := tx.AppendEvent(run.ID, step.ID, a.ID, "message_finished", message); err != nil {
-			return err
-		}
-		if err := tx.AppendEvent(run.ID, step.ID, a.ID, "attempt_finished", attempt); err != nil {
-			return err
-		}
-		return tx.AppendEvent(run.ID, step.ID, a.ID, "step_finished", step)
+	step, attempt, saveErr := e.settleStep(ctx, stepSettlement{
+		run:             run,
+		step:            step,
+		agent:           a,
+		required:        required,
+		attempt:         attempt,
+		message:         message,
+		published:       publishedCopy,
+		delegated:       delegatedCopy,
+		sources:         knownSources,
+		stepCtx:         stepCtx,
+		stepDeadline:    stepDeadline,
+		checkpoint:      checkpoint,
+		internalFailure: internalFailure.Load(),
+		cause:           err,
 	})
-	if saveErr != nil {
-		step.Status = "failed"
-		step.FailureKind = failureUnknown
-		step.Error = saveErr.Error()
-		if updateErr := e.Store.Write(cleanup, func(tx *store.Tx) error {
-			stored, readErr := tx.Attempt(attempt.ID)
-			if readErr != nil {
-				return readErr
-			}
-			stored.Status = "failed"
-			stored.Error = saveErr.Error()
-			stored.FailureKind = failureUnknown
-			stored.FinishedAt = w.Now()
-			if err := tx.SaveAttempt(stored); err != nil {
-				return err
-			}
-			return tx.SaveStep(step)
-		}); updateErr != nil {
-			e.report(updateErr)
-		}
-		e.report(saveErr)
-	}
 	// Automatic retries create a fresh Attempt and Message after the failed
 	// evidence is durable. Only a transient provider/connection failure with
 	// no committed side effect, live context and untriggered checkpoint is
