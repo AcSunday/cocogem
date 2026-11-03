@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/proc"
@@ -179,67 +178,15 @@ func (e *Engine) recoverRun(ctx context.Context, id string) error {
 		if w.Terminal(current.Status) {
 			return nil
 		}
-		stored, err := tx.Attempts(id)
-		if err != nil {
-			return err
+		r := &recoveryTransaction{
+			e: e, tx: tx, id: id, run: &current,
+			messages: messages, changes: changes, verdicts: verdicts,
 		}
-		for _, attempt := range stored {
-			verdict, ok := verdicts[attempt.ID]
-			if !ok || attempt.Status != "running" {
-				continue
-			}
-			if current.Status == "canceling" {
-				verdict.status = "canceled"
-			}
-			attempt.Status = verdict.status
-			attempt.Error = verdict.reason
-			attempt.Recovery = verdict.recovery
-			attempt.FinishedAt = w.Now()
-			if err := tx.SaveAttempt(attempt); err != nil {
-				return err
-			}
-			if err := tx.AppendEvent(id, attempt.StepID, "", "attempt_finished", attempt); err != nil {
-				return err
-			}
-		}
-		finished, err := tx.Steps(id)
-		if err != nil {
+		if err := r.applyVerdicts(); err != nil {
 			return err
 		}
 		if current.Status == "canceling" {
-			current.Status = "canceled"
-			current.FinishedAt = w.Now()
-			current.Error = ""
-			if err := settlePending(tx, id, "canceled before restart recovery"); err != nil {
-				return err
-			}
-			finished, err = tx.Steps(id)
-			if err != nil {
-				return err
-			}
-			for _, step := range finished {
-				if step.Status == "running" || step.Status == "interrupted" {
-					step.Status = "canceled"
-					step.Error = "canceled by the user before restart recovery"
-					if err := tx.SaveStep(step); err != nil {
-						return err
-					}
-					if err := tx.AppendEvent(id, step.ID, step.AgentID, "step_finished", step); err != nil {
-						return err
-					}
-				}
-			}
-			for _, message := range messages {
-				if message.RunID == id && message.Status == "processing" {
-					if err := tx.SetMessageStatus(message.ID, "canceled"); err != nil {
-						return err
-					}
-				}
-			}
-			if err := tx.SaveRun(current); err != nil {
-				return err
-			}
-			return tx.AppendEvent(id, "", "", "run_finished", current)
+			return r.finishCanceled()
 		}
 		if blockedReason == "" {
 			workspace, err := tx.Workspace(current.WorkspaceID)
@@ -248,7 +195,7 @@ func (e *Engine) recoverRun(ctx context.Context, id string) error {
 			}
 		}
 		if blockedReason == "" {
-			for _, step := range finished {
+			for _, step := range r.steps {
 				if step.Status == "succeeded" || step.Status == "failed" || step.Status == "skipped" {
 					continue
 				}
@@ -259,170 +206,16 @@ func (e *Engine) recoverRun(ctx context.Context, id string) error {
 			}
 		}
 		if blockedReason != "" {
-			for _, step := range finished {
-				if step.Status == "running" || step.Status == "canceled" {
-					step.Status = "interrupted"
-					if step.Error == "" {
-						step.Error = "service restarted; checkpoint preserved"
-					}
-					if err := tx.SaveStep(step); err != nil {
-						return err
-					}
-					if err := tx.AppendEvent(id, step.ID, step.AgentID, "step_finished", step); err != nil {
-						return err
-					}
-				}
-			}
-			for _, message := range messages {
-				if message.RunID == id && message.Status == "processing" {
-					if err := tx.SetMessageStatus(message.ID, "interrupted"); err != nil {
-						return err
-					}
-				}
-			}
-			current.Status = "interrupted"
-			current.Error = blockedReason
-			current.FinishedAt = w.Now()
-			if err := tx.SaveRun(current); err != nil {
-				return err
-			}
-			return tx.AppendEvent(id, "", "", "run_finished", current)
+			return r.block(blockedReason)
 		}
-		failed := ""
-		canceled := ""
-		unfinished := false
-		for _, step := range finished {
-			switch step.Status {
-			case "failed":
-				if failed == "" {
-					failed = step.Error
-				}
-			case "canceled":
-				canceled = step.Error
-			case "pending", "running", "interrupted":
-				unfinished = true
-			case "skipped":
-				if failed == "" {
-					failed = step.Error
-				}
-			}
-		}
-		if !unfinished && (failed != "" || canceled != "") {
-			status, cause := "failed", failed
-			if failed == "" {
-				status, cause = "canceled", canceled
-			}
-			if err := settlePending(tx, id, "run ended during restart recovery"); err != nil {
-				return err
-			}
-			finished, err = tx.Steps(id)
-			if err != nil {
-				return err
-			}
-			for _, step := range finished {
-				if step.Status != "running" && step.Status != "interrupted" {
-					continue
-				}
-				step.Status = "interrupted"
-				step.Error = "run ended during restart recovery"
-				if status == "canceled" {
-					step.Status = "canceled"
-				}
-				if err := tx.SaveStep(step); err != nil {
-					return err
-				}
-				if err := tx.AppendEvent(id, step.ID, step.AgentID, "step_finished", step); err != nil {
-					return err
-				}
-			}
-			for _, message := range messages {
-				if message.RunID == id && message.Status == "processing" {
-					target := "interrupted"
-					if status == "canceled" {
-						target = "canceled"
-					}
-					if err := tx.SetMessageStatus(message.ID, target); err != nil {
-						return err
-					}
-				}
-			}
-			current.Status = status
-			current.Error = cause
-			current.FinishedAt = w.Now()
-			if err := tx.SaveRun(current); err != nil {
-				return err
-			}
-			return tx.AppendEvent(id, "", "", "run_finished", current)
-		}
-		if !unfinished {
-			// A recovered legacy run recorded no delivery, so it keeps nil. A
-			// run under the delivery contract must prove every final target
-			// before it may settle succeeded; otherwise it fails here instead
-			// of remaining active with incomplete metadata.
-			if current.Delivery != nil {
-				delivery, err := buildDelivery(tx, current)
-				if err != nil {
-					current.Status = "failed"
-					current.FailureKind = failureArtifactContract
-					current.Error = "final delivery is incomplete: " + err.Error()
-					current.FinishedAt = w.Now()
-					if err := tx.SaveRun(current); err != nil {
-						return err
-					}
-					return tx.AppendEvent(id, "", "", "run_finished", current)
-				}
-				current.Delivery = delivery
-				current.Method = settledMethod(current, finished)
-			}
-			current.Status = "succeeded"
-			current.Error = ""
-			current.FinishedAt = w.Now()
-			if err := tx.SaveRun(current); err != nil {
-				return err
-			}
-			if current.Delivery != nil && current.SelectedWorkflow == nil && (current.Input.Workflow == "" || current.Input.Workflow == "free") {
-				if err := tx.AppendEvent(id, "", "", "method_recorded", map[string]any{"method": current.Method}); err != nil {
-					return err
-				}
-			}
-			return tx.AppendEvent(id, "", "", "run_finished", current)
-		}
-		for i := range finished {
-			if finished[i].Status == "running" || finished[i].Status == "interrupted" || finished[i].Status == "canceled" {
-				finished[i].Status = "pending"
-				finished[i].Error = ""
-				if err := tx.SaveStep(finished[i]); err != nil {
-					return err
-				}
-			}
-		}
-		for _, message := range messages {
-			if message.RunID == id && message.Status == "processing" {
-				if err := tx.SetMessageStatus(message.ID, "interrupted"); err != nil {
-					return err
-				}
-				preview, err := tx.MessagePreview(message.ID, 6000)
-				if err != nil {
-					return err
-				}
-				if err := tx.AppendEvent(id, message.StepID, message.AgentID, "message_finished", preview); err != nil {
-					return err
-				}
-			}
-		}
-		current.Status = "queued"
-		current.Error = ""
-		current.FinishedAt = ""
-		current.RecoveryCount++
-		current.RecoveredAt = w.Now()
-		current.RecoveryNote = "service_restart"
-		if len(changes) > 0 {
-			current.RecoveryNote = "service_restart;cli_changed:" + strings.Join(changes, ",")
-		}
-		if err := tx.SaveRun(current); err != nil {
+		unfinished, settled, err := r.settle()
+		if err != nil || settled {
 			return err
 		}
-		return tx.AppendEvent(id, "", "", "run_recovered", map[string]any{"reason": "service_restart", "changed_clis": changes, "attempts": len(verdicts)})
+		if !unfinished {
+			return r.succeed()
+		}
+		return r.requeue()
 	})
 	if err != nil {
 		e.release(ctx, id)
