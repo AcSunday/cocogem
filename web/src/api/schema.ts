@@ -1855,6 +1855,7 @@ export interface components {
               validity: string;
             }[]
           | null;
+        last_run_status?: string;
         revision: {
           acceptance:
             | {
@@ -2367,6 +2368,7 @@ export interface components {
                   validity: string;
                 }[]
               | null;
+            last_run_status?: string;
             revision: {
               acceptance:
                 | {
@@ -3356,6 +3358,7 @@ export interface components {
                   validity: string;
                 }[]
               | null;
+            last_run_status?: string;
             revision: {
               acceptance:
                 | {
@@ -3492,6 +3495,7 @@ export interface components {
                   validity: string;
                 }[]
               | null;
+            last_run_status?: string;
             revision: {
               acceptance:
                 | {
@@ -3653,6 +3657,7 @@ export interface components {
             validity: string;
           }[]
         | null;
+      last_run_status?: string;
       revision: {
         acceptance:
           | {

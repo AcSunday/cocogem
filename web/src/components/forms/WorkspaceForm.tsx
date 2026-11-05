@@ -1,6 +1,6 @@
 import { Select } from "../Select";
 import { useId, useRef, useState } from "react";
-import type { Workspace, System, Settings } from "../../api/client";
+import type { Workspace, System, Settings, Agent } from "../../api/client";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -20,6 +20,7 @@ export function WorkspaceForm({
   current,
   system,
   settings,
+  agents = [],
   close,
   save,
   onDelete,
@@ -28,6 +29,7 @@ export function WorkspaceForm({
   current?: Workspace;
   system: System;
   settings?: Settings;
+  agents?: Agent[];
   close: () => void;
   save: (value: Workspace) => Promise<void>;
   onDelete?: () => void;
@@ -200,6 +202,7 @@ export function WorkspaceForm({
           <ProjectSettings
             workspace={value}
             settings={settings}
+            agents={agents}
             onWorkspaceChange={(updated) => {
               setValue((current) => ({
                 ...current,

@@ -115,6 +115,7 @@ export function AppModals({
             current={modal.kind === "edit-workspace" ? workspace : undefined}
             system={system}
             settings={settings}
+            agents={agents}
             close={close}
             onWorkspaceChange={() => void loadSpaces()}
             onDelete={

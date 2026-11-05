@@ -44,6 +44,11 @@ func (t *Tx) AllTasks() ([]w.Task, error) {
 	return list[w.Task](t, "SELECT body FROM tasks ORDER BY updated_at DESC,id")
 }
 
+// LatestTaskRun exposes the most recent execution status for task-board filters.
+func (t *Tx) LatestTaskRun(taskID string) (w.Run, error) {
+	return get[w.Run](t, "SELECT body FROM runs WHERE task_id=? ORDER BY created_at DESC,id DESC LIMIT 1", taskID)
+}
+
 // InsertTaskRevision persists an immutable accepted goal version.
 func (t *Tx) InsertTaskRevision(v w.TaskRevision) error {
 	return t.exec("INSERT INTO task_revisions(task_id,revision,body) VALUES(?,?,?)", v.TaskID, v.Revision, body(v))

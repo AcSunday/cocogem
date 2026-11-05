@@ -1174,6 +1174,8 @@ function WorkspaceApp({
     );
 
   const messages = view?.messages.items ?? [];
+  const hideWorkspaceSidebar =
+    !threadID && !taskID && projectView === "tasks";
   return (
     <div className={cx("app-shell")}>
       <a className={cx("skip-link")} href="#composer-input">
@@ -1185,24 +1187,26 @@ function WorkspaceApp({
         onTasks={() => navigate(workspaceID, "", true, "", "tasks")}
         onSettings={() => setModal({ kind: "settings" })}
       />
-      <Sidebar
-        open={navOpen}
-        close={() => setNavOpen(false)}
-        workspaces={workspaces}
-        workspaceID={workspaceID}
-        workspace={workspace}
-        threads={threads}
-        threadID={threadID}
-        onWorkspace={(id) => navigate(id)}
-        onHome={() => navigate(workspaceID, "", true, "", "home")}
-        onThread={(id) => navigate(workspaceID, id)}
-        onNewThread={() => setModal({ kind: "thread" })}
-        onEditThread={(thread) => setModal({ kind: "edit-thread", thread })}
-        onRenameThread={(thread) => setModal({ kind: "rename-thread", thread })}
-        onDeleteThread={(thread) => setModal({ kind: "delete-thread", thread })}
-        onCreateWorkspace={() => setModal({ kind: "workspace" })}
-        onEditWorkspace={() => setModal({ kind: "edit-workspace" })}
-      />
+      {!hideWorkspaceSidebar && (
+        <Sidebar
+          open={navOpen}
+          close={() => setNavOpen(false)}
+          workspaces={workspaces}
+          workspaceID={workspaceID}
+          workspace={workspace}
+          threads={threads}
+          threadID={threadID}
+          onWorkspace={(id) => navigate(id)}
+          onHome={() => navigate(workspaceID, "", true, "", "home")}
+          onThread={(id) => navigate(workspaceID, id)}
+          onNewThread={() => setModal({ kind: "thread" })}
+          onEditThread={(thread) => setModal({ kind: "edit-thread", thread })}
+          onRenameThread={(thread) => setModal({ kind: "rename-thread", thread })}
+          onDeleteThread={(thread) => setModal({ kind: "delete-thread", thread })}
+          onCreateWorkspace={() => setModal({ kind: "workspace" })}
+          onEditWorkspace={() => setModal({ kind: "edit-workspace" })}
+        />
+      )}
       <div
         className={cx(`backdrop ${navOpen || panelOpen ? "open" : ""}`)}
         aria-hidden="true"
@@ -1213,14 +1217,16 @@ function WorkspaceApp({
       />
       <section className={cx("workspace-main")}>
         <header className={cx("topbar")}>
-          <button
-            className={cx("icon-button mobile-only")}
-            aria-label="打开导航"
-            aria-expanded={navOpen}
-            onClick={() => setNavOpen(true)}
-          >
-            <Icon name="menu" size={20} />
-          </button>
+          {!hideWorkspaceSidebar && (
+            <button
+              className={cx("icon-button mobile-only")}
+              aria-label="打开导航"
+              aria-expanded={navOpen}
+              onClick={() => setNavOpen(true)}
+            >
+              <Icon name="menu" size={20} />
+            </button>
+          )}
           <div className={cx("breadcrumb")}>
             {view ? (
               <>

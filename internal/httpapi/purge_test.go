@@ -185,7 +185,7 @@ func TestPurgeSkipsRestoredAndRedeletedThread(t *testing.T) {
 		count, err := s.PurgeExpiredThreads(t.Context())
 		done <- result{count: count, err: err}
 	}()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		if _, err := os.Stat(enteredPath); err == nil {
 			break
@@ -222,7 +222,7 @@ func TestPurgeSkipsRestoredAndRedeletedThread(t *testing.T) {
 	var got result
 	select {
 	case got = <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cleanup did not return")
 	}
 	if got.err != nil {

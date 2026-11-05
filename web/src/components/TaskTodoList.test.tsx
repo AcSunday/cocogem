@@ -20,6 +20,7 @@ function task(
   status: string,
   goal: string,
   waitingReason = "",
+  lastRunStatus = "",
 ): ProjectTaskView {
   return {
     task: {
@@ -84,6 +85,7 @@ function task(
       updated_at: "2026-11-04T00:00:00Z",
     },
     completions: [],
+    last_run_status: lastRunStatus || undefined,
   } as ProjectTaskView;
 }
 
@@ -109,6 +111,7 @@ it("filters linked tasks, shows attention and pauses from the list", async () =>
         task("active", "active", "幂等请求支持"),
         task("waiting", "waiting", "迁移评估", "question"),
         task("done", "completed", "接口方案 v2"),
+        task("failed", "ready", "失败任务", "", "failed"),
       ]}
       questions={[question]}
       workspaces={{ ws: "示例项目" }}
@@ -118,16 +121,26 @@ it("filters linked tasks, shows attention and pauses from the list", async () =>
   );
   expect(screen.getByRole("button", { name: /幂等请求支持/ })).toBeVisible();
   expect(screen.getByText("需要你处理")).toBeVisible();
+  expect(screen.getByText("接口方案 v2")).toBeVisible();
+  expect(screen.getByText("失败任务")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "清空" }));
+  await user.click(screen.getByRole("button", { name: /失败/ }));
+  expect(screen.getByText("失败任务")).toBeVisible();
+  expect(screen.queryByText("幂等请求支持")).not.toBeInTheDocument();
   expect(screen.queryByText("接口方案 v2")).not.toBeInTheDocument();
 
+  await user.click(screen.getByRole("button", { name: "清空" }));
   await user.click(screen.getByRole("button", { name: /需要我/ }));
   expect(screen.getByText("测试环境尚缺数据库地址")).toBeVisible();
   expect(screen.queryByText("幂等请求支持")).not.toBeInTheDocument();
 
+  await user.click(screen.getByRole("button", { name: "清空" }));
   await user.click(screen.getByRole("button", { name: /已验收/ }));
   expect(screen.getByText("接口方案 v2")).toBeVisible();
+  expect(screen.queryByText("幂等请求支持")).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: /全部/ }));
+  await user.click(screen.getByRole("button", { name: "全选" }));
   await user.click(screen.getByRole("button", { name: "暂停" }));
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(

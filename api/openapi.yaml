@@ -3774,6 +3774,9 @@
                   "null"
                 ]
               },
+              "last_run_status": {
+                "type": "string"
+              },
               "revision": {
                 "additionalProperties": false,
                 "properties": {
@@ -5928,6 +5931,9 @@
                     "array",
                     "null"
                   ]
+                },
+                "last_run_status": {
+                  "type": "string"
                 },
                 "revision": {
                   "additionalProperties": false,
@@ -10230,6 +10236,9 @@
                     "null"
                   ]
                 },
+                "last_run_status": {
+                  "type": "string"
+                },
                 "revision": {
                   "additionalProperties": false,
                   "properties": {
@@ -10819,6 +10828,9 @@
                     "array",
                     "null"
                   ]
+                },
+                "last_run_status": {
+                  "type": "string"
                 },
                 "revision": {
                   "additionalProperties": false,
@@ -11592,6 +11604,9 @@
               "array",
               "null"
             ]
+          },
+          "last_run_status": {
+            "type": "string"
           },
           "revision": {
             "additionalProperties": false,

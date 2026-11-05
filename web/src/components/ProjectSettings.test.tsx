@@ -30,6 +30,6 @@ it("saves field-level budget inheritance and revokes a durable grant", async () 
   await waitFor(() => expect(request).toHaveBeenCalledWith("/api/v1/workspaces/ws/budget-policy", "PATCH", { override: {} }, { "If-Match": "1" }));
   await user.click(screen.getByRole("button", { name: "全部恢复继承" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith("/api/v1/workspaces/ws/budget-policy", "PATCH", { override: null }, { "If-Match": "1" }));
-  await user.click(await screen.findByRole("button", { name: "撤销此成员授权" }));
+  await user.click(await screen.findByRole("button", { name: "撤销" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith("/api/v1/workspaces/ws/grants/member/revoke", "POST", expect.objectContaining({ source_message_id: expect.any(String) })));
 });

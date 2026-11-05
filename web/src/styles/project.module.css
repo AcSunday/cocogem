@@ -131,103 +131,148 @@
   gap: 8px;
   justify-content: flex-end;
 }
-.todo-heading {
+.todo-section {
+  display: grid;
+  gap: 10px;
+}
+.todo-toolbar {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-}
-.todo-count {
-  color: var(--text-3);
-  font-size: 12px;
+  flex-wrap: wrap;
 }
 .todo-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 0 10px;
 }
 .todo-filter {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   min-height: 32px;
   padding: 4px 10px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.todo-filter:hover,
+.todo-filter:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.todo-filter[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.todo-filter-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.todo-toolbar-actions {
+  display: flex;
+  gap: 4px;
+}
+.todo-select-all {
+  min-height: 32px;
+  padding: 4px 10px;
+  border-color: transparent;
   background: transparent;
   color: var(--text-2);
   font-size: 12px;
 }
-.todo-filter span {
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
-}
-.todo-filter:hover,
-.todo-filter:focus-visible {
+.todo-select-all:hover,
+.todo-select-all:focus-visible {
   border-color: var(--border);
   background: var(--surface-2);
 }
-.todo-filter[aria-pressed="true"] {
-  border-color: var(--border-strong);
-  background: var(--surface-2);
-  color: var(--text);
+.todo-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--text-3);
+  font-size: 12px;
 }
 .todo-list {
+  display: grid;
+  gap: 8px;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
   list-style: none;
-  overflow: hidden;
 }
 .todo-item {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-height: 62px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  min-height: 74px;
+  padding: 13px 14px 13px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
-.todo-item:last-child {
-  border-bottom: 0;
+.todo-item:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
 }
-.todo-item.attention {
-  background: color-mix(in srgb, var(--warn-text) 5%, var(--surface));
+.todo-item.tone-attention {
+  border-left-color: var(--warn-text);
+  background: color-mix(in srgb, var(--warn-text) 4%, var(--surface));
+}
+.todo-item.tone-failed {
+  border-left-color: var(--danger-text, #c0392b);
+}
+.todo-item.tone-running {
+  border-left-color: var(--accent);
+}
+.todo-item.tone-done {
+  border-left-color: var(--success-text, var(--accent));
+}
+.todo-item.tone-canceled {
+  opacity: 0.72;
 }
 .todo-status {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
   border: 1.5px solid var(--border-strong);
   border-radius: 50%;
   color: var(--text-3);
   font-size: 12px;
   line-height: 1;
 }
-.todo-status.active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.todo-status.attention {
+.tone-attention .todo-status {
   border-color: var(--warn-text);
   color: var(--warn-text);
   font-weight: 700;
 }
-.todo-status.completed {
+.tone-failed .todo-status {
+  border-color: var(--danger-text, #c0392b);
+  color: var(--danger-text, #c0392b);
+  font-weight: 700;
+}
+.tone-running .todo-status {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tone-done .todo-status {
   border-color: var(--success-text, var(--accent));
   color: var(--success-text, var(--accent));
 }
-.todo-status.canceled {
-  border-color: var(--border);
-  color: var(--text-3);
-}
 .todo-main {
   display: grid;
-  gap: 3px;
+  gap: 5px;
   min-width: 0;
 }
 .todo-title {
@@ -241,8 +286,8 @@
   background: none;
   color: var(--text);
   font: inherit;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1.45;
   text-align: left;
   overflow-wrap: anywhere;
@@ -255,22 +300,33 @@
 .todo-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 10px;
+  gap: 5px 10px;
   color: var(--text-3);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
-.todo-meta span:first-child {
+.todo-state {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.todo-workspace {
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
   color: var(--text-2);
 }
 .todo-actions {
   display: flex;
-  gap: 6px;
   align-items: center;
+  gap: 6px;
 }
 .todo-actions button {
   min-height: 32px;
-  padding: 4px 8px;
+  padding: 4px 9px;
+}
+.todo-actions .primary-quiet {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  color: var(--accent-text);
 }
 .project-home details {
   margin: 8px 0;
@@ -388,14 +444,144 @@
   font-size: 14px;
   line-height: 1.6;
 }
-.project-home .project-settings {
-  margin-bottom: 24px;
+.project-settings-panel {
+  display: grid;
+  gap: 14px;
 }
-.project-settings section {
-  margin-top: 20px;
+.settings-panel-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
 }
-.project-settings .project-record {
+.settings-panel-head p,
+.settings-card-head p {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.settings-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.settings-card-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+.mode-option[data-selected] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.mode-option input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+.mode-option span {
+  display: grid;
+  gap: 3px;
+}
+.mode-option strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.mode-option small {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.settings-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.budget-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.budget-field {
+  display: grid;
+  gap: 5px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.budget-field input {
+  width: 100%;
+}
+.budget-field small {
+  color: var(--text-3);
+  font-size: 11px;
+}
+.grant-list {
+  display: grid;
+  gap: 6px;
+}
+.grant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.grant-row:last-child {
+  border-bottom: 0;
+}
+.grant-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.grant-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.grant-title strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.grant-main small {
+  color: var(--text-3);
+  font-size: 11px;
   overflow-wrap: anywhere;
+}
+.grant-status {
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11px;
+}
+.grant-status.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.grant-status.revocation_uncertain {
+  background: color-mix(in srgb, var(--warn-text) 12%, transparent);
+  color: var(--warn-text);
 }
 @media (max-width: 700px) {
   .project-home {
@@ -415,7 +601,7 @@
     justify-content: flex-start;
   }
   .todo-item {
-    grid-template-columns: 22px minmax(0, 1fr);
+    grid-template-columns: 24px minmax(0, 1fr);
     align-items: start;
   }
   .todo-actions {
@@ -424,6 +610,9 @@
   }
   .todo-actions button {
     min-height: 44px;
+  }
+  .todo-filter {
+    min-height: 36px;
   }
   .project-summary {
     align-items: flex-start;

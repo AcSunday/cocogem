@@ -63,9 +63,12 @@ try {
   await page.getByRole('heading', { name: '把问题交给一个团队。' }).waitFor();
   await page.getByRole('button', { name: '编辑项目' }).click();
   await page.getByRole('dialog', { name: '编辑工作空间' }).waitFor();
-  await page.getByText('项目设置 · 权限、授权与默认预算', { exact: true }).click();
+  await page.getByRole('heading', { name: '权限与预算' }).waitFor();
   await page.getByRole('heading', { name: '执行权限模式' }).waitFor();
   await page.getByRole('heading', { name: '持续授权' }).waitFor();
+  const workspaceDialog = page.getByRole('dialog', { name: '编辑工作空间' });
+  await workspaceDialog.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await page.screenshot({ path: join(tmpdir(), 'cocogem-redesign-workspace-settings.png'), fullPage: true });
   await page.getByLabel('自动续办次数', { exact: true }).fill('24');
   const savedProject = page.waitForResponse(response => response.url().endsWith('/budget-policy') && response.request().method() === 'PATCH');
   await page.getByRole('button', { name: '保存项目覆盖' }).click();
@@ -76,6 +79,7 @@ try {
   await page.getByRole('button', { name: '任务清单', exact: true }).click();
   await page.getByRole('heading', { name: '任务清单' }).waitFor();
   await page.getByRole('button', { name: /^待办/ }).waitFor();
+  if (await page.getByRole('complementary', { name: '导航' }).count()) throw new Error('workspace navigation must be hidden on the global task board');
   await page.screenshot({ path: join(tmpdir(), 'cocogem-redesign-tasks-desktop.png'), fullPage: true });
   await page.getByRole('button', { name: '项目首页', exact: true }).click();
   await page.getByRole('heading', { name: '把问题交给一个团队。' }).waitFor();
@@ -96,6 +100,7 @@ try {
   await page.screenshot({ path: join(tmpdir(), 'cocogem-redesign-home-mobile.png'), fullPage: true });
   await page.getByRole('button', { name: '任务清单', exact: true }).click();
   await page.getByRole('heading', { name: '任务清单' }).waitFor();
+  if (await page.getByRole('complementary', { name: '导航' }).count()) throw new Error('workspace navigation must be hidden on the mobile task board');
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('global task list overflows on mobile');
   await page.screenshot({ path: join(tmpdir(), 'cocogem-redesign-tasks-mobile.png'), fullPage: true });
 

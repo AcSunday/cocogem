@@ -62,10 +62,11 @@ type CreateTaskInput struct {
 
 // TaskView joins the current objective with its exact acceptance projection.
 type TaskView struct {
-	Task        w.Task               `json:"task"`
-	Revision    w.TaskRevision       `json:"revision"`
-	Budget      w.BudgetAccount      `json:"budget"`
-	Completions []w.CompletionRecord `json:"completions"`
+	Task          w.Task               `json:"task"`
+	Revision      w.TaskRevision       `json:"revision"`
+	Budget        w.BudgetAccount      `json:"budget"`
+	Completions   []w.CompletionRecord `json:"completions"`
+	LastRunStatus string               `json:"last_run_status,omitempty"`
 }
 
 // Overview is the two-page product's project-facing projection.
@@ -325,7 +326,13 @@ func (s *Service) taskInTx(tx *store.Tx, id string) (TaskView, error) {
 	if err != nil {
 		return TaskView{}, err
 	}
-	return TaskView{Task: task, Revision: revision, Budget: budget, Completions: completions}, nil
+	view := TaskView{Task: task, Revision: revision, Budget: budget, Completions: completions}
+	if run, err := tx.LatestTaskRun(id); err == nil {
+		view.LastRunStatus = run.Status
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return TaskView{}, err
+	}
+	return view, nil
 }
 
 // ReviseTaskInput fully replaces goal-scoped fields; omitted slices are empty,

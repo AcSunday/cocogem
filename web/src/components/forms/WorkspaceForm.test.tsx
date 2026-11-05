@@ -91,7 +91,6 @@ it("defaults to the shared skills and saves an explicit empty selection", async 
 
 it("edits project permissions and budget defaults inside the workspace form", async () => {
   const save = vi.fn().mockResolvedValue(undefined);
-  const user = userEvent.setup();
   render(
     <WorkspaceForm
       current={{
@@ -109,15 +108,13 @@ it("edits project permissions and budget defaults inside the workspace form", as
       save={save}
     />,
   );
-  await user.click(
-    screen.getByText("项目设置 · 权限、授权与默认预算", { exact: true }),
-  );
+  expect(screen.getByRole("heading", { name: "权限与预算" })).toBeVisible();
   expect(
     screen.getByRole("heading", { name: "执行权限模式" }),
   ).toBeVisible();
   expect(screen.getByRole("heading", { name: "持续授权" })).toBeVisible();
   expect(
-    screen.getByRole("heading", { name: "新根任务的默认预算" }),
+    screen.getByRole("heading", { name: "新根任务默认预算" }),
   ).toBeVisible();
 });
 

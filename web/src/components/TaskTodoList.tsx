@@ -12,24 +12,24 @@ import styles from "../styles/project.module.css";
 
 const cx = scoped(base, controls, styles);
 
-type Filter = "open" | "attention" | "done" | "all";
+type Category =
+  | "todo"
+  | "running"
+  | "failed"
+  | "attention"
+  | "done"
+  | "canceled";
 
-const filters: [Filter, string][] = [
-  ["open", "待办"],
-  ["attention", "需要我"],
-  ["done", "已验收"],
-  ["all", "全部"],
+const categories: { key: Category; label: string; hint: string }[] = [
+  { key: "todo", label: "待办", hint: "尚未开始或等待条件" },
+  { key: "running", label: "进行中", hint: "当前有执行分支在推进" },
+  { key: "failed", label: "失败", hint: "最近执行失败或等待修复" },
+  { key: "attention", label: "需要我", hint: "有等待你回答的问题" },
+  { key: "done", label: "已验收", hint: "当前目标版本已通过验收" },
+  { key: "canceled", label: "已取消", hint: "任务已停止，不再唤醒" },
 ];
 
-const statusLabels: Record<string, string> = {
-  draft: "草稿",
-  ready: "待推进",
-  active: "正在推进",
-  waiting: "等待条件",
-  paused: "已暂停",
-  completed: "已验收",
-  canceled: "已取消",
-};
+const defaultSelected: Category[] = categories.map((item) => item.key);
 
 const waitingLabels: Record<string, string> = {
   budget: "等待预算",
@@ -39,45 +39,62 @@ const waitingLabels: Record<string, string> = {
   external: "等待外部条件",
   dependency: "等待依赖任务",
   environment: "等待环境",
+  uncertain_effect: "等待副作用核实",
 };
 
-const statusOrder: Record<string, number> = {
-  attention: 0,
-  active: 1,
-  ready: 2,
-  waiting: 3,
-  paused: 4,
-  completed: 5,
-  canceled: 6,
-};
+const failedRuns = new Set(["failed", "interrupted", "uncertain"]);
 
-function statusOf(
+function categoriesFor(
   task: ProjectTaskView,
   questions: Question[],
-): { key: string; label: string; icon: string } {
-  if (questions.length > 0) {
-    return { key: "attention", label: "需要你处理", icon: "!" };
+): Set<Category> {
+  const result = new Set<Category>();
+  const status = task.task.status;
+  const reason = task.task.waiting_reason ?? "";
+  const runStatus = task.last_run_status ?? "";
+  if (questions.length > 0) result.add("attention");
+  if (status === "active" || ["queued", "running", "canceling"].includes(runStatus)) {
+    result.add("running");
   }
-  const key = task.task.status;
-  return {
-    key,
-    label: statusLabels[key] || key,
-    icon:
-      key === "active"
-        ? "◐"
-        : key === "waiting"
-          ? "◷"
-          : key === "paused"
-            ? "Ⅱ"
-            : key === "completed"
-              ? "✓"
-              : key === "canceled"
-                ? "×"
-                : "○",
-  };
+  if (
+    failedRuns.has(runStatus) ||
+    reason === "fix_limit" ||
+    reason === "no_progress" ||
+    reason === "uncertain_effect"
+  ) {
+    result.add("failed");
+  }
+  if (["draft", "ready", "waiting", "paused"].includes(status)) {
+    result.add("todo");
+  }
+  if (status === "completed") result.add("done");
+  if (status === "canceled") result.add("canceled");
+  return result;
 }
 
-/** A compact project todo list whose state comes from durable task records. */
+function statusMeta(
+  task: ProjectTaskView,
+  questions: Question[],
+): { label: string; tone: string; icon: string } {
+  const categories = categoriesFor(task, questions);
+  if (questions.length > 0)
+    return { label: "需要你处理", tone: "attention", icon: "!" };
+  if (categories.has("failed"))
+    return { label: "执行失败", tone: "failed", icon: "!" };
+  if (categories.has("running"))
+    return { label: "进行中", tone: "running", icon: "◐" };
+  if (task.task.status === "waiting")
+    return { label: "等待条件", tone: "waiting", icon: "◷" };
+  if (task.task.status === "paused")
+    return { label: "已暂停", tone: "paused", icon: "Ⅱ" };
+  if (task.task.status === "completed")
+    return { label: "已验收", tone: "done", icon: "✓" };
+  if (task.task.status === "canceled")
+    return { label: "已取消", tone: "canceled", icon: "×" };
+  return { label: "待推进", tone: "todo", icon: "○" };
+}
+
+/** A global task board with multi-select status filters and inline actions. */
 export function TaskTodoList({
   tasks,
   questions,
@@ -91,7 +108,9 @@ export function TaskTodoList({
   onOpenTask: (workspaceID: string, taskID: string) => void;
   onChanged: () => Promise<void> | void;
 }) {
-  const [filter, setFilter] = useState<Filter>("open");
+  const [selected, setSelected] = useState<Set<Category>>(
+    () => new Set(defaultSelected),
+  );
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -107,8 +126,6 @@ export function TaskTodoList({
   }, [questions]);
 
   const roots = useMemo(() => {
-    // Keep the list focused on root work, but never hide a child task that is
-    // currently waiting for the user's answer.
     const top = tasks.filter(
       (item) =>
         !item.task.parent_id || (openQuestions.get(item.task.id) ?? []).length,
@@ -116,48 +133,67 @@ export function TaskTodoList({
     return top.length ? top : tasks;
   }, [tasks, openQuestions]);
 
-  const rows = useMemo(() => {
-    const visible = roots.filter((item) => {
-      const status = item.task.status;
-      const needsAttention = (openQuestions.get(item.task.id) ?? []).length > 0;
-      if (filter === "attention") return needsAttention;
-      if (filter === "done") return status === "completed";
-      if (filter === "all") return true;
-      return status !== "completed" && status !== "canceled";
-    });
-    return [...visible].sort((a, b) => {
-      const aStatus = openQuestions.has(a.task.id)
-        ? "attention"
-        : a.task.status;
-      const bStatus = openQuestions.has(b.task.id)
-        ? "attention"
-        : b.task.status;
-      const order =
-        (statusOrder[aStatus] ?? 99) - (statusOrder[bStatus] ?? 99);
-      if (order !== 0) return order;
-      return b.task.updated_at.localeCompare(a.task.updated_at);
-    });
-  }, [roots, openQuestions, filter]);
-
   const counts = useMemo(() => {
-    const result: Record<Filter, number> = {
-      open: 0,
-      attention: 0,
-      done: 0,
-      all: roots.length,
-    };
+    const result = Object.fromEntries(
+      categories.map((category) => [category.key, 0]),
+    ) as Record<Category, number>;
     for (const item of roots) {
-      const needsAttention = (openQuestions.get(item.task.id) ?? []).length > 0;
-      if (needsAttention) result.attention++;
-      if (item.task.status === "completed") result.done++;
-      if (
-        item.task.status !== "completed" &&
-        item.task.status !== "canceled"
-      )
-        result.open++;
+      for (const category of categoriesFor(
+        item,
+        openQuestions.get(item.task.id) ?? [],
+      )) {
+        result[category]++;
+      }
     }
     return result;
   }, [roots, openQuestions]);
+
+  const rows = useMemo(() => {
+    return roots
+      .filter((item) => {
+        const taskCategories = categoriesFor(
+          item,
+          openQuestions.get(item.task.id) ?? [],
+        );
+        return [...taskCategories].some((category) => selected.has(category));
+      })
+      .sort((a, b) => {
+        const aMeta = statusMeta(a, openQuestions.get(a.task.id) ?? []);
+        const bMeta = statusMeta(b, openQuestions.get(b.task.id) ?? []);
+        const order: Record<string, number> = {
+          attention: 0,
+          failed: 1,
+          running: 2,
+          waiting: 3,
+          paused: 4,
+          todo: 5,
+          done: 6,
+          canceled: 7,
+        };
+        const rank = (order[aMeta.tone] ?? 99) - (order[bMeta.tone] ?? 99);
+        if (rank !== 0) return rank;
+        return b.task.updated_at.localeCompare(a.task.updated_at);
+      });
+  }, [roots, openQuestions, selected]);
+
+  const allSelected = selected.size === categories.length;
+
+  const toggle = (category: Category) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelected(new Set(categories.map((item) => item.key)));
+  };
+
+  const clearAll = () => {
+    setSelected(new Set());
+  };
 
   const act = async (taskID: string, action: "pause" | "resume") => {
     if (busy) return;
@@ -177,24 +213,47 @@ export function TaskTodoList({
   };
 
   return (
-    <section aria-labelledby="project-todo">
-      <div className={cx("todo-heading")}>
-        <h2 id="project-todo">任务</h2>
-        <span className={cx("todo-count")}>{counts.open} 项待办</span>
-      </div>
-      <div className={cx("todo-filters")} role="group" aria-label="筛选任务">
-        {filters.map(([key, label]) => (
+    <section className={cx("todo-section")} aria-label="任务">
+      <div className={cx("todo-toolbar")}>
+        <div className={cx("todo-filters")} role="group" aria-label="筛选任务状态">
+          {categories.map((category) => (
+            <button
+              key={category.key}
+              type="button"
+              className={cx("todo-filter")}
+              aria-pressed={selected.has(category.key)}
+              title={category.hint}
+              onClick={() => toggle(category.key)}
+            >
+              <span>{category.label}</span>
+              <span className={cx("todo-filter-count")}>
+                {counts[category.key]}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className={cx("todo-toolbar-actions")}>
           <button
-            key={key}
             type="button"
-            className={cx("todo-filter")}
-            aria-pressed={filter === key}
-            onClick={() => setFilter(key)}
+            className={cx("todo-select-all")}
+            aria-pressed={allSelected}
+            onClick={selectAll}
           >
-            {label}
-            <span aria-hidden="true">{counts[key]}</span>
+            全选
           </button>
-        ))}
+          <button
+            type="button"
+            className={cx("todo-select-all")}
+            disabled={selected.size === 0}
+            onClick={clearAll}
+          >
+            清空
+          </button>
+        </div>
+      </div>
+      <div className={cx("todo-summary")}>
+        <span>{rows.length} 项符合筛选</span>
+        <span>{roots.length} 项任务</span>
       </div>
       {error && (
         <p className={cx("error")} role="alert">
@@ -205,26 +264,23 @@ export function TaskTodoList({
         <ul className={cx("todo-list")} role="list">
           {rows.map((item) => {
             const taskQuestions = openQuestions.get(item.task.id) ?? [];
-            const status = statusOf(item, taskQuestions);
+            const meta = statusMeta(item, taskQuestions);
             const remaining =
               item.budget.policy.auto_continuations -
               item.budget.used_continuations -
               item.budget.reserved_runs;
             const waitingReason = item.task.waiting_reason ?? "";
             const detail =
-              status.key === "attention"
+              meta.tone === "attention"
                 ? taskQuestions[0]?.body
                 : waitingLabels[waitingReason] || waitingReason;
             return (
               <li
                 key={item.task.id}
-                className={cx(`todo-item ${status.key}`)}
+                className={cx(`todo-item tone-${meta.tone}`)}
               >
-                <span
-                  className={cx(`todo-status ${status.key}`)}
-                  aria-hidden="true"
-                >
-                  {status.icon}
+                <span className={cx("todo-status")} aria-hidden="true">
+                  {meta.icon}
                 </span>
                 <div className={cx("todo-main")}>
                   <button
@@ -234,24 +290,25 @@ export function TaskTodoList({
                   >
                     {item.revision.goal}
                   </button>
-                  <span className={cx("todo-meta")}>
-                    <span>{status.label}</span>
+                  <div className={cx("todo-meta")}>
+                    <span className={cx("todo-state")}>{meta.label}</span>
                     {workspaces?.[item.task.workspace_id] && (
-                      <span>{workspaces[item.task.workspace_id]}</span>
+                      <span className={cx("todo-workspace")}>
+                        {workspaces[item.task.workspace_id]}
+                      </span>
                     )}
                     <span>目标 v{item.task.current_revision}</span>
                     {detail && <span>{detail}</span>}
-                    {status.key !== "completed" &&
-                      status.key !== "canceled" && (
-                        <span>剩余续办 {remaining} 次</span>
-                      )}
+                    {meta.tone !== "done" && meta.tone !== "canceled" && (
+                      <span>剩余续办 {remaining} 次</span>
+                    )}
                     {item.task.evaluation_status === "needs_revalidation" && (
                       <span>当前结果待复验</span>
                     )}
                     {taskQuestions.length > 1 && (
                       <span>另有 {taskQuestions.length - 1} 个问题</span>
                     )}
-                  </span>
+                  </div>
                 </div>
                 <div className={cx("todo-actions")}>
                   {item.task.status === "active" && (
@@ -276,7 +333,7 @@ export function TaskTodoList({
                   )}
                   <button
                     type="button"
-                    className={cx("small")}
+                    className={cx("small primary-quiet")}
                     onClick={() => onOpenTask(item.task.workspace_id, item.task.id)}
                   >
                     打开
@@ -288,11 +345,9 @@ export function TaskTodoList({
         </ul>
       ) : (
         <p className={cx("project-empty")}>
-          {filter === "attention"
-            ? "没有需要你处理的问题。"
-            : filter === "done"
-              ? "还没有通过验收的任务。"
-              : "没有待办任务。直接在下方描述目标，或点击新任务。"}
+          {selected.size === 0
+            ? "没有选择筛选条件。点击“全选”查看任务。"
+            : "当前筛选下没有任务。"}
         </p>
       )}
     </section>

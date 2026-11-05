@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -11,76 +10,6 @@ import (
 
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
-
-func TestMemberMigrationPreservesDistinctIdentitiesAndHistory(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(schema); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("CREATE TABLE agent_profiles(id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),handle TEXT NOT NULL,revision INTEGER NOT NULL,body TEXT NOT NULL,UNIQUE(workspace_id,handle))"); err != nil {
-		t.Fatal(err)
-	}
-	agents := []w.Agent{
-		{ID: "old-a", WorkspaceID: "one", DisplayName: "同名成员", Handle: "shared", Aliases: []string{"旧称"}, Model: "default", Tools: []string{"read_file"}, Revision: 3},
-		{ID: "old-b", WorkspaceID: "two", DisplayName: "同名成员", Handle: "shared", Model: "default", Disabled: true, Tools: []string{"web_search"}, Revision: 2},
-	}
-	for _, agent := range agents {
-		ws := w.Workspace{ID: agent.WorkspaceID, Name: agent.WorkspaceID, Revision: 1}
-		if _, err := db.Exec("INSERT INTO workspaces(id,revision,body) VALUES(?,?,?)", ws.ID, ws.Revision, body(ws)); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec("INSERT INTO agent_profiles(id,workspace_id,handle,revision,body) VALUES(?,?,?,?,?)", agent.ID, agent.WorkspaceID, agent.Handle, agent.Revision, body(agent)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	th := w.Thread{ID: "history-thread", WorkspaceID: "one", Revision: 1, UpdatedAt: w.Now(), AgentIDs: []string{"old-a"}}
-	run := w.Run{ID: "history-run", WorkspaceID: "one", ThreadID: th.ID, Agents: agents[:1], Status: "succeeded", CreatedAt: w.Now()}
-	if _, err := db.Exec("INSERT INTO threads(id,workspace_id,updated_at,revision,body) VALUES(?,?,?,?,?)", th.ID, th.WorkspaceID, th.UpdatedAt, th.Revision, body(th)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO runs(id,workspace_id,thread_id,status,idempotency_key,request_hash,created_at,body) VALUES(?,?,?,?,?,?,?,?)", run.ID, run.WorkspaceID, run.ThreadID, run.Status, "key", "hash", run.CreatedAt, body(run)); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	for reopen := range 2 {
-		s, err := Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := s.Read(t.Context(), func(tx *Tx) error {
-			globals, err := tx.GlobalAgents()
-			if err != nil || len(globals) != 2 || globals[0].ID != "old-a" || globals[1].ID != "old-b" {
-				t.Fatalf("reopen %d merged legacy identities: %+v, %v", reopen, globals, err)
-			}
-			for _, old := range agents {
-				got, err := tx.WorkspaceAgent(old.WorkspaceID, old.ID)
-				if err != nil || got.ID != old.ID || got.Revision != old.Revision || got.Disabled != old.Disabled || !reflect.DeepEqual(got.Tools, old.Tools) || !reflect.DeepEqual(got.Aliases, old.Aliases) {
-					t.Fatalf("legacy member changed: %+v, %v", got, err)
-				}
-			}
-			got, err := tx.Run(run.ID)
-			if err != nil || !reflect.DeepEqual(got.Agents, run.Agents) {
-				t.Fatalf("history rewritten: %+v, %v", got, err)
-			}
-			settings, err := tx.Settings()
-			if err != nil || settings.Revision != 1 || len(settings.Assignments) != 0 {
-				t.Fatalf("migration changed defaults: %+v, %v", settings, err)
-			}
-			return nil
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
 
 func TestGlobalMemberSharingAndWorkspaceRevocation(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "state.sqlite"))

@@ -63,21 +63,9 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if err = prepareProjectRuns(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate project runs: %w", err)
-	}
 	if _, err = db.Exec(schema); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if err = migrateYieldedStates(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate yielded states: %w", err)
-	}
-	if err = migrateAgents(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate members: %w", err)
+		return nil, fmt.Errorf("initialize schema: %w", err)
 	}
 	return &Store{db: db, changed: make(chan struct{})}, nil
 }
