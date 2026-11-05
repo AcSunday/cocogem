@@ -220,7 +220,7 @@ export function WorkspaceForm({
           {error}
         </p>
       )}
-      <div className={cx("form-actions")}>
+      <div className={cx("form-actions workspace-save-actions")}>
         <button
           form="workspace-form"
           className={cx("primary")}

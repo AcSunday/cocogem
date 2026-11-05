@@ -327,3 +327,8 @@
   max-width: 360px;
   margin-top: 16px;
 }
+
+.workspace-save-actions {
+  margin-top: 18px;
+  padding-top: 4px;
+}
