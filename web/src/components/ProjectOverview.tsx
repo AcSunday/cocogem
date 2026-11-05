@@ -68,7 +68,7 @@ export function ProjectOverview({
     <div className={cx("project-home")}>
       <header className={cx("project-heading")}>
         <div>
-          <span className={cx("eyebrow")}>项目概览</span>
+          <span className={cx("eyebrow")}>任务清单</span>
           <h1>{workspace.name}</h1>
           <p>
             {goals[0]?.content ||

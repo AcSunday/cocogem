@@ -74,7 +74,7 @@ Use `COCOGEM_DATA_DIR` to choose the data directory and `--allow-root /absolute/
 
 | Capability | How it works |
 | --- | --- |
-| Projects and durable tasks | The project overview shows attention items, active tasks and recent accepted outcomes; goal revisions keep their history, and delivery is distinct from acceptance |
+| Projects and durable tasks | The project home keeps the welcome scenarios plus a small summary; a far-left rail switches to a linked todo list of durable tasks. Goal revisions keep their history, and delivery is distinct from acceptance |
 | Free collaboration | Use `@` or natural language; the coordinator answers, hands off tasks, or selects a built-in workflow as needed |
 | Team discussion | Members form independent views, challenge each other, and check the synthesis while preserving disagreements |
 | Research | Search and read sources, then challenge, respond, and recheck before delivering a research report |

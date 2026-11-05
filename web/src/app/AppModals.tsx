@@ -155,18 +155,8 @@ export function AppModals({
                 : undefined
             }
             agents={agents.filter((agent) => !agent.disabled)}
-            workspace={workspace}
             defaultCoordinatorID={settings?.default_coordinator_id}
             close={close}
-            onModeChange={async (mode) => {
-              await api<Workspace>(
-                `/api/v1/workspaces/${workspaceID}/execution-policy`,
-                "PATCH",
-                { mode, source_message_id: crypto.randomUUID() },
-                { "If-Match": String(workspace.revision) },
-              );
-              await loadSpaces();
-            }}
             save={async (value) => {
               const th = await api<Thread>(
                 value.id

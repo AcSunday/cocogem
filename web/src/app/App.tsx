@@ -38,7 +38,9 @@ import {
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
 import { RunSegment } from "../components/RunSegment";
+import { ProjectHome } from "../components/ProjectHome";
 import { ProjectOverview } from "../components/ProjectOverview";
+import { ProjectRail, type ProjectView } from "../components/ProjectRail";
 import { TaskDetail } from "../components/TaskDetail";
 import { Sidebar } from "../components/Sidebar";
 import { Welcome } from "../components/Welcome";
@@ -79,6 +81,9 @@ const pathSelection = () => {
     workspace: match?.[1] ?? "",
     thread: match?.[2] === "t" ? (match?.[3] ?? "") : "",
     task: match?.[2] === "tasks" ? (match?.[3] ?? "") : "",
+    view: (new URLSearchParams(location.search).get("view") === "tasks"
+      ? "tasks"
+      : "home") as ProjectView,
   };
 };
 
@@ -174,6 +179,9 @@ function WorkspaceApp({
   const [workspaceID, setWorkspaceID] = useState(pathSelection().workspace);
   const [threadID, setThreadID] = useState(pathSelection().thread);
   const [taskID, setTaskID] = useState(pathSelection().task);
+  const [projectView, setProjectView] = useState<ProjectView>(
+    pathSelection().view,
+  );
   const [agents, setAgents] = useState<Agent[]>([]);
   const [globalAgents, setGlobalAgents] = useState<Agent[]>([]);
   const [settings, setSettings] = useState<Settings>();
@@ -313,7 +321,32 @@ function WorkspaceApp({
   const updateDraft = (value: string) =>
     setDrafts((current) => ({ ...current, [draftKey]: value }));
 
-  const navigate = useCallback((ws: string, th = "", push = true, task = "") => {
+  const changeExecutionMode = useCallback(
+    async (mode: string) => {
+      const current = workspace;
+      if (!current) throw new Error("请先选择工作空间");
+      if ((current.execution_mode || "controlled") === mode) return;
+      const updated = await api<Workspace>(
+        `/api/v1/workspaces/${current.id}/execution-policy`,
+        "PATCH",
+        { mode, source_message_id: crypto.randomUUID() },
+        { "If-Match": String(current.revision) },
+      );
+      setWorkspaces((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    },
+    [workspace],
+  );
+
+  const navigate = useCallback(
+    (
+      ws: string,
+      th = "",
+      push = true,
+      task = "",
+      view?: ProjectView,
+    ) => {
     setPendingRequest(pendingSubmission.current.has(th));
     setSteeringReceipt("");
     setNavOpen(false);
@@ -324,6 +357,8 @@ function WorkspaceApp({
     setWorkspaceID(ws);
     setThreadID(th);
     setTaskID(task);
+    const nextView = view ?? (th || task ? undefined : "home");
+    if (nextView) setProjectView(nextView);
     setView(undefined);
     setEvents([]);
     setLivenessByRun({});
@@ -348,12 +383,16 @@ function WorkspaceApp({
     appliedDelta.current = {};
     snapshotSeq.current = {};
     messageWatermark.current = {};
-    if (push)
+    if (push) {
+      const query = !task && !th && nextView === "tasks" ? "?view=tasks" : "";
       history.pushState(
         {},
         "",
-        ws ? `/w/${ws}${task ? `/tasks/${task}` : th ? `/t/${th}` : ""}` : "/",
+        ws
+          ? `/w/${ws}${task ? `/tasks/${task}` : th ? `/t/${th}` : ""}${query}`
+          : "/",
       );
+    }
   }, []);
   const loadSpaces = useCallback(async () => {
     const result = await api<{ items: Workspace[] }>("/api/v1/workspaces");
@@ -486,7 +525,7 @@ function WorkspaceApp({
   useEffect(() => {
     const pop = () => {
       const next = pathSelection();
-      navigate(next.workspace, next.thread, false, next.task);
+      navigate(next.workspace, next.thread, false, next.task, next.view);
     };
     addEventListener("popstate", pop);
     return () => removeEventListener("popstate", pop);
@@ -1135,6 +1174,13 @@ function WorkspaceApp({
       <a className={cx("skip-link")} href="#composer-input">
         跳到输入框
       </a>
+      {workspaceID && (
+        <ProjectRail
+          active={taskID || threadID ? "tasks" : projectView}
+          onHome={() => navigate(workspaceID, "", true, "", "home")}
+          onTasks={() => navigate(workspaceID, "", true, "", "tasks")}
+        />
+      )}
       <Sidebar
         appearance={appearance}
         onAppearance={changeAppearance}
@@ -1146,7 +1192,7 @@ function WorkspaceApp({
         threads={threads}
         threadID={threadID}
         onWorkspace={(id) => navigate(id)}
-        onHome={() => navigate(workspaceID)}
+        onHome={() => navigate(workspaceID, "", true, "", "home")}
         onThread={(id) => navigate(workspaceID, id)}
         onNewThread={() => setModal({ kind: "thread" })}
         onEditThread={(thread) => setModal({ kind: "edit-thread", thread })}
@@ -1281,15 +1327,36 @@ function WorkspaceApp({
                 ) : (
                   !threadID &&
                   (workspace ? (
-                    <ProjectOverview
-                      workspace={workspace}
-                      workspaceID={workspace.id}
-                      onOpenTask={(id) => navigate(workspace.id, "", true, id)}
-                      onNewTask={() =>
-                        document.getElementById("composer-input")?.focus()
-                      }
-                      onEditWorkspace={() => setModal({ kind: "edit-workspace" })}
-                    />
+                    projectView === "tasks" ? (
+                      <ProjectOverview
+                        workspace={workspace}
+                        workspaceID={workspace.id}
+                        onOpenTask={(id) => navigate(workspace.id, "", true, id)}
+                        onNewTask={() =>
+                          document.getElementById("composer-input")?.focus()
+                        }
+                        onEditWorkspace={() =>
+                          setModal({ kind: "edit-workspace" })
+                        }
+                      />
+                    ) : (
+                      <ProjectHome
+                        workspace={workspace}
+                        members={available.length}
+                        onCreate={() => setModal({ kind: "workspace" })}
+                        onPick={(key, sample) => {
+                          setWorkflow(key);
+                          updateDraft(sample);
+                          document.getElementById("composer-input")?.focus();
+                        }}
+                        onOpenTasks={() =>
+                          navigate(workspace.id, "", true, "", "tasks")
+                        }
+                        onEditWorkspace={() =>
+                          setModal({ kind: "edit-workspace" })
+                        }
+                      />
+                    )
                   ) : (
                     <Welcome
                       members={available.length}
@@ -1400,6 +1467,10 @@ function WorkspaceApp({
               artifactRef={artifactRef}
               clearArtifactRef={() => setArtifactRef(undefined)}
               coordinator={coordinator}
+              executionMode={
+                workspace ? workspace.execution_mode || "controlled" : undefined
+              }
+              onExecutionModeChange={workspace ? changeExecutionMode : undefined}
               routing={routing}
               active={!!active}
               canceling={currentRun?.status === "canceling"}

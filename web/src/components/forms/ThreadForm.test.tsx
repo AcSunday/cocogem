@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { ThreadForm } from "./ThreadForm";
@@ -39,47 +39,6 @@ it("reassigns a removed coordinator and distinguishes members sharing a name", a
       agent_ids: ["one", "two"],
     }),
   );
-});
-
-it("updates the project execution mode from the conversation form", async () => {
-  const agents: Agent[] = [
-    {
-      id: "one",
-      workspace_id: "ws",
-      display_name: "调度员",
-      handle: "one",
-      aliases: [],
-      role_description: "",
-      model: "default",
-      executor: "claude",
-      tools: [],
-      disabled: false,
-      revision: 1,
-    },
-  ];
-  const onModeChange = vi.fn().mockResolvedValue(undefined);
-  const user = userEvent.setup();
-  render(
-    <ThreadForm
-      agents={agents}
-      workspace={{
-        id: "ws",
-        name: "项目",
-        description: "",
-        root: "",
-        revision: 3,
-        created_at: "",
-        skill_ids: [],
-        execution_mode: "controlled",
-      }}
-      onModeChange={onModeChange}
-      close={() => {}}
-      save={vi.fn()}
-    />,
-  );
-  await user.click(screen.getByLabelText("权限模式"));
-  await user.click(screen.getByRole("option", { name: "完全访问" }));
-  await waitFor(() => expect(onModeChange).toHaveBeenCalledWith("full_access"));
 });
 
 it("replaces a coordinator disabled since the conversation was saved", () => {

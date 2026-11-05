@@ -1,6 +1,6 @@
 import { Select } from "../Select";
 import { useState } from "react";
-import type { Thread, Agent, Workspace } from "../../api/client";
+import type { Thread, Agent } from "../../api/client";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -21,19 +21,15 @@ const cx = scoped(base, controls, conversation, panels, members, settings);
 export function ThreadForm({
   current,
   agents,
-  workspace,
   defaultCoordinatorID = "",
   close,
   save,
-  onModeChange,
 }: {
   current?: Thread;
   agents: Agent[];
-  workspace?: Workspace;
   defaultCoordinatorID?: string;
   close: () => void;
   save: (value: Thread) => Promise<void>;
-  onModeChange?: (mode: string) => Promise<void> | void;
 }) {
   const [value, setValue] = useState<Thread>(() => {
     const ids = current
@@ -68,24 +64,6 @@ export function ThreadForm({
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [mode, setMode] = useState(workspace?.execution_mode || "controlled");
-  const [savingMode, setSavingMode] = useState(false);
-  const changeMode = async (next: string) => {
-    if (next === mode || savingMode) return;
-    const previous = mode;
-    setMode(next);
-    setError("");
-    if (!onModeChange) return;
-    setSavingMode(true);
-    try {
-      await onModeChange(next);
-    } catch (failure) {
-      setMode(previous);
-      setError(errorText(failure));
-    } finally {
-      setSavingMode(false);
-    }
-  };
   return (
     <Modal title={current ? "会话设置" : "新建会话"} close={close}>
       <form
@@ -131,21 +109,6 @@ export function ThreadForm({
             </label>
           ))}
         </fieldset>
-        <label>
-          权限模式
-          <Select
-            value={mode}
-            disabled={savingMode}
-            onChange={(selected) => void changeMode(selected)}
-          >
-            <option value="controlled">受控</option>
-            <option value="project_autonomous">项目内自主</option>
-            <option value="full_access">完全访问</option>
-          </Select>
-        </label>
-        <small>
-          变更会立即更新整个项目工作空间；在途执行按新权限边界停止，历史 Run 保留原授权快照。
-        </small>
         <label>
           协调者
           <Select

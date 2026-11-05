@@ -40,9 +40,7 @@ try {
   const workspaceID = taskURL.split('/w/')[1].split('/')[0];
   await page.getByRole('heading', { name: '请只回复“已收到”，不要调用工具。' }).waitFor({ timeout: 30000 });
   await page.getByRole('button', { name: '打开执行对话' }).click();
-  await page.getByRole('button', { name: '会话设置' }).click();
-  await page.getByRole('dialog', { name: '会话设置' }).getByRole('combobox', { name: '权限模式' }).waitFor();
-  await page.getByRole('button', { name: '关闭窗口' }).click();
+  await page.getByRole('combobox', { name: '权限模式' }).waitFor();
   await page.getByRole('button', { name: '任务详情' }).click();
   if (page.url() !== taskURL) throw new Error('task detail link did not return to the durable task');
   await page.reload();
@@ -62,8 +60,7 @@ try {
   if (await budget.inputValue() !== '21') throw new Error('task budget was not saved');
 
   await page.goto(`http://127.0.0.1:5173/w/${workspaceID}`);
-  await page.getByRole('heading', { name: '任务清单' }).waitFor();
-  await page.getByRole('button', { name: /^待办/ }).waitFor();
+  await page.getByRole('heading', { name: '把问题交给一个团队。' }).waitFor();
   await page.getByRole('button', { name: '编辑项目' }).click();
   await page.getByRole('dialog', { name: '编辑工作空间' }).waitFor();
   await page.getByText('项目设置 · 权限、授权与默认预算', { exact: true }).click();
@@ -76,6 +73,11 @@ try {
   await page.getByLabel('自动续办次数', { exact: true }).waitFor();
   if (await page.getByLabel('自动续办次数', { exact: true }).inputValue() !== '24') throw new Error('project budget override was not restored');
   await page.getByRole('button', { name: '关闭窗口' }).click();
+  await page.getByRole('button', { name: '任务清单', exact: true }).click();
+  await page.getByRole('heading', { name: '任务清单' }).waitFor();
+  await page.getByRole('button', { name: /^待办/ }).waitFor();
+  await page.getByRole('button', { name: '项目首页', exact: true }).click();
+  await page.getByRole('heading', { name: '把问题交给一个团队。' }).waitFor();
   await page.goto(taskURL);
   await page.getByRole('heading', { name: '本任务协作预算' }).waitFor();
   if (await page.getByRole('region', { name: '本任务协作预算' }).getByLabel(/^自动续办/).inputValue() !== '21') throw new Error('project defaults changed existing task budget');

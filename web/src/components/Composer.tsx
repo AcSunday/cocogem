@@ -22,6 +22,7 @@ import {
   workflows,
 } from "../lib/presentation";
 import { applyMention, mentionAt, mentionMatches } from "../lib/mention";
+import { errorText } from "../lib/presentation";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 
@@ -50,6 +51,8 @@ export function Composer({
   artifactRef,
   clearArtifactRef,
   coordinator,
+  executionMode,
+  onExecutionModeChange,
   routing,
   active,
   canceling,
@@ -70,6 +73,8 @@ export function Composer({
   artifactRef?: Artifact;
   clearArtifactRef: () => void;
   coordinator?: { name: string; fallback: boolean };
+  executionMode?: string;
+  onExecutionModeChange?: (mode: string) => Promise<void> | void;
   routing?: Routing;
   active: boolean;
   canceling: boolean;
@@ -129,6 +134,20 @@ export function Composer({
         .filter(Boolean)
         .join(" · ")
     : "";
+  const [modeError, setModeError] = useState("");
+  const [modeSaving, setModeSaving] = useState(false);
+  const changeMode = async (next: string) => {
+    if (!onExecutionModeChange || next === executionMode || modeSaving) return;
+    setModeSaving(true);
+    setModeError("");
+    try {
+      await onExecutionModeChange(next);
+    } catch (failure) {
+      setModeError(errorText(failure));
+    } finally {
+      setModeSaving(false);
+    }
+  };
   const [compact, setCompact] = useState(
     () => window.matchMedia?.("(max-width: 900px)")?.matches ?? false,
   );
@@ -298,6 +317,21 @@ export function Composer({
       />
       <div className={cx("composer-bottom")}>
         <div className={cx("composer-meta-chips")}>
+          {executionMode && onExecutionModeChange && (
+            <span className={cx("mode-chip")}>
+              <Select
+                aria-label="权限模式"
+                className={cx("mode-select")}
+                value={executionMode}
+                disabled={disabled || modeSaving}
+                onChange={(selected) => void changeMode(selected)}
+              >
+                <option value="controlled">权限：受控</option>
+                <option value="project_autonomous">权限：项目内自主</option>
+                <option value="full_access">权限：完全访问</option>
+              </Select>
+            </span>
+          )}
           {coordinator && (
             <span
               className={cx("route-chip")}
@@ -325,6 +359,11 @@ export function Composer({
           {assignmentSummary && (
             <span className={cx("route-chip")} role="status" title="本轮分工">
               {assignmentSummary}
+            </span>
+          )}
+          {modeError && (
+            <span className={cx("route-chip")} role="alert">
+              {modeError}
             </span>
           )}
           {workflow === "engineering" && (

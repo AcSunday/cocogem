@@ -3,6 +3,13 @@ import type { ReactNode } from "react";
 // Inline stroke icons render identically on every platform, unlike Unicode symbols.
 const paths = {
   logo: <path d="M12 2.5 21.5 12 12 21.5 2.5 12Z M12 8l4 4-4 4-4-4Z" />,
+  home: <path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z" />,
+  tasks: (
+    <>
+      <rect x="3.5" y="4" width="17" height="16" rx="2" />
+      <path d="m7 9 1.5 1.5L11 8M7 15l1.5 1.5L11 14M14 9h4M14 15h4" />
+    </>
+  ),
   plus: <path d="M12 5v14M5 12h14" />,
   search: (
     <>

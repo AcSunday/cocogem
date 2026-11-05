@@ -111,6 +111,25 @@ it.each([
   expect(send).not.toHaveBeenCalled();
 });
 
+it("changes the project execution mode before the coordinator chip", async () => {
+  const change = vi.fn().mockResolvedValue(undefined);
+  render(
+    <Example
+      executionMode="controlled"
+      onExecutionModeChange={change}
+      coordinator={{ name: "布偶猫", fallback: false }}
+    />,
+  );
+  const user = userEvent.setup();
+  const mode = screen.getByRole("combobox", { name: "权限模式" });
+  const coordinator = screen.getByText("协调者：布偶猫");
+  expect(
+    mode.compareDocumentPosition(coordinator) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  await chooseOption(user, mode, "full_access");
+  expect(change).toHaveBeenCalledWith("full_access");
+});
+
 it("saves a supplement while running and keeps stop available", async () => {
   const send = vi.fn();
   const stop = vi.fn();
