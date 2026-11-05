@@ -81,12 +81,14 @@ function statusOf(
 export function TaskTodoList({
   tasks,
   questions,
+  workspaces,
   onOpenTask,
   onChanged,
 }: {
   tasks: ProjectTaskView[];
   questions: Question[];
-  onOpenTask: (taskID: string) => void;
+  workspaces?: Record<string, string>;
+  onOpenTask: (workspaceID: string, taskID: string) => void;
   onChanged: () => Promise<void> | void;
 }) {
   const [filter, setFilter] = useState<Filter>("open");
@@ -177,7 +179,7 @@ export function TaskTodoList({
   return (
     <section aria-labelledby="project-todo">
       <div className={cx("todo-heading")}>
-        <h2 id="project-todo">任务清单</h2>
+        <h2 id="project-todo">任务</h2>
         <span className={cx("todo-count")}>{counts.open} 项待办</span>
       </div>
       <div className={cx("todo-filters")} role="group" aria-label="筛选任务">
@@ -228,12 +230,15 @@ export function TaskTodoList({
                   <button
                     type="button"
                     className={cx("todo-title")}
-                    onClick={() => onOpenTask(item.task.id)}
+                    onClick={() => onOpenTask(item.task.workspace_id, item.task.id)}
                   >
                     {item.revision.goal}
                   </button>
                   <span className={cx("todo-meta")}>
                     <span>{status.label}</span>
+                    {workspaces?.[item.task.workspace_id] && (
+                      <span>{workspaces[item.task.workspace_id]}</span>
+                    )}
                     <span>目标 v{item.task.current_revision}</span>
                     {detail && <span>{detail}</span>}
                     {status.key !== "completed" &&
@@ -272,7 +277,7 @@ export function TaskTodoList({
                   <button
                     type="button"
                     className={cx("small")}
-                    onClick={() => onOpenTask(item.task.id)}
+                    onClick={() => onOpenTask(item.task.workspace_id, item.task.id)}
                   >
                     打开
                   </button>

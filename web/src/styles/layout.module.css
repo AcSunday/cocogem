@@ -38,6 +38,9 @@
   background: var(--surface);
   color: var(--accent-text);
 }
+.rail-settings {
+  margin-top: auto;
+}
 .sidebar {
   width: 260px;
   flex-shrink: 0;

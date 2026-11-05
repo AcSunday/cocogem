@@ -320,3 +320,10 @@
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
+
+.settings-appearance-select {
+  display: grid;
+  gap: 8px;
+  max-width: 360px;
+  margin-top: 16px;
+}

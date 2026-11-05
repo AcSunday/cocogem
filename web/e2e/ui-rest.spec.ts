@@ -264,7 +264,15 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
     path: `${SHOTS}/ui-rest-settings-service-light.png`,
   });
   await settings.getByRole("button", { name: "关闭窗口" }).click();
-  await selectOption(page, page.getByLabel("外观模式"), "dark");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const appearanceSettings = page.getByRole("dialog", { name: "设置" });
+  await appearanceSettings.getByRole("tab", { name: "外观" }).click();
+  await selectOption(
+    page,
+    appearanceSettings.getByLabel("外观模式"),
+    "dark",
+  );
+  await appearanceSettings.getByRole("button", { name: "关闭窗口" }).click();
 
   // Dark keeps the same quiet idle controls; capture the final sidebar too.
   await page.mouse.move(1, 1);

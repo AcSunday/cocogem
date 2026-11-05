@@ -231,7 +231,11 @@
   min-width: 0;
 }
 .todo-title {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
   min-width: 0;
+  min-height: 0;
   padding: 0;
   border: 0;
   background: none;
@@ -296,6 +300,9 @@
 }
 .task-detail {
   max-width: 940px;
+}
+.task-board {
+  max-width: 960px;
 }
 .task-detail .project-heading h1 {
   overflow-wrap: anywhere;

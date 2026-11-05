@@ -57,6 +57,11 @@ type RevokeGrantInput struct {
 	SourceMessageID string `json:"source_message_id"`
 }
 
+func (s *Server) projectTaskBoard(rw http.ResponseWriter, r *http.Request) {
+	value, err := s.projects.TaskBoard(r.Context())
+	respond(rw, r, value, err)
+}
+
 func (s *Server) projectOverview(rw http.ResponseWriter, r *http.Request) {
 	value, err := s.projects.ProjectOverview(r.Context(), r.PathValue("id"))
 	respond(rw, r, value, err)

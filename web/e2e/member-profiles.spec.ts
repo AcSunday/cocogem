@@ -591,10 +591,11 @@ test("default avatar colors remain readable in every appearance without storage"
       return sum + linear * [0.2126, 0.7152, 0.0722][index];
     }, 0);
   for (const appearance of ["light", "dark", "warm", "system"]) {
-    await page.getByLabel("外观模式").click();
-    await page.locator(`[role="option"][data-value="${appearance}"]`).click();
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "设置" });
+    await dialog.getByRole("tab", { name: "外观", exact: true }).click();
+    await dialog.getByLabel("外观模式", { exact: true }).click();
+    await page.locator(`[role="option"][data-value="${appearance}"]`).click();
     await dialog.getByRole("tab", { name: "成员", exact: true }).click();
     const backgrounds = new Set<string>();
     for (const index of names.keys()) {

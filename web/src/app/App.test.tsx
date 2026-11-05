@@ -79,6 +79,12 @@ afterEach(() => {
   history.replaceState({}, "", "/");
 });
 
+async function openAppearance(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "设置" }));
+  await user.click(await screen.findByRole("tab", { name: "外观" }));
+  return screen.findByLabelText("外观模式");
+}
+
 it("applies and saves the appearance, including when browser storage is unavailable", async () => {
   vi.stubGlobal(
     "fetch",
@@ -88,7 +94,7 @@ it("applies and saves the appearance, including when browser storage is unavaila
   );
   render(<App />);
   const user = userEvent.setup();
-  const select = await screen.findByLabelText("外观模式");
+  const select = await openAppearance(user);
   expect(select).toHaveValue("system");
   await chooseOption(user, select, "dark");
   expect(document.documentElement).toHaveAttribute("data-appearance", "dark");
@@ -124,9 +130,9 @@ it("keeps the loading animation and retries while the local service starts", asy
   expect(
     screen.getByRole("status", { name: "正在连接工作空间" }),
   ).toBeInTheDocument();
-  expect(
-    await screen.findByLabelText("外观模式", undefined, { timeout: 4000 }),
-  ).toBeInTheDocument();
+  const user = userEvent.setup();
+  await screen.findByRole("button", { name: "设置" }, { timeout: 4000 });
+  expect(await openAppearance(user)).toBeInTheDocument();
   expect(attempts).toBe(3);
 });
 
@@ -232,7 +238,9 @@ it("keeps linked drafts and exact artifact versions through theme and stream upd
     screen.getByLabelText("输入问题"),
     "保留我的草稿 https://example.com/research",
   );
-  await chooseOption(user, screen.getByLabelText("外观模式"), "dark");
+  const appearance = await openAppearance(user);
+  await chooseOption(user, appearance, "dark");
+  await user.click(screen.getByRole("button", { name: "关闭窗口" }));
   await waitFor(() => expect(streams.at(-1)).toBeTruthy());
   content = "第二段流式回复";
   act(() =>

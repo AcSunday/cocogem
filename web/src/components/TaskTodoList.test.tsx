@@ -111,6 +111,7 @@ it("filters linked tasks, shows attention and pauses from the list", async () =>
         task("done", "completed", "接口方案 v2"),
       ]}
       questions={[question]}
+      workspaces={{ ws: "示例项目" }}
       onOpenTask={open}
       onChanged={changed}
     />,
@@ -138,5 +139,5 @@ it("filters linked tasks, shows attention and pauses from the list", async () =>
   expect(changed).toHaveBeenCalled();
 
   await user.click(screen.getByRole("button", { name: /迁移评估/ }));
-  expect(open).toHaveBeenCalledWith("waiting");
+  expect(open).toHaveBeenCalledWith("ws", "waiting");
 });

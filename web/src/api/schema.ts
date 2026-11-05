@@ -372,6 +372,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/tasks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectTaskBoard"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/tasks/{id}": {
     parameters: {
       query?: never;
@@ -3267,6 +3283,136 @@ export interface components {
       action: string;
       request_id: string;
     };
+    TaskBoard: {
+      needs_attention:
+        | {
+            answer?: string;
+            answer_ref?: string;
+            blocking_scope: string;
+            body: string;
+            created_at: string;
+            id: string;
+            options: string[] | null;
+            recommended?: string;
+            resolved_at?: string;
+            status: string;
+            task_id: string;
+            task_revision: number;
+          }[]
+        | null;
+      tasks:
+        | {
+            budget: {
+              active_branches: number;
+              active_writers: number;
+              fix_rounds_by_issue: {
+                [key: string]: number;
+              } | null;
+              id: string;
+              no_progress_by_branch: {
+                [key: string]: number;
+              } | null;
+              policy: {
+                auto_continuations: number;
+                fix_rounds: number;
+                no_progress_failures: number;
+                parallel_branches: number;
+                writer_branches: number;
+              };
+              reserved_runs: number;
+              revision: number;
+              root_task_id: string;
+              sources: {
+                auto_continuations: string;
+                fix_rounds: string;
+                no_progress_failures: string;
+                parallel_branches: string;
+                writer_branches: string;
+              };
+              updated_at: string;
+              used_continuations: number;
+            };
+            completions:
+              | {
+                  candidate_refs: string[] | null;
+                  created_at: string;
+                  evaluation_generation: number;
+                  evidence_producer: string;
+                  id: string;
+                  input_snapshot_digest: string;
+                  judge_member_id: string;
+                  results:
+                    | {
+                        criterion_id: string;
+                        evidence: string[] | null;
+                        limitations: string[] | null;
+                        result: string;
+                      }[]
+                    | null;
+                  subject_digest: string;
+                  task_id: string;
+                  task_revision: number;
+                  unresolved: string[] | null;
+                  validity: string;
+                }[]
+              | null;
+            revision: {
+              acceptance:
+                | {
+                    applicable_when?: string;
+                    criterion_id: string;
+                    evaluation_policy: string;
+                    evidence_requirements: string[] | null;
+                    kind: string;
+                    required: boolean;
+                    statement: string;
+                  }[]
+                | null;
+              acceptance_evidence: string;
+              accepted_by: string;
+              allowed_actions: string[] | null;
+              constraint_refs: string[] | null;
+              created_at: string;
+              digest: string;
+              goal: string;
+              input_refs: string[] | null;
+              non_goals: string[] | null;
+              revision: number;
+              scope: string[] | null;
+              source_message_id: string;
+              task_id: string;
+            };
+            task: {
+              budget_account_id: string;
+              collaboration_scope_id: string;
+              created_at: string;
+              current_revision: number;
+              current_run_id?: string;
+              evaluation_generation: number;
+              evaluation_status: string;
+              id: string;
+              kind?: string;
+              owner_member_id: string;
+              owner_revision: number;
+              parent_id?: string;
+              pending_owner_id?: string;
+              priority: number;
+              root_control_epoch: number;
+              root_task_id: string;
+              status: string;
+              thread_id: string;
+              transfer_request_id?: string;
+              updated_at: string;
+              wait_generation?: number;
+              waiting_reason?: string;
+              workspace_id: string;
+            };
+          }[]
+        | null;
+      workspaces: {
+        [key: string]: string;
+      } | null;
+    };
     TaskBudgetInput: {
       policy: {
         auto_continuations: number;
@@ -4886,6 +5032,35 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["VerifyReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectTaskBoard: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskBoard"];
         };
       };
       /** @description Structured error */

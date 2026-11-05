@@ -71,7 +71,7 @@ Cocogem 是面向本地单用户的多 Agent 协作项目空间。它调用本�
 
 输入区 Enter 发送、Shift+Enter 换行；输入法确认不会误发送，`@` 支持键盘补全。自由协作使用 `@` 和自然语言路由，不提供自动指派开关或数据共享确认门禁。Markdown 成员提及可查看档案提示，但助手正文中的 `@` 不会触发派发。
 
-页面支持浅色、深色、暖色和跟随系统，保存本机外观偏好；支持移动端、键盘操作、焦点反馈及减少动态效果。消息可查看原文和模型信息，长内容分页，报告可打开阅读并导出。
+最左侧窄栏固定提供齿轮设置入口；外观在「设置 → 外观」中切换浅色、深色、暖色或跟随系统，保存为本机偏好。页面支持移动端、键盘操作、焦点反馈及减少动态效果。消息可查看原文和模型信息，长内容分页，报告可打开阅读并导出。
 
 ### 回收站与清理
 
@@ -319,7 +319,7 @@ examples/          可公开的样例资料
 | 服务与配置 | system、system/verify、system/model-options、directories、settings、auth/logout |
 | 空间与成员 | workspaces、agents、workspaces/{id}/members/{agentID} |
 | 会话与清理 | threads/{id}、trash、threads/{id}/restore、threads/{id}/permanent |
-| 项目与任务 | workspaces/{id}/overview、workspaces/{id}/tasks、tasks/{id}、revisions、dependencies、completions、actions、records |
+| 项目与任务 | tasks（全局任务清单）、workspaces/{id}/overview、workspaces/{id}/tasks、tasks/{id}、revisions、dependencies、completions、actions、records |
 | 补充与问题 | tasks/{id}/inbox、tasks/{id}/questions、questions/{questionID}/answers |
 | 预算与授权 | tasks/{id}/budget、workspaces/{id}/budget-policy、execution-policy、grants、grants/{memberID}/revoke |
 | A2A 与唤醒 | tasks/{id}/messages、collaboration-messages/{id}、delegations、handoffs、wakeups、wake-events |

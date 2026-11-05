@@ -319,6 +319,7 @@ export function Composer({
         <div className={cx("composer-meta-chips")}>
           {executionMode && onExecutionModeChange && (
             <span className={cx("mode-chip")}>
+              <span className={cx("mode-chip-label")}>权限</span>
               <Select
                 aria-label="权限模式"
                 className={cx("mode-select")}
@@ -326,9 +327,9 @@ export function Composer({
                 disabled={disabled || modeSaving}
                 onChange={(selected) => void changeMode(selected)}
               >
-                <option value="controlled">权限：受控</option>
-                <option value="project_autonomous">权限：项目内自主</option>
-                <option value="full_access">权限：完全访问</option>
+                <option value="controlled">受控</option>
+                <option value="project_autonomous">项目内自主</option>
+                <option value="full_access">完全访问</option>
               </Select>
             </span>
           )}

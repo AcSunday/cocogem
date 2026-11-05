@@ -24,6 +24,7 @@ export type EventPage = components["schemas"]["EventPage"];
 export type DirectoryListing = components["schemas"]["DirectoryListing"];
 export type ProjectOverview = components["schemas"]["Overview"];
 export type ProjectTaskView = components["schemas"]["TaskView"];
+export type TaskBoard = components["schemas"]["TaskBoard"];
 export type ProjectRecord = components["schemas"]["ProjectRecord"];
 export type BudgetPolicy = components["schemas"]["BudgetPolicy"];
 export type BudgetAccount = components["schemas"]["BudgetAccount"];

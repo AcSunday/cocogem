@@ -76,8 +76,37 @@ try {
   await page.getByRole('button', { name: '任务清单', exact: true }).click();
   await page.getByRole('heading', { name: '任务清单' }).waitFor();
   await page.getByRole('button', { name: /^待办/ }).waitFor();
+  await page.screenshot({ path: join(tmpdir(), 'cocogem-redesign-tasks-desktop.png'), fullPage: true });
   await page.getByRole('button', { name: '项目首页', exact: true }).click();
   await page.getByRole('heading', { name: '把问题交给一个团队。' }).waitFor();
+  await page.getByText('项目摘要', { exact: true }).waitFor();
+  await page.screenshot({ path: join(tmpdir(), 'cocogem-redesign-home-desktop.png'), fullPage: true });
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: '设置' });
+  await settings.getByRole('tab', { name: '外观' }).click();
+  await settings.getByLabel('外观模式').click();
+  await page.getByRole('option', { name: '深色', exact: true }).click();
+  if (await page.evaluate(() => document.documentElement.dataset.appearance) !== 'dark') throw new Error('appearance setting did not apply');
+  await settings.getByLabel('外观模式').click();
+  await page.getByRole('option', { name: '跟随系统', exact: true }).click();
+  await settings.getByRole('button', { name: '关闭窗口' }).click();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('home overflows on mobile');
+  await page.screenshot({ path: join(tmpdir(), 'cocogem-redesign-home-mobile.png'), fullPage: true });
+  await page.getByRole('button', { name: '任务清单', exact: true }).click();
+  await page.getByRole('heading', { name: '任务清单' }).waitFor();
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error('global task list overflows on mobile');
+  await page.screenshot({ path: join(tmpdir(), 'cocogem-redesign-tasks-mobile.png'), fullPage: true });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: '项目首页', exact: true }).click();
+  await page.getByRole('button', { name: '创建工作空间', exact: true }).click();
+  await page.getByLabel('名称', { exact: true }).fill('第二个项目');
+  await page.getByRole('button', { name: '保存工作空间' }).click();
+  await page.getByRole('button', { name: '任务清单', exact: true }).click();
+  await page.getByRole('heading', { name: '任务清单' }).waitFor();
+  await page.getByRole('button', { name: /请只回复“已收到”/ }).first().waitFor();
   await page.goto(taskURL);
   await page.getByRole('heading', { name: '本任务协作预算' }).waitFor();
   if (await page.getByRole('region', { name: '本任务协作预算' }).getByLabel(/^自动续办/).inputValue() !== '21') throw new Error('project defaults changed existing task budget');

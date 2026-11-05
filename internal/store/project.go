@@ -39,6 +39,11 @@ func (t *Tx) Tasks(workspaceID string) ([]w.Task, error) {
 	return list[w.Task](t, "SELECT body FROM tasks WHERE workspace_id=? ORDER BY updated_at DESC,id", workspaceID)
 }
 
+// AllTasks returns the global task board across workspaces.
+func (t *Tx) AllTasks() ([]w.Task, error) {
+	return list[w.Task](t, "SELECT body FROM tasks ORDER BY updated_at DESC,id")
+}
+
 // InsertTaskRevision persists an immutable accepted goal version.
 func (t *Tx) InsertTaskRevision(v w.TaskRevision) error {
 	return t.exec("INSERT INTO task_revisions(task_id,revision,body) VALUES(?,?,?)", v.TaskID, v.Revision, body(v))

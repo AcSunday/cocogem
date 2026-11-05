@@ -12,10 +12,12 @@ export function ProjectRail({
   active,
   onHome,
   onTasks,
+  onSettings,
 }: {
   active: ProjectView;
   onHome: () => void;
   onTasks: () => void;
+  onSettings: () => void;
 }) {
   return (
     <aside className={cx("project-rail")} aria-label="项目视图">
@@ -38,6 +40,15 @@ export function ProjectRail({
         onClick={onTasks}
       >
         <Icon name="tasks" size={20} />
+      </button>
+      <button
+        type="button"
+        className={cx("rail-button rail-settings")}
+        aria-label="设置"
+        title="设置"
+        onClick={onSettings}
+      >
+        <Icon name="gear" size={20} />
       </button>
     </aside>
   );

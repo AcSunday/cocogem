@@ -652,6 +652,13 @@
 .mode-chip {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
+}
+.mode-chip-label {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .mode-chip .mode-select {
   width: auto;

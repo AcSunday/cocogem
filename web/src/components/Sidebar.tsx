@@ -15,7 +15,6 @@ import panels from "../styles/panels.module.css";
 import settings from "../styles/settings.module.css";
 import { formatDateTime, statusIconName } from "../lib/presentation";
 import { Icon } from "./Icon";
-import { AppearanceSelect, type Appearance } from "./AppearanceSelect";
 
 const cx = scoped(base, layout, panels, settings);
 
@@ -36,9 +35,6 @@ export function Sidebar({
   onDeleteThread,
   onCreateWorkspace,
   onEditWorkspace,
-  onSettings,
-  appearance,
-  onAppearance,
 }: {
   open: boolean;
   close: () => void;
@@ -56,9 +52,6 @@ export function Sidebar({
   onDeleteThread: (thread: Thread) => void;
   onCreateWorkspace: () => void;
   onEditWorkspace: () => void;
-  onSettings: () => void;
-  appearance: Appearance;
-  onAppearance: (value: Appearance) => void;
 }) {
   const [filter, setFilter] = useState("");
   const [timeTip, setTimeTip] = useState<{
@@ -209,10 +202,6 @@ export function Sidebar({
         <button disabled={!workspace} onClick={onEditWorkspace}>
           <Icon name="edit" size={14} /> 编辑工作空间
         </button>
-        <button onClick={onSettings}>
-          <Icon name="settings" size={14} /> 设置
-        </button>
-        <AppearanceSelect value={appearance} onChange={onAppearance} />
         <p>本地工作空间 · 数据留在本机</p>
       </div>
       {timeTip && (

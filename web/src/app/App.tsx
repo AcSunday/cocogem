@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   api,
   APIError,
@@ -39,8 +39,8 @@ import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
 import { RunSegment } from "../components/RunSegment";
 import { ProjectHome } from "../components/ProjectHome";
-import { ProjectOverview } from "../components/ProjectOverview";
 import { ProjectRail, type ProjectView } from "../components/ProjectRail";
+import { TaskBoardPage } from "../components/TaskBoardPage";
 import { TaskDetail } from "../components/TaskDetail";
 import { Sidebar } from "../components/Sidebar";
 import { Welcome } from "../components/Welcome";
@@ -236,6 +236,11 @@ function WorkspaceApp({
   // Live streaming waits until the selected run's recent window is seeded.
   const [seededRunID, setSeededRunID] = useState("");
   const timeline = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if ((!threadID && !taskID) && timeline.current) {
+      timeline.current.scrollTop = 0;
+    }
+  }, [threadID, taskID, projectView, workspaceID]);
   const follows = useRef(true);
   const currentThread = useRef(threadID);
   const currentWorkspace = useRef(workspaceID);
@@ -863,7 +868,7 @@ function WorkspaceApp({
   ]);
   useEffect(() => {
     const element = timeline.current;
-    if (!element) return;
+    if (!element || !view) return;
     if (follows.current) {
       element.scrollTop = element.scrollHeight;
       setNewMessages(false);
@@ -1174,16 +1179,13 @@ function WorkspaceApp({
       <a className={cx("skip-link")} href="#composer-input">
         跳到输入框
       </a>
-      {workspaceID && (
-        <ProjectRail
-          active={taskID || threadID ? "tasks" : projectView}
-          onHome={() => navigate(workspaceID, "", true, "", "home")}
-          onTasks={() => navigate(workspaceID, "", true, "", "tasks")}
-        />
-      )}
+      <ProjectRail
+        active={taskID || threadID ? "tasks" : projectView}
+        onHome={() => navigate(workspaceID, "", true, "", "home")}
+        onTasks={() => navigate(workspaceID, "", true, "", "tasks")}
+        onSettings={() => setModal({ kind: "settings" })}
+      />
       <Sidebar
-        appearance={appearance}
-        onAppearance={changeAppearance}
         open={navOpen}
         close={() => setNavOpen(false)}
         workspaces={workspaces}
@@ -1200,7 +1202,6 @@ function WorkspaceApp({
         onDeleteThread={(thread) => setModal({ kind: "delete-thread", thread })}
         onCreateWorkspace={() => setModal({ kind: "workspace" })}
         onEditWorkspace={() => setModal({ kind: "edit-workspace" })}
-        onSettings={() => setModal({ kind: "settings" })}
       />
       <div
         className={cx(`backdrop ${navOpen || panelOpen ? "open" : ""}`)}
@@ -1231,7 +1232,9 @@ function WorkspaceApp({
                 <h1>{view.thread.title}</h1>
               </>
             ) : (
-              <strong>{workspace?.name ?? "Cocogem"}</strong>
+              <strong>
+                {projectView === "tasks" ? "任务清单" : workspace?.name ?? "Cocogem"}
+              </strong>
             )}
           </div>
           <div className={cx("top-actions")}>
@@ -1326,37 +1329,29 @@ function WorkspaceApp({
                   />
                 ) : (
                   !threadID &&
-                  (workspace ? (
-                    projectView === "tasks" ? (
-                      <ProjectOverview
-                        workspace={workspace}
-                        workspaceID={workspace.id}
-                        onOpenTask={(id) => navigate(workspace.id, "", true, id)}
-                        onNewTask={() =>
-                          document.getElementById("composer-input")?.focus()
-                        }
-                        onEditWorkspace={() =>
-                          setModal({ kind: "edit-workspace" })
-                        }
-                      />
-                    ) : (
-                      <ProjectHome
-                        workspace={workspace}
-                        members={available.length}
-                        onCreate={() => setModal({ kind: "workspace" })}
-                        onPick={(key, sample) => {
-                          setWorkflow(key);
-                          updateDraft(sample);
-                          document.getElementById("composer-input")?.focus();
-                        }}
-                        onOpenTasks={() =>
-                          navigate(workspace.id, "", true, "", "tasks")
-                        }
-                        onEditWorkspace={() =>
-                          setModal({ kind: "edit-workspace" })
-                        }
-                      />
-                    )
+                  (projectView === "tasks" ? (
+                    <TaskBoardPage
+                      onOpenTask={(workspaceID, taskID) =>
+                        navigate(workspaceID, "", true, taskID)
+                      }
+                    />
+                  ) : workspace ? (
+                    <ProjectHome
+                      workspace={workspace}
+                      members={available.length}
+                      onCreate={() => setModal({ kind: "workspace" })}
+                      onPick={(key, sample) => {
+                        setWorkflow(key);
+                        updateDraft(sample);
+                        document.getElementById("composer-input")?.focus();
+                      }}
+                      onOpenTasks={() =>
+                        navigate(workspace.id, "", true, "", "tasks")
+                      }
+                      onEditWorkspace={() =>
+                        setModal({ kind: "edit-workspace" })
+                      }
+                    />
                   ) : (
                     <Welcome
                       members={available.length}
@@ -1455,7 +1450,8 @@ function WorkspaceApp({
                 </button>
               )}
             </div>
-            {!taskID && <Composer
+            {!taskID && (threadID || projectView !== "tasks") && (
+              <Composer
               agents={threadID ? threadMembers : available}
               allAgents={agents}
               draft={draft}
@@ -1502,9 +1498,10 @@ function WorkspaceApp({
                   )}
                 </>
               }
-              onSend={() => void send()}
-              onStop={() => void stop()}
-            />}
+                onSend={() => void send()}
+                onStop={() => void stop()}
+              />
+            )}
           </main>
           <ContextPanel
             open={panelOpen}
@@ -1566,6 +1563,8 @@ function WorkspaceApp({
         openSource={openSource}
         saveFeedback={saveFeedback}
         pendingSubmission={pendingSubmission.current}
+        appearance={appearance}
+        onAppearance={changeAppearance}
       />
     </div>
   );

@@ -75,6 +75,29 @@ func TestTaskRevisionKeepsHistoryAndRejectsStaleCompletion(t *testing.T) {
 	}
 }
 
+func TestTaskBoardSpansWorkspaces(t *testing.T) {
+	db, service, th := setup(t)
+	create(t, service, th)
+	secondWS := w.Workspace{ID: "ws-two", Name: "第二个项目", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionControlled}
+	secondThread := w.Thread{ID: "th-two", WorkspaceID: secondWS.ID, Title: "另一任务", CoordinatorID: "owner", AgentIDs: []string{"owner"}, Revision: 1, UpdatedAt: w.Now()}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.SaveWorkspace(secondWS); err != nil {
+			return err
+		}
+		return tx.SaveThread(secondThread)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	create(t, service, secondThread)
+	board, err := service.TaskBoard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(board.Tasks) != 2 || board.Workspaces["ws"] != "项目" || board.Workspaces["ws-two"] != "第二个项目" {
+		t.Fatalf("global task board = %+v", board)
+	}
+}
+
 func TestCompletionIsSeparateFromRunDelivery(t *testing.T) {
 	_, service, th := setup(t)
 	created := create(t, service, th)

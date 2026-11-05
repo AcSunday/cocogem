@@ -30,6 +30,13 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     if (await toggle.isVisible()) await toggle.click();
     await page.getByRole("tab", { name }).click();
   };
+  const setAppearance = async (value: string) => {
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "设置" });
+    await dialog.getByRole("tab", { name: "外观", exact: true }).click();
+    await selectOption(dialog.getByLabel("外观模式", { exact: true }), value);
+    await dialog.getByRole("button", { name: "关闭窗口" }).click();
+  };
   await page.goto("/");
   await page
     .getByLabel("设置密码", { exact: true })
@@ -235,14 +242,13 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await researchTimeline.evaluate((element) => {
     element.scrollTop = 0;
   });
-  const researchAppearance = page.getByLabel("外观模式", { exact: true });
   for (const mode of ["light", "dark"] as const) {
-    await selectOption(researchAppearance, mode);
+    await setAppearance(mode);
     await page.screenshot({
       path: test.info().outputPath(`conversation-${mode}.png`),
     });
   }
-  await selectOption(researchAppearance, "light");
+  await setAppearance("light");
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   expect(
@@ -435,7 +441,6 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page
     .getByLabel("输入问题")
     .fill("主题切换和打开资料后仍在的草稿 https://example.org/draft");
-  const appearance = page.getByLabel("外观模式", { exact: true });
   const timeline = page.getByTestId("conversation-timeline");
   await timeline.evaluate((element) => {
     element.scrollTop = 0;
@@ -445,7 +450,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     const readingPosition = await timeline.evaluate(
       (element) => element.scrollTop,
     );
-    await selectOption(appearance, mode);
+    await setAppearance(mode);
     expect(await timeline.evaluate((element) => element.scrollTop)).toBe(
       readingPosition,
     );
@@ -454,7 +459,13 @@ test("create a team, run research, inspect evidence, export, follow up and cance
       "主题切换和打开资料后仍在的草稿 https://example.org/draft",
     );
     await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
-    await appearance.click();
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    const appearanceSettings = page.getByRole("dialog", { name: "设置" });
+    await appearanceSettings.getByRole("tab", { name: "外观", exact: true }).click();
+    const appearanceSelect = appearanceSettings.getByLabel("外观模式", {
+      exact: true,
+    });
+    await appearanceSelect.click();
     await expect(page.getByRole("listbox")).toBeVisible();
     await page.screenshot({
       path: test.info().outputPath(`select-${mode}.png`),
@@ -463,11 +474,12 @@ test("create a team, run research, inspect evidence, export, follow up and cance
       .withTags(["wcag2a", "wcag2aa"])
       .analyze();
     expect(menuAccessibility.violations).toEqual([]);
-    await appearance.press("Escape");
+    await appearanceSelect.press("Escape");
     const accessibility = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
       .analyze();
     expect(accessibility.violations).toEqual([]);
+    await appearanceSettings.getByRole("button", { name: "关闭窗口" }).click();
     await page
       .getByRole("button", { name: "关闭协作面板", exact: true })
       .click();
@@ -477,12 +489,16 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     await expect(page.locator("#context-toggle")).toBeFocused();
   }
   await page.reload();
-  await expect(appearance).toHaveText(/深色/);
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
     "rgb(11, 13, 16)",
   );
-  await selectOption(appearance, "system");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const persistedSettings = page.getByRole("dialog", { name: "设置" });
+  await persistedSettings.getByRole("tab", { name: "外观", exact: true }).click();
+  await expect(persistedSettings.getByLabel("外观模式")).toHaveText(/深色/);
+  await persistedSettings.getByRole("button", { name: "关闭窗口" }).click();
+  await setAppearance("system");
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
@@ -642,8 +658,11 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(page.locator("#context-toggle")).toBeFocused();
   await page.getByLabel("输入问题").fill("手机上的草稿");
   for (const mode of ["light", "dark"] as const) {
+    await setAppearance(mode);
     await page.getByRole("button", { name: "打开导航", exact: true }).click();
-    await selectOption(appearance, mode);
+    await expect(
+      page.getByRole("complementary", { name: "导航" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "关闭导航", exact: true }).click();
     await expect(
       page.getByRole("complementary", { name: "导航" }),

@@ -76,6 +76,14 @@ type Overview struct {
 	NeedsAttention []w.Question      `json:"needs_attention"`
 }
 
+// TaskBoard is the global task surface across workspaces. Workspace names are
+// supplied once so every todo row can show its origin without N+1 requests.
+type TaskBoard struct {
+	Tasks          []TaskView        `json:"tasks"`
+	Workspaces     map[string]string `json:"workspaces"`
+	NeedsAttention []w.Question      `json:"needs_attention"`
+}
+
 // CreateTask persists a root or owned child with its first revision and root ledger.
 func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (TaskView, error) {
 	var view TaskView
@@ -785,6 +793,42 @@ func (s *Service) ReserveRun(ctx context.Context, taskID string, automatic bool)
 }
 
 // ProjectOverview returns active records and task projections without loading all message bodies.
+// TaskBoard returns durable work from every workspace for the global todo view.
+func (s *Service) TaskBoard(ctx context.Context) (TaskBoard, error) {
+	out := TaskBoard{Tasks: []TaskView{}, Workspaces: map[string]string{}, NeedsAttention: []w.Question{}}
+	err := s.store.Read(ctx, func(tx *store.Tx) error {
+		workspaces, err := tx.Workspaces()
+		if err != nil {
+			return err
+		}
+		for _, ws := range workspaces {
+			out.Workspaces[ws.ID] = ws.Name
+		}
+		tasks, err := tx.AllTasks()
+		if err != nil {
+			return err
+		}
+		for _, task := range tasks {
+			view, err := s.taskInTx(tx, task.ID)
+			if err != nil {
+				return err
+			}
+			out.Tasks = append(out.Tasks, view)
+			questions, err := tx.Questions(task.ID)
+			if err != nil {
+				return err
+			}
+			for _, question := range questions {
+				if question.Status == "open" {
+					out.NeedsAttention = append(out.NeedsAttention, question)
+				}
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
 func (s *Service) ProjectOverview(ctx context.Context, workspaceID string) (Overview, error) {
 	var out Overview
 	err := s.store.Read(ctx, func(tx *store.Tx) error {

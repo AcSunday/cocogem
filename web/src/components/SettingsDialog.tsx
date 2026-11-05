@@ -35,13 +35,14 @@ import {
   workflows,
 } from "../lib/presentation";
 import { MembersSettings } from "./forms/MembersSettings";
+import { AppearanceSelect, type Appearance } from "./AppearanceSelect";
 import { Icon, type IconName } from "./Icon";
 import { Modal } from "./Modal";
 import { Select } from "./Select";
 
 const cx = scoped(base, controls, layout, conversation, panels, settings);
 
-type SettingsTab = "members" | "collaboration" | "service" | "trash";
+type SettingsTab = "appearance" | "members" | "collaboration" | "service" | "trash";
 type TrashItem = { thread: Thread; workspace_name: string };
 
 const editable = (settings: Settings): SettingsInput => ({
@@ -74,6 +75,8 @@ export function SettingsDialog({
   saveAgent,
   onRestoreThread,
   onTrashChanged,
+  appearance,
+  onAppearance,
 }: {
   system: System;
   setSystem: (value: System) => void;
@@ -85,10 +88,14 @@ export function SettingsDialog({
   saveAgent?: (value: Agent) => Promise<Agent>;
   onRestoreThread?: (thread: Thread) => Promise<void> | void;
   onTrashChanged?: () => Promise<void> | void;
+  appearance?: Appearance;
+  onAppearance?: (value: Appearance) => void;
 }) {
   const tabs: [SettingsTab, string, IconName][] = [];
   if (saveAgent) tabs.push(["members", "成员", "users"]);
   if (settings && saveSettings) tabs.push(["collaboration", "协作", "layers"]);
+  if (appearance && onAppearance)
+    tabs.push(["appearance", "外观", "appearance"]);
   tabs.push(["service", "服务", "settings"]);
   tabs.push(["trash", "回收站", "trash"]);
   const [tab, setTab] = useState<SettingsTab>(tabs[0][0]);
@@ -179,6 +186,15 @@ export function SettingsDialog({
                 />
               )}
               {tab === key &&
+                key === "appearance" &&
+                appearance &&
+                onAppearance && (
+                  <AppearanceSettings
+                    appearance={appearance}
+                    onChange={onAppearance}
+                  />
+                )}
+              {tab === key &&
                 key === "collaboration" &&
                 settings &&
                 saveSettings && (
@@ -208,6 +224,28 @@ export function SettingsDialog({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Appearance is a local preference and never changes model permissions. */
+function AppearanceSettings({
+  appearance,
+  onChange,
+}: {
+  appearance: Appearance;
+  onChange: (value: Appearance) => void;
+}) {
+  return (
+    <section aria-labelledby="settings-appearance">
+      <h2 id="settings-appearance">外观</h2>
+      <p className={cx("muted")}>
+        只影响当前浏览器。浅色、深色、暖色和跟随系统都保留相同的语义与焦点样式。
+      </p>
+      <label className={cx("settings-appearance-select")}>
+        外观模式
+        <AppearanceSelect value={appearance} onChange={onChange} />
+      </label>
+    </section>
   );
 }
 

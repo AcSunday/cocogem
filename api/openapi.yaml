@@ -9924,6 +9924,574 @@
         ],
         "type": "object"
       },
+      "TaskBoard": {
+        "additionalProperties": false,
+        "properties": {
+          "needs_attention": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "answer": {
+                  "type": "string"
+                },
+                "answer_ref": {
+                  "type": "string"
+                },
+                "blocking_scope": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "recommended": {
+                  "type": "string"
+                },
+                "resolved_at": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "task_id": {
+                  "type": "string"
+                },
+                "task_revision": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "task_id",
+                "task_revision",
+                "blocking_scope",
+                "body",
+                "options",
+                "status",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tasks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "budget": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "active_branches": {
+                      "type": "integer"
+                    },
+                    "active_writers": {
+                      "type": "integer"
+                    },
+                    "fix_rounds_by_issue": {
+                      "additionalProperties": {
+                        "type": "integer"
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "no_progress_by_branch": {
+                      "additionalProperties": {
+                        "type": "integer"
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "policy": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "auto_continuations": {
+                          "type": "integer"
+                        },
+                        "fix_rounds": {
+                          "type": "integer"
+                        },
+                        "no_progress_failures": {
+                          "type": "integer"
+                        },
+                        "parallel_branches": {
+                          "type": "integer"
+                        },
+                        "writer_branches": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "auto_continuations",
+                        "parallel_branches",
+                        "writer_branches",
+                        "fix_rounds",
+                        "no_progress_failures"
+                      ],
+                      "type": "object"
+                    },
+                    "reserved_runs": {
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "type": "integer"
+                    },
+                    "root_task_id": {
+                      "type": "string"
+                    },
+                    "sources": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "auto_continuations": {
+                          "type": "string"
+                        },
+                        "fix_rounds": {
+                          "type": "string"
+                        },
+                        "no_progress_failures": {
+                          "type": "string"
+                        },
+                        "parallel_branches": {
+                          "type": "string"
+                        },
+                        "writer_branches": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "auto_continuations",
+                        "parallel_branches",
+                        "writer_branches",
+                        "fix_rounds",
+                        "no_progress_failures"
+                      ],
+                      "type": "object"
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    },
+                    "used_continuations": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "root_task_id",
+                    "policy",
+                    "sources",
+                    "revision",
+                    "used_continuations",
+                    "reserved_runs",
+                    "active_branches",
+                    "active_writers",
+                    "fix_rounds_by_issue",
+                    "no_progress_by_branch",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                },
+                "completions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "candidate_refs": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "evaluation_generation": {
+                        "type": "integer"
+                      },
+                      "evidence_producer": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "input_snapshot_digest": {
+                        "type": "string"
+                      },
+                      "judge_member_id": {
+                        "type": "string"
+                      },
+                      "results": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "criterion_id": {
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": [
+                                "array",
+                                "null"
+                              ]
+                            },
+                            "limitations": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": [
+                                "array",
+                                "null"
+                              ]
+                            },
+                            "result": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "criterion_id",
+                            "result",
+                            "evidence",
+                            "limitations"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
+                      "subject_digest": {
+                        "type": "string"
+                      },
+                      "task_id": {
+                        "type": "string"
+                      },
+                      "task_revision": {
+                        "type": "integer"
+                      },
+                      "unresolved": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
+                      "validity": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "task_id",
+                      "task_revision",
+                      "evaluation_generation",
+                      "input_snapshot_digest",
+                      "subject_digest",
+                      "candidate_refs",
+                      "results",
+                      "judge_member_id",
+                      "evidence_producer",
+                      "validity",
+                      "unresolved",
+                      "created_at"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "revision": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "acceptance": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "applicable_when": {
+                            "type": "string"
+                          },
+                          "criterion_id": {
+                            "type": "string"
+                          },
+                          "evaluation_policy": {
+                            "type": "string"
+                          },
+                          "evidence_requirements": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": [
+                              "array",
+                              "null"
+                            ]
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "required": {
+                            "type": "boolean"
+                          },
+                          "statement": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "criterion_id",
+                          "statement",
+                          "required",
+                          "kind",
+                          "evidence_requirements",
+                          "evaluation_policy"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "acceptance_evidence": {
+                      "type": "string"
+                    },
+                    "accepted_by": {
+                      "type": "string"
+                    },
+                    "allowed_actions": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "constraint_refs": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "goal": {
+                      "type": "string"
+                    },
+                    "input_refs": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "non_goals": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "revision": {
+                      "type": "integer"
+                    },
+                    "scope": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "source_message_id": {
+                      "type": "string"
+                    },
+                    "task_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "task_id",
+                    "revision",
+                    "goal",
+                    "scope",
+                    "non_goals",
+                    "constraint_refs",
+                    "acceptance",
+                    "input_refs",
+                    "allowed_actions",
+                    "source_message_id",
+                    "accepted_by",
+                    "acceptance_evidence",
+                    "created_at",
+                    "digest"
+                  ],
+                  "type": "object"
+                },
+                "task": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "budget_account_id": {
+                      "type": "string"
+                    },
+                    "collaboration_scope_id": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "current_revision": {
+                      "type": "integer"
+                    },
+                    "current_run_id": {
+                      "type": "string"
+                    },
+                    "evaluation_generation": {
+                      "type": "integer"
+                    },
+                    "evaluation_status": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "owner_member_id": {
+                      "type": "string"
+                    },
+                    "owner_revision": {
+                      "type": "integer"
+                    },
+                    "parent_id": {
+                      "type": "string"
+                    },
+                    "pending_owner_id": {
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "integer"
+                    },
+                    "root_control_epoch": {
+                      "type": "integer"
+                    },
+                    "root_task_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "thread_id": {
+                      "type": "string"
+                    },
+                    "transfer_request_id": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    },
+                    "wait_generation": {
+                      "type": "integer"
+                    },
+                    "waiting_reason": {
+                      "type": "string"
+                    },
+                    "workspace_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "workspace_id",
+                    "thread_id",
+                    "current_revision",
+                    "owner_member_id",
+                    "owner_revision",
+                    "root_task_id",
+                    "root_control_epoch",
+                    "budget_account_id",
+                    "collaboration_scope_id",
+                    "status",
+                    "priority",
+                    "evaluation_generation",
+                    "evaluation_status",
+                    "created_at",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "task",
+                "revision",
+                "budget",
+                "completions"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "workspaces": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "tasks",
+          "workspaces",
+          "needs_attention"
+        ],
+        "type": "object"
+      },
       "TaskBudgetInput": {
         "additionalProperties": false,
         "properties": {
@@ -14415,6 +14983,33 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/VerifyReply"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "get": {
+        "operationId": "projectTaskBoard",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBoard"
                 }
               }
             },

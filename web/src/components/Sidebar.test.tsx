@@ -64,9 +64,6 @@ function sidebar(
       onDeleteThread={onDeleteThread}
       onCreateWorkspace={() => {}}
       onEditWorkspace={() => {}}
-      onSettings={() => {}}
-      appearance="system"
-      onAppearance={() => {}}
     />
   );
 }

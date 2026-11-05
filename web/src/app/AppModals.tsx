@@ -19,6 +19,7 @@ import { ThreadRenameForm } from "../components/forms/ThreadRenameForm";
 import { WorkspaceForm } from "../components/forms/WorkspaceForm";
 import { WorkspaceMembersForm } from "../components/forms/WorkspaceMembersForm";
 import { api } from "../api/client";
+import type { Appearance } from "../components/AppearanceSelect";
 import { errorText } from "../lib/presentation";
 
 export type ModalState =
@@ -64,6 +65,8 @@ export function AppModals({
   openSource,
   saveFeedback,
   pendingSubmission,
+  appearance,
+  onAppearance,
   setModal,
 }: {
   modal: ModalState | null;
@@ -101,6 +104,8 @@ export function AppModals({
   openSource: (value: Source | string) => void;
   saveFeedback: (value: string) => Promise<void>;
   pendingSubmission: Map<string, { input: RunInput; key: string; threadID: string }>;
+  appearance: Appearance;
+  onAppearance: (value: Appearance) => void;
 }) {
   return (
     <>
@@ -225,6 +230,8 @@ export function AppModals({
             await loadThreads(thread.workspace_id);
           }}
           onTrashChanged={() => loadThreads(workspaceID)}
+          appearance={appearance}
+          onAppearance={onAppearance}
         />
       )}
       {modal?.kind === "artifact" && artifact && (

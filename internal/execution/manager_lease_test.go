@@ -197,6 +197,13 @@ func TestHeartbeatStopsAndRejectsStaleEpoch(t *testing.T) {
 		t.Fatalf("stale epoch wrote execution: %v", err)
 	}
 	stop()
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		var err error
+		current, err = tx.Execution(candidate.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	stoppedEpoch := current.LeaseEpoch
 	time.Sleep(30 * time.Millisecond)
 	if err := db.Read(t.Context(), func(tx *store.Tx) error {
