@@ -39,6 +39,8 @@ try {
   const taskURL = page.url();
   const workspaceID = taskURL.split('/w/')[1].split('/')[0];
   await page.getByRole('heading', { name: '请只回复“已收到”，不要调用工具。' }).waitFor({ timeout: 30000 });
+  await page.getByRole('heading', { name: '项目权限' }).waitFor();
+  await page.getByText('项目设置 · 权限、授权与默认预算', { exact: true }).waitFor();
   await page.reload();
   await page.getByRole('heading', { name: '本任务协作预算' }).waitFor();
   if (page.url() !== taskURL) throw new Error('task URL changed after refresh');
@@ -46,12 +48,13 @@ try {
   await page.getByLabel('补充内容').fill('后续请继续只使用简短中文回答。');
   await page.getByRole('button', { name: '保存补充' }).click();
   await page.getByText('后续请继续只使用简短中文回答。', { exact: true }).waitFor();
-  const budget = page.getByLabel(/^自动续办/);
+  const taskBudget = page.getByRole('region', { name: '本任务协作预算' });
+  const budget = taskBudget.getByLabel(/^自动续办/);
   await budget.fill('21');
   const savedBudget = page.waitForResponse(response => response.url().includes('/budget') && response.request().method() === 'PATCH');
-  await page.getByRole('button', { name: '保存并用于后续准入' }).click();
+  await taskBudget.getByRole('button', { name: '保存并用于后续准入' }).click();
   if ((await savedBudget).status() !== 200) throw new Error('task budget update failed');
-  await page.getByLabel(/^自动续办/).waitFor();
+  await budget.waitFor();
   if (await budget.inputValue() !== '21') throw new Error('task budget was not saved');
 
   await page.goto(`http://127.0.0.1:5173/w/${workspaceID}`);
@@ -64,7 +67,7 @@ try {
   if (await page.getByLabel('自动续办次数', { exact: true }).inputValue() !== '24') throw new Error('project budget override was not restored');
   await page.goto(taskURL);
   await page.getByRole('heading', { name: '本任务协作预算' }).waitFor();
-  if (await page.getByLabel(/^自动续办/).inputValue() !== '21') throw new Error('project defaults changed existing task budget');
+  if (await page.getByRole('region', { name: '本任务协作预算' }).getByLabel(/^自动续办/).inputValue() !== '21') throw new Error('project defaults changed existing task budget');
   if (errors.length) throw new Error(`browser errors: ${errors.join('; ')}`);
   console.log(`PASS make dev first-question journey: ${taskURL}`);
 } finally {

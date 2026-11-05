@@ -355,6 +355,12 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 		}
 		var current RunView
 		api.call("GET", "/api/v1/runs/"+initial.ID, nil, nil, 200, &current)
+		if current.Run.Status == "yielded" {
+			// The task and run projections commit together, but the two HTTP
+			// reads can straddle that transaction. Re-read the task rather than
+			// treating a durable yield as a premature terminal state.
+			continue
+		}
 		if w.Terminal(current.Run.Status) {
 			var events EventPage
 			api.call("GET", "/api/v1/runs/"+initial.ID+"/event-history", nil, nil, 200, &events)

@@ -1260,6 +1260,15 @@ function WorkspaceApp({
                   <TaskDetail
                     taskID={taskID}
                     agents={agents}
+                    workspace={workspace}
+                    settings={settings}
+                    onWorkspaceChange={(updated) =>
+                      setWorkspaces((current) =>
+                        current.map((item) =>
+                          item.id === updated.id ? updated : item,
+                        ),
+                      )
+                    }
                     onOpenThread={(id) => navigate(workspaceID, id)}
                     onOpenArtifact={(selected) => {
                       setArtifact(selected);
