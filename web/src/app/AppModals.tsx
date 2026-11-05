@@ -109,7 +109,9 @@ export function AppModals({
           <WorkspaceForm
             current={modal.kind === "edit-workspace" ? workspace : undefined}
             system={system}
+            settings={settings}
             close={close}
+            onWorkspaceChange={() => void loadSpaces()}
             onDelete={
               modal.kind === "edit-workspace" && workspace
                 ? () => setModal({ kind: "delete-workspace", workspace })
@@ -153,8 +155,18 @@ export function AppModals({
                 : undefined
             }
             agents={agents.filter((agent) => !agent.disabled)}
+            workspace={workspace}
             defaultCoordinatorID={settings?.default_coordinator_id}
             close={close}
+            onModeChange={async (mode) => {
+              await api<Workspace>(
+                `/api/v1/workspaces/${workspaceID}/execution-policy`,
+                "PATCH",
+                { mode, source_message_id: crypto.randomUUID() },
+                { "If-Match": String(workspace.revision) },
+              );
+              await loadSpaces();
+            }}
             save={async (value) => {
               const th = await api<Thread>(
                 value.id

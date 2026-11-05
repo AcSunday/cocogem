@@ -12,15 +12,12 @@ import {
   type InboxItem,
   type ProjectTaskView,
   type Question,
-  type Settings,
   type Source,
   type TaskRevision,
   type ThreadView,
   type Wakeup,
-  type Workspace,
 } from "../api/client";
 import { errorText, formatDateTime } from "../lib/presentation";
-import { ProjectSettings } from "./ProjectSettings";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -66,18 +63,12 @@ const sourceRef = (item: Source) => `source:${item.id}`;
 export function TaskDetail({
   taskID,
   agents,
-  workspace,
-  settings,
-  onWorkspaceChange,
   onOpenThread,
   onOpenArtifact,
   onOpenSource,
 }: {
   taskID: string;
   agents: Agent[];
-  workspace?: Workspace;
-  settings?: Settings;
-  onWorkspaceChange?: (workspace: Workspace) => void;
   onOpenThread: (threadID: string) => void;
   onOpenArtifact: (artifact: Artifact) => void;
   onOpenSource: (source: Source) => void;
@@ -207,20 +198,6 @@ export function TaskDetail({
         </button>
       </header>
       {error && <p className={cx("error")} role="alert">{error}</p>}
-
-      {workspace && onWorkspaceChange && (
-        <section aria-labelledby="task-project-permissions">
-          <h2 id="task-project-permissions">项目权限</h2>
-          <p className={cx("section-note")}>
-            项目级执行模式、持续授权和以后新建根任务的预算默认值。Run 仍按冻结的授权快照执行；切换模式不会重置本任务预算。
-          </p>
-          <ProjectSettings
-            workspace={workspace}
-            settings={settings}
-            onWorkspaceChange={onWorkspaceChange}
-          />
-        </section>
-      )}
 
       <section aria-labelledby="task-next">
         <h2 id="task-next">下一步</h2>

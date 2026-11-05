@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import type { ProjectTaskView, Settings, Workspace } from "../api/client";
+import type { ProjectTaskView } from "../api/client";
 import { TaskDetail } from "./TaskDetail";
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
@@ -59,24 +59,6 @@ it("answers revision-bound questions and saves durable steering", async () => {
   await user.type(screen.getByLabelText("补充内容"), "不能新增 Redis");
   await user.click(screen.getByRole("button", { name: "保存补充" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith("/api/v1/tasks/task/inbox", "POST", expect.objectContaining({ body: "不能新增 Redis", expected_revision: 1, application_policy: "next_boundary" })));
-});
-
-it("exposes project execution mode, grants and budget defaults on the task page", async () => {
-  load();
-  const user = userEvent.setup();
-  const workspace = {
-    id: "ws", name: "项目", description: "", root: "", revision: 2,
-    created_at: "", skill_ids: [], execution_mode: "controlled",
-  } as Workspace;
-  const settings = {
-    revision: 1, default_coordinator_id: "", assignments: {},
-    collaboration_budget: { auto_continuations: 20, parallel_branches: 4, writer_branches: 2, fix_rounds: 3, no_progress_failures: 2 },
-  } as Settings;
-  render(<TaskDetail taskID="task" agents={[]} workspace={workspace} settings={settings} onWorkspaceChange={() => {}} onOpenThread={() => {}} onOpenArtifact={() => {}} onOpenSource={() => {}} />);
-  expect(await screen.findByRole("heading", { name: "项目权限" })).toBeVisible();
-  await user.click(screen.getByText("项目设置 · 权限、授权与默认预算", { exact: true }));
-  expect(screen.getByRole("heading", { name: "执行权限模式" })).toBeVisible();
-  expect(screen.getByRole("heading", { name: "持续授权" })).toBeVisible();
 });
 
 it("binds manual acceptance to an exact artifact and evidence", async () => {

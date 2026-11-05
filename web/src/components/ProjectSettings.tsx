@@ -76,7 +76,7 @@ export function ProjectSettings({
       {error && <p className={cx("error")} role="alert">{error}</p>}
       <section aria-labelledby="project-execution-mode">
         <h2 id="project-execution-mode">执行权限模式</h2>
-        <p className={cx("section-note")}>受控使用宿主工具与隔离边界；项目内自主允许项目范围内的连续执行；完全访问是明确的本机信任决定，不代表沙箱。实际执行能力与回退以运行记录为准。</p>
+        <p className={cx("section-note")}>受控使用宿主工具与隔离边界；项目内自主允许项目范围内的连续执行；完全访问是明确的本机信任决定，不代表沙箱。切换模式会停止受影响项目的在途执行，历史 Run 保留冻结快照；实际执行能力与回退以运行记录为准。</p>
         <div className={cx("inline-form")}>
           <label>模式<select value={mode} onChange={(event) => setMode(event.target.value)}>
             <option value="controlled">受控</option>

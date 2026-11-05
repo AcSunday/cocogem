@@ -99,13 +99,14 @@ it("renders durable goals, outcomes and opens the exact task thread", async () =
     needs_attention: [],
   } satisfies Overview);
   const open = vi.fn();
+  const edit = vi.fn();
   render(
     <ProjectOverview
       workspace={workspace}
       workspaceID={workspace.id}
       onOpenTask={open}
-      onWorkspaceChange={() => {}}
       onNewTask={() => {}}
+      onEditWorkspace={edit}
     />,
   );
   expect(await screen.findByRole("heading", { name: "订单系统" })).toBeVisible();
@@ -114,6 +115,8 @@ it("renders durable goals, outcomes and opens the exact task thread", async () =
   expect(screen.queryByRole("heading", { name: "需要你处理" })).not.toBeInTheDocument();
   await userEvent.click(screen.getAllByRole("button", { name: /幂等请求支持/ })[0]);
   expect(open).toHaveBeenCalledWith("active");
+  await userEvent.click(screen.getByRole("button", { name: "编辑项目" }));
+  expect(edit).toHaveBeenCalled();
 });
 
 it("shows blocking input and retries a failed project read", async () => {
@@ -141,12 +144,12 @@ it("shows blocking input and retries a failed project read", async () => {
       workspace={workspace}
       workspaceID={workspace.id}
       onOpenTask={() => {}}
-      onWorkspaceChange={() => {}}
       onNewTask={() => {}}
+      onEditWorkspace={() => {}}
     />,
   );
   expect(await screen.findByRole("alert")).toHaveTextContent("offline");
   await userEvent.click(screen.getByRole("button", { name: "重新加载项目" }));
-  expect(await screen.findByRole("heading", { name: "需要你处理" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "任务清单" })).toBeVisible();
   expect(screen.getByText("尚缺数据库地址")).toBeVisible();
 });

@@ -1271,15 +1271,6 @@ function WorkspaceApp({
                   <TaskDetail
                     taskID={taskID}
                     agents={agents}
-                    workspace={workspace}
-                    settings={settings}
-                    onWorkspaceChange={(updated) =>
-                      setWorkspaces((current) =>
-                        current.map((item) =>
-                          item.id === updated.id ? updated : item,
-                        ),
-                      )
-                    }
                     onOpenThread={(id) => navigate(workspaceID, id)}
                     onOpenArtifact={(selected) => {
                       setArtifact(selected);
@@ -1293,16 +1284,11 @@ function WorkspaceApp({
                     <ProjectOverview
                       workspace={workspace}
                       workspaceID={workspace.id}
-                      settings={settings}
-                      onWorkspaceChange={(updated) =>
-                        setWorkspaces((current) =>
-                          current.map((item) => item.id === updated.id ? updated : item),
-                        )
-                      }
                       onOpenTask={(id) => navigate(workspace.id, "", true, id)}
                       onNewTask={() =>
                         document.getElementById("composer-input")?.focus()
                       }
+                      onEditWorkspace={() => setModal({ kind: "edit-workspace" })}
                     />
                   ) : (
                     <Welcome

@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { System } from "../../api/client";
 import { WorkspaceForm } from "./WorkspaceForm";
 
@@ -10,6 +10,12 @@ HTMLDialogElement.prototype.showModal = function () {
 HTMLDialogElement.prototype.close = function () {
   this.removeAttribute("open");
 };
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ items: [] })),
+  );
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -81,6 +87,38 @@ it("defaults to the shared skills and saves an explicit empty selection", async 
   expect(save).toHaveBeenLastCalledWith(
     expect.objectContaining({ skill_ids: ["independent-review"] }),
   );
+});
+
+it("edits project permissions and budget defaults inside the workspace form", async () => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  const user = userEvent.setup();
+  render(
+    <WorkspaceForm
+      current={{
+        id: "workspace",
+        name: "权限项目",
+        description: "",
+        root: "",
+        revision: 1,
+        created_at: "",
+        skill_ids: [],
+        execution_mode: "controlled",
+      }}
+      system={system}
+      close={() => {}}
+      save={save}
+    />,
+  );
+  await user.click(
+    screen.getByText("项目设置 · 权限、授权与默认预算", { exact: true }),
+  );
+  expect(
+    screen.getByRole("heading", { name: "执行权限模式" }),
+  ).toBeVisible();
+  expect(screen.getByRole("heading", { name: "持续授权" })).toBeVisible();
+  expect(
+    screen.getByRole("heading", { name: "新根任务的默认预算" }),
+  ).toBeVisible();
 });
 
 it("preserves a saved disabled skill selection when editing workspace details", async () => {

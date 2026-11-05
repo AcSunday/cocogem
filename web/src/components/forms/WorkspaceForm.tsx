@@ -1,6 +1,6 @@
 import { Select } from "../Select";
 import { useId, useRef, useState } from "react";
-import type { Workspace, System } from "../../api/client";
+import type { Workspace, System, Settings } from "../../api/client";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -12,21 +12,26 @@ import settings from "../../styles/settings.module.css";
 import { errorText, skillLabel } from "../../lib/presentation";
 import { Modal } from "../Modal";
 import { DirectoryPicker } from "../DirectoryPicker";
+import { ProjectSettings } from "../ProjectSettings";
 
 const cx = scoped(base, controls, layout, conversation, panels, members, settings);
 
 export function WorkspaceForm({
   current,
   system,
+  settings,
   close,
   save,
   onDelete,
+  onWorkspaceChange,
 }: {
   current?: Workspace;
   system: System;
+  settings?: Settings;
   close: () => void;
   save: (value: Workspace) => Promise<void>;
   onDelete?: () => void;
+  onWorkspaceChange?: (workspace: Workspace) => void;
 }) {
   const [value, setValue] = useState<Workspace>(
     current ?? {
@@ -52,6 +57,7 @@ export function WorkspaceForm({
   return (
     <Modal title={current ? "编辑工作空间" : "创建工作空间"} close={close}>
       <form
+        id="workspace-form"
         onSubmit={(event) => {
           event.preventDefault();
           if (saving || browsing) return;
@@ -185,17 +191,41 @@ export function WorkspaceForm({
             ))}
           </fieldset>
         )}
-        {error && (
-          <p className={cx("error")} role="alert">
-            {error}
-          </p>
-        )}
-        <div className={cx("form-actions")}>
-          <button className={cx("primary")} disabled={saving || browsing}>
-            {saving ? "保存中…" : "保存工作空间"}
-          </button>
-        </div>
       </form>
+      {current && (
+        <section className={cx("workspace-permissions")}>
+          <p className={cx("muted")}>
+            权限、持续授权和新建根任务的预算默认值属于整个项目。保存后立即生效，既有 Run 继续使用冻结快照。
+          </p>
+          <ProjectSettings
+            workspace={value}
+            settings={settings}
+            onWorkspaceChange={(updated) => {
+              setValue((current) => ({
+                ...current,
+                revision: updated.revision,
+                execution_mode: updated.execution_mode,
+                budget_override: updated.budget_override,
+              }));
+              onWorkspaceChange?.(updated);
+            }}
+          />
+        </section>
+      )}
+      {error && (
+        <p className={cx("error")} role="alert">
+          {error}
+        </p>
+      )}
+      <div className={cx("form-actions")}>
+        <button
+          form="workspace-form"
+          className={cx("primary")}
+          disabled={saving || browsing}
+        >
+          {saving ? "保存中…" : "保存工作空间"}
+        </button>
+      </div>
       {onDelete && (
         <section className={cx("danger-zone")}>
           <p className={cx("muted")}>
