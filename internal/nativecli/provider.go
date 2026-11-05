@@ -73,6 +73,8 @@ func Discover(ctx context.Context) []ExecutorInfo {
 // file roots and native proxies never leak into a non-task invocation.
 func mcpOnly(request model.Request) model.Request {
 	request.NativeTools, request.WorkspaceRoot, request.NativeProxy = nil, "", ""
+	request.ExecutionMode, request.SessionMode, request.SessionID = "", "", ""
+	request.SessionStorageRoot, request.SessionContextEpoch = "", 0
 	return request
 }
 
@@ -180,17 +182,38 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	defer gate.close()
 	gate.stop = cancel
 	gate.setRequired(request.RequiredTools)
-	base, err := os.MkdirTemp("", "cocogem-native-*")
-	if err != nil {
-		return errors.New("create isolated CLI directory")
+	gate.sessionMode, gate.sessionID = request.SessionMode, request.SessionID
+	managed := request.SessionStorageRoot != ""
+	if managed && request.Executor != "claude" && request.Executor != "opencode" {
+		return errors.New("this CLI does not support a Cocogem-managed resumable session")
 	}
-	defer os.RemoveAll(base)
+	if request.SessionMode == "resume" && (!managed || request.SessionID == "") {
+		return errors.New("a managed session resume requires its exact native session identity")
+	}
+	base := request.SessionStorageRoot
+	if managed {
+		if err := os.MkdirAll(base, 0700); err != nil {
+			return errors.New("create private managed CLI session directory")
+		}
+		if err := os.Chmod(base, 0700); err != nil {
+			return errors.New("secure private managed CLI session directory")
+		}
+		if info, err := os.Lstat(base); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("managed CLI session directory is not private")
+		}
+	} else {
+		var err error
+		base, err = os.MkdirTemp("", "cocogem-native-*")
+		if err != nil {
+			return errors.New("create isolated CLI directory")
+		}
+		defer os.RemoveAll(base)
+	}
 	// Every runtime file (MCP config, settings, model catalog, CODEX_HOME and
-	// Gemini policies) lives under .cocogem: Claude deny rules and the host MCP
-	// tools.DeniedPath boundary both reject that component, even when the
-	// workspace root contains the temporary directory.
+	// Gemini policies) lives under .cocogem. Managed mode preserves only this
+	// server-owned directory; controlled mode removes it after the invocation.
 	workdir := filepath.Join(base, ".cocogem")
-	if err := os.Mkdir(workdir, 0700); err != nil {
+	if err := os.MkdirAll(workdir, 0700); err != nil {
 		return errors.New("create isolated CLI directory")
 	}
 	// Settings live apart from the readable working directory. Native file
@@ -200,13 +223,14 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	configDir, cwdDir := workdir, workdir
 	if request.Executor == "claude" {
 		configDir = filepath.Join(workdir, "config")
-		if err := os.Mkdir(configDir, 0700); err != nil {
+		if err := os.MkdirAll(configDir, 0700); err != nil {
 			return errors.New("create isolated CLI configuration directory")
 		}
 	}
-	files, web := sanitizeNativeTools(request.Executor, request.NativeTools, request.WorkspaceRoot)
+	fullAccess := request.ExecutionMode == "full_access"
+	files, web := sanitizeExecutionNativeTools(request.Executor, request.NativeTools, request.WorkspaceRoot, fullAccess)
 	degraded := false
-	if len(files) != 0 && configInsideRoot(request.WorkspaceRoot, configDir) {
+	if len(files) != 0 && !fullAccess && configInsideRoot(request.WorkspaceRoot, configDir) {
 		// A root such as "/" would make the settings directory readable. Keep
 		// file access on the platform MCP path instead of trusting a parser.
 		files, degraded = nil, true
@@ -227,7 +251,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 				return errors.New("workspace root is unavailable for native file tools")
 			}
 			cwdDir = absolute
-		} else if err := os.Mkdir(cwdDir, 0700); err != nil {
+		} else if err := os.MkdirAll(cwdDir, 0700); err != nil {
 			return errors.New("create isolated CLI working directory")
 		}
 	}
@@ -309,7 +333,17 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 				return err
 			}
 		}
-		settings = claudeStepSettings(base, configDir)
+		if fullAccess {
+			settings = map[string]any{}
+			for key, value := range base {
+				settings[key] = value
+			}
+			settings["disableAllHooks"] = true
+			settings["enabledPlugins"] = map[string]any{}
+			settings["autoMemoryEnabled"] = false
+		} else {
+			settings = claudeStepSettings(base, configDir)
+		}
 	}
 	safeSettings, err := json.Marshal(settings)
 	if err != nil {
@@ -318,7 +352,12 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	if err := os.WriteFile(settingsPath, safeSettings, 0600); err != nil {
 		return errors.New("write isolated CLI settings")
 	}
-	args := claudeArgs(configPath, settingsPath, nativeNames)
+	args := claudeExecutionArgs(configPath, settingsPath, nativeNames, request)
+	if request.Executor == "claude" && managed {
+		// Persistent sessions belong to Cocogem, not to the user's interactive
+		// terminal. Reusing that config root could resume an unrelated session.
+		options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": configDir})
+	}
 	if request.Executor == "claude" && request.ThinkingLevel != "" {
 		args = append(args, "--effort", request.ThinkingLevel)
 	}

@@ -1,4 +1,4 @@
-.PHONY: setup dev test probe-cli probe-isolation build contract check-contract e2e security release notices
+.PHONY: setup dev test probe-cli probe-isolation build contract check-contract e2e verify-redesign security release notices
 
 setup:
 	cd web && npm ci
@@ -39,6 +39,11 @@ e2e: build
 	node --test scripts/dev.test.mjs
 	go run ./cmd/smoke
 	cd web && npm run test:e2e
+
+# First-question, durable task, steering and budget journey against a real
+# development server. Uses the system Chrome channel by default.
+verify-redesign:
+	node scripts/verify-redesign.mjs
 
 security:
 	go run ./cmd/checksecrets

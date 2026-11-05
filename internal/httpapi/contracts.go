@@ -74,6 +74,13 @@ type RunView struct {
 	Cursor   int64       `json:"cursor"`
 }
 
+// ContextView separates startup input, managed captures and host-delivered pages.
+type ContextView struct {
+	Manifest w.ContextManifest `json:"manifest"`
+	Appended []w.ContextItem   `json:"appended"`
+	Receipts []w.ReadReceipt   `json:"receipts"`
+}
+
 // RoutingPreview describes dispatch intent without starting execution.
 type RoutingPreview struct {
 	ProposalID string           `json:"proposal_id,omitempty"`
@@ -96,6 +103,9 @@ type SettingsInput struct {
 	// RetentionDays is optional on existing clients; nil keeps the current
 	// value. An explicit out-of-range value is rejected.
 	RetentionDays *int `json:"retention_days,omitempty"`
+	// CollaborationBudget is optional for existing clients; nil preserves the
+	// current global default and never mutates existing task accounts.
+	CollaborationBudget *w.BudgetPolicy `json:"collaboration_budget,omitempty"`
 }
 
 // ThreadUpdate edits the supplied fields; omitted settings keep their stored values.

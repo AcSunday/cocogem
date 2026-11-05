@@ -46,7 +46,23 @@ func (s *Server) updateSettings(rw http.ResponseWriter, r *http.Request) {
 		if err := w.ValidateRetentionDays(retention); err != nil {
 			return err
 		}
-		value = w.Settings{Revision: current.Revision + 1, DefaultCoordinatorID: in.DefaultCoordinatorID, Assignments: assignments, RetentionDays: retention}
+		budget := current.CollaborationBudget
+		if in.CollaborationBudget != nil {
+			budget = *in.CollaborationBudget
+		}
+		if err := w.ValidateBudgetPolicy(budget); err != nil {
+			return err
+		}
+		workspaces, err := tx.Workspaces()
+		if err != nil {
+			return err
+		}
+		for _, workspace := range workspaces {
+			if _, err := w.ResolveBudget(budget, workspace.BudgetOverride); err != nil {
+				return fmt.Errorf("project %s budget override conflicts with the new defaults: %w", workspace.Name, err)
+			}
+		}
+		value = w.Settings{Revision: current.Revision + 1, DefaultCoordinatorID: in.DefaultCoordinatorID, Assignments: assignments, RetentionDays: retention, CollaborationBudget: budget}
 		agents, err := tx.GlobalAgents()
 		if err != nil {
 			return err

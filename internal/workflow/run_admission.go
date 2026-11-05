@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/skills"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
@@ -25,6 +26,7 @@ func (e *Engine) admitRun(ctx context.Context, run w.Run) (runAdmission, error) 
 	var history []w.Message
 	var steps []w.Step
 	var adopted bool
+	var admissionErr error
 	// The policy, start and absolute deadline are adopted and persisted in the
 	// same preflight transaction, before any deadline-bound context exists.
 	err := e.Store.Write(ctx, func(tx *store.Tx) error {
@@ -101,7 +103,41 @@ func (e *Engine) admitRun(ctx context.Context, run w.Run) (runAdmission, error) 
 		if err != nil {
 			return err
 		}
+		if run.AutomaticContinuation && !run.BudgetReserved && !run.BudgetStarted {
+			if err := tx.ReserveTaskRun(&run); errors.Is(err, w.ErrBudgetExhausted) {
+				task, taskErr := tx.Task(run.TaskID)
+				if taskErr != nil {
+					return taskErr
+				}
+				if task.Status != "paused" && task.Status != "canceled" {
+					task.Status = "waiting"
+					task.WaitingReason = "budget"
+					task.UpdatedAt = w.Now()
+					if err := tx.SaveTask(task, task.CurrentRevision); err != nil {
+						return err
+					}
+				}
+				admissionErr = w.ErrBudgetExhausted
+				return nil
+			} else if errors.Is(err, w.ErrRepairLimit) {
+				admissionErr = w.ErrRepairLimit
+				return nil
+			} else if err != nil {
+				return err
+			}
+		}
+		limited, err := project.New(e.Store).PrepareRepairStart(tx, &run)
+		if err != nil {
+			return err
+		}
+		if limited {
+			admissionErr = w.ErrRepairLimit
+			return nil
+		}
 		run.Status = "running"
+		if err := tx.TaskRunStarted(&run); err != nil {
+			return err
+		}
 		if err := tx.SaveRun(run); err != nil {
 			return err
 		}
@@ -117,5 +153,5 @@ func (e *Engine) admitRun(ctx context.Context, run w.Run) (runAdmission, error) 
 		}
 		return nil
 	})
-	return runAdmission{run: run, history: history, steps: steps}, err
+	return runAdmission{run: run, history: history, steps: steps}, errors.Join(err, admissionErr)
 }

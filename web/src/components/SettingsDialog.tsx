@@ -52,6 +52,15 @@ const editable = (settings: Settings): SettingsInput => ({
       { ...(roles ?? {}) },
     ]),
   ),
+  collaboration_budget: {
+    auto_continuations:
+      settings.collaboration_budget?.auto_continuations ?? 20,
+    parallel_branches: settings.collaboration_budget?.parallel_branches ?? 4,
+    writer_branches: settings.collaboration_budget?.writer_branches ?? 2,
+    fix_rounds: settings.collaboration_budget?.fix_rounds ?? 3,
+    no_progress_failures:
+      settings.collaboration_budget?.no_progress_failures ?? 2,
+  },
 });
 
 export function SettingsDialog({
@@ -243,6 +252,7 @@ function CollaborationSettings({
           ),
         ]),
       ),
+      collaboration_budget: current.collaboration_budget,
     };
   };
   const memberOptions = (current: string) => [
@@ -296,6 +306,70 @@ function CollaborationSettings({
             {memberOptions(value.default_coordinator_id ?? "")}
           </Select>
         </label>
+      </section>
+      <section className={cx("settings-section")}>
+        <h3>协作预算</h3>
+        <p>
+          这些默认值只用于以后新建的根任务；现有任务保持原预算。子任务、修订和自动续办共享同一账户，切换权限模式不会重置用量。
+        </p>
+        {(
+          [
+            ["auto_continuations", "自动续办次数", "次", "首次用户启动后，所有自动后续 Run 共用额度。"],
+            ["parallel_branches", "同时推进的分支", "个", "排队和外部等待不占执行槽。"],
+            ["writer_branches", "同时修改代码的分支", "个", "包含在总分支数内，不是额外执行槽。"],
+            ["fix_rounds", "同一问题自动修复轮数", "轮", "稳定问题 ID 关联修复与复验，不因改写描述重置。"],
+            ["no_progress_failures", "连续无进展失败次数", "次", "仅暂停对应分支，新证据和有效变更不算无进展。"],
+          ] as const
+        ).map(([key, label, unit, description]) => (
+          <label key={key}>
+            {label}（{unit}）
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={value.collaboration_budget?.[key] ?? 1}
+              aria-describedby={`budget-${key}`}
+              onChange={(event) => {
+                setSaved(false);
+                setValue((current) => ({
+                  ...current,
+                  collaboration_budget: {
+                    ...(current.collaboration_budget ?? {
+                      auto_continuations: 20,
+                      parallel_branches: 4,
+                      writer_branches: 2,
+                      fix_rounds: 3,
+                      no_progress_failures: 2,
+                    }),
+                    [key]: Number(event.target.value),
+                  },
+                }));
+              }}
+            />
+            <small id={`budget-${key}`} className={cx("muted")}>
+              {description}
+            </small>
+          </label>
+        ))}
+        <button
+          type="button"
+          className={cx("ghost")}
+          onClick={() => {
+            setSaved(false);
+            setValue((current) => ({
+              ...current,
+              collaboration_budget: {
+                auto_continuations: 20,
+                parallel_branches: 4,
+                writer_branches: 2,
+                fix_rounds: 3,
+                no_progress_failures: 2,
+              },
+            }));
+          }}
+        >
+          恢复推荐默认值
+        </button>
       </section>
       <section className={cx("settings-section")}>
         <h3>模式角色</h3>

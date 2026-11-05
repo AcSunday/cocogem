@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
@@ -95,8 +96,20 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	rt.mu.Lock()
 	publishedCopy := rt.published
 	delegatedCopy := rt.delegated
+	yieldRequest := rt.yieldRequest
 	knownSources := slices.Clone(rt.sources)
 	rt.mu.Unlock()
+	if yieldRequest != nil && err == nil {
+		yieldCtx, stopYield := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		_, _, yieldErr := project.New(e.Store).YieldRun(yieldCtx, run.ID, yieldRequest.Predicate, yieldRequest.ObservationCursor, yieldRequest.WakeSource, yieldRequest.EventID, "")
+		stopYield()
+		if yieldErr == nil {
+			step.Status = "yielded"
+			step.Error = "waiting for durable predicate: " + yieldRequest.Predicate
+			return step
+		}
+		err = yieldErr
+	}
 	step, attempt, saveErr := e.settleStep(ctx, stepSettlement{
 		run:             run,
 		step:            step,

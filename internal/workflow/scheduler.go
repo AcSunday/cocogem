@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
@@ -36,6 +37,8 @@ func (e *Engine) worker(ctx context.Context) {
 	running := map[string]string{}
 	finished := make(chan dispatchedRun, limit)
 	var executing sync.WaitGroup
+	revocations := time.NewTicker(2 * time.Second)
+	defer revocations.Stop()
 	drain := func() {
 		for {
 			select {
@@ -70,6 +73,15 @@ func (e *Engine) worker(ctx context.Context) {
 				if r.Status != "queued" || reserved[r.ID] {
 					continue
 				}
+				if r.TaskID != "" {
+					task, err := tx.Task(r.TaskID)
+					if err != nil {
+						return err
+					}
+					if task.Status == "waiting" && slices.Contains([]string{"budget", "fix_limit", "no_progress"}, task.WaitingReason) {
+						continue
+					}
+				}
 				if _, busy := running[r.ThreadID]; busy {
 					continue
 				}
@@ -99,6 +111,13 @@ func (e *Engine) worker(ctx context.Context) {
 			case done := <-finished:
 				delete(reserved, done.id)
 				delete(running, done.threadID)
+			case <-revocations.C:
+				if _, err := project.New(e.Store).WakeDue(ctx, w.Now()); err != nil && ctx.Err() == nil {
+					e.report(err)
+				}
+				if err := e.reconcileRevocations(ctx); err != nil && ctx.Err() == nil {
+					e.report(err)
+				}
 			case <-retry:
 				for id, until := range deferred {
 					if time.Now().After(until) {
@@ -173,6 +192,18 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 	var steps []w.Step
 	admission, err := e.admitRun(parent, run)
 	run, history, steps = admission.run, admission.history, admission.steps
+	if errors.Is(err, w.ErrBudgetExhausted) || errors.Is(err, w.ErrRepairLimit) {
+		// The queued ID and waiting intent survive; a later account adjustment
+		// makes the task ready and admits this same Run with a fresh reservation.
+		return
+	}
+	if errors.Is(err, w.ErrExecutionBusy) {
+		select {
+		case <-parent.Done():
+		case <-time.After(100 * time.Millisecond):
+		}
+		return
+	}
 	if errors.Is(err, w.ErrConflict) {
 		if current, readErr := e.currentRun(parent, run.ID); readErr == nil && current.Status == "canceling" {
 			e.finish(parent, run, "canceled", nil)
@@ -186,6 +217,27 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 			e.finish(parent, run, "failed", err)
 		}
 		return
+	}
+	prepared, err := e.prepareExecution(parent, run)
+	if err != nil {
+		e.finish(parent, run, "failed", err)
+		return
+	}
+	run = prepared
+	if run.ExecutionRef != "" {
+		defer func() {
+			finishCtx, stop := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
+			defer stop()
+			if err := e.Executions.Finish(finishCtx, run.ExecutionRef); err != nil {
+				e.report(err)
+			}
+		}()
+		stopHeartbeat, err := e.Executions.Heartbeat(parent, run.ExecutionRef, e.report)
+		if err != nil {
+			e.finish(parent, run, "failed", err)
+			return
+		}
+		defer stopHeartbeat()
 	}
 	if parent.Err() != nil {
 		e.suspend(parent, run)
@@ -299,31 +351,44 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 			if readErr != nil {
 				return readErr
 			}
-			groupSources, readErr = tx.SourceMetadata(run.ThreadID)
+			groupSources, readErr = taskChainSources(tx, run)
 			return readErr
 		})
 		if err != nil {
 			cancel()
 			break
 		}
+		branches, branchErr := e.acquireStepBranches(ctx, run, ready, steps)
+		if branchErr != nil {
+			cancel()
+			break
+		}
 		dispatchCtx, stopDispatch := context.WithCancel(ctx)
 		checkpoint := newCheckpointState(stopDispatch)
 		var wg sync.WaitGroup
-		for _, index := range ready {
+		for _, branch := range branches {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
 				steps[i] = e.executeStepWith(dispatchCtx, run, steps[i], history, groupHistory, groupSources, checkpoint)
-			}(index)
+			}(branch.index)
 		}
 		wg.Wait()
 		stopDispatch()
+		if err := e.releaseStepBranches(context.WithoutCancel(ctx), run, branches); err != nil {
+			cancel()
+			break
+		}
 		if checkpoint.triggered() {
 			break
 		}
 	}
 	if parent.Err() != nil {
 		e.suspend(parent, run)
+		return
+	}
+	current, currentErr := e.currentRun(context.WithoutCancel(parent), run.ID)
+	if currentErr == nil && current.Status == "yielded" {
 		return
 	}
 	runTimedOut := ctx.Err() == context.DeadlineExceeded

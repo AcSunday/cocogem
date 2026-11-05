@@ -87,7 +87,7 @@ export function Composer({
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [draft]);
   const composing = useRef(false);
-  const canSend = !active && !busy && !disabled && !!draft.trim();
+  const canSend = !busy && !disabled && !!draft.trim();
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [dismissed, setDismissed] = useState(-1);
@@ -147,7 +147,7 @@ export function Composer({
   const placeholder = disabled
     ? "先创建一个工作空间，再开始提问"
     : active
-      ? "本次协作进行中…"
+      ? "保存补充，在下一个执行边界应用…"
       : compact
         ? "描述你的想法及任务，输入 @ 指定成员协作"
         : "描述你的想法及任务，输入 @ 指定成员协作（Enter 发送 · Shift + Enter 换行）";
@@ -335,29 +335,30 @@ export function Composer({
             </small>
           )}
         </div>
-        {active ? (
-          <button
-            type="button"
-            className={cx("stop composer-send")}
-            aria-label={canceling ? "正在停止" : "停止协作"}
-            aria-busy={canceling || undefined}
-            title={canceling ? "正在停止…" : "停止协作"}
-            onClick={onStop}
-            disabled={canceling}
-          >
-            <Icon name="stop_filled" size={14} />
-          </button>
-        ) : (
+        <div className={cx("composer-actions")}>
+          {active && (
+            <button
+              type="button"
+              className={cx("stop composer-send")}
+              aria-label={canceling ? "正在停止" : "停止协作"}
+              aria-busy={canceling || undefined}
+              title={canceling ? "正在停止…" : "停止协作"}
+              onClick={onStop}
+              disabled={canceling}
+            >
+              <Icon name="stop_filled" size={14} />
+            </button>
+          )}
           <button
             className={cx("primary composer-send")}
             type="submit"
-            aria-label={busy ? "正在提交" : "发送"}
-            title={busy ? "正在提交…" : "发送 · Enter"}
+            aria-label={busy ? "正在提交" : active ? "保存补充" : "发送"}
+            title={busy ? "正在提交…" : active ? "保存补充 · Enter" : "发送 · Enter"}
             disabled={!canSend}
           >
             <Icon name="send" size={16} />
           </button>
-        )}
+        </div>
       </div>
     </form>
   );

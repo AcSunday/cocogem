@@ -1,0 +1,217 @@
+.project-home {
+  width: min(100%, 880px);
+  margin: 0 auto;
+  padding: 40px 32px 64px;
+  color: var(--text);
+}
+.project-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.project-heading h1 {
+  margin: 4px 0 10px;
+  font-size: 28px;
+  letter-spacing: -0.025em;
+}
+.project-heading p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.eyebrow {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.project-home section {
+  margin-top: 28px;
+}
+.project-home h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.project-list {
+  display: grid;
+  gap: 6px;
+}
+.project-row {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+.project-row:hover,
+.project-row:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.project-row strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-row span,
+.project-record span {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.project-row.attention {
+  border-color: color-mix(in srgb, var(--warn-text) 45%, var(--border));
+}
+.project-empty {
+  padding: 18px 0;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.project-home details {
+  margin: 8px 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.project-home summary {
+  min-height: 36px;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.project-home details .project-list {
+  margin-top: 10px;
+}
+.project-record {
+  display: grid;
+  gap: 5px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.project-record strong {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.task-detail {
+  max-width: 940px;
+}
+.task-detail .project-heading h1 {
+  overflow-wrap: anywhere;
+  font-size: 24px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+.section-note {
+  margin: 6px 0 12px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.task-form,
+.question-card {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+.task-form label,
+.question-card label,
+.inline-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.task-form textarea,
+.question-card textarea {
+  min-height: 76px;
+}
+.inline-form,
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.inline-form label {
+  flex: 1 1 240px;
+}
+.record-list {
+  margin-top: 12px;
+}
+.question-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.question-card > strong {
+  line-height: 1.6;
+}
+.question-card small {
+  color: var(--text-3);
+}
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.budget-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.budget-grid label > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.criterion {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.criterion legend {
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.project-home .project-settings {
+  margin-bottom: 24px;
+}
+.project-settings section {
+  margin-top: 20px;
+}
+.project-settings .project-record {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .project-home {
+    padding: 24px 16px 48px;
+  }
+  .project-heading {
+    gap: 12px;
+  }
+  .project-heading h1 {
+    font-size: 24px;
+  }
+  .project-heading .primary {
+    min-height: 44px;
+  }
+}

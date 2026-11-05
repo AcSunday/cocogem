@@ -154,7 +154,7 @@ func (t *Tx) EventPage(runID string, after int64, limit int) (EventPage, error) 
 // SourceMetadata lists a conversation's captures without their bodies; the
 // detail read still returns the complete captured content.
 func (t *Tx) SourceMetadata(threadID string) ([]w.Source, error) {
-	return list[w.Source](t, "SELECT json_remove(body,'$.content') FROM sources WHERE thread_id=? ORDER BY rowid", threadID)
+	return list[w.Source](t, "SELECT json_remove(body,'$.content','$.original_content') FROM sources WHERE thread_id=? ORDER BY rowid", threadID)
 }
 
 func encodePageCursor(v messagePageCursor) (string, error) {

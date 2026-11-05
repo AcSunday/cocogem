@@ -63,7 +63,21 @@ func runOpenCodeTurn(ctx context.Context, client *http.Client, endpoint, dir, pa
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := openCodeRequest(ctx, client, http.MethodPost, endpoint+"/api/session", password, map[string]any{"agent": "cocogem", "title": "Cocogem step", "location": map[string]string{"directory": dir}, "model": model}, &session); err != nil {
+	mode := "fresh"
+	if gate.sessionMode == "resume" {
+		if !openCodeSessionPattern.MatchString(gate.sessionID) {
+			return newFailure(FailureProtocol, "managed OpenCode resume identity is invalid")
+		}
+		// Unlike the CLI --session flag, this read never creates a missing
+		// session. A lost cache must not silently become a fresh conversation.
+		if err := openCodeRequest(ctx, client, http.MethodGet, endpoint+"/api/session/"+url.PathEscape(gate.sessionID)+"?location[directory]="+url.QueryEscape(dir), password, nil, &session); err != nil {
+			return err
+		}
+		if session.Data.ID != gate.sessionID {
+			return newFailure(FailureProtocol, "OpenCode resumed a different session identity")
+		}
+		mode = "resume"
+	} else if err := openCodeRequest(ctx, client, http.MethodPost, endpoint+"/api/session", password, map[string]any{"agent": "cocogem", "title": "Cocogem step", "location": map[string]string{"directory": dir}, "model": model}, &session); err != nil {
 		return err
 	}
 	if !openCodeSessionPattern.MatchString(session.Data.ID) {
@@ -95,11 +109,13 @@ func runOpenCodeTurn(ctx context.Context, client *http.Client, endpoint, dir, pa
 	if !handshake.Stop() || streamCtx.Err() != nil {
 		return newFailure(FailureProtocol, "OpenCode event subscription timed out")
 	}
-	if err := gate.emit("native_session", map[string]any{"executor": "opencode", "session_id": session.Data.ID, "mode": "fresh", "cwd": "isolated"}); err != nil {
-		return err
-	}
 	live.dispatched()
 	if err := openCodeRequest(ctx, client, http.MethodPost, endpoint+"/api/session/"+url.PathEscape(session.Data.ID)+"/prompt", password, map[string]any{"text": prompt}, nil); err != nil {
+		return err
+	}
+	// A resume becomes reusable only after OpenCode accepts its next turn.
+	// Reading a stale session alone is not an acknowledgement of this attempt.
+	if err := gate.emit("native_session", map[string]any{"executor": "opencode", "session_id": session.Data.ID, "mode": mode, "cwd": "isolated"}); err != nil {
 		return err
 	}
 	return parseOpenCodeEvents(reader, session.Data.ID, gate, live)

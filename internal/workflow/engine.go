@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
+	"github.com/AcSunday/cocogem/internal/execution"
 	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/proc"
 	"github.com/AcSunday/cocogem/internal/store"
@@ -22,16 +23,20 @@ const DefaultMaxParallelRuns = 4
 
 // Engine owns a bounded durable dispatcher and each run's cancellation context.
 type Engine struct {
-	Store         *store.Store
-	Model         model.Model
-	Runners       map[string]agent.Runner
-	Fallback      agent.Runner
-	Adapters      agent.AdapterChecker
-	Web           tools.WebClient
-	NativeProxy   string
-	AllowedRoots  []string
-	AllowedModels []string
-	Limits        Limits
+	Store       *store.Store
+	Executions  *execution.Manager
+	Model       model.Model
+	Runners     map[string]agent.Runner
+	Fallback    agent.Runner
+	Adapters    agent.AdapterChecker
+	Web         tools.WebClient
+	NativeProxy string
+	// NativeSessionRoot is the private, server-owned parent for resumable CLI
+	// state. It never points at a user's terminal history.
+	NativeSessionRoot string
+	AllowedRoots      []string
+	AllowedModels     []string
+	Limits            Limits
 	// History bounds committed conversation history inlined per attempt. Zero
 	// uses DefaultHistoryLimits; explicit member context_size scales it.
 	History HistoryLimits
@@ -160,6 +165,85 @@ func (e *Engine) CancelMember(ctx context.Context, workspaceID, agentID string) 
 	if err != nil {
 		return err
 	}
+	return e.cancelRuns(ctx, ids)
+}
+
+// PauseTask stops executing work but preserves queued Runs for an explicit resume.
+func (e *Engine) PauseTask(ctx context.Context, taskID string) error {
+	return e.stopTask(ctx, taskID, false)
+}
+
+// CancelTask stops the selected task and its owned descendants after their
+// control state has been committed. Referenced or subscribed tasks are excluded.
+func (e *Engine) CancelTask(ctx context.Context, taskID string) error {
+	return e.stopTask(ctx, taskID, true)
+}
+
+func (e *Engine) stopTask(ctx context.Context, taskID string, cancelQueued bool) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	var ids []string
+	err := e.Store.Read(ctx, func(tx *store.Tx) error {
+		root, err := tx.Task(taskID)
+		if err != nil {
+			return err
+		}
+		tasks, err := tx.Tasks(root.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		owned := map[string]bool{root.ID: true}
+		for changed := true; changed; {
+			changed = false
+			for _, candidate := range tasks {
+				if owned[candidate.ParentID] && !owned[candidate.ID] {
+					owned[candidate.ID] = true
+					changed = true
+				}
+			}
+		}
+		runs, err := tx.Active()
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if owned[run.TaskID] && (cancelQueued || run.Status != "queued") {
+				ids = append(ids, run.ID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return e.cancelRuns(ctx, ids)
+}
+
+// CancelWorkspace stops in-flight work before an execution-policy change takes
+// effect for later Runs. Existing Run authorization snapshots remain immutable.
+func (e *Engine) CancelWorkspace(ctx context.Context, workspaceID string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	var ids []string
+	err := e.Store.Read(ctx, func(tx *store.Tx) error {
+		runs, err := tx.Active()
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if run.WorkspaceID == workspaceID {
+				ids = append(ids, run.ID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return e.cancelRuns(ctx, ids)
+}
+
+func (e *Engine) cancelRuns(ctx context.Context, ids []string) error {
 	var cancelErr error
 	for _, id := range ids {
 		if _, err := e.Cancel(ctx, id); err != nil {

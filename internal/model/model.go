@@ -63,6 +63,13 @@ type Request struct {
 	NativeTools   []string `json:"-"`
 	WorkspaceRoot string   `json:"-"`
 	NativeProxy   string   `json:"-"`
+	// Managed native sessions live only under SessionStorageRoot. SessionID is
+	// populated solely after an earlier runner acknowledged the exact session.
+	ExecutionMode       string `json:"-"`
+	SessionMode         string `json:"-"`
+	SessionID           string `json:"-"`
+	SessionStorageRoot  string `json:"-"`
+	SessionContextEpoch int    `json:"-"`
 }
 
 // Connection records the resolved model and non-secret upstream identity selected

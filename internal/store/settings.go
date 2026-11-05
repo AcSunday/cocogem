@@ -10,7 +10,7 @@ import (
 func (t *Tx) Settings() (w.Settings, error) {
 	value, err := get[w.Settings](t, "SELECT body FROM settings WHERE id='global'")
 	if errors.Is(err, ErrNotFound) {
-		return w.Settings{Revision: 1, Assignments: map[string]map[string]string{}, RetentionDays: w.DefaultRetentionDays}, nil
+		return w.Settings{Revision: 1, Assignments: map[string]map[string]string{}, RetentionDays: w.DefaultRetentionDays, CollaborationBudget: w.DefaultBudgetPolicy()}, nil
 	}
 	if err != nil {
 		return w.Settings{}, err
@@ -18,8 +18,12 @@ func (t *Tx) Settings() (w.Settings, error) {
 	if value.Assignments == nil {
 		value.Assignments = map[string]map[string]string{}
 	}
-	// Legacy settings have no retention field and use the current default.
+	// Legacy settings have no retention or collaboration fields and use the
+	// current defaults without rewriting any existing task's frozen account.
 	value.RetentionDays = w.EffectiveRetentionDays(value.RetentionDays)
+	if value.CollaborationBudget.AutoContinuations == 0 {
+		value.CollaborationBudget = w.DefaultBudgetPolicy()
+	}
 	return value, nil
 }
 

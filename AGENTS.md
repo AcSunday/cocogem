@@ -1,6 +1,7 @@
 # Development rules
 
 - Product scope and acceptance criteria: `docs/product.md`.
+- For the approved redesign, read `docs/redesign.md` as the target implementation contract; `docs/context-engineering.md` is historical. Deliver and verify each migration phase before updating current behavior in `docs/product.md` and the affected rules here. Do not describe proposed or fixture-only behavior as shipped or platform-verified.
 - Use `cc-skills-golang:golang-how-to` for Go work and load applicable skills.
 - Go 1.26.9 or newer in the 1.26 line; standard library HTTP and explicit constructor injection.
 - Keep command entry points in `cmd/` and implementation in `internal/`.

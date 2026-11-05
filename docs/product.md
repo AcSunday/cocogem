@@ -2,37 +2,46 @@
 
 本文是当前产品行为、实现边界和验收标准的统一说明。功能以仓库代码为依据；自动化、安装版 CLI 协议检查与真实供应商验证分别判断，不把历史测试记录视为当前环境的保证。快速上手见 [README](../README.md)。
 
+[项目协作内核重构设计](redesign.md) 是目标架构 RFC。本文只记录当前代码已经实现的行为；领域模型、合成模型故障注入、真实 CLI/OS 探测和真实供应商任务评测分别判断，不把 RFC 目标或 fixture 通过当成实机验收。
+
 ## 定位与范围
 
-Cocogem 是面向本地单用户的多 Agent 协作工作空间。它调用本机已可用的 Claude Code、Codex、Gemini、Pi 或 OpenCode，让成员围绕同一个任务讨论、研究、分析工程或执行受控开发，并保存消息、来源、交接过程和交付物。
+Cocogem 是面向本地单用户的多 Agent 协作项目空间。它调用本机已可用的 Claude Code、Codex、Gemini、Pi 或 OpenCode，让成员围绕持久目标讨论、研究、分析数据或执行受控开发，并保存任务版本、消息、来源、协作回执、验收记录和交付物。
 
-产品以对话和交付为中心：默认展示问题、成员回复及最终成果，执行过程按需展开。用户选择成员与任务目标；平台负责身份、权限、有限计划、来源引用及状态恢复，不按 CLI 品牌推定成员能力。
+产品以项目、任务和成果为中心：默认展示问题、成员回复及最终成果，执行过程按需展开。用户选择成员与任务目标；平台负责身份、权限交集、有限计划、来源引用、根任务预算及状态恢复，不按 CLI 品牌推定成员能力。
 
-当前不提供多人账户、公网托管、任意 shell、任意扩展或跨空间自主调度。网页不是原生终端的完整替代品，不接管用户已有的交互会话。登录网页抓取、Office/PDF 资料上传和定时任务不在当前功能范围。
+当前不提供多人账户、公网托管、任意扩展或跨项目自动共享。网页不是原生终端的完整替代品，不接管用户已有的交互会话。登录网页抓取、Office 文档和 OCR 不在当前功能范围；CSV 与受限单页文本 PDF 可导入，PDF 加密、多页、对象流及复杂版式会明确拒绝。跨 adapter×OS 的通用原生 shell 隔离、自动集成/部署和定时 Schedule 尚未形成已验证执行闭环；显式 `full_access` 的本机原生命令不等同于已隔离或可完整审计，不按已有持久唤醒能力宣称自动 Schedule 已交付。
 
 ## 核心对象
 
 | 对象 | 含义 |
 | --- | --- |
-| 工作空间 Workspace | 一组会话、成员授权、共享技能及可选的本地资料/工程目录 |
+| 工作空间 Workspace | 项目边界，包含会话、成员授权、共享技能、执行模式及可选本地资料/工程目录 |
+| 任务 Task / 任务版本 TaskRevision | 跨 Run 的工作身份，以及不可变的目标、范围、验收和允许动作版本 |
+| 项目记录 ProjectRecord / 记忆 MemoryRecord | 有来源、可见性和不可变版本的有效约束、决定或派生经验 |
 | 成员 Agent | 可复用的全局档案，含稳定 ID、名称、handle、职责、能力、CLI、模型和工具允许集 |
 | 空间成员 WorkspaceMember | 将全局成员加入空间，单独保存启用状态和工具授权 |
-| 会话 Thread | 保存参与者、协调者和有序历史，最多四名参与成员 |
-| 协作 Run | 一次用户提交，冻结任务、成员配置、技能版本和执行策略 |
-| 步骤 Step / 尝试 Attempt | 步骤保存职责与依赖；每次执行尝试保存 CLI、连接、进程、用量及恢复信息 |
+| 会话 Thread | 保存参与者、协调者和有序历史，最多四名参与成员；内部任务线程默认不进侧栏 |
+| 协作 Run | 一次用户提交或自动续办，冻结任务版本、成员配置、技能版本、授权和执行策略 |
+| 步骤 Step / 尝试 Attempt | 步骤保存职责与依赖；每次执行尝试保存 CLI、连接、进程、会话、上下文及恢复信息 |
+| 执行 WorkspaceExecution / 会话 ExecutionSession | 候选目录、基线和租约，以及一次性执行会话的指纹、披露范围和撤销版本 |
+| 授权 Grant / 预算 BudgetAccount | 持久授权与撤销 epoch；根任务及其 owned descendants 共用的累计预算账本 |
+| 验收 CompletionRecord / 副作用 EffectRecord | 绑定任务版本和证据的逐项验收，以及受管理效果的实际/不确定结果 |
+| A2A 消息 / 投递回执 | 不可变任务间消息及逐目标 queued/presented/handled 等观察，不等同于验收完成 |
+| 等待 Wakeup / 补充 Inbox / 问题 Question | 持久等待条件与代际、执行边界补充和绑定具体任务版本的问题 |
 | 消息 Message | 用户输入与成员输出；长正文独立持久化，页面按需分页 |
-| 来源 Source | 已捕获的文件、网页、原生工具观察、diff 或测试证据 |
-| 产物 Artifact / 交付 Delivery | 不可覆盖的产物版本，以及成功 Run 明确交付的消息和版本引用 |
+| 来源 Source / 数据 DatasetManifest | 已捕获的原件、网页、文件、原生观察、diff、测试或分析证据及其数据集版本 |
+| 产物 Artifact / 交付 Delivery | 不可覆盖的产物版本，以及成功 Run 明确交付的消息和版本引用；包含研究图表等类型 |
 
-全局成员可用于多个空间，移除空间关系或删除空间不删除全局档案。旧成员迁移保留 ID，不因同名合并；历史消息、产物和 Run 快照不随配置编辑重写。
+全局成员可用于多个空间，移除空间关系或删除空间不删除全局档案。旧成员迁移保留 ID，不因同名合并；历史消息、产物、任务版本和 Run 快照不随配置编辑重写。Run 执行成功只说明交付成立；Task 仍需当前必需验收全部满足才能完成，报告反馈不自动等同于任务验收。
 
 ## 首次使用与日常操作
 
 1. 启动服务，首次打开网页时设置并确认本地访问密码；之后使用该密码解锁。
-2. 在「设置 → 成员」创建全局成员，选择 CLI、模型、职责、能力、工具与可选执行参数。
-3. 创建工作空间，加入成员并授予所需工具；需要文件访问时绑定一个可读的本地目录。
-4. 新建会话，选择参与者和协调者，输入任务并选择工作方式。
-5. 阅读流式回复、来源及最终交付物；可停止协作、补充问题或对报告进行人工标记。
+2. 直接输入目标。首次输入会在同一事务中创建默认「未命名项目」、会话和可编辑的默认成员档案；不要求先完成成员或项目向导。已有全局成员会复用，不从旧 Run 回填任务或验收。
+3. 一个可用 CLI 时沿用该 CLI 的 provider、endpoint、模型与凭据并建立默认成员；检测到多个 CLI 时仍给出可直接使用的默认协调者和其他默认档案，成员配置保持可选。没有可用 CLI 时保留输入草稿并显示安装/连接诊断。
+4. 研究目标不需要工程目录；第一次工程任务就地选择目录，目录授予读取意图，不隐含写入。所有新项目首次为 `controlled`，非受控模式必须由用户在项目设置中显式选择。
+5. 首次有效提交创建持久 Task 与 TaskRevision；后续补充形成不可变修订，项目首页展示需要你处理的事项、正在推进的任务和最近验收成果。阅读流式回复、来源、执行过程及最终交付物；可停止协作、补充问题或记录人工验收。
 
 成员创建与编辑不依赖当前是否存在空间，新档案不会自动加入空间。「设置 → 协作」保存默认协调者和各内置流程的角色分工；显式选择优先，默认值只从当前空间已启用且有必要权限的成员中生效，不扩大成员名单和授权。互斥角色必须由不同成员承担。已有会话和运行中的快照不被全局默认值改写。
 
@@ -50,7 +59,11 @@ Cocogem 是面向本地单用户的多 Agent 协作工作空间。它调用本�
 
 目录可通过浏览器逐层选择，也可输入绝对路径或 `~/` 路径；保存前校验并记录真实绝对路径。取消选择不改原绑定。`--allow-root` 可重复指定，限制可浏览和绑定的范围；未指定时由已解锁的本机用户选择目录。敏感目录、符号链接逃逸和不可读路径被拒绝；活跃协作期间不能更改绑定。
 
-### 会话界面
+### 项目首页与会话界面
+
+已有工作空间的默认首页是项目概览，而不是快捷场景列表。首页按持久记录展示需要你处理的问题、正在推进的任务、最近已验收成果、全部任务和有效项目记录；点击任务进入其工作对话，「新任务」创建新的会话目标。最近成果是已完成验收的任务入口，实际交付仍在会话中按 Delivery 的确切版本查看，不用最新消息时间推断成果。
+
+普通对话的首次有效提交会在同一事务中创建持久 Task 和首个 TaskRevision；同一会话继续补充目标时创建不可变修订，后续独立目标可以新建任务。内部 consultation 和 owned delegation 使用独立任务线程，但不进入普通会话侧栏。任务详情保留目标版本、等待原因、验收状态及关联执行；执行中 Inbox 在安全的执行边界生效，问题卡绑定具体任务版本，旧回答不能误答已修订的问题。
 
 侧栏提供空间切换、新建会话、标题搜索和会话菜单；菜单支持重命名、移入回收站及工作空间操作。主区显示消息和协作状态，过程摘要可展开，来源、成员、交接任务、产物与事件历史按需查看。
 
@@ -108,22 +121,26 @@ Cocogem 是面向本地单用户的多 Agent 协作工作空间。它调用本�
 
 ## 工具与执行边界
 
-有效工具取全局允许、空间授权、本轮动作和步骤角色的交集。新成员默认只获得只读工具及产物发布工具，工程写入和测试必须额外授权。派发和工具调用会检查停用、成员关系及权限撤销，不因旧快照继续越权执行。
+有效工具取全局允许、持久项目 Grant、任务动作、本轮上限和步骤角色的交集。新成员默认只获得只读工具及产物发布工具，工程写入和测试必须额外授权。派发和每次工具调用都会重新检查停用、成员关系、任务 revision 与当前授权 epoch；撤销先关闭新准入并隔离关联会话，再停止执行，无法核实时保留 `revocation_uncertain`。模式切换不重置预算，也不会让旧 Run 扩大授权。
+
+项目持久保存 `controlled / project_autonomous / full_access` 三档选择和用户来源。`project_autonomous` 因文件、秘密环境、网络、后代生命周期和 Git 元数据隔离尚无 adapter×OS 正反例实测，当前有效执行继续回退到 controlled；它记录请求模式与未强制约束，但不会获得 native_read/native_write/native_execute。显式 `full_access` 在支持的 Claude 适配器上启用任务已授权范围内的原生 Read/Write/Edit/Bash 与受管 session，并在 Run 中记录无法强制的隔离项；其他适配器仍走受控工具路径，不能据此宣称全平台完全访问。原生效果审计为 partial，不能把提示词、工具列表或工作目录隔离描述成可阻止任意本机 shell 或完整审计。
 
 | 工具 | 行为 |
 | --- | --- |
-| list_files / read_file / search_content | 在绑定目录内列出、读取及搜索文本；搜索命中只作导航线索 |
+| list_files / read_file / search_content | 在绑定目录或本次候选目录内列出、读取及搜索文本；搜索命中只作导航线索 |
 | web_search / fetch_url | 发现公共资料、读取原文并捕获来源；搜索摘要不算已读原文 |
-| read_source / read_context | 读取已授权快照，支持有界分页，不刷新原始内容 |
-| publish_artifact | 校验来源、发现状态和当前步骤的正式交付权限 |
-| write_file / patch_file | 仅显式工程开发中的开发者可用，检查路径、完整文件哈希和内容限制 |
-| run_test | 仅获授权的工程开发步骤可用，固定 Go/npm 测试命令，通过 OS 沙箱执行 |
+| read_source / read_context / read_task | 读取已授权快照和同一协作域的任务，支持有界分页，不扩大范围 |
+| publish_artifact / save_claim / save_memory / save_dataset | 校验来源、生成执行披露范围和持久对象契约；accepted/supported 不自动降低资料可见性 |
+| analyze_csv | 只分析已授权的不可变 CSV 原件，执行有界进程内统计并生成安全 SVG 图表与数据集版本，不启动 shell、网络或原文件读写 |
+| handoff_task / send_task_message / delegate_task / yield_run | 分别处理 Run 内有界交接、持久 A2A、owned 子任务及有等待条件的执行段让出 |
+| write_file / patch_file | 仅获授权的工程开发步骤可用，检查路径、完整文件哈希和内容限制 |
+| run_test | 仅获授权的工程开发步骤可用，固定 Go/npm 测试命令，通过支持的 OS 沙箱执行 |
 
 ### 原生 CLI
 
-Web 每个步骤使用新会话和隔离配置，复用本机 CLI 现有 API Key、endpoint、provider、默认模型和允许的执行配置；不继承无关 hooks、插件、外部 MCP、技能或通用工具权限。模型错误按实际原因报告，不能用要求 CLI 登录代替配置转发诊断。
+Web 默认每个步骤使用新会话和隔离配置，复用本机 CLI 现有 API Key、endpoint、provider、默认模型和允许的执行配置；不继承无关 hooks、插件、外部 MCP、技能或通用工具权限。受控执行不跨 Attempt 恢复原生会话；显式 `full_access` 仅在适配器提供可核对 resume ACK、指纹与 visibility epoch 未变化时复用后端私有 session，详见下文。模型错误按实际原因报告，不能用要求 CLI 登录代替配置转发诊断。
 
-Claude 可按有效授权启用 Read、Glob、Grep、WebSearch、WebFetch；Codex 不开放原生文件工具，原生合并联网工具要求搜索和读取授权同时存在。Gemini 的流式工具结果不提供完整可捕获正文，保持 MCP 文件/联网；Pi 关闭原生读、写、编辑及 shell，通过受限 MCP 使用宿主工具。OpenCode v2.2.5+ 使用独立临时服务，关闭原生工具及技能发现，通过同一受限 MCP 使用宿主工具；先等待 MCP 连接及工具目录刷新，再开始模型回合。Web 直接订阅独立服务的 `session.text.delta` 增量事件，约每 100 毫秒推送页面；文本块结束时校验完整正文，防止增量重复、缺失或前缀冲突，执行成功事件与有效最终步骤同时成立才算完成。
+Claude 在受控模式可按有效授权启用 Read、Glob、Grep、WebSearch、WebFetch；显式 `full_access` 且任务授权 native_write/native_execute 时再加入 Write/Edit/Bash，并以任务范围而非沙箱承诺执行。Codex 不开放原生文件工具，原生合并联网工具要求搜索和读取授权同时存在。Gemini 的流式工具结果不提供完整可捕获正文，保持 MCP 文件/联网；Pi 关闭原生读、写、编辑及 shell，通过受限 MCP 使用宿主工具。OpenCode v2.2.5+ 使用独立临时服务，关闭原生工具及技能发现，通过同一受限 MCP 使用宿主工具；先等待 MCP 连接及工具目录刷新，再开始模型回合。Web 直接订阅独立服务的 `session.text.delta` 增量事件，约每 100 毫秒推送页面；文本块结束时校验完整正文，防止增量重复、缺失或前缀冲突，执行成功事件与有效最终步骤同时成立才算完成。
 
 OpenCode 复用用户配置目录（支持 JSON/JSONC、`OPENCODE_CONFIG`、`OPENCODE_CONFIG_CONTENT` 及连接字段的环境/文件变量）、有效凭据与 `provider/model` 默认选择。Web 每步只复制连接配置和有效凭据到临时目录，不复制用户数据库、会话历史、成员提示、插件或外部 MCP。连接检查冻结实际模型、供应商与端点；`provider/model#variant` 可指定供应商支持的变体，成员思考级别按当前模型声明的 variants 动态显示，可通过 thinking_level 显式选择；选择优先于模型标识中的 #variant，不支持的值在执行前拒绝。未知模型、认证失败、截断与缺失完成结果均按失败处理。
 
@@ -132,6 +149,12 @@ Codex 内置的 MCP 资源助手不等于宿主工具授权。平台不提供资
 CLI 原生工具库存由 CLI 强制限制，解析器再核对调用和结果配对，只有匹配的结果可捕获为来源。原生网页结果是 CLI 处理后的观察，不等同于宿主抓取的原始网页；原生网络由 CLI/供应商策略约束，不承诺宿主的 URL/DNS/SSRF 校验覆盖该路径。
 
 「设置 → 服务」区分安装、版本、调用适配、隔离状态及 CLI/模型连接验证时间。版本只作诊断和已知不兼容拦截，关键协议与工具隔离须实际探测。每次尝试及重启恢复前重新检查程序路径、大小、修改时间和 inode；程序变化不能复用旧结论。无法确认隔离时阻止执行并保留检查点。
+
+### 候选执行目录与会话
+
+正式服务的工程写分支通过 SQLite 租约创建独立候选目录：Git 来源使用不共享对象硬链接的本地 clone，非 Git 来源使用有大小、文件数和敏感路径限制的副本，记录基线、树摘要、owner、lease epoch 和实际差异。过期租约或原 owner 未核实停止时拒绝接管，不以 TTL 到期证明进程已退出。目录互斥不是 OS 沙箱；候选结果只记录实际树变化，**不会自动合并、更新用户源目录、部署或证明外部副作用已核实**。
+
+宿主模型与原生 CLI 的 Task Attempt 都持久化独立 ExecutionSession，保存成员/角色/连接/执行目录/授权/上下文指纹、已暴露引用和 visibility epoch。受控执行按 fresh-only 处理：一次性 session ID 不允许跨 Attempt resume。`full_access` 下仅当适配器报告 `session_resume_ack=supported`、Run 指纹与 visibility epoch 未变化且 runner 返回匹配的原生 session 身份时，才在 Cocogem 私有目录复用同一任务/成员/角色/执行分支的 session；没有可核对的 ACK 时仍从工作记录新建，跨线程、成员或 CLI 从工作记录继续。撤销关联资料权限后旧 session 不能继续派生发布。
 
 ### 受控工程开发
 
@@ -151,15 +174,27 @@ CLI 原生工具库存由 CLI 强制限制，解析器再核对调用和结果�
 
 每个步骤只读取派发时冻结的可见范围，包括必要的共享历史和确切上游产物。未提交内容、失败消息正文、其他会话和未授权兄弟步骤的正文不能进入证据；最近失败轮次中已成功提交的回复仍可作为共享历史上下文，但不自动升级为交付或已验证结论。长消息、来源和产物支持基于确切引用的分页，模型输入预算不截断已保存的原始正文。最近失败、取消或中断的状态可作为诊断上下文，但不是研究依据。
 
+ContextManifest 保存任务版本、scope digest、渲染 digest、真实宿主输入字节数及 inline/reference 条目数，并对相同政策、范围和渲染内容生成稳定复用键；这些值描述可复用条件和实际测量，不代表供应商缓存命中或模型已理解。当前没有基于真实对照任务集的后台摘要质量/成本结论，不默认宣称压缩节省费用。
+
+### 资料、研究与披露
+
+CSV 以内容寻址原件保存，解析最多 5000 行和 32 KiB/单元格，支持行列定位。`analyze_csv` 进一步限制原件不超过 32 MiB，统计有限数值的计数、缺失、非法、最小/最大/求和/均值，图表最多绘制前 100 个数值；统计覆盖所有数据行，图表不是全量散点。数据集 manifest 记录来源、schema、处理步骤和 digest，新版本不覆盖旧结果。SVG 由前端白名单重建，不直接注入原始 SVG/HTML。
+
+文本 PDF 当前只支持恰好一页、非加密、无对象流且能提取文字的文件，保留原件和 `page:1` 定位。其他 PDF、扫描件/OCR、复杂版式和 Office 格式明确报告未支持，不能把空解析当作已读。
+
+Claim、MemoryRecord、ProjectRecord、DatasetManifest、Artifact 与 A2A 正文继承显式证据和生成 Attempt 的全部可证明暴露范围。没有 refs 的改写不是“干净房间”证明；私密派生资料跨 Task、跨协作域或跨角色发布会被拒绝。`handled` 回执只表示有关联回答或处置，不是 Task completed；跨独立根任务的答疑创建请求方预算下的内部 consultation，不重开原任务。
+
 成功 Run 在同一事务中记录最终消息 ID 和确切 `产物ID@版本号`。会话的正式产物列表以该交付记录为准，不按最后时间戳或最新版本猜测。中间草稿保留为可追溯历史；旧记录没有 Delivery 时不推断、不回填，保留原有终态产物可见性。
 
-产物类型包括 note、research_report、code_analysis、engineering_report。发现需要相应来源、状态和限制；人工反馈独立保存，不改模型原始正文。导出支持 Markdown 和 JSON，内容对应所选确切版本。
+产物类型包括 note、research_report、code_analysis、engineering_report、data_chart。发现需要相应来源、状态和限制；人工反馈独立保存，不改模型原始正文。导出支持 Markdown 和 JSON，内容对应所选确切版本。
 
 ## 状态、长任务与恢复
 
-Run 可处于 queued、running、succeeded、failed、canceled、interrupted。页面显示排队、执行中、等待工具/上游、停滞告警、失败及待继续等可读状态；协议通知和心跳不自动算作有效进展。
+Run 可处于 queued、running、succeeded、failed、canceled、interrupted，以及新 Task 执行段使用的 yielded。yielded 保存 continuation、等待谓词和已知 effect 状态后释放执行约束，不是成功交付；唤醒创建关联 `continued_from_run_id` 的新 Run。等待登记与当前事实原子核对，事件先到可补配，重复事件、旧 wait generation 和旧 lease 不能推进新任务，重启会扫描未决条件。桌面服务关闭时不执行唤醒，定时 Schedule 尚未提供。
 
-当前使用有界并发调度处理独立会话的 Run，默认最多同时执行 4 个，可用 `COCOGEM_MAX_PARALLEL_RUNS` 调整为 1–16；同一会话最多一个活跃 Run，因此会话内保持串行，同一计划中独立步骤仍可并行。默认不设 Run 或步骤累计时长上限，不保证长任务费用和存储有总额上限；可以通过环境变量启用期限。默认等待首个有效响应 10 分钟、无有效进展 15 分钟后告警；默认 warn 只报告，选择 stop 才终止停滞步骤。0 关闭对应检测，非法或负数配置拒绝启动。
+当前使用有界并发调度处理独立任务的 Run，默认服务最多同时执行 4 个，可用 `COCOGEM_MAX_PARALLEL_RUNS` 调整为 1–16；同一 Task、同一 Thread 各最多一个活跃 Run，独立任务和 Run 内独立步骤可并行。默认不设 Run 或步骤累计时长上限，不保证供应商 token、费用和存储有硬上限；可以通过环境变量启用期限。默认等待首个有效响应 10 分钟、无有效进展 15 分钟后告警；默认 warn 只报告，选择 stop 才终止停滞步骤。0 关闭对应检测，非法或负数配置拒绝启动。
+
+根任务及 owned descendants、修订、重试和 consultation 共用一个预算账户。全局默认及项目覆盖为自动续办 20 次、并行分支 4、写分支 2、同问题修复 3 轮、连续无进展失败 2 次；支持任务级版本化调整、持久 reservation、并发准入和有限修复。额度耗尽、预算下调和暂停只阻止相应新准入，不伪造完成，也不靠增加预算复活暂停/取消树。当前账本覆盖 Run、Run 内 Step 和 owned 子 Task；独立后台作业及逃逸后代没有可靠持久计数，不宣称完整并发、副作用审计或硬 token/美元上限。
 
 网络、限流和供应商暂态错误最多自动重试 3 次，即最多 4 次尝试，使用有上限的退避；认证、未知错误、用户取消、期限、结果不确定或已提交交接不能盲目重放。失败尝试和重试原因独立持久化。
 
@@ -201,7 +236,7 @@ make build
 | BRAVE_SEARCH_API_KEY | 可选，仅用于 Brave 在线搜索，无关模型连接 |
 | COCOGEM_WEB_PROXY | 默认直连；env 使用代理环境变量，system 读取 macOS 系统代理，也可指定 HTTP/HTTPS/SOCKS5 地址 |
 | COCOGEM_RUN_TIMEOUT / COCOGEM_STEP_TIMEOUT | 0，关闭累计期限；支持 Go duration，如 2h |
-| COCOGEM_MAX_PARALLEL_RUNS | 4；同时执行的独立会话 Run 数，范围 1–16 |
+| COCOGEM_MAX_PARALLEL_RUNS | 4；同时执行的独立 Run 数，范围 1–16；同一 Task 和 Thread 仍各自串行 |
 | COCOGEM_HISTORY_MESSAGES | 128；默认共享历史消息条数，范围 1–1000 |
 | COCOGEM_HISTORY_TOKENS | 64000；默认共享历史估算 token 预算，范围 1024–2000000 |
 | COCOGEM_FIRST_RESPONSE_TIMEOUT | 10m；0 关闭首响应检测 |
@@ -248,6 +283,9 @@ internal/
   agent/           内部执行接口与工具循环
   model/           内部模型协议
   workflow/        路由、计划、交接、调度、交付与恢复
+  project/         持久任务、授权、预算、资料、A2A 与唤醒领域服务
+  execution/       候选目录、执行租约、基线与实际树差异
+  contextplan/     上下文清单、预算、分页读取与复用摘要
   workspace/       领域对象、校验和不变式
   store/           SQLite、事务、正文存储与迁移
   tools/           文件、网页、工程写入与沙箱测试
@@ -279,7 +317,12 @@ examples/          可公开的样例资料
 | 服务与配置 | system、system/verify、system/model-options、directories、settings、auth/logout |
 | 空间与成员 | workspaces、agents、workspaces/{id}/members/{agentID} |
 | 会话与清理 | threads/{id}、trash、threads/{id}/restore、threads/{id}/permanent |
-| 路由与运行 | threads/{id}/routing-preview、threads/{id}/runs、runs/{id}、cancel、resume、retry |
+| 项目与任务 | workspaces/{id}/overview、workspaces/{id}/tasks、tasks/{id}、revisions、dependencies、completions、actions、records |
+| 补充与问题 | tasks/{id}/inbox、tasks/{id}/questions、questions/{questionID}/answers |
+| 预算与授权 | tasks/{id}/budget、workspaces/{id}/budget-policy、execution-policy、grants、grants/{memberID}/revoke |
+| A2A 与唤醒 | tasks/{id}/messages、collaboration-messages/{id}、delegations、handoffs、wakeups、wake-events |
+| 资料与记忆 | tasks/{id}/claims、datasets、workspaces/{id}/memories、executions/{id}、effects/{id} |
+| 路由与运行 | threads/{id}/routing-preview、threads/{id}/runs、runs/{id}、context、cancel、resume、retry |
 | 输出与历史 | runs/{id}/events（SSE）、event-history、messages/{messageID}/content |
 | 来源与产物 | sources/{id}、threads/{id}/artifacts、artifacts/{id}/versions/{version} 及 export |
 
@@ -295,6 +338,7 @@ GitHub Actions 在 push 与 Pull Request 时只运行 test 任务：保留 Go �
 | make check-contract | 重新生成 OpenAPI 和前端类型，检查漂移 |
 | make build | 前端生产包及两个 Go 可执行文件 |
 | make e2e | 构建、正式服务 HTTP smoke、持久化/备份恢复及隔离浏览器流程 |
+| make verify-redesign | 使用真实开发服务验证首问开箱、持久任务、Inbox 补充、任务预算与项目覆盖不回溯改写既有任务 |
 | make probe-cli | 已安装 CLI 对本地假模型和 scoped MCP 的实际协议检查 |
 | make probe-isolation | 已安装 CLI 的生产隔离能力检查 |
 | make security | 已跟踪文件的凭据检查、Go 可达漏洞扫描及 npm 生产依赖审计 |

@@ -426,7 +426,7 @@ func evidenceGap(latestDiff map[string]w.Source, successfulTests []w.Source, a w
 		if !slices.Contains(a.SourceIDs, source.ID) {
 			return fmt.Errorf("engineering_report must cite the latest diff for %s (source %s)", path, source.ID)
 		}
-		current, err := tools.CurrentSHA256(run.Workspace.Root, path)
+		current, err := tools.CurrentSHA256(run.ProjectRoot(), path)
 		if err != nil || current != source.SHA256 {
 			return fmt.Errorf("diff evidence for %s no longer matches the current file; re-read and revalidate before delivery", path)
 		}
@@ -442,7 +442,7 @@ func evidenceGap(latestDiff map[string]w.Source, successfulTests []w.Source, a w
 			continue
 		}
 		if !digestChecked {
-			currentDigest, _ = tools.WorkspaceDigest(run.Workspace.Root)
+			currentDigest, _ = tools.WorkspaceDigest(run.ProjectRoot())
 			digestChecked = true
 		}
 		if currentDigest != "" && currentDigest == source.SHA256 {

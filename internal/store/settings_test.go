@@ -28,6 +28,7 @@ func TestSettingsPersistAcrossReopen(t *testing.T) {
 		DefaultCoordinatorID: "agent-a",
 		Assignments:          map[string]map[string]string{"research": {"researcher": "agent-a", "critic": "agent-b", "coordinator": "agent-c"}},
 		RetentionDays:        w.DefaultRetentionDays,
+		CollaborationBudget:  w.DefaultBudgetPolicy(),
 	}
 	if err := s.Write(t.Context(), func(tx *Tx) error { return tx.SaveSettings(want) }); err != nil {
 		t.Fatal(err)

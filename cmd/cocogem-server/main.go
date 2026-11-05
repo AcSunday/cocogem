@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
+	"github.com/AcSunday/cocogem/internal/execution"
 	"github.com/AcSunday/cocogem/internal/httpapi"
 	"github.com/AcSunday/cocogem/internal/nativecli"
 	"github.com/AcSunday/cocogem/internal/store"
@@ -251,7 +252,7 @@ func run() error {
 	defer db.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	engine := &workflow.Engine{Store: db, AllowedRoots: roots, AllowedModels: models, Model: native, Runners: runners, Fallback: native, Adapters: native, Limits: limits, History: historyLimits, MaxParallelRuns: parallelRuns, Web: web, NativeProxy: web.ProxyURL()}
+	engine := &workflow.Engine{Store: db, Executions: execution.New(db, filepath.Join(dataDir, "executions"), ""), NativeSessionRoot: filepath.Join(dataDir, "native-sessions"), AllowedRoots: roots, AllowedModels: models, Model: native, Runners: runners, Fallback: native, Adapters: native, Limits: limits, History: historyLimits, MaxParallelRuns: parallelRuns, Web: web, NativeProxy: web.ProxyURL()}
 	server, err := httpapi.New(httpapi.Config{Host: *listen, AuthFile: filepath.Join(dataDir, "auth.json"), WebDir: *webDir, Models: models, Roots: roots, ModelConfigured: configured, SearchConfigured: web.SearchEnabled(), SearchProvider: web.SearchProvider(), Model: native, Executors: executors, Discover: discover, Limits: limitSeconds(limits)}, db, engine)
 	if err != nil {
 		return err

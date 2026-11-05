@@ -22,6 +22,25 @@ export type RunView = components["schemas"]["RunView"];
 export type MessageContentPage = components["schemas"]["MessageContentPage"];
 export type EventPage = components["schemas"]["EventPage"];
 export type DirectoryListing = components["schemas"]["DirectoryListing"];
+export type ProjectOverview = components["schemas"]["Overview"];
+export type ProjectTaskView = components["schemas"]["TaskView"];
+export type ProjectRecord = components["schemas"]["ProjectRecord"];
+export type BudgetPolicy = components["schemas"]["BudgetPolicy"];
+export type BudgetAccount = components["schemas"]["BudgetAccount"];
+export type BudgetPolicyOverride = components["schemas"]["BudgetPolicyOverride"];
+export type BootstrapInput = components["schemas"]["BootstrapInput"];
+export type BootstrapReply = components["schemas"]["BootstrapReply"];
+export type InboxItem = components["schemas"]["InboxItem"];
+export type ProjectTask = components["schemas"]["Task"];
+export type TaskRevision = components["schemas"]["TaskRevision"];
+export type Question = components["schemas"]["Question"];
+export type CompletionRecord = components["schemas"]["CompletionRecord"];
+export type CriterionResult = components["schemas"]["CriterionResult"];
+export type Grant = components["schemas"]["Grant"];
+export type Claim = components["schemas"]["Claim"];
+export type DatasetManifest = components["schemas"]["DatasetManifest"];
+export type CollaborationMessage = components["schemas"]["CollaborationMessage"];
+export type Wakeup = components["schemas"]["Wakeup"];
 
 /** The browser keeps a bounded activity window; older history is paged on demand. */
 export const EVENT_WINDOW = 500;

@@ -198,8 +198,18 @@ func browserStreamWait(ctx context.Context, delay time.Duration) error {
 	}
 }
 
+// browserOriginalTaskHasPrefix recognizes the explicit user-task field after
+// the host's frozen context brief, without matching a source or member profile.
+func browserOriginalTaskHasPrefix(request model.Request, prefix string) bool {
+	if len(request.Messages) == 0 || len(request.Messages[0].Content) == 0 {
+		return false
+	}
+	input := request.Messages[0].Content[0].Text
+	return strings.HasPrefix(input, prefix) || strings.Contains(input, "\n"+prefix)
+}
+
 func TestBrowserStreamingFixturePacesParts(t *testing.T) {
-	request := model.Request{Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Original user task:\n流式界面验收：给前端做确定性流式断言。"}}}}}
+	request := model.Request{Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Frozen accepted task context:\n{\"task\":\"流式界面验收\"}\nOriginal user task:\n流式界面验收：给前端做确定性流式断言。"}}}}}
 	parts := []string{}
 	emittedAt := []time.Time{}
 	response, err := browserModel{}.Complete(context.Background(), request, func(text string) error {
@@ -222,14 +232,14 @@ func TestBrowserStreamingFixturePacesParts(t *testing.T) {
 }
 
 func (m browserModel) Complete(ctx context.Context, request model.Request, emit func(string) error) (model.Response, error) {
-	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && strings.HasPrefix(request.Messages[0].Content[0].Text, browserStreamMarker) {
+	if browserOriginalTaskHasPrefix(request, browserStreamMarker) {
 		return browserStreaming(ctx, emit)
 	}
-	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && strings.HasPrefix(request.Messages[0].Content[0].Text, "Original user task:\n等待取消：") {
+	if browserOriginalTaskHasPrefix(request, "Original user task:\n等待取消：") {
 		<-ctx.Done()
 		return model.Response{}, ctx.Err()
 	}
-	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && strings.Contains(request.Messages[0].Content[0].Text, "Original user task:\n动态协作验收：") {
+	if browserOriginalTaskHasPrefix(request, "Original user task:\n动态协作验收：") {
 		return browserCollaboration(request, emit)
 	}
 	return m.Model.Complete(ctx, request, emit)

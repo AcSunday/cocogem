@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,15 +21,17 @@ type adapterSpec struct {
 	adapter      string
 	minVersion   [3]int
 	flags        []string
+	resumeFlags  []string
 	capabilities []string
 }
 
 // Version is diagnostic evidence and a minimum known-incompatible guard, never a whitelist.
 var adapters = map[string]adapterSpec{
-	"opencode": {name: "opencode", adapter: "opencode-server-events", minVersion: [3]int{2, 2, 5}, flags: []string{"--format", "--model", "--agent", "--standalone"}, capabilities: []string{"event_stream", "scoped_mcp", "tool_allowlist", "model_variants"}},
+	"opencode": {name: "opencode", adapter: "opencode-server-events", minVersion: [3]int{2, 2, 5}, flags: []string{"--format", "--model", "--agent", "--standalone"}, resumeFlags: []string{"--session"}, capabilities: []string{"event_stream", "scoped_mcp", "tool_allowlist", "model_variants"}},
 	"claude": {
 		name: "claude", adapter: "claude-stream-json", minVersion: [3]int{2, 0, 0},
 		flags:        []string{"--restricted", "--tools", "--strict-mcp-config", "--setting-sources", "--permission-prompts", "--no-session-persistence", "--settings", "--disable-slash-commands"},
+		resumeFlags:  []string{"--resume"},
 		capabilities: []string{"stream_json", "scoped_mcp", "ephemeral_session", "tool_allowlist"},
 	},
 	"codex": {
@@ -120,6 +123,23 @@ func check(ctx context.Context, id string, command func(string, ...string) *exec
 	info.Supported = true
 	info.Isolation = "candidate"
 	info.Capabilities = append([]string{}, spec.capabilities...)
+	resumeSupported := len(spec.resumeFlags) != 0
+	for _, flag := range spec.resumeFlags {
+		resumeSupported = resumeSupported && strings.Contains(help, flag)
+	}
+	if resumeSupported {
+		info.Capabilities = append(info.Capabilities, "managed_session", "session_resume_ack=supported")
+	}
+	info.Capabilities = append(info.Capabilities,
+		"os="+runtime.GOOS,
+		"file_isolation=unknown", "secret_environment_isolation=unknown",
+		"network_isolation=unknown", "descendant_lifecycle=unknown",
+		"detached_descendant_lifecycle=unknown", "background_job_budget_accounting=unknown",
+		"native_effect_audit=partial", "git_metadata_isolation=unknown",
+	)
+	if !resumeSupported {
+		info.Capabilities = append(info.Capabilities, "session_resume_ack=unknown")
+	}
 	return info, nil
 }
 

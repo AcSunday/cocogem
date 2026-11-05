@@ -171,6 +171,13 @@ it("clears an unavailable member instead of saving the stale id", async () => {
   expect(saveSettings).toHaveBeenCalledWith({
     default_coordinator_id: "",
     assignments: { research: { critic: "one" } },
+    collaboration_budget: {
+      auto_continuations: 20,
+      parallel_branches: 4,
+      writer_branches: 2,
+      fix_rounds: 3,
+      no_progress_failures: 2,
+    },
   });
 });
 

@@ -161,7 +161,14 @@ func (p *claudeParser) handleSystem(event claudeEvent, errorCode string) error {
 	if err := p.gate.requireTools(); err != nil {
 		return err
 	}
-	return p.gate.emit("native_session", map[string]any{"executor": "claude", "session_id": p.sessionID, "mode": "fresh", "cwd": "isolated"})
+	if p.gate.sessionMode == "resume" && p.sessionID != p.gate.sessionID {
+		return newFailure(FailureProtocol, "native CLI resumed a different session identity")
+	}
+	mode := "fresh"
+	if p.gate.sessionMode == "resume" {
+		mode = "resume"
+	}
+	return p.gate.emit("native_session", map[string]any{"executor": "claude", "session_id": p.sessionID, "mode": mode, "cwd": "scoped"})
 }
 
 func (p *claudeParser) handleAssistant(event claudeEvent, errorCode string) error {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/skills"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
@@ -167,8 +168,20 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if (p.Routing.Workflow == "code_analysis" || p.Routing.Workflow == "engineering") && ws.Root == "" {
 			return errors.New("代码分析与工程协作需要绑定允许的资料目录")
 		}
-		if len(in.SourceURLs) > 10 || len(in.ArtifactRefs) > 5 {
+		if len(in.SourceURLs) > 10 || len(in.ArtifactRefs) > 5 || len(in.SourceIDs) > 5 {
 			return errors.New("资料引用过多")
+		}
+		if err := validateSourceSelection(in.SourceIDs); err != nil {
+			return err
+		}
+		for _, id := range in.SourceIDs {
+			imported, err := tx.SourceImport(id)
+			if err != nil || imported.ThreadID != th.ID || imported.WorkspaceID != ws.ID {
+				return &RequestError{400, "invalid_source", "上传资料不属于当前会话"}
+			}
+			if imported.ParseStatus != "parsed" || imported.Content == "" {
+				return &RequestError{400, "source_not_parsed", "解析失败的资料不能进入任务，请查看失败原因或删除后重试"}
+			}
 		}
 		for _, u := range in.SourceURLs {
 			if _, err := tools.ValidateURL(u); err != nil {
@@ -211,7 +224,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		// A new run is explicitly under the delivery contract from acceptance,
 		// so a queued cancellation or early failure never looks like legacy
 		// history that exposes drafts. Only a successful finish fills it.
-		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: p.Routing, ExecutionPolicy: policy, Status: "queued", CreatedAt: w.Now(), CoordinatorID: th.CoordinatorID, SkillVersions: map[string]string{}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
+		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: p.Routing, ExecutionPolicy: policy, Status: "queued", CreatedAt: w.Now(), CoordinatorID: th.CoordinatorID, SkillVersions: map[string]string{}, WriteBranch: in.EngineeringAction == w.EngineeringDevelop, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
 		for _, skill := range skills.List() {
 			if ws.SkillIDs == nil || slices.Contains(ws.SkillIDs, skill.ID) {
 				run.SkillVersions[skill.ID] = skill.Version
@@ -255,10 +268,37 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if err := tx.SaveThread(th); err != nil {
 			return err
 		}
+		messageID := w.NewID()
+		task, err := s.projects.EnsureThreadTask(tx, th, in, messageID, run.ID)
+		if err != nil {
+			return err
+		}
+		th.TaskID = task.Task.ID
+		run.TaskID = task.Task.ID
+		run.TaskRevision = task.Task.CurrentRevision
+		run.PolicyVersion = 1
+		run.BudgetAccountID = task.Budget.ID
+		if err := s.projects.EnsureRunAuthorization(tx, &run, task.Revision.SourceMessageID); err != nil {
+			return err
+		}
+		// The Source foreign key needs the Run row, while the startup manifest
+		// must already include the Source. Publish and bind in this transaction.
 		if err := tx.InsertRun(run, key, hash); err != nil {
 			return err
 		}
-		message := w.Message{ID: w.NewID(), ThreadID: th.ID, RunID: run.ID, Role: "user", Content: in.Message, Status: "completed", CreatedAt: w.Now(), AgentName: "你"}
+		if err := tx.PublishSourceImports(run, in.SourceIDs); err != nil {
+			return err
+		}
+		manifest, err := s.projects.PrepareContextInTx(tx, task.Task.ID, task.Task.CurrentRevision, project.ContextHostInput(run))
+		if err != nil {
+			return err
+		}
+		run.ContextRef = manifest.ID
+		run.InputDigest = project.ContextInputDigest(task, manifest, messageID, in)
+		if err := tx.SaveRun(run); err != nil {
+			return err
+		}
+		message := w.Message{ID: messageID, ThreadID: th.ID, RunID: run.ID, Role: "user", Content: in.Message, Status: "completed", CreatedAt: w.Now(), AgentName: "你"}
 		if err := tx.SaveMessage(message); err != nil {
 			return err
 		}
@@ -311,6 +351,33 @@ func (s *Server) run(rw http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	respond(rw, r, RunView{Run: run, Steps: steps, Attempts: attempts, Cursor: cursor}, err)
+}
+
+func (s *Server) runContext(rw http.ResponseWriter, r *http.Request) {
+	var view ContextView
+	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+		run, err := visibleRun(tx, r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		if run.ContextRef == "" {
+			return &RequestError{404, "context_unavailable", "该历史执行段没有项目上下文清单"}
+		}
+		view.Manifest, err = tx.ContextManifest(run.ContextRef)
+		if err != nil {
+			return err
+		}
+		if view.Manifest.TaskID != run.TaskID || view.Manifest.TaskRevision != run.TaskRevision {
+			return w.ErrConflict
+		}
+		view.Appended, err = tx.ContextScopeEntries(run.ContextRef)
+		if err != nil {
+			return err
+		}
+		view.Receipts, err = tx.ReadReceipts(run.ContextRef)
+		return err
+	})
+	respond(rw, r, view, err)
 }
 
 func (s *Server) cancel(rw http.ResponseWriter, r *http.Request) {

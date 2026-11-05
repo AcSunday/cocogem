@@ -49,7 +49,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(
     page.getByRole("heading", { name: "把问题交给一个团队。" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "创建第一个工作空间" }).click();
+  await page.getByRole("button", { name: "高级：手动创建项目" }).click();
   await page.getByLabel("名称", { exact: true }).fill("猫猫研究室");
   const directory = page.getByRole("combobox", {
     name: "本地资料目录",
@@ -190,16 +190,15 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await expect(memberInput).toHaveValue("成员入口草稿");
   await memberInput.fill("");
-  await page
-    .getByRole("button", { name: "做一次研究协作", exact: false })
-    .click();
   const messageInput = page.getByLabel("输入问题");
+  await selectOption(page.getByLabel("工作方式", { exact: true }), "research");
   await messageInput.fill(
-    `${await messageInput.inputValue()}\n${[
+    [
+      "研究多 Agent 协作的适用场景，说明证据和限制。",
       "https://example.org/cocogem/research",
       "https://example.org/cocogem/limits",
       "https://example.org/cocogem/cases",
-    ].join("\n")}`,
+    ].join("\n"),
   );
   await expect(page.getByLabel("资料链接")).toHaveCount(0);
   await expect(page.getByLabel("研究范围")).toHaveCount(0);

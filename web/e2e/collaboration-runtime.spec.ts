@@ -33,7 +33,7 @@ test("browser, server and scheduler execute research, independent review and res
     .getByLabel("确认密码", { exact: true })
     .fill("runtime-browser-password");
   await page.getByRole("button", { name: "设置密码并进入" }).click();
-  await page.getByRole("button", { name: "创建第一个工作空间" }).click();
+  await page.getByRole("button", { name: "高级：手动创建项目" }).click();
   await page.getByLabel("名称", { exact: true }).fill("动态编排验收空间");
   await page.getByRole("checkbox", { name: /结果汇总/ }).uncheck();
   await page.getByRole("button", { name: "保存工作空间" }).click();

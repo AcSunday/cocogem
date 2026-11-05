@@ -48,14 +48,14 @@ export function Welcome({
       <div className={cx("welcome")}>
         <h1>把问题交给一个团队。</h1>
         <div className={cx("onboarding")}>
-          <p>Cocogem 让几位成员分工研究、互相质疑，再汇总成有来源的结论。</p>
+          <p>直接在下方描述目标。首次发送会创建“未命名项目”和可用成员，无需先填写项目表单。</p>
           <ol>
-            <li>创建工作空间，选择可以跨空间复用的成员</li>
-            <li>选择讨论、研究协作或工程协作，提出问题</li>
-            <li>查看过程、来源和报告，继续追问</li>
+            <li>选择讨论、研究协作或工程协作，提出第一个问题</li>
+            <li>在任务页跟踪目标、补充、来源和验证</li>
+            <li>选择确切成果与证据，单独记录验收</li>
           </ol>
-          <button className={cx("primary")} onClick={onCreate}>
-            <Icon name="plus" /> 创建第一个工作空间
+          <button className={cx("ghost")} onClick={onCreate}>
+            <Icon name="plus" /> 高级：手动创建项目
           </button>
         </div>
       </div>

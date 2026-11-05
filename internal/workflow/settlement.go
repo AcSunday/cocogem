@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
@@ -161,6 +162,46 @@ func (e *Engine) finish(parent context.Context, run w.Run, status string, cause 
 				current.Delivery = delivery
 				current.Method = settledMethod(current, steps)
 			}
+		}
+		if current.CollaborationMessageID != "" {
+			receipts, err := tx.Receipts(current.CollaborationMessageID)
+			if err != nil {
+				return err
+			}
+			for _, receipt := range receipts {
+				if receipt.Status == "handled" || receipt.Status == "rejected" {
+					continue
+				}
+				receipt.Status = "rejected"
+				receipt.ResponseRef = current.ID
+				receipt.Detail = "linked_response"
+				if status == "succeeded" {
+					if current.Delivery != nil && len(current.Delivery.MessageIDs) > 0 {
+						receipt.ResponseRef = current.Delivery.MessageIDs[0]
+					} else if current.Delivery != nil && len(current.Delivery.ArtifactRefs) > 0 {
+						ref := current.Delivery.ArtifactRefs[0]
+						receipt.ResponseRef = fmt.Sprintf("artifact:%s@%d", ref.ID, ref.Version)
+					}
+					if err := project.New(e.Store).ValidateConsultationResponse(tx, current, receipt.ResponseRef); err != nil {
+						status = "failed"
+						current.Status = "failed"
+						current.FailureKind = failureArtifactContract
+						current.Error = err.Error()
+						current.Delivery = &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}
+						receipt.Detail = "disclosure_denied"
+					} else {
+						receipt.Status = "handled"
+					}
+				}
+				receipt.Attempt++
+				receipt.UpdatedAt = w.Now()
+				if err := tx.SaveReceipt(receipt); err != nil {
+					return err
+				}
+			}
+		}
+		if err := project.New(e.Store).RecordRunProgress(tx, &current, status); err != nil {
+			return err
 		}
 		if err := tx.SaveRun(current); err != nil {
 			return err

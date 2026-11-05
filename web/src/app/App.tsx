@@ -13,6 +13,7 @@ import {
   type Agent,
   type Artifact,
   type Attempt,
+  type BootstrapReply,
   type Event,
   type Routing,
   type Run,
@@ -37,6 +38,8 @@ import {
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
 import { RunSegment } from "../components/RunSegment";
+import { ProjectOverview } from "../components/ProjectOverview";
+import { TaskDetail } from "../components/TaskDetail";
 import { Sidebar } from "../components/Sidebar";
 import { Welcome } from "../components/Welcome";
 import {
@@ -69,8 +72,14 @@ import panels from "../styles/panels.module.css";
 const cx = scoped(base, controls, layout, conversation, panels);
 
 const pathSelection = () => {
-  const match = location.pathname.match(/^\/w\/([^/]+)(?:\/t\/([^/]+))?/);
-  return { workspace: match?.[1] ?? "", thread: match?.[2] ?? "" };
+  const match = location.pathname.match(
+    /^\/w\/([^/]+)(?:\/(t|tasks)\/([^/]+))?/,
+  );
+  return {
+    workspace: match?.[1] ?? "",
+    thread: match?.[2] === "t" ? (match?.[3] ?? "") : "",
+    task: match?.[2] === "tasks" ? (match?.[3] ?? "") : "",
+  };
 };
 
 export function App() {
@@ -164,6 +173,7 @@ function WorkspaceApp({
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceID, setWorkspaceID] = useState(pathSelection().workspace);
   const [threadID, setThreadID] = useState(pathSelection().thread);
+  const [taskID, setTaskID] = useState(pathSelection().task);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [globalAgents, setGlobalAgents] = useState<Agent[]>([]);
   const [settings, setSettings] = useState<Settings>();
@@ -211,6 +221,7 @@ function WorkspaceApp({
   const [connection, setConnection] = useState("");
   const [newMessages, setNewMessages] = useState(false);
   const [pendingRequest, setPendingRequest] = useState(false);
+  const [steeringReceipt, setSteeringReceipt] = useState("");
   const [navOpen, setNavOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [inspectedRunID, setInspectedRunID] = useState("");
@@ -239,6 +250,7 @@ function WorkspaceApp({
   const pendingSubmission = useRef(
     new Map<string, { input: RunInput; key: string; threadID: string }>(),
   );
+  const bootstrapKeys = useRef<Record<string, string>>({});
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const runs = view?.runs ?? [];
   const currentRun = runs.at(-1);
@@ -301,8 +313,9 @@ function WorkspaceApp({
   const updateDraft = (value: string) =>
     setDrafts((current) => ({ ...current, [draftKey]: value }));
 
-  const navigate = useCallback((ws: string, th = "", push = true) => {
+  const navigate = useCallback((ws: string, th = "", push = true, task = "") => {
     setPendingRequest(pendingSubmission.current.has(th));
+    setSteeringReceipt("");
     setNavOpen(false);
     setPanelOpen(false);
     currentThread.current = th;
@@ -310,6 +323,7 @@ function WorkspaceApp({
     refreshGeneration.current++;
     setWorkspaceID(ws);
     setThreadID(th);
+    setTaskID(task);
     setView(undefined);
     setEvents([]);
     setLivenessByRun({});
@@ -335,7 +349,11 @@ function WorkspaceApp({
     snapshotSeq.current = {};
     messageWatermark.current = {};
     if (push)
-      history.pushState({}, "", ws ? `/w/${ws}${th ? `/t/${th}` : ""}` : "/");
+      history.pushState(
+        {},
+        "",
+        ws ? `/w/${ws}${task ? `/tasks/${task}` : th ? `/t/${th}` : ""}` : "/",
+      );
   }, []);
   const loadSpaces = useCallback(async () => {
     const result = await api<{ items: Workspace[] }>("/api/v1/workspaces");
@@ -468,7 +486,7 @@ function WorkspaceApp({
   useEffect(() => {
     const pop = () => {
       const next = pathSelection();
-      navigate(next.workspace, next.thread, false);
+      navigate(next.workspace, next.thread, false, next.task);
     };
     addEventListener("popstate", pop);
     return () => removeEventListener("popstate", pop);
@@ -814,19 +832,42 @@ function WorkspaceApp({
   }, [view?.messages.items, stepsByRun]);
 
   async function createThread(text: string) {
-    if (!workspaceID || available.length < 1)
-      throw new Error("请先创建工作空间和可用成员");
-    const thread = await api<Thread>(
-      `/api/v1/workspaces/${workspaceID}/threads`,
-      "POST",
-      {
-        title: threadTitle(text),
-        // The server applies the global default coordinator when omitted.
-        agent_ids: newThreadMembers.slice(0, 10).map((agent) => agent.id),
-        workflow,
-      },
-    );
+    let thread: Thread;
+    if (!workspaceID || available.length < 1) {
+      const key =
+        bootstrapKeys.current[draftKey] ??
+        (bootstrapKeys.current[draftKey] = crypto.randomUUID());
+      const bootstrapped = await api<BootstrapReply>(
+        "/api/v1/bootstrap",
+        "POST",
+        { workspace_id: workspaceID, title: threadTitle(text), workflow },
+        { "Idempotency-Key": key },
+      );
+      thread = bootstrapped.thread;
+      currentWorkspace.current = bootstrapped.workspace.id;
+      setWorkspaceID(bootstrapped.workspace.id);
+      setWorkspaces((current) => [
+        ...current.filter((item) => item.id !== bootstrapped.workspace.id),
+        bootstrapped.workspace,
+      ]);
+      setAgents(bootstrapped.agents ?? []);
+      setGlobalAgents((current) =>
+        mergeByID(current, bootstrapped.agents ?? [], (_old, next) => next),
+      );
+    } else {
+      thread = await api<Thread>(
+        `/api/v1/workspaces/${workspaceID}/threads`,
+        "POST",
+        {
+          title: threadTitle(text),
+          // The server applies the global default coordinator when omitted.
+          agent_ids: newThreadMembers.slice(0, 10).map((agent) => agent.id),
+          workflow,
+        },
+      );
+    }
     currentThread.current = thread.id;
+    setTaskID("");
     setWorkflowChoices((current) => ({ ...current, [thread.id]: workflow }));
     setEngineeringActionChoices((current) => ({
       ...current,
@@ -837,18 +878,42 @@ function WorkspaceApp({
       [thread.id]: current[`new:${workspaceID}`] ?? text,
     }));
     setThreadID(thread.id);
-    history.pushState({}, "", `/w/${workspaceID}/t/${thread.id}`);
-    await loadThreads(workspaceID);
+    history.pushState({}, "", `/w/${thread.workspace_id}/t/${thread.id}`);
+    await loadThreads(thread.workspace_id);
     return thread.id;
   }
   async function send(inputOverride?: RunInput) {
-    if (busy || active) return;
+    if (busy) return;
     setBusy(true);
     setError("");
     setRouting(undefined);
+    setSteeringReceipt("");
     try {
       const text = inputOverride?.message ?? draft;
       if (!text.trim()) throw new Error("请输入问题");
+      // Only the very first question bootstraps a project. Sending from an
+      // existing project's composer stays in its conversation; the durable
+      // task page remains one click away instead of hiding the run.
+      const firstProjectQuestion = !workspaceID;
+      if (active) {
+        if (!currentRun?.task_id)
+          throw new Error("这次旧版执行尚未关联持久任务，请完成后再补充。");
+        const key = crypto.randomUUID();
+        await api(`/api/v1/tasks/${currentRun.task_id}/inbox`, "POST", {
+          source_message_id: crypto.randomUUID(),
+          expected_revision: currentRun.task_revision,
+          kind: "supplement",
+          body: text,
+          application_policy: "next_boundary",
+          idempotency_key: key,
+        });
+        setSteeringReceipt("已收到，待在下一个执行边界应用。");
+        setDrafts((current) => ({
+          ...current,
+          [draftKey]: current[draftKey] === text ? "" : current[draftKey],
+        }));
+        return;
+      }
       const id = threadID || (await createThread(text));
       let input: RunInput = inputOverride
         ? structuredClone(inputOverride)
@@ -859,6 +924,7 @@ function WorkspaceApp({
             // The server resolves global/session defaults from an empty map.
             assignments: {},
             source_urls: [],
+            source_ids: [],
             artifact_refs: artifactRef
               ? [{ id: artifactRef.id, version: artifactRef.version }]
               : [],
@@ -898,7 +964,7 @@ function WorkspaceApp({
       } else {
         input = pending.input;
       }
-      await api<Run>(`/api/v1/threads/${id}/runs`, "POST", input, {
+      const submitted = await api<Run>(`/api/v1/threads/${id}/runs`, "POST", input, {
         "Idempotency-Key": pending.key,
       });
       pendingSubmission.current.delete(id);
@@ -918,8 +984,15 @@ function WorkspaceApp({
       viewCursor.current = "";
       setMessageCursor("");
       follows.current = true;
-      await refreshThread(id);
-      await loadThreads(workspaceID);
+      if (submitted.task_id && firstProjectQuestion) {
+        // The first question opens its durable task. Later turns stay in the
+        // working conversation so users can follow the run in place and return
+        // to the task page when needed.
+        navigate(currentWorkspace.current, "", true, submitted.task_id);
+      } else {
+        await refreshThread(id);
+      }
+      await loadThreads(currentWorkspace.current);
     } catch (error) {
       if (
         error instanceof APIError &&
@@ -1183,17 +1256,45 @@ function WorkspaceApp({
                   if (follows.current) setNewMessages(false);
                 }}
               >
-                {!threadID && (
-                  <Welcome
-                    workspace={workspace}
-                    members={available.length}
-                    onCreate={() => setModal({ kind: "workspace" })}
-                    onPick={(key, sample) => {
-                      setWorkflow(key);
-                      updateDraft(sample);
-                      document.getElementById("composer-input")?.focus();
+                {taskID ? (
+                  <TaskDetail
+                    taskID={taskID}
+                    agents={agents}
+                    onOpenThread={(id) => navigate(workspaceID, id)}
+                    onOpenArtifact={(selected) => {
+                      setArtifact(selected);
+                      setModal({ kind: "artifact" });
                     }}
+                    onOpenSource={openSource}
                   />
+                ) : (
+                  !threadID &&
+                  (workspace ? (
+                    <ProjectOverview
+                      workspace={workspace}
+                      workspaceID={workspace.id}
+                      settings={settings}
+                      onWorkspaceChange={(updated) =>
+                        setWorkspaces((current) =>
+                          current.map((item) => item.id === updated.id ? updated : item),
+                        )
+                      }
+                      onOpenTask={(id) => navigate(workspace.id, "", true, id)}
+                      onNewTask={() =>
+                        document.getElementById("composer-input")?.focus()
+                      }
+                    />
+                  ) : (
+                    <Welcome
+                      members={available.length}
+                      onCreate={() => setModal({ kind: "workspace" })}
+                      onPick={(key, sample) => {
+                        setWorkflow(key);
+                        updateDraft(sample);
+                        document.getElementById("composer-input")?.focus();
+                      }}
+                    />
+                  ))
                 )}
                 <div className={cx("timeline-inner")}>
                   {view && (messageCursor || view.messages.next_cursor) && (
@@ -1281,7 +1382,7 @@ function WorkspaceApp({
                 </button>
               )}
             </div>
-            <Composer
+            {!taskID && <Composer
               agents={threadID ? threadMembers : available}
               allAgents={agents}
               draft={draft}
@@ -1297,29 +1398,36 @@ function WorkspaceApp({
               active={!!active}
               canceling={currentRun?.status === "canceling"}
               busy={busy}
-              disabled={!workspace}
+              disabled={false}
               pending={
-                pendingRequest && (
-                  <p className={cx("notice")} role="status">
-                    上次提交等待确认。
-                    <button
-                      type="button"
-                      className={cx("small")}
-                      disabled={busy}
-                      onClick={() =>
-                        void send(
-                          pendingSubmission.current.get(threadID)?.input,
-                        )
-                      }
-                    >
-                      重试原请求
-                    </button>
-                  </p>
-                )
+                <>
+                  {steeringReceipt && (
+                    <p className={cx("notice")} role="status">
+                      {steeringReceipt}
+                    </p>
+                  )}
+                  {pendingRequest && (
+                    <p className={cx("notice")} role="status">
+                      上次提交等待确认。
+                      <button
+                        type="button"
+                        className={cx("small")}
+                        disabled={busy}
+                        onClick={() =>
+                          void send(
+                            pendingSubmission.current.get(threadID)?.input,
+                          )
+                        }
+                      >
+                        重试原请求
+                      </button>
+                    </p>
+                  )}
+                </>
               }
               onSend={() => void send()}
               onStop={() => void stop()}
-            />
+            />}
           </main>
           <ContextPanel
             open={panelOpen}

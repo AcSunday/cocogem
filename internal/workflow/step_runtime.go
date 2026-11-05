@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/nativecli"
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
@@ -40,6 +41,7 @@ type stepRuntime struct {
 	nativeCaptured map[string]bool
 	published      *w.Artifact
 	publishCount   int
+	yieldRequest   *yieldToolInput
 	delegated      bool
 	closed         bool
 	execWG         sync.WaitGroup
@@ -56,14 +58,25 @@ func (x *stepRuntime) capture(source w.Source) (w.Source, error) {
 	source.RunID = x.run.ID
 	source.CaptureStepID = x.step.ID
 	source.ContentDigest = contentDigest(source.Content)
+	if source.Visibility == "" {
+		source.Visibility = "task_chain"
+	}
+	_, source.ExposureDigest = w.DisclosureForSources([]w.Source{source})
 	metadata := source
 	metadata.Content = ""
+	metadata.OriginalContent = ""
 	err := x.engine.Store.Write(x.ctx, func(tx *store.Tx) error {
 		if err := tx.SaveSource(source); err != nil {
 			return err
 		}
+		if err := project.SaveDatasetForSource(tx, x.run, source); err != nil {
+			return err
+		}
 		return tx.AppendEvent(x.run.ID, x.step.ID, x.agent.ID, "source_captured", metadata)
 	})
+	if err == nil {
+		err = x.engine.recordAttemptExposure(x.ctx, x.attempt.ID, "source_id:"+source.ID+":"+source.ContentDigest)
+	}
 	if err == nil {
 		x.mu.Lock()
 		// Only bounded metadata is retained in memory; exact bodies are read by
@@ -80,11 +93,25 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		x.mu.Unlock()
 		return "", errors.New("step is no longer accepting tool calls")
 	}
+	if x.yieldRequest != nil {
+		x.mu.Unlock()
+		return "", errors.New("finish the invocation after yield_run; no further tools are admitted")
+	}
 	x.execWG.Add(1)
 	x.mu.Unlock()
 	defer x.execWG.Done()
 	if permissionErr := x.engine.Store.Read(callCtx, func(tx *store.Tx) error {
-		return x.engine.validateMember(tx, x.run, x.step.AgentID)
+		if err := x.engine.validateMember(tx, x.run, x.step.AgentID); err != nil {
+			return err
+		}
+		allowed, err := filterAuthorizedTools(tx, x.run, x.step.AgentID, []string{name})
+		if err != nil {
+			return err
+		}
+		if x.run.GrantSnapshot != "" && len(allowed) == 0 {
+			return errors.New("tool is outside the current project grant")
+		}
+		return nil
 	}); permissionErr != nil {
 		return "", permissionErr
 	}
@@ -95,7 +122,7 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 	case "read_skill":
 		return x.engine.readSkill(callCtx, x.run, x.step, input)
 	case "read_context":
-		return x.engine.readContext(callCtx, x.run, x.step, x.scope, input)
+		return x.engine.readContextForAttempt(callCtx, x.run, x.step, x.scope, input, x.attempt.ID)
 	case "handoff_task":
 		x.mutated.Store(true)
 		result, handoffErr := x.engine.submitHandoff(callCtx, x.run, x.step, input)
@@ -114,12 +141,15 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		x.mu.Lock()
 		snapshot := slices.Clone(x.sources)
 		x.mu.Unlock()
-		return x.engine.readSource(callCtx, x.run, snapshot, input)
+		return x.engine.readSourceForAttempt(callCtx, x.run, snapshot, input, x.attempt.ID)
 	case "list_sources":
 		x.mu.Lock()
 		snapshot := slices.Clone(x.sources)
 		x.mu.Unlock()
 		return x.engine.listSources(callCtx, x.run, snapshot, input)
+	}
+	if result, handled, err := x.executeProjectTool(callCtx, name, input); handled {
+		return result, err
 	}
 	if name == "web_search" && x.run.Input.ResearchScope != "web_discovery" && x.run.Input.ResearchScope != "auto" {
 		return "", errors.New("web discovery is outside this run scope")
@@ -142,7 +172,7 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		if slices.Contains([]string{"write_file", "patch_file", "run_test"}, name) {
 			x.mutated.Store(true)
 		}
-		return tools.Execute(callCtx, name, input, tools.Scope{Root: x.run.Workspace.Root, Web: x.engine.Web, Capture: x.capture})
+		return tools.Execute(callCtx, name, input, tools.Scope{Root: x.run.ProjectRoot(), Web: x.engine.Web, Capture: x.capture})
 	}
 	x.mutated.Store(true)
 	allowedPublisher, permissionErr := x.engine.mayPublish(callCtx, x.run, x.step)
@@ -174,6 +204,13 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 	x.mu.Lock()
 	knownSources := slices.Clone(x.sources)
 	x.mu.Unlock()
+	if err := x.engine.Store.Read(callCtx, func(tx *store.Tx) error {
+		var err error
+		artifact.Visibility, artifact.ExposureDigest, err = project.InheritAttemptDisclosure(tx, x.run, x.attempt.ID, knownSources)
+		return err
+	}); err != nil {
+		return "", err
+	}
 	ensureNativeObservationDisclosure(&artifact, knownSources)
 	if err := ValidateArtifact(artifact, x.required, knownSources); err != nil {
 		return "", err
@@ -363,11 +400,18 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 				current.Adapter, _ = data["adapter"].(string)
 			case "native_session":
 				session := stringValue(data["session_id"])
+				mode := stringValue(data["mode"])
+				if session == "" || mode != x.attempt.SessionMode {
+					return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "native CLI changed the acknowledged session mode or omitted its identity"}
+				}
+				if mode == "resume" && session != x.attempt.SessionID {
+					return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "native CLI resumed a different session identity"}
+				}
 				if x.attempt.Recovery == "context_fresh" && x.retiredSession != "" && session == x.retiredSession {
 					return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "context_fresh_reused_session: the native CLI reused the retired session; fresh recovery was not confirmed"}
 				}
 				current.SessionID = session
-				current.SessionMode, _ = data["mode"].(string)
+				current.SessionMode = mode
 			case "native_process":
 				current.Process = &w.ProcessRef{PID: intValue(data["pid"]), PGID: intValue(data["pgid"]), Start: stringValue(data["start"]), Executable: stringValue(data["executable"])}
 			}
@@ -377,6 +421,11 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 			}
 			if err := tx.SaveAttempt(current); err != nil {
 				return err
+			}
+			if kind == "native_session" {
+				if err := updateNativeSession(tx, current, current.SessionID); err != nil {
+					return err
+				}
 			}
 			x.attempt = current
 			if changed {

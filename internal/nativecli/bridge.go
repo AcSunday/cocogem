@@ -46,6 +46,8 @@ type bridge struct {
 	listed        map[string]bool
 	listSeen      bool
 	native        map[string]bool
+	sessionMode   string
+	sessionID     string
 	live          *liveness
 	notices       int
 	lastInputKey  string

@@ -12,6 +12,7 @@ import {
   severityLabel,
 } from "../lib/presentation";
 import { Icon } from "./Icon";
+import { DataChart } from "./DataChart";
 import { Markdown } from "./Markdown";
 import { Modal } from "./Modal";
 
@@ -98,7 +99,11 @@ export function ArtifactReader({
             下载 Markdown
           </a>
         </div>
-        <Markdown text={artifact.body} />
+        {artifact.type === "data_chart" ? (
+          <DataChart source={artifact.body} />
+        ) : (
+          <Markdown text={artifact.body} />
+        )}
         {(artifact.findings ?? []).length > 0 && (
           <section className={cx("reader-section")}>
             <h3>结构化发现</h3>

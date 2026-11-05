@@ -128,6 +128,19 @@ func ReadFile(ctx context.Context, root, path string, start, end int) (w.Source,
 	if len(b) > 1024*1024 {
 		return w.Source{}, errors.New("file exceeds read budget")
 	}
+	adapted := w.Source{}
+	if parsed, ok, err := AdaptDocument(local, b); ok {
+		if err != nil {
+			return w.Source{}, err
+		}
+		adapted = parsed
+		if parsed.Kind == "pdf" {
+			parsed.Title = filepath.ToSlash(local)
+			parsed.Path = filepath.ToSlash(local)
+			return parsed, nil
+		}
+		b = []byte(parsed.Content)
+	}
 	if !utf8.Valid(b) || strings.ContainsRune(string(b), 0) {
 		return w.Source{}, errors.New("binary files are not supported")
 	}
@@ -160,8 +173,25 @@ func ReadFile(ctx context.Context, root, path string, start, end int) (w.Source,
 		out.WriteString(line)
 		actualEnd = i + 1
 	}
-	sum := sha256.Sum256(b)
-	return w.Source{Kind: "file", Title: filepath.ToSlash(local), Path: filepath.ToSlash(local), StartLine: start, EndLine: actualEnd, SHA256: hex.EncodeToString(sum[:]), Content: out.String(), CapturedAt: w.Now(), Truncated: truncated}, nil
+	digest := adapted.SHA256
+	if digest == "" {
+		sum := sha256.Sum256(b)
+		digest = hex.EncodeToString(sum[:])
+	}
+	kind := adapted.Kind
+	if kind == "" {
+		kind = "file"
+	}
+	source := w.Source{Kind: kind, Title: filepath.ToSlash(local), Path: filepath.ToSlash(local), StartLine: start, EndLine: actualEnd, SHA256: digest, Content: out.String(), CapturedAt: w.Now(), Truncated: truncated}
+	source.OriginalContent = adapted.OriginalContent
+	source.OriginalDigest = adapted.OriginalDigest
+	source.MediaType = adapted.MediaType
+	source.ParseStatus = adapted.ParseStatus
+	source.ParseQuality = adapted.ParseQuality
+	source.ParserVersion = adapted.ParserVersion
+	source.SourceLocator = adapted.SourceLocator
+	source.Visibility = adapted.Visibility
+	return source, nil
 }
 
 // ListFiles lists one allowed directory without following symbolic links.

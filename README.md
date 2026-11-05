@@ -53,9 +53,9 @@ make dev
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173):
 
 1. Set a local access password of 12–128 characters on first use.
-2. In Settings → Members (设置 → 成员), create a member and choose a CLI. Leave the model empty or choose `default` to use the CLI's configuration.
-3. Create a workspace and add members. Bind a local directory if you want to analyze or modify a project.
-4. Start a conversation and describe your task. Use `@` to address members or explain the collaboration in natural language.
+2. Describe your goal directly. The first input creates an unnamed project, a conversation and editable default member profiles from your already-configured CLIs; no wizard is required.
+3. Research needs no project directory. The first engineering task asks for a local directory, and that binds read access only.
+4. Use `@` or natural language to address members, or let the coordinator choose. Durable tasks, goal revisions, budgets and completion records continue across sessions and restarts.
 
 Enter sends; Shift+Enter inserts a newline. Member completion and IME confirmation are supported. The local access password unlocks the web interface independently of the CLI's model credentials.
 
@@ -74,13 +74,15 @@ Use `COCOGEM_DATA_DIR` to choose the data directory and `--allow-root /absolute/
 
 | Capability | How it works |
 | --- | --- |
+| Projects and durable tasks | The project overview shows attention items, active tasks and recent accepted outcomes; goal revisions keep their history, and delivery is distinct from acceptance |
 | Free collaboration | Use `@` or natural language; the coordinator answers, hands off tasks, or selects a built-in workflow as needed |
 | Team discussion | Members form independent views, challenge each other, and check the synthesis while preserving disagreements |
 | Research | Search and read sources, then challenge, respond, and recheck before delivering a research report |
 | Engineering analysis and development | Analysis stays read-only; explicitly authorized development combines changes, tests, independent review, and fixes |
 | Reusable members | Share global profiles across workspaces, with separate roles, models, execution options, avatars, and tool grants |
 | Sources and deliverables | Inspect captured sources, exact report versions, and human feedback; export Markdown or JSON |
-| Long tasks and recovery | Stream output, run independent conversations in parallel, stop tasks, inspect failures, retry failed runs, and resume from checkpoints while retaining completed steps and history |
+| Long tasks and recovery | Stream output, run independent tasks in parallel, stop tasks, inspect failures, retry failed runs, wait and wake durably, and resume from checkpoints while retaining completed steps and history |
+| Collaboration budget | Root tasks share configurable 20/4/2/3/2 defaults, with project overrides, versioned task adjustments and explicit waiting at exhaustion |
 | Everyday workspace tools | Search, rename, and restore conversations; choose light, dark, warm, or system appearance |
 
 The development test tool currently requires the macOS sandbox. Linux blocks test execution while its sandbox remains unverified. See the [product guide (Chinese)](docs/product.md#工具与执行边界) for permissions and platform boundaries.
@@ -89,7 +91,7 @@ The development test tool currently requires the macOS sandbox. Linux blocks tes
 
 | CLI | Command | Web integration |
 | --- | --- | --- |
-| Claude Code | `claude` | stream-json, scoped MCP, and native read-only tools enabled by member grants |
+| Claude Code | `claude` | stream-json, scoped MCP, member-granted native read tools; explicit full access can also grant native write/shell within task scope |
 | Codex | `codex` | exec JSON, scoped MCP, and native web access when authorized |
 | Gemini CLI | `gemini` | stream-json and scoped MCP; host tools handle files and web access |
 | Pi | `pi` | JSON and scoped MCP; native file and shell tools stay disabled |
@@ -132,6 +134,7 @@ GitHub Actions runs only `make test` on pushes and pull requests. Other local va
 make test             # Go, native CLI fixtures, frontend unit tests, lint, and type checks
 make check-contract   # OpenAPI and generated frontend type consistency
 make e2e              # Build, production service smoke, and browser tests
+make verify-redesign  # First-question, durable task, steering and budget journey
 make security         # Credential checks and dependency vulnerability scans
 ```
 

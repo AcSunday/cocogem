@@ -119,18 +119,32 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 		if coordinatorID == "" {
 			coordinatorID = current.CoordinatorID
 		}
+		issueID := current.BudgetIssueID
+		if issueID == "" {
+			issueID = current.ID
+		}
 		run := w.Run{
-			ID:            runID,
-			WorkspaceID:   workspace.ID,
-			Workspace:     workspace,
-			ThreadID:      thread.ID,
-			Input:         input,
-			Routing:       current.Routing,
-			Status:        "queued",
-			CreatedAt:     w.Now(),
-			CoordinatorID: coordinatorID,
-			SkillVersions: map[string]string{},
-			Delivery:      &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}},
+			ID:                    runID,
+			WorkspaceID:           workspace.ID,
+			Workspace:             workspace,
+			ThreadID:              thread.ID,
+			Input:                 input,
+			Routing:               current.Routing,
+			Status:                "queued",
+			CreatedAt:             w.Now(),
+			CoordinatorID:         coordinatorID,
+			SkillVersions:         map[string]string{},
+			TaskID:                current.TaskID,
+			TaskRevision:          current.TaskRevision,
+			PolicyVersion:         current.PolicyVersion,
+			BudgetAccountID:       current.BudgetAccountID,
+			GrantSnapshot:         current.GrantSnapshot,
+			InputDigest:           current.InputDigest,
+			ContinuedFromRun:      current.ID,
+			BudgetIssueID:         issueID,
+			AutomaticContinuation: current.TaskID != "",
+			WriteBranch:           current.WriteBranch,
+			Delivery:              &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}},
 			ExecutionPolicy: &w.ExecutionPolicy{
 				RunTimeout:    policy.RunTimeout,
 				StepTimeout:   policy.StepTimeout,
@@ -138,6 +152,9 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 				Stall:         policy.Stall,
 				StallAction:   policy.StallAction,
 			},
+		}
+		if err := tx.ReserveTaskRun(&run); err != nil {
+			return err
 		}
 		for _, skill := range skills.List() {
 			if workspace.SkillIDs == nil || slices.Contains(workspace.SkillIDs, skill.ID) {
@@ -176,6 +193,9 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 		thread.UpdatedAt = w.Now()
 		thread.Revision++
 		if err := tx.SaveThread(thread); err != nil {
+			return err
+		}
+		if err := prepareRetryContext(tx, &run); err != nil {
 			return err
 		}
 		body, err := json.Marshal(input)

@@ -103,13 +103,27 @@ it("shrinks the input after a long draft is cleared or replaced", () => {
 it.each([
   { name: "empty", initialDraft: "   " },
   { name: "submitting", initialDraft: "问题", busy: true },
-  { name: "running", initialDraft: "问题", active: true },
   { name: "unavailable", initialDraft: "问题", disabled: true },
 ])("does not send while $name", (props) => {
   const send = vi.fn();
   render(<Example onSend={send} {...props} />);
   fireEvent.keyDown(screen.getByLabelText("输入问题"), { key: "Enter" });
   expect(send).not.toHaveBeenCalled();
+});
+
+it("saves a supplement while running and keeps stop available", async () => {
+  const send = vi.fn();
+  const stop = vi.fn();
+  render(<Example onSend={send} onStop={stop} active initialDraft="保留原约束" />);
+  const user = userEvent.setup();
+  fireEvent.keyDown(screen.getByLabelText("输入问题"), { key: "Enter" });
+  expect(send).toHaveBeenCalledOnce();
+  expect(screen.getByLabelText("输入问题")).toHaveAttribute(
+    "placeholder",
+    "保存补充，在下一个执行边界应用…",
+  );
+  await user.click(screen.getByRole("button", { name: "停止协作" }));
+  expect(stop).toHaveBeenCalledOnce();
 });
 
 it("completes an @ mention before sending and lets Shift+Enter keep a newline", async () => {

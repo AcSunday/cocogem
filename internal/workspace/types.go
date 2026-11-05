@@ -16,15 +16,28 @@ import (
 // ErrConflict indicates a stale revision or incompatible active operation.
 var ErrConflict = errors.New("workspace: conflict")
 
+// ErrBudgetExhausted prevents a new automatic execution segment without
+// discarding the durable account or silently resetting its usage.
+var ErrBudgetExhausted = errors.New("workspace: automatic continuation budget exhausted")
+
+// ErrRepairLimit leaves repair intent queued until the corresponding policy is expanded.
+var ErrRepairLimit = errors.New("workspace: automatic repair policy limit reached")
+
+// ErrExecutionBusy leaves a queued run intact until a shared execution slot is released.
+var ErrExecutionBusy = errors.New("workspace: execution capacity occupied")
+
 // Workspace owns members, conversations and an optional allowed source directory.
 type Workspace struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Root        string   `json:"root"`
-	Revision    int      `json:"revision"`
-	CreatedAt   string   `json:"created_at"`
-	SkillIDs    []string `json:"skill_ids"`
+	ID              string                `json:"id"`
+	Name            string                `json:"name"`
+	Description     string                `json:"description"`
+	Root            string                `json:"root"`
+	Revision        int                   `json:"revision"`
+	ProjectRevision int                   `json:"project_revision,omitempty"`
+	ExecutionMode   string                `json:"execution_mode,omitempty"`
+	BudgetOverride  *BudgetPolicyOverride `json:"budget_override,omitempty"`
+	CreatedAt       string                `json:"created_at"`
+	SkillIDs        []string              `json:"skill_ids"`
 }
 
 // AvatarChoices are legacy built-in avatars retained so old profiles can be
@@ -179,6 +192,7 @@ type Settings struct {
 	DefaultCoordinatorID string                       `json:"default_coordinator_id"`
 	Assignments          map[string]map[string]string `json:"assignments"`
 	RetentionDays        int                          `json:"retention_days,omitempty"`
+	CollaborationBudget  BudgetPolicy                 `json:"collaboration_budget,omitempty"`
 }
 
 // Thread is a shared, ordered conversation within one workspace. Status fields
@@ -191,6 +205,8 @@ type Thread struct {
 	AgentIDs        []string `json:"agent_ids"`
 	CoordinatorID   string   `json:"coordinator_id"`
 	Workflow        string   `json:"workflow"`
+	TaskID          string   `json:"task_id,omitempty"`
+	Internal        bool     `json:"internal,omitempty"`
 	Revision        int      `json:"revision"`
 	UpdatedAt       string   `json:"updated_at"`
 	DeletedAt       string   `json:"deleted_at,omitempty"`
@@ -235,6 +251,7 @@ type RunInput struct {
 	Targets       []string          `json:"targets"`
 	Assignments   map[string]string `json:"assignments"`
 	SourceURLs    []string          `json:"source_urls"`
+	SourceIDs     []string          `json:"source_ids"`
 	ArtifactRefs  []ArtifactRef     `json:"artifact_refs"`
 	ResearchScope string            `json:"research_scope"`
 	// EngineeringAction is the explicit Composer choice; it is never inferred
@@ -304,26 +321,59 @@ type Run struct {
 	// SelectedWorkflow is written once by the coordinator's planning step.
 	// Method records how a free run actually completed: direct, delegation, or
 	// the selected workflow. Built-in runs leave Method empty.
-	SelectedWorkflow *WorkflowSelection `json:"selected_workflow,omitempty"`
-	Method           string             `json:"method,omitempty"`
-	Agents           []Agent            `json:"agents"`
-	CoordinatorID    string             `json:"coordinator_id,omitempty"`
-	SkillVersions    map[string]string  `json:"skill_versions,omitempty"`
-	SkillSnapshot    string             `json:"skill_snapshot,omitempty"`
-	Workspace        Workspace          `json:"workspace"`
-	ExecutionPolicy  *ExecutionPolicy   `json:"execution_policy,omitempty"`
-	Status           string             `json:"status"`
-	FailureKind      string             `json:"failure_kind,omitempty"`
-	Error            string             `json:"error"`
-	RecoveryCount    int                `json:"recovery_count,omitempty"`
-	RecoveredAt      string             `json:"recovered_at,omitempty"`
-	RecoveryNote     string             `json:"recovery_note,omitempty"`
-	CreatedAt        string             `json:"created_at"`
-	StartedAt        string             `json:"started_at,omitempty"`
-	DeadlineAt       string             `json:"deadline_at,omitempty"`
-	PolicyAdoptedAt  string             `json:"policy_adopted_at,omitempty"`
-	FinishedAt       string             `json:"finished_at"`
-	Delivery         *Delivery          `json:"delivery,omitempty"`
+	SelectedWorkflow         *WorkflowSelection `json:"selected_workflow,omitempty"`
+	Method                   string             `json:"method,omitempty"`
+	Agents                   []Agent            `json:"agents"`
+	CoordinatorID            string             `json:"coordinator_id,omitempty"`
+	SkillVersions            map[string]string  `json:"skill_versions,omitempty"`
+	SkillSnapshot            string             `json:"skill_snapshot,omitempty"`
+	Workspace                Workspace          `json:"workspace"`
+	ExecutionPolicy          *ExecutionPolicy   `json:"execution_policy,omitempty"`
+	RequestedExecutionMode   string             `json:"requested_execution_mode,omitempty"`
+	EffectiveExecutionMode   string             `json:"effective_execution_mode,omitempty"`
+	EnforcedCapabilities     []string           `json:"enforced_capabilities,omitempty"`
+	UnenforcedConstraints    []string           `json:"unenforced_constraints,omitempty"`
+	TaskID                   string             `json:"task_id,omitempty"`
+	TaskRevision             int                `json:"task_revision,omitempty"`
+	PolicyVersion            int                `json:"policy_version,omitempty"`
+	BudgetAccountID          string             `json:"budget_account_id,omitempty"`
+	GrantSnapshot            string             `json:"grant_snapshot_digest,omitempty"`
+	GrantActions             []string           `json:"grant_actions,omitempty"`
+	ContextRef               string             `json:"context_manifest_id,omitempty"`
+	ExecutionRef             string             `json:"execution_ref,omitempty"`
+	ExecutionRoot            string             `json:"execution_root,omitempty"`
+	InputDigest              string             `json:"input_snapshot_digest,omitempty"`
+	ContinuedFromRun         string             `json:"continued_from_run_id,omitempty"`
+	CollaborationMessageID   string             `json:"collaboration_message_id,omitempty"`
+	AutomaticContinuation    bool               `json:"automatic_continuation,omitempty"`
+	WriteBranch              bool               `json:"write_branch,omitempty"`
+	BudgetReserved           bool               `json:"budget_reserved,omitempty"`
+	BudgetStarted            bool               `json:"budget_started,omitempty"`
+	BudgetIssueID            string             `json:"budget_issue_id,omitempty"`
+	ProgressDigest           string             `json:"progress_digest,omitempty"`
+	ProgressObserved         bool               `json:"progress_observed,omitempty"`
+	ReservationReleaseReason string             `json:"reservation_release_reason,omitempty"`
+	Status                   string             `json:"status"`
+	FailureKind              string             `json:"failure_kind,omitempty"`
+	Error                    string             `json:"error"`
+	RecoveryCount            int                `json:"recovery_count,omitempty"`
+	RecoveredAt              string             `json:"recovered_at,omitempty"`
+	RecoveryNote             string             `json:"recovery_note,omitempty"`
+	CreatedAt                string             `json:"created_at"`
+	StartedAt                string             `json:"started_at,omitempty"`
+	DeadlineAt               string             `json:"deadline_at,omitempty"`
+	PolicyAdoptedAt          string             `json:"policy_adopted_at,omitempty"`
+	FinishedAt               string             `json:"finished_at"`
+	Delivery                 *Delivery          `json:"delivery,omitempty"`
+}
+
+// ProjectRoot is the candidate execution tree when one was prepared; source
+// authorization continues to use Workspace.Root, the canonical user binding.
+func (r Run) ProjectRoot() string {
+	if r.ExecutionRoot != "" {
+		return r.ExecutionRoot
+	}
+	return r.Workspace.Root
 }
 
 // Step describes one member's work and the exact upstream results it can consume.
@@ -354,40 +404,42 @@ type Step struct {
 // Attempt records one execution try for a logical step; retries never rewrite
 // the previous attempt's evidence.
 type Attempt struct {
-	ID                string           `json:"id"`
-	RunID             string           `json:"run_id"`
-	StepID            string           `json:"step_id"`
-	Number            int              `json:"number"`
-	Status            string           `json:"status"`
-	Reason            string           `json:"reason,omitempty"`
-	Executor          string           `json:"executor,omitempty"`
-	Model             string           `json:"model,omitempty"`
-	ResolvedModel     string           `json:"resolved_model,omitempty"`
-	ConnectionID      string           `json:"connection_identity,omitempty"`
-	Adapter           string           `json:"adapter,omitempty"`
-	CLIVersion        string           `json:"cli_version,omitempty"`
-	CLIProgram        string           `json:"cli_program,omitempty"`
-	CLIIdentity       string           `json:"cli_identity,omitempty"`
-	SessionID         string           `json:"session_id,omitempty"`
-	SessionMode       string           `json:"session_mode,omitempty"`
-	Recovery          string           `json:"recovery,omitempty"`
-	RecoveredFrom     string           `json:"recovered_from,omitempty"`
-	FailureKind       string           `json:"failure_kind,omitempty"`
-	InputPlanDigest   string           `json:"input_plan_digest,omitempty"`
-	CheckpointStart   string           `json:"checkpoint_start_digest,omitempty"`
-	CheckpointDigest  string           `json:"checkpoint_digest,omitempty"`
-	DraftArtifact     *Artifact        `json:"draft_artifact,omitempty"`
-	SourceIDs         []string         `json:"source_ids,omitempty"`
-	UsageKnown        bool             `json:"usage_known,omitempty"`
-	UsageCompleteness string           `json:"usage_completeness,omitempty"`
-	InputTokens       int64            `json:"input_tokens,omitempty"`
-	OutputTokens      int64            `json:"output_tokens,omitempty"`
-	LivenessWarning   *LivenessWarning `json:"liveness_warning,omitempty"`
-	Process           *ProcessRef      `json:"process,omitempty"`
-	StartedAt         string           `json:"started_at"`
-	LastProgress      string           `json:"last_progress_at,omitempty"`
-	FinishedAt        string           `json:"finished_at,omitempty"`
-	Error             string           `json:"error,omitempty"`
+	ID                  string           `json:"id"`
+	RunID               string           `json:"run_id"`
+	StepID              string           `json:"step_id"`
+	Number              int              `json:"number"`
+	Status              string           `json:"status"`
+	Reason              string           `json:"reason,omitempty"`
+	Executor            string           `json:"executor,omitempty"`
+	Model               string           `json:"model,omitempty"`
+	ResolvedModel       string           `json:"resolved_model,omitempty"`
+	ConnectionID        string           `json:"connection_identity,omitempty"`
+	Adapter             string           `json:"adapter,omitempty"`
+	CLIVersion          string           `json:"cli_version,omitempty"`
+	CLIProgram          string           `json:"cli_program,omitempty"`
+	CLIIdentity         string           `json:"cli_identity,omitempty"`
+	SessionID           string           `json:"session_id,omitempty"`
+	SessionMode         string           `json:"session_mode,omitempty"`
+	ExecutionSessionRef string           `json:"execution_session_ref,omitempty"`
+	SessionFingerprint  string           `json:"session_fingerprint,omitempty"`
+	Recovery            string           `json:"recovery,omitempty"`
+	RecoveredFrom       string           `json:"recovered_from,omitempty"`
+	FailureKind         string           `json:"failure_kind,omitempty"`
+	InputPlanDigest     string           `json:"input_plan_digest,omitempty"`
+	CheckpointStart     string           `json:"checkpoint_start_digest,omitempty"`
+	CheckpointDigest    string           `json:"checkpoint_digest,omitempty"`
+	DraftArtifact       *Artifact        `json:"draft_artifact,omitempty"`
+	SourceIDs           []string         `json:"source_ids,omitempty"`
+	UsageKnown          bool             `json:"usage_known,omitempty"`
+	UsageCompleteness   string           `json:"usage_completeness,omitempty"`
+	InputTokens         int64            `json:"input_tokens,omitempty"`
+	OutputTokens        int64            `json:"output_tokens,omitempty"`
+	LivenessWarning     *LivenessWarning `json:"liveness_warning,omitempty"`
+	Process             *ProcessRef      `json:"process,omitempty"`
+	StartedAt           string           `json:"started_at"`
+	LastProgress        string           `json:"last_progress_at,omitempty"`
+	FinishedAt          string           `json:"finished_at,omitempty"`
+	Error               string           `json:"error,omitempty"`
 }
 
 // LivenessWarning is the last observed silence warning for one attempt. It is
@@ -489,7 +541,44 @@ type Source struct {
 	CaptureStepID string `json:"capture_step_id,omitempty"`
 	// ContentDigest is the SHA-256 of the exact captured content, kept in
 	// metadata projections that deliberately omit the body.
-	ContentDigest string `json:"content_digest,omitempty"`
+	ContentDigest   string `json:"content_digest,omitempty"`
+	OriginalContent string `json:"original_content,omitempty"`
+	OriginalDigest  string `json:"original_digest,omitempty"`
+	MediaType       string `json:"media_type,omitempty"`
+	ParseStatus     string `json:"parse_status,omitempty"`
+	ParseError      string `json:"parse_error,omitempty"`
+	ParseQuality    string `json:"parse_quality,omitempty"`
+	ParserVersion   string `json:"parser_version,omitempty"`
+	SourceLocator   string `json:"source_locator,omitempty"`
+	Visibility      string `json:"visibility,omitempty"`
+	ExposureDigest  string `json:"exposure_scope_digest,omitempty"`
+}
+
+// SourceImport is an uploaded original and its bounded parse result. Imports
+// exist before a Run; successful publication freezes the same bytes as Source.
+type SourceImport struct {
+	ID              string `json:"id"`
+	WorkspaceID     string `json:"workspace_id"`
+	ThreadID        string `json:"thread_id"`
+	Kind            string `json:"kind"`
+	Title           string `json:"title"`
+	FileName        string `json:"file_name"`
+	MediaType       string `json:"media_type"`
+	Content         string `json:"content,omitempty"`
+	ContentDigest   string `json:"content_digest,omitempty"`
+	OriginalContent string `json:"original_content,omitempty"`
+	OriginalDigest  string `json:"original_digest"`
+	SHA256          string `json:"sha256"`
+	CapturedAt      string `json:"captured_at"`
+	Truncated       bool   `json:"truncated"`
+	StartLine       int    `json:"start_line"`
+	EndLine         int    `json:"end_line"`
+	ParseStatus     string `json:"parse_status"`
+	ParseError      string `json:"parse_error,omitempty"`
+	ParseQuality    string `json:"parse_quality,omitempty"`
+	ParserVersion   string `json:"parser_version,omitempty"`
+	SourceLocator   string `json:"source_locator,omitempty"`
+	Visibility      string `json:"visibility"`
 }
 
 // Finding preserves evidence and disagreement in typed reports.
@@ -503,21 +592,23 @@ type Finding struct {
 
 // Artifact is a versioned deliverable; feedback is separate from its content.
 type Artifact struct {
-	ID          string    `json:"id"`
-	Version     int       `json:"version"`
-	Revision    int       `json:"revision"`
-	ThreadID    string    `json:"thread_id"`
-	RunID       string    `json:"run_id"`
-	StepID      string    `json:"step_id"`
-	Type        string    `json:"type"`
-	Title       string    `json:"title"`
-	Body        string    `json:"body"`
-	Findings    []Finding `json:"findings"`
-	SourceIDs   []string  `json:"source_ids"`
-	Limitations []string  `json:"limitations"`
-	Feedback    string    `json:"feedback"`
-	FeedbackAt  string    `json:"feedback_at"`
-	CreatedAt   string    `json:"created_at"`
+	ID             string    `json:"id"`
+	Version        int       `json:"version"`
+	Revision       int       `json:"revision"`
+	ThreadID       string    `json:"thread_id"`
+	RunID          string    `json:"run_id"`
+	StepID         string    `json:"step_id"`
+	Type           string    `json:"type"`
+	Title          string    `json:"title"`
+	Body           string    `json:"body"`
+	Findings       []Finding `json:"findings"`
+	SourceIDs      []string  `json:"source_ids"`
+	Limitations    []string  `json:"limitations"`
+	Feedback       string    `json:"feedback"`
+	FeedbackAt     string    `json:"feedback_at"`
+	Visibility     string    `json:"visibility,omitempty"`
+	ExposureDigest string    `json:"exposure_scope_digest,omitempty"`
+	CreatedAt      string    `json:"created_at"`
 }
 
 // Event is the provider-neutral, replayable envelope consumed by the UI.
@@ -549,7 +640,7 @@ func Now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // Terminal is the authoritative run-status classifier.
 func Terminal(s string) bool {
-	return slices.Contains([]string{"succeeded", "failed", "canceled", "interrupted"}, s)
+	return slices.Contains([]string{"succeeded", "failed", "canceled", "interrupted", "yielded"}, s)
 }
 
 var handlePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)

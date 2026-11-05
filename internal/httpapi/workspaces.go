@@ -40,7 +40,7 @@ func (s *Server) createWorkspace(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, err)
 		return
 	}
-	ws := w.Workspace{ID: w.NewID(), Name: in.Name, Description: in.Description, Root: root, SkillIDs: in.SkillIDs, Revision: 1, CreatedAt: w.Now()}
+	ws := w.Workspace{ID: w.NewID(), Name: in.Name, Description: in.Description, Root: root, SkillIDs: in.SkillIDs, Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionControlled}
 	err = s.store.Write(r.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {
 			return err

@@ -86,6 +86,10 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 		if err := e.validateMember(tx, run, step.AgentID); err != nil {
 			return err
 		}
+		allowed, err = filterAuthorizedTools(tx, run, step.AgentID, allowed)
+		if err != nil {
+			return err
+		}
 		existing, err := tx.StepAttempts(step.ID)
 		if err != nil {
 			return err
@@ -236,6 +240,24 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 				return err
 			}
 			return tx.AppendEvent(run.ID, step.ID, a.ID, "step_finished", step)
+		}
+		session, err := prepareExecutionSession(tx, sessionInput{
+			run: run, step: step, member: a, adapter: adapter, connection: connection,
+			attempt: attempt, sources: sourceSnapshot,
+		})
+		if err != nil {
+			return err
+		}
+		if session.ID != "" {
+			attempt.ExecutionSessionRef = session.ID
+			attempt.SessionFingerprint = session.Fingerprint
+			if session.NativeSessionID != "" {
+				attempt.SessionMode = "resume"
+				attempt.SessionID = session.NativeSessionID
+			}
+			if err := tx.SaveSession(session); err != nil {
+				return err
+			}
 		}
 		step.AttemptCount = number
 		if err := tx.SaveStep(step); err != nil {

@@ -84,6 +84,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/bootstrap": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["bootstrap"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/collaboration-messages/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["collaborationMessage"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/directories": {
     parameters: {
       query?: never;
@@ -92,6 +124,38 @@ export interface paths {
       cookie?: never;
     };
     get: operations["directories"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/effects/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["effect"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/executions/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["execution"];
     put?: never;
     post?: never;
     delete?: never;
@@ -126,6 +190,22 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations["cancelRun"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/runs/{id}/context": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["runContext"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -292,6 +372,246 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/tasks/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectTask"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/actions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["projectTaskAction"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/budget": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectTaskBudget"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["adjustProjectTaskBudget"];
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/claims": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["taskClaims"];
+    put?: never;
+    post: operations["saveTaskClaim"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/completions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["completeProjectTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/datasets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["taskDatasets"];
+    put?: never;
+    post: operations["saveTaskDataset"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/delegations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["delegateTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/dependencies": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["taskDependencies"];
+    put?: never;
+    post: operations["addTaskDependency"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/handoffs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["handoffTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/inbox": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["taskInbox"];
+    put?: never;
+    post: operations["submitTaskInbox"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/messages": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["taskMessages"];
+    put?: never;
+    post: operations["sendTaskMessage"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/questions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["taskQuestions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/questions/{questionID}/answers": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["answerTaskQuestion"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/revisions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectTaskRevisions"];
+    put?: never;
+    post: operations["reviseProjectTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/wakeups": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["taskWakeups"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/threads/{id}": {
     parameters: {
       query?: never;
@@ -404,6 +724,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/wake-events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["observeWakeEvent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/workspaces": {
     parameters: {
       query?: never;
@@ -452,6 +788,70 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/workspaces/{id}/budget-policy": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["setProjectBudgetPolicy"];
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/execution-policy": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["setProjectExecutionPolicy"];
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/grants": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectGrants"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/grants/{memberID}/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["revokeProjectGrant"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/workspaces/{id}/members/{agentID}": {
     parameters: {
       query?: never;
@@ -466,6 +866,70 @@ export interface paths {
     options?: never;
     head?: never;
     patch: operations["updateMember"];
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/memories": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectMemories"];
+    put?: never;
+    post: operations["saveProjectMemory"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/overview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectOverview"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/records": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectRecords"];
+    put?: never;
+    post: operations["saveProjectRecord"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workspaces/{id}/tasks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectTasks"];
+    put?: never;
+    post: operations["createProjectTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   "/api/v1/workspaces/{id}/threads": {
@@ -536,6 +1000,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    AcceptanceCriterion: {
+      applicable_when?: string;
+      criterion_id: string;
+      evaluation_policy: string;
+      evidence_requirements: string[] | null;
+      kind: string;
+      required: boolean;
+      statement: string;
+    };
     Agent: {
       aliases: string[] | null;
       avatar?: string;
@@ -593,6 +1066,7 @@ export interface components {
     Artifact: {
       body: string;
       created_at: string;
+      exposure_scope_digest?: string;
       feedback: string;
       feedback_at: string;
       findings:
@@ -614,6 +1088,7 @@ export interface components {
       title: string;
       type: string;
       version: number;
+      visibility?: string;
     };
     ArtifactList: {
       items: components["schemas"]["Artifact"][] | null;
@@ -634,6 +1109,7 @@ export interface components {
       draft_artifact?: {
         body: string;
         created_at: string;
+        exposure_scope_digest?: string;
         feedback: string;
         feedback_at: string;
         findings:
@@ -655,8 +1131,10 @@ export interface components {
         title: string;
         type: string;
         version: number;
+        visibility?: string;
       } | null;
       error?: string;
+      execution_session_ref?: string;
       executor?: string;
       failure_kind?: string;
       finished_at?: string;
@@ -686,6 +1164,7 @@ export interface components {
       recovery?: string;
       resolved_model?: string;
       run_id: string;
+      session_fingerprint?: string;
       session_id?: string;
       session_mode?: string;
       source_ids?: string[] | null;
@@ -698,6 +1177,721 @@ export interface components {
     AuthStatus: {
       initialized: boolean;
     };
+    BootstrapInput: {
+      title: string;
+      workflow: string;
+      workspace_id?: string;
+    };
+    BootstrapReply: {
+      agents:
+        | {
+            aliases: string[] | null;
+            avatar?: string;
+            capabilities?: string[] | null;
+            /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
+            context_size?: number;
+            disabled: boolean;
+            display_name: string;
+            executor?: string;
+            handle: string;
+            id: string;
+            membership?: {
+              agent_id: string;
+              enabled: boolean;
+              revision: number;
+              tools: string[] | null;
+              workspace_id: string;
+            } | null;
+            model: string;
+            revision: number;
+            role_description: string;
+            thinking_level?: string;
+            tools: string[] | null;
+            workspace_id: string;
+          }[]
+        | null;
+      thread: {
+        active_run_id?: string;
+        active_run_status?: string;
+        agent_ids: string[] | null;
+        coordinator_id: string;
+        deleted_at?: string;
+        id: string;
+        internal?: boolean;
+        last_run_id?: string;
+        last_run_status?: string;
+        purge_at?: string;
+        revision: number;
+        task_id?: string;
+        title: string;
+        updated_at: string;
+        workflow: string;
+        workspace_id: string;
+      };
+      workspace: {
+        budget_override?: {
+          auto_continuations?: number | null;
+          fix_rounds?: number | null;
+          no_progress_failures?: number | null;
+          parallel_branches?: number | null;
+          writer_branches?: number | null;
+        } | null;
+        created_at: string;
+        description: string;
+        execution_mode?: string;
+        id: string;
+        name: string;
+        project_revision?: number;
+        revision: number;
+        root: string;
+        skill_ids: string[] | null;
+      };
+    };
+    BudgetAccount: {
+      active_branches: number;
+      active_writers: number;
+      fix_rounds_by_issue: {
+        [key: string]: number;
+      } | null;
+      id: string;
+      no_progress_by_branch: {
+        [key: string]: number;
+      } | null;
+      policy: {
+        auto_continuations: number;
+        fix_rounds: number;
+        no_progress_failures: number;
+        parallel_branches: number;
+        writer_branches: number;
+      };
+      reserved_runs: number;
+      revision: number;
+      root_task_id: string;
+      sources: {
+        auto_continuations: string;
+        fix_rounds: string;
+        no_progress_failures: string;
+        parallel_branches: string;
+        writer_branches: string;
+      };
+      updated_at: string;
+      used_continuations: number;
+    };
+    BudgetPolicy: {
+      auto_continuations: number;
+      fix_rounds: number;
+      no_progress_failures: number;
+      parallel_branches: number;
+      writer_branches: number;
+    };
+    BudgetPolicyInput: {
+      override: {
+        auto_continuations?: number | null;
+        fix_rounds?: number | null;
+        no_progress_failures?: number | null;
+        parallel_branches?: number | null;
+        writer_branches?: number | null;
+      } | null;
+    };
+    BudgetPolicyOverride: {
+      auto_continuations?: number | null;
+      fix_rounds?: number | null;
+      no_progress_failures?: number | null;
+      parallel_branches?: number | null;
+      writer_branches?: number | null;
+    };
+    BudgetSources: {
+      auto_continuations: string;
+      fix_rounds: string;
+      no_progress_failures: string;
+      parallel_branches: string;
+      writer_branches: string;
+    };
+    Claim: {
+      applicability: string;
+      as_of: string;
+      assumptions: string[] | null;
+      contradicting_refs: string[] | null;
+      created_at: string;
+      evidence:
+        | {
+            completeness: string;
+            locator: string;
+            relation: string;
+            reviewer: string;
+            source_id: string;
+          }[]
+        | null;
+      exposure_scope_digest: string;
+      id: string;
+      limitations: string[] | null;
+      method: string;
+      producer_attempt_id?: string;
+      review_after?: string;
+      revision: number;
+      statement: string;
+      status: string;
+      supporting_refs: string[] | null;
+      task_id: string;
+      visibility?: string;
+      workspace_id: string;
+    };
+    ClaimList: {
+      items:
+        | {
+            applicability: string;
+            as_of: string;
+            assumptions: string[] | null;
+            contradicting_refs: string[] | null;
+            created_at: string;
+            evidence:
+              | {
+                  completeness: string;
+                  locator: string;
+                  relation: string;
+                  reviewer: string;
+                  source_id: string;
+                }[]
+              | null;
+            exposure_scope_digest: string;
+            id: string;
+            limitations: string[] | null;
+            method: string;
+            producer_attempt_id?: string;
+            review_after?: string;
+            revision: number;
+            statement: string;
+            status: string;
+            supporting_refs: string[] | null;
+            task_id: string;
+            visibility?: string;
+            workspace_id: string;
+          }[]
+        | null;
+    };
+    CollaborationMessage: {
+      body: string;
+      body_digest: string;
+      budget_account_id: string;
+      context_refs: string[] | null;
+      correlation_id: string;
+      created_at: string;
+      disclosure_scope: string;
+      expires_at?: string;
+      exposure_scope_digest: string;
+      id: string;
+      kind: string;
+      related_task_revision?: number;
+      reply_to?: string;
+      request_digest: string;
+      request_id: string;
+      resolved_target_member_id: string;
+      root_control_epoch: number;
+      schema_version: number;
+      sender_attempt_id?: string;
+      sender_member_id: string;
+      sender_task_id: string;
+      sender_task_revision: number;
+      target_owner_revision: number;
+      target_task_id: string;
+    };
+    CollaborationMessageList: {
+      items:
+        | {
+            body: string;
+            body_digest: string;
+            budget_account_id: string;
+            context_refs: string[] | null;
+            correlation_id: string;
+            created_at: string;
+            disclosure_scope: string;
+            expires_at?: string;
+            exposure_scope_digest: string;
+            id: string;
+            kind: string;
+            related_task_revision?: number;
+            reply_to?: string;
+            request_digest: string;
+            request_id: string;
+            resolved_target_member_id: string;
+            root_control_epoch: number;
+            schema_version: number;
+            sender_attempt_id?: string;
+            sender_member_id: string;
+            sender_task_id: string;
+            sender_task_revision: number;
+            target_owner_revision: number;
+            target_task_id: string;
+          }[]
+        | null;
+    };
+    CompletionRecord: {
+      candidate_refs: string[] | null;
+      created_at: string;
+      evaluation_generation: number;
+      evidence_producer: string;
+      id: string;
+      input_snapshot_digest: string;
+      judge_member_id: string;
+      results:
+        | {
+            criterion_id: string;
+            evidence: string[] | null;
+            limitations: string[] | null;
+            result: string;
+          }[]
+        | null;
+      subject_digest: string;
+      task_id: string;
+      task_revision: number;
+      unresolved: string[] | null;
+      validity: string;
+    };
+    ContextBudget: {
+      host_input: number;
+      known_model_window?: number;
+      native_overhead_estimate: number;
+      output_reserve: number;
+      safety_margin: number;
+      tool_growth_reserve: number;
+      window_source: string;
+    };
+    ContextEntry: {
+      content?: string;
+      digest: string;
+      kind: string;
+      ref: string;
+      required: boolean;
+      visibility: string;
+    };
+    ContextItem: {
+      digest: string;
+      kind: string;
+      mode: string;
+      reason: string;
+      ref: string;
+      required: boolean;
+      visibility?: string;
+    };
+    ContextManifest: {
+      attempt_id?: string;
+      brief: string;
+      context_reuse_key: string;
+      created_at: string;
+      host_input_bytes: number;
+      host_input_estimate: number;
+      id: string;
+      inline_items: number;
+      items:
+        | {
+            digest: string;
+            kind: string;
+            mode: string;
+            reason: string;
+            ref: string;
+            required: boolean;
+            visibility?: string;
+          }[]
+        | null;
+      model_window_known: boolean;
+      native_observation: string;
+      policy_version: number;
+      reference_items: number;
+      rendered_digest: string;
+      scope_digest: string;
+      task_id: string;
+      task_revision: number;
+      work_digest: string;
+    };
+    ContextView: {
+      appended:
+        | {
+            digest: string;
+            kind: string;
+            mode: string;
+            reason: string;
+            ref: string;
+            required: boolean;
+            visibility?: string;
+          }[]
+        | null;
+      manifest: {
+        attempt_id?: string;
+        brief: string;
+        context_reuse_key: string;
+        created_at: string;
+        host_input_bytes: number;
+        host_input_estimate: number;
+        id: string;
+        inline_items: number;
+        items:
+          | {
+              digest: string;
+              kind: string;
+              mode: string;
+              reason: string;
+              ref: string;
+              required: boolean;
+              visibility?: string;
+            }[]
+          | null;
+        model_window_known: boolean;
+        native_observation: string;
+        policy_version: number;
+        reference_items: number;
+        rendered_digest: string;
+        scope_digest: string;
+        task_id: string;
+        task_revision: number;
+        work_digest: string;
+      };
+      receipts:
+        | {
+            bytes: number;
+            complete: boolean;
+            created_at: string;
+            digest: string;
+            id: string;
+            manifest_id: string;
+            offset: number;
+            ref: string;
+          }[]
+        | null;
+    };
+    CreateTaskInput: {
+      acceptance:
+        | {
+            applicable_when?: string;
+            criterion_id: string;
+            evaluation_policy: string;
+            evidence_requirements: string[] | null;
+            kind: string;
+            required: boolean;
+            statement: string;
+          }[]
+        | null;
+      accepted_by: string;
+      allowed_actions: string[] | null;
+      constraint_refs: string[] | null;
+      goal: string;
+      input_refs: string[] | null;
+      kind?: string;
+      non_goals: string[] | null;
+      owner_member_id: string;
+      parent_id?: string;
+      priority?: number;
+      scope: string[] | null;
+      source_message_id: string;
+      thread_id: string;
+      workspace_id: string;
+    };
+    CriterionResult: {
+      criterion_id: string;
+      evidence: string[] | null;
+      limitations: string[] | null;
+      result: string;
+    };
+    DatasetList: {
+      items:
+        | {
+            acquired_at: string;
+            available_at?: string;
+            content_digest: string;
+            created_at: string;
+            exposure_scope_digest?: string;
+            id: string;
+            location: string;
+            missing_rules: string;
+            processing_steps: string[] | null;
+            producer_attempt_id?: string;
+            revision: number;
+            schema: string;
+            source_refs: string[] | null;
+            task_id: string;
+            time_range: string;
+            visibility?: string;
+            workspace_id: string;
+          }[]
+        | null;
+    };
+    DatasetManifest: {
+      acquired_at: string;
+      available_at?: string;
+      content_digest: string;
+      created_at: string;
+      exposure_scope_digest?: string;
+      id: string;
+      location: string;
+      missing_rules: string;
+      processing_steps: string[] | null;
+      producer_attempt_id?: string;
+      revision: number;
+      schema: string;
+      source_refs: string[] | null;
+      task_id: string;
+      time_range: string;
+      visibility?: string;
+      workspace_id: string;
+    };
+    DelegationView: {
+      run: {
+        agents:
+          | {
+              aliases: string[] | null;
+              avatar?: string;
+              capabilities?: string[] | null;
+              /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
+              context_size?: number;
+              disabled: boolean;
+              display_name: string;
+              executor?: string;
+              handle: string;
+              id: string;
+              membership?: {
+                agent_id: string;
+                enabled: boolean;
+                revision: number;
+                tools: string[] | null;
+                workspace_id: string;
+              } | null;
+              model: string;
+              revision: number;
+              role_description: string;
+              thinking_level?: string;
+              tools: string[] | null;
+              workspace_id: string;
+            }[]
+          | null;
+        automatic_continuation?: boolean;
+        budget_account_id?: string;
+        budget_issue_id?: string;
+        budget_reserved?: boolean;
+        budget_started?: boolean;
+        collaboration_message_id?: string;
+        context_manifest_id?: string;
+        continued_from_run_id?: string;
+        coordinator_id?: string;
+        created_at: string;
+        deadline_at?: string;
+        /** @description Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps. */
+        delivery?: components["schemas"]["Delivery"] | null;
+        effective_execution_mode?: string;
+        enforced_capabilities?: string[] | null;
+        error: string;
+        execution_policy?: {
+          first_response_ns: number;
+          run_timeout_ns: number;
+          stall_action: string;
+          stall_ns: number;
+          step_timeout_ns: number;
+        } | null;
+        execution_ref?: string;
+        execution_root?: string;
+        failure_kind?: string;
+        finished_at: string;
+        grant_actions?: string[] | null;
+        grant_snapshot_digest?: string;
+        id: string;
+        input: {
+          artifact_refs:
+            | {
+                id: string;
+                version: number;
+              }[]
+            | null;
+          assignments: {
+            [key: string]: string;
+          } | null;
+          engineering_action?: string;
+          message: string;
+          proposal_id: string;
+          research_scope: string;
+          retry_of_run_id: string;
+          source_ids: string[] | null;
+          source_urls: string[] | null;
+          targets: string[] | null;
+          workflow: string;
+        };
+        input_snapshot_digest?: string;
+        method?: string;
+        policy_adopted_at?: string;
+        policy_version?: number;
+        progress_digest?: string;
+        progress_observed?: boolean;
+        recovered_at?: string;
+        recovery_count?: number;
+        recovery_note?: string;
+        requested_execution_mode?: string;
+        reservation_release_reason?: string;
+        routing: {
+          assignments: {
+            [key: string]: string;
+          } | null;
+          clarification: string;
+          decision: string;
+          evidence:
+            | {
+                agent_id: string;
+                quote: string;
+              }[]
+            | null;
+          explanation: string;
+          input_tokens: number;
+          model_call: boolean;
+          output_tokens: number;
+          targets: string[] | null;
+          usage_known: boolean;
+          workflow: string;
+        };
+        selected_workflow?: {
+          assignments: {
+            [key: string]: string;
+          } | null;
+          reason?: string;
+          selected_at: string;
+          step_id: string;
+          targets: string[] | null;
+          workflow: string;
+        } | null;
+        skill_snapshot?: string;
+        skill_versions?: {
+          [key: string]: string;
+        } | null;
+        started_at?: string;
+        status: string;
+        task_id?: string;
+        task_revision?: number;
+        thread_id: string;
+        unenforced_constraints?: string[] | null;
+        workspace: {
+          budget_override?: {
+            auto_continuations?: number | null;
+            fix_rounds?: number | null;
+            no_progress_failures?: number | null;
+            parallel_branches?: number | null;
+            writer_branches?: number | null;
+          } | null;
+          created_at: string;
+          description: string;
+          execution_mode?: string;
+          id: string;
+          name: string;
+          project_revision?: number;
+          revision: number;
+          root: string;
+          skill_ids: string[] | null;
+        };
+        workspace_id: string;
+        write_branch?: boolean;
+      };
+      task: {
+        budget: {
+          active_branches: number;
+          active_writers: number;
+          fix_rounds_by_issue: {
+            [key: string]: number;
+          } | null;
+          id: string;
+          no_progress_by_branch: {
+            [key: string]: number;
+          } | null;
+          policy: {
+            auto_continuations: number;
+            fix_rounds: number;
+            no_progress_failures: number;
+            parallel_branches: number;
+            writer_branches: number;
+          };
+          reserved_runs: number;
+          revision: number;
+          root_task_id: string;
+          sources: {
+            auto_continuations: string;
+            fix_rounds: string;
+            no_progress_failures: string;
+            parallel_branches: string;
+            writer_branches: string;
+          };
+          updated_at: string;
+          used_continuations: number;
+        };
+        completions:
+          | {
+              candidate_refs: string[] | null;
+              created_at: string;
+              evaluation_generation: number;
+              evidence_producer: string;
+              id: string;
+              input_snapshot_digest: string;
+              judge_member_id: string;
+              results:
+                | {
+                    criterion_id: string;
+                    evidence: string[] | null;
+                    limitations: string[] | null;
+                    result: string;
+                  }[]
+                | null;
+              subject_digest: string;
+              task_id: string;
+              task_revision: number;
+              unresolved: string[] | null;
+              validity: string;
+            }[]
+          | null;
+        revision: {
+          acceptance:
+            | {
+                applicable_when?: string;
+                criterion_id: string;
+                evaluation_policy: string;
+                evidence_requirements: string[] | null;
+                kind: string;
+                required: boolean;
+                statement: string;
+              }[]
+            | null;
+          acceptance_evidence: string;
+          accepted_by: string;
+          allowed_actions: string[] | null;
+          constraint_refs: string[] | null;
+          created_at: string;
+          digest: string;
+          goal: string;
+          input_refs: string[] | null;
+          non_goals: string[] | null;
+          revision: number;
+          scope: string[] | null;
+          source_message_id: string;
+          task_id: string;
+        };
+        task: {
+          budget_account_id: string;
+          collaboration_scope_id: string;
+          created_at: string;
+          current_revision: number;
+          current_run_id?: string;
+          evaluation_generation: number;
+          evaluation_status: string;
+          id: string;
+          kind?: string;
+          owner_member_id: string;
+          owner_revision: number;
+          parent_id?: string;
+          pending_owner_id?: string;
+          priority: number;
+          root_control_epoch: number;
+          root_task_id: string;
+          status: string;
+          thread_id: string;
+          transfer_request_id?: string;
+          updated_at: string;
+          wait_generation?: number;
+          waiting_reason?: string;
+          workspace_id: string;
+        };
+      };
+    };
     DeleteReply: {
       id: string;
       purge_at?: string;
@@ -709,6 +1903,32 @@ export interface components {
       }[];
       message_ids: string[];
     };
+    DeliveryReceipt: {
+      attempt: number;
+      detail?: string;
+      message_id: string;
+      response_ref?: string;
+      status: string;
+      target_task_id: string;
+      updated_at: string;
+    };
+    DependencyList: {
+      items:
+        | {
+            artifact_ref?: string;
+            completion_ref?: string;
+            consumed_digest: string;
+            consumed_task_revision: number;
+            consumer_task_id: string;
+            created_at: string;
+            id: string;
+            mode: string;
+            producer_task_id: string;
+            valid: boolean;
+            valid_until?: string;
+          }[]
+        | null;
+    };
     DirectoryListing: {
       items: {
         name: string;
@@ -717,6 +1937,38 @@ export interface components {
       parent: string;
       path: string;
       truncated: boolean;
+    };
+    EffectRecord: {
+      after_digest?: string;
+      before_digest?: string;
+      created_at: string;
+      grant_epoch: number;
+      grant_id: string;
+      id: string;
+      idempotency_key: string;
+      observation: string;
+      remote_id?: string;
+      request_digest: string;
+      status: string;
+      task_id: string;
+      updated_at: string;
+    };
+    EligibleScope: {
+      collaboration_scope_id: string;
+      entries:
+        | {
+            content?: string;
+            digest: string;
+            kind: string;
+            ref: string;
+            required: boolean;
+            visibility: string;
+          }[]
+        | null;
+      grant_epoch: number;
+      task_id: string;
+      task_revision: number;
+      workspace_id: string;
     };
     EmptyInput: Record<string, never>;
     Error: {
@@ -751,6 +2003,29 @@ export interface components {
       }[];
       next_cursor: string;
     };
+    ExecutionPolicyInput: {
+      mode: string;
+      source_message_id: string;
+    };
+    ExecutionSession: {
+      acknowledged_exposed_refs?: string[] | null;
+      acknowledgement: string;
+      adapter: string;
+      context_epoch: number;
+      created_at: string;
+      execution_branch: string;
+      exposed_refs: string[] | null;
+      exposure_scope_digest: string;
+      fingerprint: string;
+      id: string;
+      member_id: string;
+      native_session_id?: string;
+      role: string;
+      status: string;
+      task_id: string;
+      updated_at: string;
+      visibility_epoch: number;
+    };
     ExecutorInfo: {
       adapter: string;
       capabilities?: string[] | null;
@@ -773,11 +2048,146 @@ export interface components {
       status: string;
       title: string;
     };
+    Grant: {
+      actions: string[] | null;
+      created_at: string;
+      epoch: number;
+      expires_at?: string;
+      external_actions: boolean;
+      id: string;
+      mode: string;
+      resources: string[] | null;
+      revision: number;
+      revoked_at?: string;
+      source_message_id: string;
+      status: string;
+      subject_member_id: string;
+      workspace_id: string;
+    };
+    GrantList: {
+      items:
+        | {
+            actions: string[] | null;
+            created_at: string;
+            epoch: number;
+            expires_at?: string;
+            external_actions: boolean;
+            id: string;
+            mode: string;
+            resources: string[] | null;
+            revision: number;
+            revoked_at?: string;
+            source_message_id: string;
+            status: string;
+            subject_member_id: string;
+            workspace_id: string;
+          }[]
+        | null;
+    };
+    HandoffInput: {
+      expected_owner_revision: number;
+      new_owner_id: string;
+      request_id: string;
+    };
+    HandoffSummary: {
+      applicability: string;
+      author_member_id: string;
+      claim_or_result: string;
+      contradicting_refs: string[] | null;
+      exposure_scope_digest?: string;
+      limitations: string[] | null;
+      omitted_topics: string[] | null;
+      source_versions: string[] | null;
+      supporting_refs: string[] | null;
+      task_revision: number;
+      unresolved: string[] | null;
+      visibility?: string;
+    };
+    InboxItem: {
+      application_policy: string;
+      applied_revision?: number;
+      body: string;
+      created_at: string;
+      expected_revision: number;
+      follow_up_task_id?: string;
+      id: string;
+      idempotency_key: string;
+      kind: string;
+      request_digest: string;
+      run_id?: string;
+      source_message_id: string;
+      status: string;
+      task_id: string;
+      updated_at: string;
+    };
+    InboxList: {
+      items:
+        | {
+            application_policy: string;
+            applied_revision?: number;
+            body: string;
+            created_at: string;
+            expected_revision: number;
+            follow_up_task_id?: string;
+            id: string;
+            idempotency_key: string;
+            kind: string;
+            request_digest: string;
+            run_id?: string;
+            source_message_id: string;
+            status: string;
+            task_id: string;
+            updated_at: string;
+          }[]
+        | null;
+    };
     Info: {
       description: string;
       id: string;
       name: string;
       version: string;
+    };
+    MemoryList: {
+      items:
+        | {
+            accepted_by: string;
+            claim_status: string;
+            content: string;
+            created_at: string;
+            exposure_scope_digest: string;
+            id: string;
+            kind: string;
+            producer_attempt_id?: string;
+            review_after?: string;
+            revision: number;
+            scope: string;
+            source_locator: string;
+            source_refs: string[] | null;
+            supersedes?: string;
+            valid_from: string;
+            visibility: string;
+            workspace_id: string;
+          }[]
+        | null;
+    };
+    MemoryRecord: {
+      accepted_by: string;
+      claim_status: string;
+      content: string;
+      created_at: string;
+      exposure_scope_digest: string;
+      id: string;
+      kind: string;
+      producer_attempt_id?: string;
+      review_after?: string;
+      revision: number;
+      scope: string;
+      source_locator: string;
+      source_refs: string[] | null;
+      supersedes?: string;
+      valid_from: string;
+      visibility: string;
+      workspace_id: string;
     };
     Message: {
       agent_id: string;
@@ -807,9 +2217,211 @@ export interface components {
       message_id: string;
       next_cursor?: string;
     };
+    MessageView: {
+      message: {
+        body: string;
+        body_digest: string;
+        budget_account_id: string;
+        context_refs: string[] | null;
+        correlation_id: string;
+        created_at: string;
+        disclosure_scope: string;
+        expires_at?: string;
+        exposure_scope_digest: string;
+        id: string;
+        kind: string;
+        related_task_revision?: number;
+        reply_to?: string;
+        request_digest: string;
+        request_id: string;
+        resolved_target_member_id: string;
+        root_control_epoch: number;
+        schema_version: number;
+        sender_attempt_id?: string;
+        sender_member_id: string;
+        sender_task_id: string;
+        sender_task_revision: number;
+        target_owner_revision: number;
+        target_task_id: string;
+      };
+      receipts:
+        | {
+            attempt: number;
+            detail?: string;
+            message_id: string;
+            response_ref?: string;
+            status: string;
+            target_task_id: string;
+            updated_at: string;
+          }[]
+        | null;
+    };
     ModelOptions: {
       resolved_model: string;
       thinking_levels: string[];
+    };
+    Overview: {
+      needs_attention:
+        | {
+            answer?: string;
+            answer_ref?: string;
+            blocking_scope: string;
+            body: string;
+            created_at: string;
+            id: string;
+            options: string[] | null;
+            recommended?: string;
+            resolved_at?: string;
+            status: string;
+            task_id: string;
+            task_revision: number;
+          }[]
+        | null;
+      records:
+        | {
+            accepted_by: string;
+            applicability: string;
+            content: string;
+            created_at: string;
+            exposure_scope_digest: string;
+            id: string;
+            kind: string;
+            revision: number;
+            source_message_id?: string;
+            source_refs: string[] | null;
+            status: string;
+            supersedes?: string;
+            visibility: string;
+            workspace_id: string;
+          }[]
+        | null;
+      tasks:
+        | {
+            budget: {
+              active_branches: number;
+              active_writers: number;
+              fix_rounds_by_issue: {
+                [key: string]: number;
+              } | null;
+              id: string;
+              no_progress_by_branch: {
+                [key: string]: number;
+              } | null;
+              policy: {
+                auto_continuations: number;
+                fix_rounds: number;
+                no_progress_failures: number;
+                parallel_branches: number;
+                writer_branches: number;
+              };
+              reserved_runs: number;
+              revision: number;
+              root_task_id: string;
+              sources: {
+                auto_continuations: string;
+                fix_rounds: string;
+                no_progress_failures: string;
+                parallel_branches: string;
+                writer_branches: string;
+              };
+              updated_at: string;
+              used_continuations: number;
+            };
+            completions:
+              | {
+                  candidate_refs: string[] | null;
+                  created_at: string;
+                  evaluation_generation: number;
+                  evidence_producer: string;
+                  id: string;
+                  input_snapshot_digest: string;
+                  judge_member_id: string;
+                  results:
+                    | {
+                        criterion_id: string;
+                        evidence: string[] | null;
+                        limitations: string[] | null;
+                        result: string;
+                      }[]
+                    | null;
+                  subject_digest: string;
+                  task_id: string;
+                  task_revision: number;
+                  unresolved: string[] | null;
+                  validity: string;
+                }[]
+              | null;
+            revision: {
+              acceptance:
+                | {
+                    applicable_when?: string;
+                    criterion_id: string;
+                    evaluation_policy: string;
+                    evidence_requirements: string[] | null;
+                    kind: string;
+                    required: boolean;
+                    statement: string;
+                  }[]
+                | null;
+              acceptance_evidence: string;
+              accepted_by: string;
+              allowed_actions: string[] | null;
+              constraint_refs: string[] | null;
+              created_at: string;
+              digest: string;
+              goal: string;
+              input_refs: string[] | null;
+              non_goals: string[] | null;
+              revision: number;
+              scope: string[] | null;
+              source_message_id: string;
+              task_id: string;
+            };
+            task: {
+              budget_account_id: string;
+              collaboration_scope_id: string;
+              created_at: string;
+              current_revision: number;
+              current_run_id?: string;
+              evaluation_generation: number;
+              evaluation_status: string;
+              id: string;
+              kind?: string;
+              owner_member_id: string;
+              owner_revision: number;
+              parent_id?: string;
+              pending_owner_id?: string;
+              priority: number;
+              root_control_epoch: number;
+              root_task_id: string;
+              status: string;
+              thread_id: string;
+              transfer_request_id?: string;
+              updated_at: string;
+              wait_generation?: number;
+              waiting_reason?: string;
+              workspace_id: string;
+            };
+          }[]
+        | null;
+      workspace: {
+        budget_override?: {
+          auto_continuations?: number | null;
+          fix_rounds?: number | null;
+          no_progress_failures?: number | null;
+          parallel_branches?: number | null;
+          writer_branches?: number | null;
+        } | null;
+        created_at: string;
+        description: string;
+        execution_mode?: string;
+        id: string;
+        name: string;
+        project_revision?: number;
+        revision: number;
+        root: string;
+        skill_ids: string[] | null;
+      };
     };
     PasswordInput: {
       password: string;
@@ -819,6 +2431,159 @@ export interface components {
       pgid?: number;
       pid: number;
       start?: string;
+    };
+    ProjectRecord: {
+      accepted_by: string;
+      applicability: string;
+      content: string;
+      created_at: string;
+      exposure_scope_digest: string;
+      id: string;
+      kind: string;
+      revision: number;
+      source_message_id?: string;
+      source_refs: string[] | null;
+      status: string;
+      supersedes?: string;
+      visibility: string;
+      workspace_id: string;
+    };
+    Question: {
+      answer?: string;
+      answer_ref?: string;
+      blocking_scope: string;
+      body: string;
+      created_at: string;
+      id: string;
+      options: string[] | null;
+      recommended?: string;
+      resolved_at?: string;
+      status: string;
+      task_id: string;
+      task_revision: number;
+    };
+    QuestionAnswerInput: {
+      answer: string;
+      answer_ref: string;
+    };
+    QuestionList: {
+      items:
+        | {
+            answer?: string;
+            answer_ref?: string;
+            blocking_scope: string;
+            body: string;
+            created_at: string;
+            id: string;
+            options: string[] | null;
+            recommended?: string;
+            resolved_at?: string;
+            status: string;
+            task_id: string;
+            task_revision: number;
+          }[]
+        | null;
+    };
+    ReadReceipt: {
+      bytes: number;
+      complete: boolean;
+      created_at: string;
+      digest: string;
+      id: string;
+      manifest_id: string;
+      offset: number;
+      ref: string;
+    };
+    RecordCompletionInput: {
+      candidate_refs: string[] | null;
+      evaluation_generation: number;
+      evidence_producer: string;
+      input_snapshot_digest: string;
+      judge_member_id: string;
+      results:
+        | {
+            criterion_id: string;
+            evidence: string[] | null;
+            limitations: string[] | null;
+            result: string;
+          }[]
+        | null;
+      subject_digest: string;
+      unresolved: string[] | null;
+    };
+    RecordList: {
+      items:
+        | {
+            accepted_by: string;
+            applicability: string;
+            content: string;
+            created_at: string;
+            exposure_scope_digest: string;
+            id: string;
+            kind: string;
+            revision: number;
+            source_message_id?: string;
+            source_refs: string[] | null;
+            status: string;
+            supersedes?: string;
+            visibility: string;
+            workspace_id: string;
+          }[]
+        | null;
+    };
+    ReviseTaskInput: {
+      acceptance:
+        | {
+            applicable_when?: string;
+            criterion_id: string;
+            evaluation_policy: string;
+            evidence_requirements: string[] | null;
+            kind: string;
+            required: boolean;
+            statement: string;
+          }[]
+        | null;
+      accepted_by: string;
+      allowed_actions: string[] | null;
+      constraint_refs: string[] | null;
+      goal: string;
+      input_refs: string[] | null;
+      non_goals: string[] | null;
+      scope: string[] | null;
+      source_message_id: string;
+    };
+    RevisionList: {
+      items:
+        | {
+            acceptance:
+              | {
+                  applicable_when?: string;
+                  criterion_id: string;
+                  evaluation_policy: string;
+                  evidence_requirements: string[] | null;
+                  kind: string;
+                  required: boolean;
+                  statement: string;
+                }[]
+              | null;
+            acceptance_evidence: string;
+            accepted_by: string;
+            allowed_actions: string[] | null;
+            constraint_refs: string[] | null;
+            created_at: string;
+            digest: string;
+            goal: string;
+            input_refs: string[] | null;
+            non_goals: string[] | null;
+            revision: number;
+            scope: string[] | null;
+            source_message_id: string;
+            task_id: string;
+          }[]
+        | null;
+    };
+    RevokeGrantInput: {
+      source_message_id: string;
     };
     Routing: {
       assignments: {
@@ -892,11 +2657,21 @@ export interface components {
             workspace_id: string;
           }[]
         | null;
+      automatic_continuation?: boolean;
+      budget_account_id?: string;
+      budget_issue_id?: string;
+      budget_reserved?: boolean;
+      budget_started?: boolean;
+      collaboration_message_id?: string;
+      context_manifest_id?: string;
+      continued_from_run_id?: string;
       coordinator_id?: string;
       created_at: string;
       deadline_at?: string;
       /** @description Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps. */
       delivery?: components["schemas"]["Delivery"] | null;
+      effective_execution_mode?: string;
+      enforced_capabilities?: string[] | null;
       error: string;
       execution_policy?: {
         first_response_ns: number;
@@ -905,8 +2680,12 @@ export interface components {
         stall_ns: number;
         step_timeout_ns: number;
       } | null;
+      execution_ref?: string;
+      execution_root?: string;
       failure_kind?: string;
       finished_at: string;
+      grant_actions?: string[] | null;
+      grant_snapshot_digest?: string;
       id: string;
       input: {
         artifact_refs:
@@ -925,15 +2704,22 @@ export interface components {
         /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
         research_scope: string;
         retry_of_run_id: string;
+        source_ids: string[] | null;
         source_urls: string[] | null;
         targets: string[] | null;
         workflow: string;
       };
+      input_snapshot_digest?: string;
       method?: string;
       policy_adopted_at?: string;
+      policy_version?: number;
+      progress_digest?: string;
+      progress_observed?: boolean;
       recovered_at?: string;
       recovery_count?: number;
       recovery_note?: string;
+      requested_execution_mode?: string;
+      reservation_release_reason?: string;
       routing: {
         assignments: {
           [key: string]: string;
@@ -970,17 +2756,30 @@ export interface components {
       } | null;
       started_at?: string;
       status: string;
+      task_id?: string;
+      task_revision?: number;
       thread_id: string;
+      unenforced_constraints?: string[] | null;
       workspace: {
+        budget_override?: {
+          auto_continuations?: number | null;
+          fix_rounds?: number | null;
+          no_progress_failures?: number | null;
+          parallel_branches?: number | null;
+          writer_branches?: number | null;
+        } | null;
         created_at: string;
         description: string;
+        execution_mode?: string;
         id: string;
         name: string;
+        project_revision?: number;
         revision: number;
         root: string;
         skill_ids: string[] | null;
       };
       workspace_id: string;
+      write_branch?: boolean;
     };
     RunInput: {
       artifact_refs:
@@ -999,6 +2798,7 @@ export interface components {
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope: string;
       retry_of_run_id: string;
+      source_ids: string[] | null;
       source_urls: string[] | null;
       targets: string[] | null;
       workflow: string;
@@ -1020,6 +2820,7 @@ export interface components {
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope?: string;
       retry_of_run_id?: string;
+      source_ids?: string[] | null;
       source_urls?: string[] | null;
       targets?: string[] | null;
       workflow?: string;
@@ -1037,6 +2838,7 @@ export interface components {
             draft_artifact?: {
               body: string;
               created_at: string;
+              exposure_scope_digest?: string;
               feedback: string;
               feedback_at: string;
               findings:
@@ -1058,8 +2860,10 @@ export interface components {
               title: string;
               type: string;
               version: number;
+              visibility?: string;
             } | null;
             error?: string;
+            execution_session_ref?: string;
             executor?: string;
             failure_kind?: string;
             finished_at?: string;
@@ -1089,6 +2893,7 @@ export interface components {
             recovery?: string;
             resolved_model?: string;
             run_id: string;
+            session_fingerprint?: string;
             session_id?: string;
             session_mode?: string;
             source_ids?: string[] | null;
@@ -1128,11 +2933,21 @@ export interface components {
               workspace_id: string;
             }[]
           | null;
+        automatic_continuation?: boolean;
+        budget_account_id?: string;
+        budget_issue_id?: string;
+        budget_reserved?: boolean;
+        budget_started?: boolean;
+        collaboration_message_id?: string;
+        context_manifest_id?: string;
+        continued_from_run_id?: string;
         coordinator_id?: string;
         created_at: string;
         deadline_at?: string;
         /** @description Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps. */
         delivery?: components["schemas"]["Delivery"] | null;
+        effective_execution_mode?: string;
+        enforced_capabilities?: string[] | null;
         error: string;
         execution_policy?: {
           first_response_ns: number;
@@ -1141,8 +2956,12 @@ export interface components {
           stall_ns: number;
           step_timeout_ns: number;
         } | null;
+        execution_ref?: string;
+        execution_root?: string;
         failure_kind?: string;
         finished_at: string;
+        grant_actions?: string[] | null;
+        grant_snapshot_digest?: string;
         id: string;
         input: {
           artifact_refs:
@@ -1159,15 +2978,22 @@ export interface components {
           proposal_id: string;
           research_scope: string;
           retry_of_run_id: string;
+          source_ids: string[] | null;
           source_urls: string[] | null;
           targets: string[] | null;
           workflow: string;
         };
+        input_snapshot_digest?: string;
         method?: string;
         policy_adopted_at?: string;
+        policy_version?: number;
+        progress_digest?: string;
+        progress_observed?: boolean;
         recovered_at?: string;
         recovery_count?: number;
         recovery_note?: string;
+        requested_execution_mode?: string;
+        reservation_release_reason?: string;
         routing: {
           assignments: {
             [key: string]: string;
@@ -1204,17 +3030,30 @@ export interface components {
         } | null;
         started_at?: string;
         status: string;
+        task_id?: string;
+        task_revision?: number;
         thread_id: string;
+        unenforced_constraints?: string[] | null;
         workspace: {
+          budget_override?: {
+            auto_continuations?: number | null;
+            fix_rounds?: number | null;
+            no_progress_failures?: number | null;
+            parallel_branches?: number | null;
+            writer_branches?: number | null;
+          } | null;
           created_at: string;
           description: string;
+          execution_mode?: string;
           id: string;
           name: string;
+          project_revision?: number;
           revision: number;
           root: string;
           skill_ids: string[] | null;
         };
         workspace_id: string;
+        write_branch?: boolean;
       };
       steps:
         | {
@@ -1251,6 +3090,13 @@ export interface components {
           [key: string]: string;
         } | null;
       } | null;
+      collaboration_budget?: {
+        auto_continuations: number;
+        fix_rounds: number;
+        no_progress_failures: number;
+        parallel_branches: number;
+        writer_branches: number;
+      };
       default_coordinator_id: string;
       retention_days?: number;
       revision: number;
@@ -1260,6 +3106,13 @@ export interface components {
         [key: string]: {
           [key: string]: string;
         } | null;
+      } | null;
+      collaboration_budget?: {
+        auto_continuations: number;
+        fix_rounds: number;
+        no_progress_failures: number;
+        parallel_branches: number;
+        writer_branches: number;
       } | null;
       default_coordinator_id: string;
       retention_days?: number | null;
@@ -1271,17 +3124,51 @@ export interface components {
       content_digest?: string;
       end_line: number;
       exit_code?: number;
+      exposure_scope_digest?: string;
       id: string;
       kind: string;
+      media_type?: string;
+      original_content?: string;
+      original_digest?: string;
+      parse_error?: string;
+      parse_quality?: string;
+      parse_status?: string;
+      parser_version?: string;
       path: string;
       run_id: string;
       sha256: string;
+      source_locator?: string;
       start_line: number;
       thread_id: string;
       timed_out?: boolean;
       title: string;
       truncated: boolean;
       url: string;
+      visibility?: string;
+      workspace_id: string;
+    };
+    SourceImport: {
+      captured_at: string;
+      content?: string;
+      content_digest?: string;
+      end_line: number;
+      file_name: string;
+      id: string;
+      kind: string;
+      media_type: string;
+      original_content?: string;
+      original_digest: string;
+      parse_error?: string;
+      parse_quality?: string;
+      parse_status: string;
+      parser_version?: string;
+      sha256: string;
+      source_locator?: string;
+      start_line: number;
+      thread_id: string;
+      title: string;
+      truncated: boolean;
+      visibility: string;
       workspace_id: string;
     };
     Step: {
@@ -1306,6 +3193,14 @@ export interface components {
       run_id: string;
       started_at?: string;
       status: string;
+    };
+    SubmitInboxInput: {
+      application_policy: string;
+      body: string;
+      expected_revision: number;
+      idempotency_key: string;
+      kind: string;
+      source_message_id: string;
     };
     SystemInfo: {
       csrf_token: string;
@@ -1343,6 +3238,327 @@ export interface components {
         [key: string]: string;
       };
     };
+    Task: {
+      budget_account_id: string;
+      collaboration_scope_id: string;
+      created_at: string;
+      current_revision: number;
+      current_run_id?: string;
+      evaluation_generation: number;
+      evaluation_status: string;
+      id: string;
+      kind?: string;
+      owner_member_id: string;
+      owner_revision: number;
+      parent_id?: string;
+      pending_owner_id?: string;
+      priority: number;
+      root_control_epoch: number;
+      root_task_id: string;
+      status: string;
+      thread_id: string;
+      transfer_request_id?: string;
+      updated_at: string;
+      wait_generation?: number;
+      waiting_reason?: string;
+      workspace_id: string;
+    };
+    TaskActionInput: {
+      action: string;
+      request_id: string;
+    };
+    TaskBudgetInput: {
+      policy: {
+        auto_continuations: number;
+        fix_rounds: number;
+        no_progress_failures: number;
+        parallel_branches: number;
+        writer_branches: number;
+      };
+    };
+    TaskDependency: {
+      artifact_ref?: string;
+      completion_ref?: string;
+      consumed_digest: string;
+      consumed_task_revision: number;
+      consumer_task_id: string;
+      created_at: string;
+      id: string;
+      mode: string;
+      producer_task_id: string;
+      valid: boolean;
+      valid_until?: string;
+    };
+    TaskList: {
+      items:
+        | {
+            budget: {
+              active_branches: number;
+              active_writers: number;
+              fix_rounds_by_issue: {
+                [key: string]: number;
+              } | null;
+              id: string;
+              no_progress_by_branch: {
+                [key: string]: number;
+              } | null;
+              policy: {
+                auto_continuations: number;
+                fix_rounds: number;
+                no_progress_failures: number;
+                parallel_branches: number;
+                writer_branches: number;
+              };
+              reserved_runs: number;
+              revision: number;
+              root_task_id: string;
+              sources: {
+                auto_continuations: string;
+                fix_rounds: string;
+                no_progress_failures: string;
+                parallel_branches: string;
+                writer_branches: string;
+              };
+              updated_at: string;
+              used_continuations: number;
+            };
+            completions:
+              | {
+                  candidate_refs: string[] | null;
+                  created_at: string;
+                  evaluation_generation: number;
+                  evidence_producer: string;
+                  id: string;
+                  input_snapshot_digest: string;
+                  judge_member_id: string;
+                  results:
+                    | {
+                        criterion_id: string;
+                        evidence: string[] | null;
+                        limitations: string[] | null;
+                        result: string;
+                      }[]
+                    | null;
+                  subject_digest: string;
+                  task_id: string;
+                  task_revision: number;
+                  unresolved: string[] | null;
+                  validity: string;
+                }[]
+              | null;
+            revision: {
+              acceptance:
+                | {
+                    applicable_when?: string;
+                    criterion_id: string;
+                    evaluation_policy: string;
+                    evidence_requirements: string[] | null;
+                    kind: string;
+                    required: boolean;
+                    statement: string;
+                  }[]
+                | null;
+              acceptance_evidence: string;
+              accepted_by: string;
+              allowed_actions: string[] | null;
+              constraint_refs: string[] | null;
+              created_at: string;
+              digest: string;
+              goal: string;
+              input_refs: string[] | null;
+              non_goals: string[] | null;
+              revision: number;
+              scope: string[] | null;
+              source_message_id: string;
+              task_id: string;
+            };
+            task: {
+              budget_account_id: string;
+              collaboration_scope_id: string;
+              created_at: string;
+              current_revision: number;
+              current_run_id?: string;
+              evaluation_generation: number;
+              evaluation_status: string;
+              id: string;
+              kind?: string;
+              owner_member_id: string;
+              owner_revision: number;
+              parent_id?: string;
+              pending_owner_id?: string;
+              priority: number;
+              root_control_epoch: number;
+              root_task_id: string;
+              status: string;
+              thread_id: string;
+              transfer_request_id?: string;
+              updated_at: string;
+              wait_generation?: number;
+              waiting_reason?: string;
+              workspace_id: string;
+            };
+          }[]
+        | null;
+    };
+    TaskMessageInput: {
+      body: string;
+      context_refs: string[] | null;
+      correlation_id?: string;
+      expires_at?: string;
+      kind: string;
+      related_task_revision?: number;
+      reply_to?: string;
+      request_id: string;
+      requires_response?: boolean;
+      summary?: {
+        applicability: string;
+        author_member_id: string;
+        claim_or_result: string;
+        contradicting_refs: string[] | null;
+        exposure_scope_digest?: string;
+        limitations: string[] | null;
+        omitted_topics: string[] | null;
+        source_versions: string[] | null;
+        supporting_refs: string[] | null;
+        task_revision: number;
+        unresolved: string[] | null;
+        visibility?: string;
+      } | null;
+      target_task_id: string;
+    };
+    TaskRevision: {
+      acceptance:
+        | {
+            applicable_when?: string;
+            criterion_id: string;
+            evaluation_policy: string;
+            evidence_requirements: string[] | null;
+            kind: string;
+            required: boolean;
+            statement: string;
+          }[]
+        | null;
+      acceptance_evidence: string;
+      accepted_by: string;
+      allowed_actions: string[] | null;
+      constraint_refs: string[] | null;
+      created_at: string;
+      digest: string;
+      goal: string;
+      input_refs: string[] | null;
+      non_goals: string[] | null;
+      revision: number;
+      scope: string[] | null;
+      source_message_id: string;
+      task_id: string;
+    };
+    TaskView: {
+      budget: {
+        active_branches: number;
+        active_writers: number;
+        fix_rounds_by_issue: {
+          [key: string]: number;
+        } | null;
+        id: string;
+        no_progress_by_branch: {
+          [key: string]: number;
+        } | null;
+        policy: {
+          auto_continuations: number;
+          fix_rounds: number;
+          no_progress_failures: number;
+          parallel_branches: number;
+          writer_branches: number;
+        };
+        reserved_runs: number;
+        revision: number;
+        root_task_id: string;
+        sources: {
+          auto_continuations: string;
+          fix_rounds: string;
+          no_progress_failures: string;
+          parallel_branches: string;
+          writer_branches: string;
+        };
+        updated_at: string;
+        used_continuations: number;
+      };
+      completions:
+        | {
+            candidate_refs: string[] | null;
+            created_at: string;
+            evaluation_generation: number;
+            evidence_producer: string;
+            id: string;
+            input_snapshot_digest: string;
+            judge_member_id: string;
+            results:
+              | {
+                  criterion_id: string;
+                  evidence: string[] | null;
+                  limitations: string[] | null;
+                  result: string;
+                }[]
+              | null;
+            subject_digest: string;
+            task_id: string;
+            task_revision: number;
+            unresolved: string[] | null;
+            validity: string;
+          }[]
+        | null;
+      revision: {
+        acceptance:
+          | {
+              applicable_when?: string;
+              criterion_id: string;
+              evaluation_policy: string;
+              evidence_requirements: string[] | null;
+              kind: string;
+              required: boolean;
+              statement: string;
+            }[]
+          | null;
+        acceptance_evidence: string;
+        accepted_by: string;
+        allowed_actions: string[] | null;
+        constraint_refs: string[] | null;
+        created_at: string;
+        digest: string;
+        goal: string;
+        input_refs: string[] | null;
+        non_goals: string[] | null;
+        revision: number;
+        scope: string[] | null;
+        source_message_id: string;
+        task_id: string;
+      };
+      task: {
+        budget_account_id: string;
+        collaboration_scope_id: string;
+        created_at: string;
+        current_revision: number;
+        current_run_id?: string;
+        evaluation_generation: number;
+        evaluation_status: string;
+        id: string;
+        kind?: string;
+        owner_member_id: string;
+        owner_revision: number;
+        parent_id?: string;
+        pending_owner_id?: string;
+        priority: number;
+        root_control_epoch: number;
+        root_task_id: string;
+        status: string;
+        thread_id: string;
+        transfer_request_id?: string;
+        updated_at: string;
+        wait_generation?: number;
+        waiting_reason?: string;
+        workspace_id: string;
+      };
+    };
     Thread: {
       active_run_id?: string;
       active_run_status?: string;
@@ -1350,10 +3566,12 @@ export interface components {
       coordinator_id: string;
       deleted_at?: string;
       id: string;
+      internal?: boolean;
       last_run_id?: string;
       last_run_status?: string;
       purge_at?: string;
       revision: number;
+      task_id?: string;
       title: string;
       updated_at: string;
       workflow: string;
@@ -1366,10 +3584,12 @@ export interface components {
       coordinator_id?: string;
       deleted_at?: string;
       id?: string;
+      internal?: boolean;
       last_run_id?: string;
       last_run_status?: string;
       purge_at?: string;
       revision?: number;
+      task_id?: string;
       title: string;
       updated_at?: string;
       workflow?: string;
@@ -1443,11 +3663,21 @@ export interface components {
               workspace_id: string;
             }[]
           | null;
+        automatic_continuation?: boolean;
+        budget_account_id?: string;
+        budget_issue_id?: string;
+        budget_reserved?: boolean;
+        budget_started?: boolean;
+        collaboration_message_id?: string;
+        context_manifest_id?: string;
+        continued_from_run_id?: string;
         coordinator_id?: string;
         created_at: string;
         deadline_at?: string;
         /** @description Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps. */
         delivery?: components["schemas"]["Delivery"] | null;
+        effective_execution_mode?: string;
+        enforced_capabilities?: string[] | null;
         error: string;
         execution_policy?: {
           first_response_ns: number;
@@ -1456,8 +3686,12 @@ export interface components {
           stall_ns: number;
           step_timeout_ns: number;
         } | null;
+        execution_ref?: string;
+        execution_root?: string;
         failure_kind?: string;
         finished_at: string;
+        grant_actions?: string[] | null;
+        grant_snapshot_digest?: string;
         id: string;
         input: {
           artifact_refs:
@@ -1474,15 +3708,22 @@ export interface components {
           proposal_id: string;
           research_scope: string;
           retry_of_run_id: string;
+          source_ids: string[] | null;
           source_urls: string[] | null;
           targets: string[] | null;
           workflow: string;
         };
+        input_snapshot_digest?: string;
         method?: string;
         policy_adopted_at?: string;
+        policy_version?: number;
+        progress_digest?: string;
+        progress_observed?: boolean;
         recovered_at?: string;
         recovery_count?: number;
         recovery_note?: string;
+        requested_execution_mode?: string;
+        reservation_release_reason?: string;
         routing: {
           assignments: {
             [key: string]: string;
@@ -1519,17 +3760,30 @@ export interface components {
         } | null;
         started_at?: string;
         status: string;
+        task_id?: string;
+        task_revision?: number;
         thread_id: string;
+        unenforced_constraints?: string[] | null;
         workspace: {
+          budget_override?: {
+            auto_continuations?: number | null;
+            fix_rounds?: number | null;
+            no_progress_failures?: number | null;
+            parallel_branches?: number | null;
+            writer_branches?: number | null;
+          } | null;
           created_at: string;
           description: string;
+          execution_mode?: string;
           id: string;
           name: string;
+          project_revision?: number;
           revision: number;
           root: string;
           skill_ids: string[] | null;
         };
         workspace_id: string;
+        write_branch?: boolean;
       }[];
       sources: {
         capture_step_id?: string;
@@ -1538,17 +3792,27 @@ export interface components {
         content_digest?: string;
         end_line: number;
         exit_code?: number;
+        exposure_scope_digest?: string;
         id: string;
         kind: string;
+        media_type?: string;
+        original_content?: string;
+        original_digest?: string;
+        parse_error?: string;
+        parse_quality?: string;
+        parse_status?: string;
+        parser_version?: string;
         path: string;
         run_id: string;
         sha256: string;
+        source_locator?: string;
         start_line: number;
         thread_id: string;
         timed_out?: boolean;
         title: string;
         truncated: boolean;
         url: string;
+        visibility?: string;
         workspace_id: string;
       }[];
       thread: {
@@ -1558,10 +3822,12 @@ export interface components {
         coordinator_id: string;
         deleted_at?: string;
         id: string;
+        internal?: boolean;
         last_run_id?: string;
         last_run_status?: string;
         purge_at?: string;
         revision: number;
+        task_id?: string;
         title: string;
         updated_at: string;
         workflow: string;
@@ -1576,10 +3842,12 @@ export interface components {
         coordinator_id: string;
         deleted_at?: string;
         id: string;
+        internal?: boolean;
         last_run_id?: string;
         last_run_status?: string;
         purge_at?: string;
         revision: number;
+        task_id?: string;
         title: string;
         updated_at: string;
         workflow: string;
@@ -1597,10 +3865,12 @@ export interface components {
               coordinator_id: string;
               deleted_at?: string;
               id: string;
+              internal?: boolean;
               last_run_id?: string;
               last_run_status?: string;
               purge_at?: string;
               revision: number;
+              task_id?: string;
               title: string;
               updated_at: string;
               workflow: string;
@@ -1609,6 +3879,12 @@ export interface components {
             workspace_name: string;
           }[]
         | null;
+    };
+    UserDelegationInput: {
+      context_refs?: string[] | null;
+      goal: string;
+      owner_member_id: string;
+      request_id: string;
     };
     VerifyInput: {
       /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
@@ -1639,14 +3915,85 @@ export interface components {
       thinking_level?: string;
       verified_at: string;
     };
+    WakeEventInput: {
+      event_id: string;
+      evidence_ref: string;
+      observation: string;
+      wake_source: string;
+    };
+    Wakeup: {
+      continuation_run_id?: string;
+      continued_from_run_id?: string;
+      created_at: string;
+      event_id: string;
+      id: string;
+      observation_cursor: string;
+      predicate: string;
+      satisfied_by?: string;
+      status: string;
+      task_id: string;
+      task_revision: number;
+      updated_at: string;
+      wait_generation: number;
+      wake_source: string;
+      yielded_run_id: string;
+    };
+    WakeupList: {
+      items:
+        | {
+            continuation_run_id?: string;
+            continued_from_run_id?: string;
+            created_at: string;
+            event_id: string;
+            id: string;
+            observation_cursor: string;
+            predicate: string;
+            satisfied_by?: string;
+            status: string;
+            task_id: string;
+            task_revision: number;
+            updated_at: string;
+            wait_generation: number;
+            wake_source: string;
+            yielded_run_id: string;
+          }[]
+        | null;
+    };
     Workspace: {
+      budget_override?: {
+        auto_continuations?: number | null;
+        fix_rounds?: number | null;
+        no_progress_failures?: number | null;
+        parallel_branches?: number | null;
+        writer_branches?: number | null;
+      } | null;
       created_at: string;
       description: string;
+      execution_mode?: string;
       id: string;
       name: string;
+      project_revision?: number;
       revision: number;
       root: string;
       skill_ids: string[] | null;
+    };
+    WorkspaceExecution: {
+      base_revision: string;
+      canonical_root: string;
+      created_at: string;
+      id: string;
+      kind: string;
+      lease_epoch: number;
+      lease_expires_at: string;
+      lease_owner: string;
+      observation_completeness: string;
+      owner_member_id: string;
+      path: string;
+      status: string;
+      task_id: string;
+      tree_digest: string;
+      updated_at: string;
+      workspace_id: string;
     };
     WorkspaceInput: {
       description?: string;
@@ -1921,6 +4268,73 @@ export interface operations {
       };
     };
   };
+  bootstrap: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "Idempotency-Key": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BootstrapInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BootstrapReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  collaborationMessage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessageView"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   directories: {
     parameters: {
       query?: {
@@ -1940,6 +4354,68 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["DirectoryListing"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  effect: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EffectRecord"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  execution: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkspaceExecution"];
         };
       };
       /** @description Structured error */
@@ -2008,6 +4484,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  runContext: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ContextView"];
         };
       };
       /** @description Structured error */
@@ -2392,6 +4899,764 @@ export interface operations {
       };
     };
   };
+  projectTask: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskView"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectTaskAction: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskActionInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Task"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectTaskBudget: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BudgetAccount"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  adjustProjectTaskBudget: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskBudgetInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BudgetAccount"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  taskClaims: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ClaimList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  saveTaskClaim: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Claim"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Claim"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  completeProjectTask: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RecordCompletionInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CompletionRecord"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  taskDatasets: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DatasetList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  saveTaskDataset: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DatasetManifest"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DatasetManifest"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  delegateTask: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UserDelegationInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DelegationView"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  taskDependencies: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DependencyList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  addTaskDependency: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskDependency"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDependency"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  handoffTask: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["HandoffInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Task"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  taskInbox: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InboxList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  submitTaskInbox: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SubmitInboxInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InboxItem"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  taskMessages: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CollaborationMessageList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  sendTaskMessage: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskMessageInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessageView"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  taskQuestions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["QuestionList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  answerTaskQuestion: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+        questionID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["QuestionAnswerInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Question"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectTaskRevisions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RevisionList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  reviseProjectTask: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ReviseTaskInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskView"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  taskWakeups: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WakeupList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   thread: {
     parameters: {
       query?: {
@@ -2704,6 +5969,41 @@ export interface operations {
       };
     };
   };
+  observeWakeEvent: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WakeEventInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   workspaces: {
     parameters: {
       query?: never;
@@ -2907,6 +6207,151 @@ export interface operations {
       };
     };
   };
+  setProjectBudgetPolicy: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BudgetPolicyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Workspace"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  setProjectExecutionPolicy: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ExecutionPolicyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Workspace"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectGrants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GrantList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  revokeProjectGrant: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+        memberID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RevokeGrantInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Grant"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   linkMember: {
     parameters: {
       query?: never;
@@ -3006,6 +6451,241 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Agent"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectMemories: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MemoryList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  saveProjectMemory: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MemoryRecord"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MemoryRecord"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectOverview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Overview"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectRecords: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RecordList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  saveProjectRecord: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectRecord"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectRecord"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectTasks: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  createProjectTask: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateTaskInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskView"];
         };
       };
       /** @description Structured error */

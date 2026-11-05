@@ -182,10 +182,10 @@ test("member profiles: name-colored initials, image avatars and stable identity"
   );
 
   const model = dialog.getByLabel("模型（留空使用 CLI 默认）");
-  const context = dialog.getByLabel("上下文大小限制");
+  const context = dialog.getByLabel("上下文预算（tokens）");
   const thinking = dialog.getByLabel("思考等级（留空保持 CLI 默认）");
   const verifiedText = dialog.getByText(
-    "已验证当前执行 CLI、模型、上下文大小限制和思考等级。",
+    "已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。",
   );
   // Empty controls keep the CLI defaults: the request must omit both overrides.
   await expect(dialog.getByLabel("执行 CLI")).toHaveAttribute("value", "claude");
@@ -325,7 +325,7 @@ test("member profiles: name-colored initials, image avatars and stable identity"
     "public-model",
   );
   await expect(
-    dialog.getByLabel("上下文大小限制"),
+    dialog.getByLabel("上下文预算（tokens）"),
   ).toHaveValue("90000");
   await expect(thinking).toHaveAttribute("value", "high");
   const reopenedAvatar = dialog.locator('span[aria-hidden="true"] img').first();

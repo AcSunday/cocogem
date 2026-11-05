@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
@@ -53,6 +54,7 @@ type Server struct {
 	config          Config
 	store           *store.Store
 	engine          *workflow.Engine
+	projects        *project.Service
 	auth            *authentication
 	mu              sync.Mutex
 	proposals       map[string]proposal
@@ -73,7 +75,7 @@ func New(config Config, db *store.Store, engine *workflow.Engine) (*Server, erro
 	if err != nil {
 		return nil, fmt.Errorf("initialize local authentication: %w", err)
 	}
-	s := &Server{config: config, store: db, engine: engine, auth: auth, proposals: map[string]proposal{}, routerSlots: make(chan struct{}, 2), verified: map[string]string{}, verifiedProgram: map[string]string{}}
+	s := &Server{config: config, store: db, engine: engine, projects: project.New(db), auth: auth, proposals: map[string]proposal{}, routerSlots: make(chan struct{}, 2), verified: map[string]string{}, verifiedProgram: map[string]string{}}
 	return s, nil
 }
 
@@ -88,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/system/model-options", s.modelOptions)
 	mux.HandleFunc("GET /api/v1/directories", s.directories)
 	mux.HandleFunc("POST /api/v1/system/verify", s.verify)
+	mux.HandleFunc("POST /api/v1/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/v1/workspaces", s.workspaces)
 	mux.HandleFunc("POST /api/v1/workspaces", s.createWorkspace)
 	mux.HandleFunc("PATCH /api/v1/workspaces/{id}", s.updateWorkspace)
@@ -112,7 +115,49 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/threads/{id}/permanent", s.permanentDeleteThread)
 	mux.HandleFunc("POST /api/v1/threads/{id}/routing-preview", s.preview)
 	mux.HandleFunc("POST /api/v1/threads/{id}/runs", s.submit)
+	mux.HandleFunc("POST /api/v1/threads/{id}/sources", s.importSource)
+	mux.HandleFunc("GET /api/v1/threads/{id}/sources", s.sourceImports)
+	mux.HandleFunc("GET /api/v1/sources/{id}/original", s.sourceOriginal)
+	mux.HandleFunc("DELETE /api/v1/sources/{id}", s.deleteSourceImport)
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/overview", s.projectOverview)
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/tasks", s.projectTasks)
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/tasks", s.createProjectTask)
+	mux.HandleFunc("GET /api/v1/tasks/{id}", s.projectTask)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/revisions", s.reviseProjectTask)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/revisions", s.projectTaskRevisions)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/dependencies", s.addTaskDependency)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/dependencies", s.taskDependencies)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/completions", s.completeProjectTask)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/inbox", s.taskInbox)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/inbox", s.submitTaskInbox)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/actions", s.projectTaskAction)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/questions", s.taskQuestions)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/questions/{questionID}/answers", s.answerTaskQuestion)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/messages", s.taskMessages)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/messages", s.sendTaskMessage)
+	mux.HandleFunc("GET /api/v1/collaboration-messages/{id}", s.collaborationMessage)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/delegations", s.delegateTask)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/handoffs", s.handoffTask)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/wakeups", s.taskWakeups)
+	mux.HandleFunc("POST /api/v1/wake-events", s.observeWakeEvent)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/claims", s.taskClaims)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/claims", s.saveTaskClaim)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/datasets", s.taskDatasets)
+	mux.HandleFunc("POST /api/v1/tasks/{id}/datasets", s.saveTaskDataset)
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/memories", s.projectMemories)
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/memories", s.saveProjectMemory)
+	mux.HandleFunc("GET /api/v1/executions/{id}", s.execution)
+	mux.HandleFunc("GET /api/v1/effects/{id}", s.effect)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/budget", s.projectTaskBudget)
+	mux.HandleFunc("PATCH /api/v1/tasks/{id}/budget", s.adjustProjectTaskBudget)
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/records", s.projectRecords)
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/records", s.saveProjectRecord)
+	mux.HandleFunc("PATCH /api/v1/workspaces/{id}/budget-policy", s.setProjectBudgetPolicy)
+	mux.HandleFunc("PATCH /api/v1/workspaces/{id}/execution-policy", s.setProjectExecutionPolicy)
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/grants", s.projectGrants)
+	mux.HandleFunc("POST /api/v1/workspaces/{id}/grants/{memberID}/revoke", s.revokeProjectGrant)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
+	mux.HandleFunc("GET /api/v1/runs/{id}/context", s.runContext)
 	mux.HandleFunc("POST /api/v1/runs/{id}/cancel", s.cancel)
 	mux.HandleFunc("POST /api/v1/runs/{id}/resume", s.resume)
 	mux.HandleFunc("POST /api/v1/runs/{id}/retry", s.retry)
@@ -184,6 +229,26 @@ func respond(rw http.ResponseWriter, r *http.Request, value any, err error) {
 	var requestError *RequestError
 	if errors.As(err, &requestError) {
 		writeError(rw, r, requestError.Status, requestError.Code, requestError.Message)
+		return
+	}
+	var projectError *project.Error
+	if errors.As(err, &projectError) {
+		status := 400
+		switch projectError.Code {
+		case "not_found":
+			status = 404
+		case "revision_conflict", "dependency_cycle", "conflict", "evidence_stale", "revocation_uncertain":
+			status = 409
+		case "authority_revoked", "disclosure_denied":
+			status = 403
+		case "budget_exhausted", "queue_full":
+			status = 429
+		case "capability_unavailable", "recipient_unavailable":
+			status = 503
+		case "effect_outcome_uncertain":
+			status = 409
+		}
+		writeError(rw, r, status, projectError.Code, projectError.Message)
 		return
 	}
 	if errors.Is(err, store.ErrNotFound) {
