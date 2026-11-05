@@ -1189,6 +1189,17 @@ function WorkspaceApp({
             )}
           </div>
           <div className={cx("top-actions")}>
+            {view?.thread.task_id && (
+              <button
+                className={cx("ghost desktop-only")}
+                aria-label="任务详情"
+                onClick={() =>
+                  navigate(workspaceID, "", true, view.thread.task_id)
+                }
+              >
+                任务详情
+              </button>
+            )}
             {threadID && (
               <button
                 className={cx("icon-button")}

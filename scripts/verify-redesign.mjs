@@ -41,6 +41,10 @@ try {
   await page.getByRole('heading', { name: '请只回复“已收到”，不要调用工具。' }).waitFor({ timeout: 30000 });
   await page.getByRole('heading', { name: '项目权限' }).waitFor();
   await page.getByText('项目设置 · 权限、授权与默认预算', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '打开执行对话' }).click();
+  await page.getByRole('button', { name: '任务详情' }).click();
+  if (page.url() !== taskURL) throw new Error('task detail link did not return to the durable task');
+  await page.getByRole('heading', { name: '项目权限' }).waitFor();
   await page.reload();
   await page.getByRole('heading', { name: '本任务协作预算' }).waitFor();
   if (page.url() !== taskURL) throw new Error('task URL changed after refresh');
