@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/testutil"
 	"github.com/AcSunday/cocogem/internal/workflow"
@@ -112,6 +113,10 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 		t.Fatal(rw.Body.String())
 	}
 	json.Unmarshal(rw.Body.Bytes(), &th)
+	rw = call("POST", "/api/v1/workspaces/"+ws.ID+"/tasks", project.CreateTaskInput{ThreadID: th.ID, OwnerMemberID: th.CoordinatorID, Goal: "比较协作方法", AcceptedBy: "user"}, nil)
+	if rw.Code != 200 {
+		t.Fatal(rw.Body.String())
+	}
 
 	in := w.RunInput{SourceURLs: testutil.Sources, Message: "比较协作方法", Workflow: "research", Assignments: map[string]string{"researcher": a[0].ID, "critic": a[1].ID, "coordinator": a[2].ID}}
 	rw = call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", in, nil)

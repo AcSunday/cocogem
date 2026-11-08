@@ -49,20 +49,20 @@ func TestFixtureRolesReadDifferentSourcesAndReplyDifferently(t *testing.T) {
 	}
 }
 
-func TestFixtureEngineeringAnalysisStaysReadOnly(t *testing.T) {
-	read := fixtureStep(t, "role=analyst workflow=engineering", "read_file")
+func TestFixtureEngineeringUsesEngineerAndEngineeringReport(t *testing.T) {
+	read := fixtureStep(t, "role=engineer workflow=engineering", "read_file")
 	if len(read.Blocks) != 1 || read.Blocks[0].Name != "read_file" {
-		t.Fatalf("engineering analyst did not read a file: %+v", read.Blocks)
+		t.Fatalf("engineering engineer did not read a file: %+v", read.Blocks)
 	}
-	publish := fixtureStep(t, "role=reviewer workflow=engineering type=code_analysis", "publish_artifact")
+	publish := fixtureStep(t, "role=final_reviewer workflow=engineering type=engineering_report", "publish_artifact")
 	if len(publish.Blocks) != 1 || publish.Blocks[0].Name != "publish_artifact" {
 		t.Fatalf("engineering reviewer did not publish: %+v", publish.Blocks)
 	}
 	var in struct {
 		Type string `json:"type"`
 	}
-	if err := json.Unmarshal(publish.Blocks[0].Input, &in); err != nil || in.Type != "code_analysis" {
-		t.Fatalf("engineering analysis artifact type = %q, %v", in.Type, err)
+	if err := json.Unmarshal(publish.Blocks[0].Input, &in); err != nil || in.Type != "engineering_report" {
+		t.Fatalf("engineering artifact type = %q, %v", in.Type, err)
 	}
 	final := fixtureStep(t, "role=final_reviewer workflow=code_analysis type=code_analysis", "publish_artifact")
 	if len(final.Blocks) != 1 || final.Blocks[0].Name != "publish_artifact" {

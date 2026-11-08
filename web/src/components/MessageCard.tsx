@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   messageContent,
   statusText,
@@ -18,6 +24,7 @@ import {
   roleLabel,
 } from "../lib/presentation";
 import { Avatar } from "./Avatar";
+import { Icon } from "./Icon";
 import { Markdown, type MentionMember } from "./Markdown";
 
 const cx = scoped(base, controls, layout, conversation);
@@ -74,6 +81,10 @@ export function MessageCard({
   avatar,
   members = [],
   final = false,
+  activity,
+  retryLabel,
+  retryDisabled = false,
+  onRetry,
 }: {
   message: Message;
   role?: string;
@@ -81,6 +92,12 @@ export function MessageCard({
   members?: MentionMember[];
   /** Delivered results fill the member column so the run footer can align. */
   final?: boolean;
+  /** This member step's tool activity, shown above its reply. */
+  activity?: ReactNode;
+  /** A precise member retry stays beside the reply it replaces. */
+  retryLabel?: string;
+  retryDisabled?: boolean;
+  onRetry?: () => void;
 }) {
   const user = message.role === "user";
   const model = user ? "" : messageModel(message);
@@ -177,6 +194,7 @@ export function MessageCard({
             </small>
           )}
         </div>
+        {!user && activity}
         <div className={cx("message-body")}>
           <Markdown
             text={
@@ -186,6 +204,20 @@ export function MessageCard({
             members={members}
           />
         </div>
+        {onRetry && (
+          <div className={cx("message-retry")}>
+            <button
+              type="button"
+              className={cx("ghost small")}
+              aria-label={`重试 ${retryLabel || message.agent_name || "成员"}`}
+              title="只补跑该成员并沿用原流程；输入区新选的流程不会应用"
+              disabled={retryDisabled}
+              onClick={onRetry}
+            >
+              <Icon name="refresh" size={14} />重试 {retryLabel || message.agent_name || "成员"}
+            </button>
+          </div>
+        )}
         {message.content_truncated && (
           <div className={cx("message-content-paging")}>
             <small className={cx("muted")}>

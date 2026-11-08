@@ -109,7 +109,7 @@ func TestAttemptRecordsFreshSessionFingerprintAndExposure(t *testing.T) {
 	if session.Fingerprint != attempt.SessionFingerprint || session.Status != "fresh_only" || session.Acknowledgement != "fresh_started_resume_unsupported" || session.NativeSessionID != "fresh-native-session" {
 		t.Fatalf("fresh session was presented as reusable: %+v", session)
 	}
-	if session.VisibilityEpoch != 1 || len(session.ExposedRefs) == 0 || session.ExposureDigest == "" {
+	if session.VisibilityEpoch != max(1, run.PermissionEpoch) || len(session.ExposedRefs) == 0 || session.ExposureDigest == "" {
 		t.Fatalf("session exposure was not recorded: %+v", session)
 	}
 	if sessionReuseEligible(session, session.Fingerprint, session.VisibilityEpoch) {
@@ -124,6 +124,7 @@ func TestAttemptRecordsFreshSessionFingerprintAndExposure(t *testing.T) {
 		{name: "connection", mutate: func(in *sessionInput) { in.connection.Identity = "provider-account-v2" }},
 		{name: "execution root", mutate: func(in *sessionInput) { in.run.ExecutionRoot = "/tmp/other-execution" }},
 		{name: "grant", mutate: func(in *sessionInput) { in.run.GrantSnapshot = "new-grant-epoch" }},
+		{name: "permission epoch", mutate: func(in *sessionInput) { in.run.PermissionEpoch++ }},
 		{name: "context protocol", mutate: func(in *sessionInput) { in.run.ContextRef = "" }},
 	}
 	for _, variant := range variants {
@@ -257,3 +258,86 @@ func TestTaskColdStartAcrossThreadMemberAndCLI(t *testing.T) {
 }
 
 func jsonRaw(value string) []byte { return []byte(value) }
+
+// TestPermissionEpochChangeInvalidatesResumableSession proves a full_access ->
+// controlled -> full_access round trip cannot revive a managed session created
+// under the earlier permission boundary. The new epoch changes the fingerprint and
+// visibility, and no automatic execution is authorized from the old session.
+func TestPermissionEpochChangeInvalidatesResumableSession(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	run := seedCustomRun(t, db, []customStepSpec{{Agent: 0, Role: "responder", Instruction: "answer"}})
+	attachSessionTask(t, db, &run)
+	adapter := agent.AdapterInfo{ID: "claude", Installed: true, Supported: true, Version: "2.1.0", Program: "/usr/local/bin/claude", Identity: "cli-v1", Adapter: "claude-stream-json", Capabilities: []string{"session_resume_ack=supported"}}
+	connection := agent.ConnectionInfo{ResolvedModel: "claude-actual", Identity: "provider-account-v1"}
+	steps := []w.Step{{ID: "session-step", RunID: run.ID, AgentID: run.Agents[0].ID, AgentName: run.Agents[0].DisplayName, Role: "responder", Status: "running"}}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		for _, step := range steps {
+			if err := tx.SaveStep(step); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run.EffectiveExecutionMode = w.ExecutionFullAccess
+	run.RequestedExecutionMode = w.ExecutionFullAccess
+	var live w.Settings
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		var err error
+		live, err = tx.Settings()
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run.PermissionEpoch = live.PermissionEpoch
+	first := w.ExecutionSession{
+		ID: "old-session", TaskID: run.TaskID, MemberID: run.Agents[0].ID, Role: steps[0].Role,
+		Fingerprint: "fingerprint-v1", VisibilityEpoch: live.PermissionEpoch, Status: "active",
+		Acknowledgement: "resume_acknowledged", NativeSessionID: "native-old",
+		CreatedAt: w.Now(), UpdatedAt: w.Now(),
+	}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveSession(first) }); err != nil {
+		t.Fatal(err)
+	}
+	base := sessionInput{run: run, step: steps[0], member: run.Agents[0], adapter: adapter, connection: connection, attempt: w.Attempt{ID: "a1", RunID: run.ID, StepID: steps[0].ID, Number: 1, Status: "running", StartedAt: w.Now()}}
+	var before, after w.ExecutionSession
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		var err error
+		before, err = prepareExecutionSession(tx, base)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if before.VisibilityEpoch != live.PermissionEpoch {
+		t.Fatalf("baseline visibility epoch = %d, want %d", before.VisibilityEpoch, live.PermissionEpoch)
+	}
+	// Permission tightened and later restored: the live epoch is now 5.
+	tightened := base
+	tightened.run.PermissionEpoch = live.PermissionEpoch + 1
+	tightened.run.EffectiveExecutionMode = w.ExecutionControlled
+	tightened.run.RequestedExecutionMode = w.ExecutionControlled
+	restored := base
+	restored.run.PermissionEpoch = live.PermissionEpoch + 2
+	restored.run.EffectiveExecutionMode = w.ExecutionFullAccess
+	restored.run.RequestedExecutionMode = w.ExecutionFullAccess
+	for _, input := range []sessionInput{tightened, restored} {
+		if err := db.Read(t.Context(), func(tx *store.Tx) error {
+			var err error
+			after, err = prepareExecutionSession(tx, input)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if after.Fingerprint == before.Fingerprint {
+			t.Fatalf("epoch change kept the fingerprint: %+v", after)
+		}
+		if sessionReuseEligible(first, after.Fingerprint, after.VisibilityEpoch) {
+			t.Fatalf("old session is reusable after an epoch change: %+v", after)
+		}
+	}
+}

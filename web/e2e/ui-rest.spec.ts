@@ -117,6 +117,19 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   ).toBeVisible();
 
   const sidebar = page.getByRole("complementary", { name: "导航" });
+  // Re-selecting the current conversation must not clear its loaded content.
+  await sidebar
+    .getByRole("button", { name: "UI 状态验收", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "UI 状态验收", exact: true }),
+  ).toBeVisible();
+  await sidebar
+    .getByRole("button", { name: "UI 状态验收", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "UI 状态验收", exact: true }),
+  ).toBeVisible();
   const workspaceSwitch = sidebar.getByRole("combobox", {
     name: "切换工作空间",
   });
@@ -197,6 +210,19 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   await expect(
     sidebar.getByRole("status", { name: "运行状态：已完成" }),
   ).toBeVisible();
+
+  // The run summary opens from the pill itself, not from its full-width row.
+  const footerWrap = page.locator('[class*="run-footer-badge-wrap"]').first();
+  const footerBadge = page
+    .getByRole("button", { name: "查看协作摘要详情" })
+    .first();
+  const footerPopover = page.locator('[class*="run-footer-popover"]').first();
+  await footerWrap.hover({ position: { x: 4, y: 12 } });
+  await expect(footerPopover).toBeHidden();
+  await footerBadge.hover();
+  await expect(footerPopover).toBeVisible();
+  await page.mouse.move(1, 1);
+  await expect(footerPopover).toBeHidden();
 
   // Real render data resolves the @ text to the member's avatar and profile.
   const mention = page
@@ -299,16 +325,32 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
       workflow: "free",
     },
   );
+  const batchDoomed = await api(
+    page,
+    csrf,
+    "POST",
+    `/api/v1/workspaces/${workspace.id}/threads`,
+    {
+      title: "回收站批量",
+      agent_ids: ids,
+      coordinator_id: member.id,
+      workflow: "free",
+    },
+  );
   await api(page, csrf, "DELETE", `/api/v1/threads/${doomed.id}`);
+  await api(page, csrf, "DELETE", `/api/v1/threads/${batchDoomed.id}`);
   const before = await api(page, csrf, "GET", "/api/v1/settings");
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await settings.getByRole("tab", { name: "回收站" }).click();
   await expect(settings.getByText("回收站验收")).toBeVisible();
+  await expect(settings.getByText("回收站批量")).toBeVisible();
   await expect(
     settings.getByText("UI 剩余验收", { exact: true }).first(),
   ).toBeVisible();
-  await expect(settings.getByText(/删除于 /)).toBeVisible();
-  await expect(settings.getByText(/计划于 .* 自动清理/)).toBeVisible();
+  await expect(settings.getByText(/删除于 /).first()).toBeVisible();
+  await expect(
+    settings.getByText(/计划于 .* 自动清理/).first(),
+  ).toBeVisible();
   await page.screenshot({
     path: `${SHOTS}/ui-rest-settings-trash-dark.png`,
   });
@@ -331,37 +373,66 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
     settings.getByText("保留周期已保存，回收站中的清理时间已同步更新。"),
   ).toBeVisible();
 
-  // Restore navigates back to the conversation and refreshes the sidebar.
-  await settings.getByRole("button", { name: "恢复会话：回收站验收" }).click();
-  await settings.getByRole("button", { name: "确认恢复" }).click();
-  await expect(
-    page.getByRole("heading", { name: "回收站验收", exact: true }),
-  ).toBeVisible();
-  await expect(settings).toHaveCount(0);
+  // Restoring a selected entry keeps settings open and refreshes the sidebar.
+  await settings
+    .getByRole("checkbox", { name: "选择会话：回收站验收" })
+    .check();
+  await settings.getByRole("button", { name: "恢复所选" }).click();
+  await expect(settings.getByText("已恢复 1 个会话。")).toBeVisible();
+  await expect(settings.getByText("回收站批量")).toBeVisible();
+  await expect(settings).toBeVisible();
+  await settings.getByRole("button", { name: "关闭窗口" }).click();
   await expect(
     sidebar.getByRole("button", { name: "回收站验收", exact: true }),
   ).toBeVisible();
 
-  // Delete again and purge only after the explicit destructive confirmation.
+  // Deleting from the sidebar moves the conversation to the trash immediately.
   await sidebar
     .getByRole("button", { name: "回收站验收", exact: true })
     .hover();
   await page.getByRole("button", { name: "更多会话操作：回收站验收" }).click();
   await page.getByRole("menuitem", { name: "删除" }).click();
-  await page
-    .getByRole("dialog", { name: "删除会话" })
-    .getByRole("button", { name: "删除会话" })
-    .click();
+  await expect(page.getByRole("dialog", { name: "删除会话" })).toHaveCount(0);
   await expect(
     sidebar.getByRole("button", { name: "回收站验收", exact: true }),
   ).toHaveCount(0);
+
+  // Select all restores every trashed conversation without closing settings.
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await settings.getByRole("tab", { name: "回收站" }).click();
-  await settings
-    .getByRole("button", { name: "永久删除会话：回收站验收" })
-    .click();
+  await expect(settings.getByText("回收站验收")).toBeVisible();
+  await expect(settings.getByText("回收站批量")).toBeVisible();
+  await settings.getByRole("checkbox", { name: "全选" }).check();
+  await expect(settings.getByText("已选 2 项")).toBeVisible();
+  await settings.getByRole("button", { name: "恢复所选" }).click();
+  await expect(settings.getByText("已恢复 2 个会话。")).toBeVisible();
+  await expect(settings.getByText("回收站为空。")).toBeVisible();
+  await expect(settings).toBeVisible();
+  await settings.getByRole("button", { name: "关闭窗口" }).click();
   await expect(
-    settings.getByRole("alertdialog", { name: "确认永久删除 回收站验收" }),
+    sidebar.getByRole("button", { name: "回收站验收", exact: true }),
+  ).toBeVisible();
+  await expect(
+    sidebar.getByRole("button", { name: "回收站批量", exact: true }),
+  ).toBeVisible();
+
+  // Move both back to the trash, then purge them only after the explicit
+  // destructive confirmation.
+  for (const title of ["回收站验收", "回收站批量"]) {
+    await sidebar.getByRole("button", { name: title, exact: true }).hover();
+    await page.getByRole("button", { name: `更多会话操作：${title}` }).click();
+    await page.getByRole("menuitem", { name: "删除" }).click();
+    await expect(
+      sidebar.getByRole("button", { name: title, exact: true }),
+    ).toHaveCount(0);
+  }
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await settings.getByRole("tab", { name: "回收站" }).click();
+  await settings.getByRole("checkbox", { name: "全选" }).check();
+  await expect(settings.getByText("已选 2 项")).toBeVisible();
+  await settings.getByRole("button", { name: "永久删除所选" }).click();
+  await expect(
+    settings.getByRole("alertdialog", { name: "确认永久删除 2 个会话" }),
   ).toContainText("无法恢复");
   await settings.getByRole("button", { name: "确认永久删除" }).click();
   await expect(settings.getByText("回收站为空。")).toBeVisible();
@@ -369,8 +440,13 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   // Narrow screens keep the tab rail usable without a fixed 200px column.
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(settings.getByRole("tab", { name: "服务" })).toBeVisible();
+  // The tab rail scrolls horizontally on narrow screens (the new 权限 tab makes
+  // it wider than the viewport). The tab must be reachable after scrolling it
+  // into view, and must not be clipped to zero width.
+  const serviceTab = settings.getByRole("tab", { name: "服务" });
+  await serviceTab.scrollIntoViewIfNeeded();
   expect(
-    await settings.getByRole("tab", { name: "服务" }).evaluate((tab) => {
+    await serviceTab.evaluate((tab) => {
       const box = tab.getBoundingClientRect();
       return box.width > 0 && box.left >= 0 && box.right <= innerWidth;
     }),
@@ -408,6 +484,48 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+
+  // Mobile keeps only duration and usage in the summary pill; tapping it
+  // reveals the full details.
+  await sidebar.getByRole("button", { name: "关闭导航" }).click();
+  const mobileFooterBadge = page
+    .getByRole("button", { name: "查看协作摘要详情" })
+    .last();
+  await mobileFooterBadge.scrollIntoViewIfNeeded();
+  await expect(
+    mobileFooterBadge.locator('[class*="run-footer-identity"]'),
+  ).toBeHidden();
+  await expect(mobileFooterBadge).toContainText("秒");
+  await expect(mobileFooterBadge).toContainText("用量");
+  await page.screenshot({
+    path: `${SHOTS}/ui-rest-conversation-mobile.png`,
+    fullPage: false,
+  });
+  await mobileFooterBadge.click();
+  const mobileFooterPopover = page
+    .locator('[class*="run-footer-popover"]')
+    .last();
+  await expect(mobileFooterPopover).toBeVisible();
+  await expect(mobileFooterPopover).toContainText("状态：已停止");
+  const detailsBox = await mobileFooterPopover.boundingBox();
+  expect(detailsBox).not.toBeNull();
+  expect(detailsBox!.y).toBeGreaterThanOrEqual(0);
+  expect(detailsBox!.y + detailsBox!.height).toBeLessThanOrEqual(844);
+  expect(
+    await page.evaluate(
+      ({ x, y }) =>
+        !!document
+          .elementFromPoint(x, y)
+          ?.closest('[class*="run-footer-popover"]'),
+      { x: detailsBox!.x + 12, y: detailsBox!.y + 12 },
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: `${SHOTS}/ui-rest-conversation-mobile-details.png`,
+    fullPage: false,
+  });
+  await page.mouse.click(380, 300);
+  await expect(mobileFooterPopover).toBeHidden();
 });
 
 test("streams staged assistant text while the run is active", async ({

@@ -228,7 +228,10 @@ func (wb *Web) Fetch(ctx context.Context, raw string) (w.Source, error) {
 	}
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
 	supportedText := strings.HasPrefix(ct, "text/plain") || strings.HasPrefix(ct, "text/html") || strings.HasPrefix(ct, "application/xhtml+xml")
-	supportedDocument := strings.HasPrefix(ct, "application/pdf") || strings.HasPrefix(ct, "text/csv") || strings.HasPrefix(ct, "application/csv")
+	pathLower := strings.ToLower(resp.Request.URL.Path)
+	supportedDocument := strings.HasPrefix(ct, "application/pdf") || strings.HasPrefix(ct, "text/csv") || strings.HasPrefix(ct, "application/csv") ||
+		strings.Contains(ct, "wordprocessingml") || strings.Contains(ct, "spreadsheetml") || strings.Contains(ct, "presentationml") ||
+		strings.HasSuffix(pathLower, ".docx") || strings.HasSuffix(pathLower, ".xlsx") || strings.HasSuffix(pathLower, ".pptx")
 	if !supportedText && !supportedDocument {
 		return w.Source{}, errors.New("source is not a supported text page or document")
 	}
@@ -240,13 +243,19 @@ func (wb *Web) Fetch(ctx context.Context, raw string) (w.Source, error) {
 		return w.Source{}, errors.New("page exceeds 2 MiB capture budget")
 	}
 	documentPath := resp.Request.URL.Path
-	if strings.HasPrefix(ct, "application/pdf") {
+	switch {
+	case strings.HasPrefix(ct, "application/pdf"):
 		documentPath = "document.pdf"
-	}
-	if strings.HasPrefix(ct, "text/csv") || strings.HasPrefix(ct, "application/csv") {
+	case strings.HasPrefix(ct, "text/csv") || strings.HasPrefix(ct, "application/csv"):
 		documentPath = "document.csv"
+	case strings.Contains(ct, "wordprocessingml"):
+		documentPath = "document.docx"
+	case strings.Contains(ct, "spreadsheetml"):
+		documentPath = "document.xlsx"
+	case strings.Contains(ct, "presentationml"):
+		documentPath = "document.pptx"
 	}
-	if source, ok, err := AdaptDocument(documentPath, b); ok {
+	if source, ok, err := AdaptDocument(ctx, documentPath, b); ok {
 		if err != nil {
 			return w.Source{}, err
 		}

@@ -10,12 +10,12 @@ import (
 // InsertTask creates the durable identity; revisions and budget are committed by
 // the caller in the same transaction.
 func (t *Tx) InsertTask(v w.Task) error {
-	return t.exec("INSERT INTO tasks(id,workspace_id,parent_id,thread_id,current_revision,root_task_id,budget_account_id,status,updated_at,body) VALUES(?,?,?,?,?,?,?,?,?,?)", v.ID, v.WorkspaceID, nullable(v.ParentID), v.ThreadID, v.CurrentRevision, v.RootTaskID, v.BudgetAccountID, v.Status, v.UpdatedAt, body(v))
+	return t.exec("INSERT INTO tasks(id,workspace_id,parent_id,thread_id,current_revision,root_task_id,budget_account_id,status,updated_at,body) VALUES(?,?,?,?,?,?,?,?,?,?)", v.ID, v.WorkspaceID, nullable(v.ParentID), nullable(v.ThreadID), v.CurrentRevision, v.RootTaskID, v.BudgetAccountID, v.Status, v.UpdatedAt, body(v))
 }
 
 // SaveTask advances mutable projections with CAS on the task revision.
 func (t *Tx) SaveTask(v w.Task, expectedRevision int) error {
-	result, err := t.tx.ExecContext(t.ctx, "UPDATE tasks SET parent_id=?,thread_id=?,current_revision=?,status=?,updated_at=?,body=? WHERE id=? AND current_revision=?", nullable(v.ParentID), v.ThreadID, v.CurrentRevision, v.Status, v.UpdatedAt, body(v), v.ID, expectedRevision)
+	result, err := t.tx.ExecContext(t.ctx, "UPDATE tasks SET parent_id=?,thread_id=?,current_revision=?,status=?,updated_at=?,body=? WHERE id=? AND current_revision=?", nullable(v.ParentID), nullable(v.ThreadID), v.CurrentRevision, v.Status, v.UpdatedAt, body(v), v.ID, expectedRevision)
 	if err != nil {
 		return err
 	}
@@ -427,4 +427,10 @@ func isUniqueConstraint(err error) bool {
 		return code == 1555 || code == 2067
 	}
 	return false
+}
+
+// TaskRuns lists every run bound to one task in creation order. It is the
+// bounded projection TaskDetail uses instead of loading a full thread.
+func (t *Tx) TaskRuns(taskID string) ([]w.Run, error) {
+	return list[w.Run](t, "SELECT body FROM runs WHERE task_id=? ORDER BY created_at,id", taskID)
 }

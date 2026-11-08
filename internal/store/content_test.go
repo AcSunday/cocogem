@@ -485,9 +485,6 @@ func TestLegacyInlineFallbackSurvivesReopen(t *testing.T) {
 	if got := readMessageContent(t, s, message.ID, 2); got != text {
 		t.Fatalf("inline fallback lost content: got %d bytes", len(got))
 	}
-	if count := countRows(t, s, "SELECT COUNT(*) FROM schema_migrations WHERE version=3"); count != 1 {
-		t.Fatal("chunk migration was not appended")
-	}
 	if count := countRows(t, s, "SELECT COUNT(*) FROM message_chunks WHERE message_id=?", message.ID); count != 0 {
 		t.Fatal("legacy message gained a chunk copy")
 	}

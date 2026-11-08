@@ -20,12 +20,6 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 	if !decode(rw, r, &in) {
 		return
 	}
-	action, err := w.NormalizeEngineeringAction(in.Workflow, in.EngineeringAction)
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	in.EngineeringAction = action
 	if strings.TrimSpace(in.Message) == "" || len([]rune(in.Message)) > 16000 {
 		respond(rw, r, nil, errors.New("问题必须为 1–16000 个字符"))
 		return
@@ -40,7 +34,7 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 	var thread w.Thread
 	var agents []w.Agent
 	var settings w.Settings
-	err = s.store.Read(r.Context(), func(tx *store.Tx) error {
+	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
 		var err error
 		thread, err = tx.Thread(r.PathValue("id"))
 		if err != nil {
@@ -60,33 +54,51 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, err)
 		return
 	}
-	effective, err := applySettingsDefaults(in, thread, agents, settings)
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
+	effective, defaultsErr := applySettingsDefaults(in, thread, agents, settings)
+	if defaultsErr != nil {
+		// Default staffing cannot block a more specific user assignment.
+		effective = in
 	}
 	route, err := workflow.ResolveRouting(r.Context(), s.config.Model, effective, thread, agents)
 	if err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
-	if route.Decision != "clarify" {
-		routeAction, actionErr := w.NormalizeEngineeringAction(route.Workflow, in.EngineeringAction)
-		if actionErr != nil || routeAction == w.EngineeringDevelop && route.Workflow != "engineering" {
-			if actionErr == nil {
-				actionErr = errors.New("develop action requires the engineering workflow")
-			}
-			respond(rw, r, nil, actionErr)
-			return
-		}
-		in.EngineeringAction = routeAction
-	}
 	if route.Decision == "clarify" {
 		writeJSON(rw, 200, map[string]any{"routing": route})
 		return
 	}
+	// Resolve the user's instructions before filling roles for the actual method.
+	effective = in
+	effective.Workflow, effective.Targets = route.Workflow, route.Targets
+	if route.Workflow != in.Workflow || route.ModelCall {
+		// The router proposed exact roles from the current user instruction.
+		effective.Assignments = route.Assignments
+	} else {
+		// The selected workflow's filled defaults must not hide open roles from
+		// the coordinator's responsibility-based selection.
+		effective.Assignments = in.Assignments
+	}
+	if effective.Workflow == "engineering" {
+		if in.Workflow != "engineering" {
+			effective.EngineeringReadOnly = true
+		}
+	} else {
+		effective.EngineeringReadOnly = false
+	}
+	deterministic, err := applySettingsDefaults(effective, thread, agents, settings)
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	selected, selectionReason := s.applySettingsDefaultsWithModel(r.Context(), effective, thread, agents, settings, deterministic)
+	if selectionReason != "" {
+		route.Explanation = strings.TrimSpace(route.Explanation + "；" + selectionReason)
+	}
+	effective = selected
+	route.Assignments = effective.Assignments
 	// Never hand out a proposal whose frozen assignments cannot form a plan.
-	if _, err := workflow.Plan("preview", w.RunInput{Workflow: route.Workflow, Targets: route.Targets, Assignments: route.Assignments, EngineeringAction: in.EngineeringAction}, agents); err != nil {
+	if _, err := workflow.Plan("preview", effective, agents); err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
@@ -113,12 +125,6 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 	if !decode(rw, r, &in) {
 		return
 	}
-	action, err := w.NormalizeEngineeringAction(in.Workflow, in.EngineeringAction)
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	in.EngineeringAction = action
 	key := r.Header.Get("Idempotency-Key")
 	if len(key) < 16 || len(key) > 100 {
 		respond(rw, r, nil, errors.New("有效的 Idempotency-Key 是必需的"))
@@ -127,7 +133,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 	executors := s.refreshExecutors(r.Context())
 	hash := digest(in)
 	var run w.Run
-	err = s.store.Write(r.Context(), func(tx *store.Tx) error {
+	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
 		previous, oldHash, err := tx.Idempotent(r.PathValue("id"), key)
 		if err == nil {
 			if oldHash != hash {
@@ -143,11 +149,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		ws, err := tx.Workspace(th.WorkspaceID)
-		if err != nil {
-			return err
-		}
-		agents, err := tx.Agents(ws.ID)
+		agents, err := tx.Agents(th.WorkspaceID)
 		if err != nil {
 			return err
 		}
@@ -162,10 +164,33 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if !s.modelConfigured(executors) {
 			return &RequestError{503, "model_unavailable", "没有可用的本机 CLI，请检查 CLI 安装和现有连接配置"}
 		}
+		run, err = s.queueRunInTx(tx, th, in, p.Routing, key, hash)
+		return err
+	})
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	writeJSON(rw, 202, run)
+}
+
+// queueRunInTx validates and freezes one accepted submission. Its caller owns
+// the transaction so creating a conversation and queuing work commit together.
+func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.Routing, key, hash string) (w.Run, error) {
+	var run w.Run
+	ws, err := tx.Workspace(th.WorkspaceID)
+	if err != nil {
+		return run, err
+	}
+	agents, err := tx.Agents(ws.ID)
+	if err != nil {
+		return run, err
+	}
+	err = func() error {
 		if in.ResearchScope == "web_discovery" && !s.engine.Web.SearchEnabled() {
 			return &RequestError{503, "search_unavailable", "在线搜索尚未配置"}
 		}
-		if (p.Routing.Workflow == "code_analysis" || p.Routing.Workflow == "engineering") && ws.Root == "" {
+		if (route.Workflow == "code_analysis" || route.Workflow == "engineering") && ws.Root == "" {
 			return errors.New("代码分析与工程协作需要绑定允许的资料目录")
 		}
 		if len(in.SourceURLs) > 10 || len(in.ArtifactRefs) > 5 || len(in.SourceIDs) > 5 {
@@ -179,8 +204,8 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 			if err != nil || imported.ThreadID != th.ID || imported.WorkspaceID != ws.ID {
 				return &RequestError{400, "invalid_source", "上传资料不属于当前会话"}
 			}
-			if imported.ParseStatus != "parsed" || imported.Content == "" {
-				return &RequestError{400, "source_not_parsed", "解析失败的资料不能进入任务，请查看失败原因或删除后重试"}
+			if imported.OriginalContent == "" {
+				return &RequestError{400, "source_unavailable", "资料原件不可用，请重新添加文件"}
 			}
 		}
 		for _, u := range in.SourceURLs {
@@ -204,18 +229,22 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if slices.ContainsFunc(active, func(r w.Run) bool { return r.ThreadID == th.ID }) {
 			return w.ErrConflict
 		}
-		in.Workflow = p.Routing.Workflow
-		in.Targets = p.Routing.Targets
-		// Global defaults were resolved and validated with the accepted routing.
-		in.Assignments = p.Routing.Assignments
-		routeAction, actionErr := w.NormalizeEngineeringAction(in.Workflow, in.EngineeringAction)
-		if actionErr != nil || routeAction == w.EngineeringDevelop && in.Workflow != "engineering" {
-			if actionErr == nil {
-				actionErr = errors.New("develop action requires the engineering workflow")
+		if route.Workflow == "engineering" {
+			if in.Workflow != "engineering" {
+				// The user did not choose engineering in the Composer; a
+				// coordinator-selected method stays read-only.
+				in.EngineeringReadOnly = true
 			}
-			return actionErr
+		} else {
+			in.EngineeringReadOnly = false
 		}
-		in.EngineeringAction = routeAction
+		in.Workflow = route.Workflow
+		in.Targets = route.Targets
+		// Global defaults were resolved and validated with the accepted routing.
+		in.Assignments = route.Assignments
+		writeBranch := in.Workflow == "engineering" && !w.EngineeringIsReadOnly(in) && slices.ContainsFunc(agents, func(a w.Agent) bool {
+			return !a.Disabled && slices.Contains(th.AgentIDs, a.ID) && slices.Contains(a.Tools, "write_file") && slices.Contains(a.Tools, "run_test")
+		})
 		var policy *w.ExecutionPolicy
 		if s.engine != nil {
 			limits := s.engine.Limits
@@ -224,7 +253,7 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		// A new run is explicitly under the delivery contract from acceptance,
 		// so a queued cancellation or early failure never looks like legacy
 		// history that exposes drafts. Only a successful finish fills it.
-		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: p.Routing, ExecutionPolicy: policy, Status: "queued", CreatedAt: w.Now(), CoordinatorID: th.CoordinatorID, SkillVersions: map[string]string{}, WriteBranch: in.EngineeringAction == w.EngineeringDevelop, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
+		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: route, ExecutionPolicy: policy, Status: "queued", CreatedAt: w.Now(), CoordinatorID: th.CoordinatorID, SkillVersions: map[string]string{}, WriteBranch: writeBranch, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
 		for _, skill := range skills.List() {
 			if ws.SkillIDs == nil || slices.Contains(ws.SkillIDs, skill.ID) {
 				run.SkillVersions[skill.ID] = skill.Version
@@ -269,16 +298,18 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		messageID := w.NewID()
-		task, err := s.projects.EnsureThreadTask(tx, th, in, messageID, run.ID)
-		if err != nil {
-			return err
+		var task project.TaskView
+		if th.TaskID != "" || writeBranch {
+			task, err = s.projects.BindRunTask(tx, th, in, messageID, run.ID)
+			if err != nil {
+				return err
+			}
+			run.TaskID, run.TaskRevision, run.BudgetAccountID = task.Task.ID, task.Task.CurrentRevision, task.Budget.ID
+		} else {
+			run.TaskIntake = true
 		}
-		th.TaskID = task.Task.ID
-		run.TaskID = task.Task.ID
-		run.TaskRevision = task.Task.CurrentRevision
 		run.PolicyVersion = 1
-		run.BudgetAccountID = task.Budget.ID
-		if err := s.projects.EnsureRunAuthorization(tx, &run, task.Revision.SourceMessageID); err != nil {
+		if err := s.projects.EnsureRunAuthorization(tx, &run, messageID); err != nil {
 			return err
 		}
 		// The Source foreign key needs the Run row, while the startup manifest
@@ -289,12 +320,14 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if err := tx.PublishSourceImports(run, in.SourceIDs); err != nil {
 			return err
 		}
-		manifest, err := s.projects.PrepareContextInTx(tx, task.Task.ID, task.Task.CurrentRevision, project.ContextHostInput(run))
-		if err != nil {
-			return err
+		if run.TaskID != "" {
+			manifest, err := s.projects.PrepareContextInTx(tx, task.Task.ID, task.Task.CurrentRevision, project.ContextHostInput(run))
+			if err != nil {
+				return err
+			}
+			run.ContextRef = manifest.ID
+			run.InputDigest = project.ContextInputDigest(task, manifest, messageID, in)
 		}
-		run.ContextRef = manifest.ID
-		run.InputDigest = project.ContextInputDigest(task, manifest, messageID, in)
 		if err := tx.SaveRun(run); err != nil {
 			return err
 		}
@@ -308,12 +341,8 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 			}
 		}
 		return tx.AppendEvent(run.ID, "", "", "run_queued", run)
-	})
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	writeJSON(rw, 202, run)
+	}()
+	return run, err
 }
 
 // visibleRun keeps every child API from exposing a soft-deleted thread.
@@ -409,14 +438,29 @@ func (s *Server) resume(rw http.ResponseWriter, r *http.Request) {
 	writeJSON(rw, 202, result)
 }
 
-// retry queues a new run from a failed or canceled run without re-routing the
-// original request. The source run stays terminal and linked by input.
+// RetryInput selects the exact failed member step; empty keeps legacy clients compatible.
+type RetryInput struct {
+	StepID string `json:"step_id,omitempty"`
+}
+
+// retry queues a linked execution; a member retry replaces that step's
+// unfinished reply while the source run, steps and attempts stay terminal.
 func (s *Server) retry(rw http.ResponseWriter, r *http.Request) {
 	if err := s.visibleRunRead(r, r.PathValue("id")); err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
-	result, err := s.engine.Retry(r.Context(), r.PathValue("id"))
+	var in RetryInput
+	if !decode(rw, r, &in) {
+		return
+	}
+	var result w.Run
+	var err error
+	if in.StepID != "" {
+		result, err = s.engine.RetryStep(r.Context(), r.PathValue("id"), in.StepID, r.Header.Get("Idempotency-Key"))
+	} else {
+		result, err = s.engine.Retry(r.Context(), r.PathValue("id"))
+	}
 	if err != nil {
 		respond(rw, r, nil, err)
 		return

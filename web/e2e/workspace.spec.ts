@@ -22,6 +22,16 @@ test("create a team, run research, inspect evidence, export, follow up and cance
       }
     });
   };
+  const chooseMethod = async (value: string) => {
+    const input = page.getByLabel("输入问题");
+    const existing = await input.inputValue();
+    await input.fill(`/${value}`);
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("composer-method")).toHaveCount(
+      value === "free" ? 0 : 1,
+    );
+    if (existing) await input.fill(existing);
+  };
   const openPanel = async (name: string) => {
     const toggle = page.getByRole("button", {
       name: "打开协作面板",
@@ -90,7 +100,17 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     membersDialog.getByRole("button", { name: "＋ 新成员" }),
   ).toHaveCount(0);
   await expect(membersDialog.getByText(/全局档案请到设置/)).toBeVisible();
-  await expect(membersDialog.getByText(/当前实际生效：/)).toBeVisible();
+  // D04: no workspace tool grants or effective intersection in the member modal.
+  await expect(membersDialog.getByText("本工作空间权限")).toHaveCount(0);
+  await expect(membersDialog.getByText(/当前实际生效：/)).toHaveCount(0);
+  await expect(membersDialog.getByLabel("read_file")).toHaveCount(0);
+  await expect(
+    membersDialog.getByRole("button", { name: "保存本空间权限" }),
+  ).toHaveCount(0);
+  await expect(
+    membersDialog.getByText(/成员的工具与命令边界由设置中的全局权限决定。移出/),
+  ).toBeVisible();
+  await expect(membersDialog.getByLabel("在本工作空间启用")).toBeVisible();
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await expect(memberInput).toHaveValue("成员入口草稿");
 
@@ -147,7 +167,8 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await membersDialog
     .getByRole("button", { name: /^访客猫 \(@visitor\) · 可加入$/ })
     .click();
-  await membersDialog.getByLabel("web_search").uncheck();
+  // D04: there is no tool checkbox to change; joining only manages membership.
+  await expect(membersDialog.getByLabel("web_search")).toHaveCount(0);
   const joined = page.waitForResponse(
     (response) =>
       response
@@ -158,12 +179,13 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await membersDialog.getByRole("button", { name: "加入本工作空间" }).click();
   const joinRequest = (await joined).request();
   expect(joinRequest.headers()["if-match"]).toBeUndefined();
+  // A fresh link starts empty; the boundary comes from the global permission.
   expect(joinRequest.postDataJSON()).toMatchObject({
     enabled: true,
-    tools: expect.not.arrayContaining(["web_search"]),
+    tools: null,
   });
   await expect(membersDialog.getByRole("status")).toContainText(
-    "本空间成员配置已保存",
+    "本空间成员设置已保存",
   );
   await membersDialog.getByLabel("在本工作空间启用").uncheck();
   const updated = page.waitForResponse(
@@ -173,13 +195,13 @@ test("create a team, run research, inspect evidence, export, follow up and cance
         .endsWith(`/api/v1/workspaces/${workspaceID}/members/${visitor.id}`) &&
       response.request().method() === "PATCH",
   );
-  await membersDialog.getByRole("button", { name: "保存本空间权限" }).click();
+  await membersDialog
+    .getByRole("button", { name: "保存本空间设置" })
+    .click();
   const updateRequest = (await updated).request();
   expect(updateRequest.headers()["if-match"]).toBe("1");
-  expect(updateRequest.postDataJSON()).toMatchObject({
-    enabled: false,
-    tools: expect.not.arrayContaining(["web_search"]),
-  });
+  // Enabling/disabling is the only membership field the UI edits.
+  expect(updateRequest.postDataJSON()).toMatchObject({ enabled: false });
   const removed = page.waitForResponse(
     (response) =>
       response
@@ -198,7 +220,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(memberInput).toHaveValue("成员入口草稿");
   await memberInput.fill("");
   const messageInput = page.getByLabel("输入问题");
-  await selectOption(page.getByLabel("工作方式", { exact: true }), "research");
+  await chooseMethod("research");
   await messageInput.fill(
     [
       "研究多 Agent 协作的适用场景，说明证据和限制。",
@@ -209,6 +231,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   );
   await expect(page.getByLabel("资料链接")).toHaveCount(0);
   await expect(page.getByLabel("研究范围")).toHaveCount(0);
+  // Tab back into the composer so the caret is where a user typing would be.
+  await messageInput.focus();
+  await messageInput.evaluate((n) => n.setSelectionRange(n.value.length, n.value.length));
   await messageInput.press("Shift+Enter");
   await expect(messageInput).toHaveValue(/\n$/);
   const previewRequest = page.waitForRequest(
@@ -287,10 +312,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   expect((await download).suggestedFilename()).toBe("cocogem-report.md");
   await page.getByRole("button", { name: "引用后追问" }).click();
   await page.getByLabel("输入问题").fill("等待取消：补充讨论这个方案的限制");
-  await selectOption(
-    page.getByLabel("工作方式", { exact: true }),
-    "discussion",
-  );
+  await chooseMethod("discussion");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "停止协作", exact: false }),
@@ -302,22 +324,25 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(page.getByTestId("run-status")).toHaveText("已停止");
   await page.reload();
   await expect(page.getByTestId("run-status")).toHaveText("已停止");
-  await openPanel("过程");
-  await selectOption(page.getByLabel("历史协作"), { index: 0 });
-  await expect(page.getByText("读取网页").first()).toBeVisible();
+  // D08/A15: the panel keeps only 来源/产物; the process stays in the reply body.
+  await expect(page.getByRole("tab", { name: "过程" })).toHaveCount(0);
+  const process = page.getByText(/协作过程 · \d+ 条过程/).first();
+  await expect(process).toBeVisible();
+  // Run was cancelled before any tool produced a receipt: no fabricated result.
+  await expect(page.getByTestId("tool-activity")).toHaveCount(0);
 
   await page
     .getByRole("button", { name: "新建会话", exact: false })
     .first()
     .click();
-  await page.getByLabel("会话标题").fill("只读工程分析");
+  await page.getByLabel("会话标题").fill("工程协作验收");
   await page.getByRole("button", { name: "保存会话" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await selectOption(
-    page.getByLabel("工作方式", { exact: true }),
-    "engineering",
-  );
-  await expect(page.getByLabel("工程动作")).toHaveText(/分析（只读）/);
+  await chooseMethod("engineering");
+  await expect(page.getByLabel("工程动作")).toHaveCount(0);
+  await expect(
+    page.getByText(/按成员已获授权的能力执行/),
+  ).toBeVisible();
   await page
     .getByLabel("输入问题")
     .fill("分析示例仓库如何区分身份和角色，不要声称执行测试。");
@@ -328,7 +353,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await openPanel("产物");
   await page
     .getByRole("complementary", { name: "协作资料" })
-    .getByRole("button", { name: /代码分析报告 · v1/ })
+    .getByRole("button", { name: /工程交付报告 · v1/ })
     .click();
   await page
     .getByRole("button", { name: /打开来源/ })
@@ -345,10 +370,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByLabel("会话标题").fill("并行讨论");
   await page.getByRole("button", { name: "保存会话" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await selectOption(
-    page.getByLabel("工作方式", { exact: true }),
-    "discussion",
-  );
+  await chooseMethod("discussion");
   await page
     .getByLabel("输入问题")
     .fill("分别讨论协作的收益和成本，保留不同观点。");
@@ -379,7 +401,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByLabel("会话标题").fill("路由澄清");
   await page.getByRole("button", { name: "保存会话" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await selectOption(page.getByLabel("工作方式", { exact: true }), "free");
+  await chooseMethod("free");
   await page.getByLabel("输入问题").fill("@missing 帮我调查");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByLabel("输入问题")).toHaveValue("@missing 帮我调查");
@@ -436,7 +458,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   ).toContainText("布布帮我研究一下幂等重试");
   await expect(page.getByTestId("run-process")).toHaveCount(after);
   // Theme and panel changes keep the linked draft and workflow configuration in place.
-  await selectOption(page.getByLabel("工作方式", { exact: true }), "research");
+  await chooseMethod("research");
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   await page
     .getByLabel("输入问题")
@@ -454,10 +476,12 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     expect(await timeline.evaluate((element) => element.scrollTop)).toBe(
       readingPosition,
     );
-    await openPanel("过程");
+    await openPanel("来源");
     await expect(page.getByLabel("输入问题")).toHaveValue(
       "主题切换和打开资料后仍在的草稿 https://example.org/draft",
     );
+    // The removed tool tab never comes back, and a stale selection falls back.
+    await expect(page.getByRole("tab", { name: "过程" })).toHaveCount(0);
     await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const appearanceSettings = page.getByRole("dialog", { name: "设置" });
@@ -525,14 +549,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   ).toHaveText(/布偶猫/);
   await selectOption(page.getByLabel("默认工作方式"), "discussion");
   await page.getByRole("button", { name: "保存会话" }).click();
-  await expect(page.getByLabel("工作方式", { exact: true })).toHaveText(
-    /协作讨论/,
-  );
+  await expect(page.getByTestId("composer-method")).toHaveText(/协作讨论/);
   const twoMemberURL = page.url();
   await page.reload();
-  await expect(page.getByLabel("工作方式", { exact: true })).toHaveText(
-    /协作讨论/,
-  );
+  await expect(page.getByTestId("composer-method")).toHaveText(/协作讨论/);
   await page.getByLabel("输入问题").fill("独立讨论协作工作空间的优缺点。");
   const accepted = page.waitForResponse(
     (response) =>
@@ -623,15 +643,18 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(settingsDialog.getByRole("status")).toContainText("已保存");
   await page.getByRole("button", { name: "关闭窗口" }).click();
   await page.goto(researchURL);
-  await openPanel("过程");
-  await selectOption(page.getByLabel("历史协作"), { index: 0 });
-  await expect(
-    page.getByText("布偶猫 (@ragdoll)", { exact: true }).first(),
-  ).toBeVisible();
+  // Expand the collapsed process log: the historical record keeps the captured
+  // member name, not the renamed one.
+  const runProcess = page.getByTestId("run-process").first();
+  await expect(runProcess).toBeVisible();
+  await runProcess.evaluate((node) => {
+    if (!node.hasAttribute("open")) (node as HTMLDetailsElement).open = true;
+  });
+  await expect(runProcess).toHaveAttribute("open", "");
+  await expect(page.getByText("布偶猫", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("新布偶猫", { exact: true })).toHaveCount(0);
   await page.goto(twoMemberURL);
-  await expect(page.getByLabel("工作方式", { exact: true })).toHaveText(
-    /协作讨论/,
-  );
+  await expect(page.getByTestId("composer-method")).toHaveText(/协作讨论/);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "打开导航", exact: true }).click();
@@ -640,9 +663,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(
     page.getByRole("button", { name: /更多会话操作：/ }).first(),
   ).toHaveCSS("opacity", "1");
-  await page.getByRole("button", { name: "只读工程分析", exact: true }).click();
+  await page.getByRole("button", { name: "工程协作验收", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "只读工程分析", exact: true }),
+    page.getByRole("heading", { name: "工程协作验收", exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -684,7 +707,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.setViewportSize({ width: 1280, height: 800 });
 
   // Links live in the message; role defaults are global, not a composer panel.
-  await selectOption(page.getByLabel("工作方式", { exact: true }), "free");
+  await chooseMethod("free");
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   await expect(page.getByText("自动指派", { exact: true })).toHaveCount(0);
   for (const width of [1125, 605, 390]) {
@@ -700,10 +723,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     });
   }
   await page.setViewportSize({ width: 1280, height: 800 });
-  await selectOption(page.getByLabel("工作方式", { exact: true }), "research");
+  await chooseMethod("research");
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   await expect(page.getByLabel("研究", { exact: true })).toHaveCount(0);
-  await selectOption(page.getByLabel("工作方式", { exact: true }), "free");
+  await chooseMethod("free");
 
   // @ mentions filter by what is typed and are chosen with the keyboard.
   const input = page.getByLabel("输入问题");
@@ -719,9 +742,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   const threadList = page.getByRole("navigation", { name: "会话列表" });
   const currentRow = threadList
     .locator("div")
-    .filter({ hasText: "只读工程分析" });
+    .filter({ hasText: "工程协作验收" });
   const currentActions = threadList.getByRole("button", {
-    name: "更多会话操作：只读工程分析",
+    name: "更多会话操作：工程协作验收",
   });
   await page.mouse.move(0, 0);
   await expect(currentActions).toHaveCSS("opacity", "0");
@@ -729,7 +752,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(currentActions).toHaveCSS("opacity", "1");
   await currentActions.click();
   const currentMenu = page.getByRole("menu", {
-    name: "只读工程分析 的会话操作",
+    name: "工程协作验收 的会话操作",
   });
   await expect(currentMenu).toBeVisible();
   await page.keyboard.press("Escape");
@@ -744,30 +767,30 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await currentActions.click();
   await currentMenu.getByRole("menuitem", { name: "重命名" }).click();
   const renameDialog = page.getByRole("dialog", { name: "重命名会话" });
-  await expect(renameDialog.getByLabel("会话标题")).toHaveValue("只读工程分析");
-  await renameDialog.getByLabel("会话标题").fill("只读工程分析改名");
+  await expect(renameDialog.getByLabel("会话标题")).toHaveValue("工程协作验收");
+  await renameDialog.getByLabel("会话标题").fill("工程协作验收改名");
   await renameDialog.getByRole("button", { name: "保存名称" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "只读工程分析改名", exact: true }),
+    page.getByRole("heading", { name: "工程协作验收改名", exact: true }),
   ).toBeVisible();
   await expect(
     threadList.getByRole("button", {
-      name: "更多会话操作：只读工程分析改名",
+      name: "更多会话操作：工程协作验收改名",
     }),
   ).toBeVisible();
   expect(page.url()).toContain(`/t/${renamedThreadID}`);
   const afterRename = await (
     await page.request.get(`/api/v1/threads/${renamedThreadID}`)
   ).json();
-  expect(afterRename.thread.title).toBe("只读工程分析改名");
+  expect(afterRename.thread.title).toBe("工程协作验收改名");
   expect(afterRename.thread.agent_ids).toEqual(beforeRename.thread.agent_ids);
   expect(afterRename.thread.coordinator_id).toBe(
     beforeRename.thread.coordinator_id,
   );
   expect(afterRename.thread.workflow).toBe(beforeRename.thread.workflow);
 
-  // Deleting a conversation asks first and then removes it from the list.
+  // Deleting a conversation moves it to the trash immediately.
   const parallelRow = threadList.locator("div").filter({ hasText: "并行讨论" });
   await expect(
     threadList.getByRole("button", { name: "并行讨论", exact: true }),
@@ -779,10 +802,6 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page
     .getByRole("menu", { name: "并行讨论 的会话操作" })
     .getByRole("menuitem", { name: "删除" })
-    .click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "删除会话" })
     .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(

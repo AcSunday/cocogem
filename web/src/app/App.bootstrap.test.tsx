@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ProjectTaskView } from "../api/client";
@@ -43,7 +43,7 @@ afterEach(() => {
   history.replaceState({}, "", "/");
 });
 
-it("bootstraps from the first question with a stable key and restores the task URL", async () => {
+it("bootstraps into the conversation with a stable key and restores a task deep link", async () => {
   localStorage.setItem("cocogem-unlocked", "true");
   const keys: string[] = [];
   let attempts = 0;
@@ -75,21 +75,44 @@ it("bootstraps from the first question with a stable key and restores the task U
   await user.type(composer, "第一次提问");
   await user.click(screen.getByRole("button", { name: "发送" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("暂时不可用");
+  expect(composer.closest("form")).toContainElement(screen.getByRole("alert"));
+  await user.click(screen.getByRole("button", { name: "关闭错误提示" }));
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(composer).toHaveValue("第一次提问");
   await user.click(screen.getByRole("button", { name: "发送" }));
   expect(await screen.findByRole("heading", { name: "第一次提问" })).toBeVisible();
-  expect(location.pathname).toBe("/w/ws/tasks/task");
+  expect(location.pathname).toBe("/w/ws/t/thread");
   expect(keys).toHaveLength(2);
   expect(keys[0]).toHaveLength(36);
   expect(keys[1]).toBe(keys[0]);
 
   // A task URL is durable: remounting reads the same task, not a new composer.
+  history.replaceState({}, "", "/w/ws/tasks/task");
   first.unmount();
   render(<App />);
-  expect(await screen.findByRole("heading", { name: "本任务协作预算" })).toBeVisible();
+  await screen.findByRole("heading", { name: "第一次提问" });
+  // D10/A17: 任务设置 is gone with its budget/goal/pause controls and is not
+  // reproduced under any other menu.
+  expect(screen.queryByText("任务设置")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { name: "本任务协作预算" }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "暂停任务" })).toBeNull();
+  // No dedicated request survives for the removed settings area: no budget
+  // PATCH, inbox read, revision list or manual action POST.
+  const taskPaths = fetcher.mock.calls
+    .map((call) => `${String(call[1]?.method ?? "GET")} ${String(call[0])}`)
+    .filter((entry) =>
+      /\/api\/v1\/tasks\/task(\/|\?|$)/.test(entry.split(" ")[1]),
+    );
+  expect(taskPaths.every((entry) => entry.startsWith("GET "))).toBe(true);
+  expect(taskPaths).toContain("GET /api/v1/tasks/task");
+  // The task surface still renders and keeps its deep link.
   expect(location.pathname).toBe("/w/ws/tasks/task");
 
   history.replaceState({}, "", "/w/ws/t/thread");
-  await act(async () => { dispatchEvent(new PopStateEvent("popstate")); });
-  await waitFor(() => expect(screen.queryByRole("heading", { name: "本任务协作预算" })).not.toBeInTheDocument());
+  await act(async () => {
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
   expect(await screen.findByLabelText("输入问题")).toBeVisible();
 });

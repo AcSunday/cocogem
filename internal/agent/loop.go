@@ -95,7 +95,7 @@ func (l Loop) Run(ctx context.Context, request model.Request, execute Execute, o
 			if !slices.ContainsFunc(request.Tools, func(t model.Tool) bool { return t.Name == block.Name }) {
 				callErr = errors.New("tool is not allowed for this member")
 			} else {
-				output, callErr = execute(ctx, block.Name, block.Input)
+				output, callErr = execute(WithToolCall(ctx, block.ID), block.Name, block.Input)
 			}
 			status := "ok"
 			if callErr != nil {

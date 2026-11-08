@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +22,8 @@ import (
 )
 
 const maxSourceUploadBytes = 8 << 20
+
+func digestBytes(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 
 // SourceImportList is the bounded, body-free attachment manager projection.
 type SourceImportList struct {
@@ -85,10 +90,18 @@ func (s *Server) importSource(rw http.ResponseWriter, r *http.Request) {
 		writeError(rw, r, 413, "source_too_large", "资料原件不能超过 8 MiB")
 		return
 	}
-	parsed, supported, parseErr := tools.AdaptDocument(name, content)
+	parsed, supported, parseErr := tools.AdaptDocument(r.Context(), name, content)
+	if !supported && utf8.Valid(content) && !bytes.ContainsRune(content, 0) {
+		parsed = w.Source{Kind: "file", MediaType: "text/plain; charset=utf-8", Content: string(content), ParseQuality: "text", ParserVersion: "utf8-v1"}
+		supported = true
+	}
 	if !supported {
-		writeError(rw, r, 415, "unsupported_source_type", "当前仅支持 CSV 和单页文本 PDF")
-		return
+		media := tools.FileMediaType(name, content)
+		kind := "attachment"
+		if strings.HasPrefix(media, "image/") {
+			kind = "image"
+		}
+		parsed = w.Source{Kind: kind, MediaType: media, Content: "Attached original file. Use view_image for image pixels, or inspect/convert the original in the task directory with run_command. This metadata is not the file contents.", ParseStatus: "available"}
 	}
 	if err := r.Context().Err(); err != nil {
 		respond(rw, r, nil, err)
@@ -97,11 +110,14 @@ func (s *Server) importSource(rw http.ResponseWriter, r *http.Request) {
 	imported := w.SourceImport{
 		ID: w.NewID(), ThreadID: r.PathValue("id"), Kind: parsed.Kind, Title: name, FileName: name,
 		MediaType: parsed.MediaType, Content: parsed.Content, ContentDigest: digest(parsed.Content),
-		OriginalContent: base64.StdEncoding.EncodeToString(content), OriginalDigest: parsed.OriginalDigest,
-		SHA256: parsed.SHA256, CapturedAt: w.Now(), Truncated: parsed.Truncated,
+		OriginalContent: base64.StdEncoding.EncodeToString(content), OriginalDigest: digestBytes(content),
+		SHA256: digestBytes(content), CapturedAt: w.Now(), Truncated: parsed.Truncated,
 		StartLine: parsed.StartLine, EndLine: parsed.EndLine, ParseStatus: "parsed",
 		ParseQuality: parsed.ParseQuality, ParserVersion: parsed.ParserVersion,
 		SourceLocator: parsed.SourceLocator, Visibility: "task_chain",
+	}
+	if !supported {
+		imported.ParseStatus = "available"
 	}
 	if parseErr != nil {
 		imported.Content = ""
@@ -193,7 +209,12 @@ func (s *Server) sourceOriginal(rw http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "source"
 	}
-	if mediaType != "text/csv" && mediaType != "application/pdf" {
+	switch mediaType {
+	case "text/csv", "text/tab-separated-values", "application/pdf",
+		tools.DocxMediaType, tools.XlsxMediaType, tools.PptxMediaType,
+		"application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint",
+		"application/rtf", "application/vnd.oasis.opendocument.text", "application/xml", "application/webarchive":
+	default:
 		mediaType = "application/octet-stream"
 	}
 	rw.Header().Set("Content-Type", mediaType)

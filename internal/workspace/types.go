@@ -108,15 +108,19 @@ type Agent struct {
 	Model           string   `json:"model"`
 	// ContextSize is an optional host input budget in estimated tokens. Empty
 	// (0) follows the CLI's configured context window.
-	ContextSize   int              `json:"context_size,omitempty"`
-	ThinkingLevel string           `json:"thinking_level,omitempty"`
-	Tools         []string         `json:"tools"`
-	Disabled      bool             `json:"disabled"`
-	Revision      int              `json:"revision"`
-	Membership    *WorkspaceMember `json:"membership,omitempty"`
+	ContextSize   int    `json:"context_size,omitempty"`
+	ThinkingLevel string `json:"thinking_level,omitempty"`
+	// Tools is legacy audit data. It no longer limits a new execution; the
+	// global execution mode, the task/role constraints and the conversation
+	// grants decide what may run. Historical Run snapshots keep their copy.
+	Tools      []string         `json:"tools"`
+	Disabled   bool             `json:"disabled"`
+	Revision   int              `json:"revision"`
+	Membership *WorkspaceMember `json:"membership,omitempty"`
 }
 
-// WorkspaceMember grants a global member a bounded set of workspace tools.
+// WorkspaceMember records workspace membership and enablement. Tools is legacy
+// audit data and never an active permission limit.
 type WorkspaceMember struct {
 	WorkspaceID string   `json:"workspace_id"`
 	AgentID     string   `json:"agent_id"`
@@ -126,41 +130,41 @@ type WorkspaceMember struct {
 }
 
 // WorkflowRoles is the exact role vocabulary of each built-in workflow.
-// Engineering keeps one vocabulary for both actions; the plan uses only the
-// subset that applies to the selected action (analyst+reviewer for analyze,
-// developer+reviewer for develop).
+// Engineering is one workflow with an engineer and an independent reviewer;
+// the engineer uses whatever read, write and test tools the member was granted.
 var WorkflowRoles = map[string][]string{
 	"discussion":    {"coordinator"},
 	"research":      {"researcher", "critic", "coordinator"},
 	"code_analysis": {"analyst", "reviewer"},
-	"engineering":   {"analyst", "developer", "reviewer"},
+	"engineering":   {"engineer", "reviewer"},
 }
 
-// WorkflowActionRoles is the role subset a workflow action actually plans.
-func WorkflowActionRoles(workflow, action string) []string {
-	if workflow != "engineering" {
-		return WorkflowRoles[workflow]
-	}
-	if action == EngineeringDevelop {
-		return []string{"developer", "reviewer"}
-	}
-	return []string{"analyst", "reviewer"}
+// WorkflowActionRoles is kept for callers that still pass a legacy action.
+// Engineering no longer has action-specific role subsets.
+func WorkflowActionRoles(workflow, _ string) []string {
+	return WorkflowRoles[workflow]
 }
 
-// RoleTools are the host grants a planned role cannot work without. A develop
-// reviewer both publishes the final report and reruns tests; analysis reviewers
-// stay read-only and never need run_test.
-func RoleTools(workflow, action, role string) []string {
-	switch role {
-	case "coordinator", "reviewer", "final_reviewer":
-		if workflow == "engineering" && action == EngineeringDevelop {
-			return []string{"publish_artifact", "run_test"}
-		}
-		return []string{"publish_artifact"}
-	case "developer":
-		return []string{"write_file", "run_test"}
+// RoleTools are the role capabilities a planned step needs. They project onto
+// the runtime standard catalog, never onto a legacy member array: the engineer
+// may use the catalog's write/test tools when the task admits them, and only the
+// publishing roles require publish_artifact.
+func RoleTools(workflow, _ string, role string) []string {
+	return StandardRoleTools(role)
+}
+
+// RolesConflict reports whether two roles cannot be held by one member in the
+// same plan. Independent review must never be performed by the author.
+func RolesConflict(workflow, role, other string) bool {
+	switch workflow {
+	case "research":
+		return role == "researcher" && other == "critic" || role == "critic" && other == "researcher"
+	case "code_analysis":
+		return role == "analyst" && other == "reviewer" || role == "reviewer" && other == "analyst"
+	case "engineering":
+		return role == "engineer" && other == "reviewer" || role == "reviewer" && other == "engineer"
 	}
-	return nil
+	return false
 }
 
 // Trash retention bounds. Zero means the default of 7 days.
@@ -186,13 +190,35 @@ func ValidateRetentionDays(days int) error {
 	return nil
 }
 
-// Settings holds device-wide collaboration defaults shared by every workspace.
+// Settings holds device-wide defaults: collaboration, retention and the single
+// execution permission policy shared by every workspace and by the Composer.
 type Settings struct {
 	Revision             int                          `json:"revision"`
 	DefaultCoordinatorID string                       `json:"default_coordinator_id"`
 	Assignments          map[string]map[string]string `json:"assignments"`
 	RetentionDays        int                          `json:"retention_days,omitempty"`
 	CollaborationBudget  BudgetPolicy                 `json:"collaboration_budget,omitempty"`
+	// ExecutionMode is the only effective permission policy. Workspace bodies
+	// keep their legacy mode as inert migration data.
+	ExecutionMode string `json:"execution_mode,omitempty"`
+	// PermissionEpoch advances only when an execution boundary changes. It
+	// invalidates pending requests and conversation grants of earlier epochs.
+	PermissionEpoch int `json:"permission_epoch,omitempty"`
+}
+
+// DefaultExecutionMode is the new-install and one-time migration default.
+const DefaultExecutionMode = ExecutionProjectAutonomous
+
+// NormalizeExecutionMode applies the confirmed default to a record that has no
+// stored mode (new database or a database upgraded before the migration marker).
+func NormalizeExecutionMode(settings Settings) Settings {
+	if !ValidExecutionMode(settings.ExecutionMode) {
+		settings.ExecutionMode = DefaultExecutionMode
+	}
+	if settings.PermissionEpoch < 1 {
+		settings.PermissionEpoch = 1
+	}
+	return settings
 }
 
 // Thread is a shared, ordered conversation within one workspace. Status fields
@@ -217,31 +243,20 @@ type Thread struct {
 	ActiveRunStatus string   `json:"active_run_status,omitempty"`
 }
 
-// Engineering actions: analysis is read-only, development may write files and
-// run tests only through host tools granted for the step's role.
-const (
-	EngineeringAnalyze = "analyze"
-	EngineeringDevelop = "develop"
-)
-
-// NormalizeEngineeringAction validates the explicit user mode choice. A
-// non-engineering workflow never carries an engineering action, and engineering
-// defaults to the read-only analysis action.
-func NormalizeEngineeringAction(workflow, action string) (string, error) {
-	if workflow != "engineering" {
-		if action != "" {
-			return "", errors.New("engineering_action is only valid for the engineering workflow")
-		}
-		return "", nil
+// EngineeringIsReadOnly reports whether an engineering run must stay read-only.
+// New runs carry the explicit internal flag. Legacy snapshots are classified by
+// their frozen role vocabulary: analyst-only runs were read-only, developer
+// runs were writable, and the single engineer role is writable.
+func EngineeringIsReadOnly(in RunInput) bool {
+	if in.Workflow != "engineering" {
+		return false
 	}
-	switch action {
-	case "", EngineeringAnalyze:
-		return EngineeringAnalyze, nil
-	case EngineeringDevelop:
-		return EngineeringDevelop, nil
-	default:
-		return "", errors.New("engineering_action must be analyze or develop")
+	if in.EngineeringReadOnly {
+		return true
 	}
+	_, analyst := in.Assignments["analyst"]
+	_, engineer := in.Assignments["engineer"]
+	return analyst && !engineer
 }
 
 // RunInput is a user's request, independent of a particular provider protocol.
@@ -254,11 +269,13 @@ type RunInput struct {
 	SourceIDs     []string          `json:"source_ids"`
 	ArtifactRefs  []ArtifactRef     `json:"artifact_refs"`
 	ResearchScope string            `json:"research_scope"`
-	// EngineeringAction is the explicit Composer choice; it is never inferred
-	// from a member's tool grant. Empty means the read-only analysis action.
-	EngineeringAction string `json:"engineering_action,omitempty"`
-	ProposalID        string `json:"proposal_id"`
-	RetryOfRunID      string `json:"retry_of_run_id"`
+	// EngineeringReadOnly is an internal safety flag set when a free-run
+	// coordinator selects engineering as a method. Composer engineering leaves
+	// it false so members may use their granted write and test tools. It is not
+	// a user-facing analysis/development mode.
+	EngineeringReadOnly bool   `json:"engineering_read_only,omitempty"`
+	ProposalID          string `json:"proposal_id"`
+	RetryOfRunID        string `json:"retry_of_run_id"`
 }
 
 // ArtifactRef identifies an immutable version, not whichever version is newest.
@@ -323,6 +340,7 @@ type Run struct {
 	// the selected workflow. Built-in runs leave Method empty.
 	SelectedWorkflow         *WorkflowSelection `json:"selected_workflow,omitempty"`
 	Method                   string             `json:"method,omitempty"`
+	RetryOfStepID            string             `json:"retry_of_step_id,omitempty"`
 	Agents                   []Agent            `json:"agents"`
 	CoordinatorID            string             `json:"coordinator_id,omitempty"`
 	SkillVersions            map[string]string  `json:"skill_versions,omitempty"`
@@ -331,9 +349,13 @@ type Run struct {
 	ExecutionPolicy          *ExecutionPolicy   `json:"execution_policy,omitempty"`
 	RequestedExecutionMode   string             `json:"requested_execution_mode,omitempty"`
 	EffectiveExecutionMode   string             `json:"effective_execution_mode,omitempty"`
+	PermissionEpoch          int                `json:"permission_epoch,omitempty"`
 	EnforcedCapabilities     []string           `json:"enforced_capabilities,omitempty"`
 	UnenforcedConstraints    []string           `json:"unenforced_constraints,omitempty"`
 	TaskID                   string             `json:"task_id,omitempty"`
+	TaskIntake               bool               `json:"task_intake,omitempty"`
+	TaskPromotionStepID      string             `json:"task_promotion_step_id,omitempty"`
+	TaskPromotionDigest      string             `json:"task_promotion_digest,omitempty"`
 	TaskRevision             int                `json:"task_revision,omitempty"`
 	PolicyVersion            int                `json:"policy_version,omitempty"`
 	BudgetAccountID          string             `json:"budget_account_id,omitempty"`
@@ -342,6 +364,8 @@ type Run struct {
 	ContextRef               string             `json:"context_manifest_id,omitempty"`
 	ExecutionRef             string             `json:"execution_ref,omitempty"`
 	ExecutionRoot            string             `json:"execution_root,omitempty"`
+	TaskDirectory            string             `json:"task_directory,omitempty"`
+	OutputBaseline           map[string]string  `json:"output_baseline,omitempty"`
 	InputDigest              string             `json:"input_snapshot_digest,omitempty"`
 	ContinuedFromRun         string             `json:"continued_from_run_id,omitempty"`
 	CollaborationMessageID   string             `json:"collaboration_message_id,omitempty"`
@@ -373,7 +397,12 @@ func (r Run) ProjectRoot() string {
 	if r.ExecutionRoot != "" {
 		return r.ExecutionRoot
 	}
-	return r.Workspace.Root
+	if r.Workspace.Root != "" {
+		return r.Workspace.Root
+	}
+	// A file task without a bound project uses its task directory as the root. An
+	// empty root must never stand in for the user's HOME or the process cwd.
+	return r.TaskDirectory
 }
 
 // Step describes one member's work and the exact upstream results it can consume.
@@ -392,6 +421,7 @@ type Step struct {
 	FromStepID     string   `json:"from_step_id,omitempty"`
 	FromAgentID    string   `json:"from_agent_id,omitempty"`
 	FromAttemptID  string   `json:"from_attempt_id,omitempty"`
+	RetryOfStepID  string   `json:"retry_of_step_id,omitempty"`
 	RequestID      string   `json:"request_id,omitempty"`
 	ContextRefs    []string `json:"context_refs,omitempty"`
 	ContinuationID string   `json:"continuation_id,omitempty"`
@@ -545,6 +575,8 @@ type Source struct {
 	OriginalContent string `json:"original_content,omitempty"`
 	OriginalDigest  string `json:"original_digest,omitempty"`
 	MediaType       string `json:"media_type,omitempty"`
+	FileSize        int    `json:"file_size,omitempty"`
+	FileModifiedAt  string `json:"file_modified_at,omitempty"`
 	ParseStatus     string `json:"parse_status,omitempty"`
 	ParseError      string `json:"parse_error,omitempty"`
 	ParseQuality    string `json:"parse_quality,omitempty"`
@@ -592,23 +624,33 @@ type Finding struct {
 
 // Artifact is a versioned deliverable; feedback is separate from its content.
 type Artifact struct {
-	ID             string    `json:"id"`
-	Version        int       `json:"version"`
-	Revision       int       `json:"revision"`
-	ThreadID       string    `json:"thread_id"`
-	RunID          string    `json:"run_id"`
-	StepID         string    `json:"step_id"`
-	Type           string    `json:"type"`
-	Title          string    `json:"title"`
-	Body           string    `json:"body"`
-	Findings       []Finding `json:"findings"`
-	SourceIDs      []string  `json:"source_ids"`
-	Limitations    []string  `json:"limitations"`
-	Feedback       string    `json:"feedback"`
-	FeedbackAt     string    `json:"feedback_at"`
-	Visibility     string    `json:"visibility,omitempty"`
-	ExposureDigest string    `json:"exposure_scope_digest,omitempty"`
-	CreatedAt      string    `json:"created_at"`
+	ID             string         `json:"id"`
+	Version        int            `json:"version"`
+	Revision       int            `json:"revision"`
+	ThreadID       string         `json:"thread_id"`
+	RunID          string         `json:"run_id"`
+	StepID         string         `json:"step_id"`
+	Type           string         `json:"type"`
+	Title          string         `json:"title"`
+	Body           string         `json:"body"`
+	Files          []ArtifactFile `json:"files,omitempty"`
+	Findings       []Finding      `json:"findings"`
+	SourceIDs      []string       `json:"source_ids"`
+	Limitations    []string       `json:"limitations"`
+	Feedback       string         `json:"feedback"`
+	FeedbackAt     string         `json:"feedback_at"`
+	Visibility     string         `json:"visibility,omitempty"`
+	ExposureDigest string         `json:"exposure_scope_digest,omitempty"`
+	CreatedAt      string         `json:"created_at"`
+}
+
+// ArtifactFile identifies immutable bytes captured before the deliverable commits.
+type ArtifactFile struct {
+	SourceID  string `json:"source_id"`
+	Name      string `json:"name"`
+	MediaType string `json:"media_type"`
+	Size      int    `json:"size"`
+	SHA256    string `json:"sha256"`
 }
 
 // Event is the provider-neutral, replayable envelope consumed by the UI.
@@ -701,12 +743,33 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 			}
 		}
 	}
-	for _, name := range a.Tools {
-		if !slices.Contains(tools, name) {
-			return fmt.Errorf("unsupported tool: %s", name)
+	// Member tool arrays are retired history. A new profile carries no tool
+	// configuration; the runtime catalog is StandardToolCatalog(). Legacy values,
+	// including unknown historical names, are preserved but never interpreted.
+	return nil
+}
+
+// NormalizeSettings maps legacy engineering analyst/developer defaults to the
+// single engineer role. It preserves an explicit engineer value and removes
+// roles that no current workflow uses.
+func NormalizeSettings(s Settings) Settings {
+	roles := s.Assignments["engineering"]
+	if roles == nil {
+		return s
+	}
+	if roles["engineer"] == "" {
+		if roles["developer"] != "" {
+			roles["engineer"] = roles["developer"]
+		} else if roles["analyst"] != "" {
+			roles["engineer"] = roles["analyst"]
 		}
 	}
-	return nil
+	delete(roles, "developer")
+	delete(roles, "analyst")
+	if len(roles) == 0 {
+		delete(s.Assignments, "engineering")
+	}
+	return s
 }
 
 // ValidateSettings rejects unknown workflows and roles, unavailable global
@@ -748,8 +811,8 @@ func ValidateSettings(s Settings, agents []Agent) error {
 		if roles["analyst"] != "" && roles["analyst"] == roles["reviewer"] {
 			return errors.New("analyst and reviewer must be different members")
 		}
-		if roles["developer"] != "" && roles["developer"] == roles["reviewer"] {
-			return errors.New("developer and reviewer must be different members")
+		if roles["engineer"] != "" && roles["engineer"] == roles["reviewer"] {
+			return errors.New("engineer and reviewer must be different members")
 		}
 	}
 	return nil

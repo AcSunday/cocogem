@@ -277,6 +277,12 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		// A planning step may have selected a workflow and persisted it while
 		// this loop was running; later steps must see the effective plan input.
 		run = current
+		if run.TaskID != "" && run.TaskDirectory == "" && e.Executions != nil {
+			run, err = e.prepareExecution(ctx, run)
+			if err != nil {
+				break
+			}
+		}
 		ready := []int{}
 		pending := false
 		skipped := false

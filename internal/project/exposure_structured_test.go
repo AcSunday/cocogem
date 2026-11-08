@@ -46,7 +46,7 @@ func TestDerivedBodyInheritsStructuredRecordExposure(t *testing.T) {
 			manifest := w.ContextManifest{ID: "structured-manifest-" + kind, TaskID: sender.Task.ID, TaskRevision: 1, Items: []w.ContextItem{item}}
 			run := w.Run{ID: "structured-run-" + kind, WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: sender.Task.ID, TaskRevision: 1, ContextRef: manifest.ID, Status: "succeeded", CreatedAt: w.Now()}
 			step := w.Step{ID: "structured-step-" + kind, RunID: run.ID, AgentID: "owner", Status: "succeeded"}
-			session := w.ExecutionSession{ID: "structured-session-" + kind, TaskID: sender.Task.ID, MemberID: "owner", Status: "fresh_only", ExposedRefs: []string{item.Ref + ":" + item.Digest}, CreatedAt: w.Now(), UpdatedAt: w.Now()}
+			session := w.ExecutionSession{ID: "structured-session-" + kind, TaskID: sender.Task.ID, MemberID: "owner", VisibilityEpoch: 1, Status: "fresh_only", ExposedRefs: []string{item.Ref + ":" + item.Digest}, CreatedAt: w.Now(), UpdatedAt: w.Now()}
 			session.ExposureDigest = exposureRefsDigest(session.ExposedRefs)
 			attempt := w.Attempt{ID: "structured-attempt-" + kind, RunID: run.ID, StepID: step.ID, Number: 1, Status: "succeeded", ExecutionSessionRef: session.ID}
 			if err := db.Write(t.Context(), func(tx *store.Tx) error {

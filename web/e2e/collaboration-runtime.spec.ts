@@ -105,6 +105,7 @@ test("browser, server and scheduler execute research, independent review and res
     (space) => space.id === workspaceID,
   )!;
   expect(savedWorkspace.skill_ids?.sort()).toEqual([
+    "file-delivery",
     "independent-review",
     "synthesize-results",
     "task-handoff",
@@ -125,9 +126,7 @@ test("browser, server and scheduler execute research, independent review and res
   await expect(
     page.getByRole("heading", { name: "动态研究与独立复核", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("工作方式", { exact: true })).toHaveText(
-    /自由协作/,
-  );
+  await expect(page.getByTestId("composer-method")).toHaveCount(0);
   const accepted = page.waitForResponse(
     (response) =>
       response.url().endsWith("/runs") &&

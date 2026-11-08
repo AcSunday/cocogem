@@ -26,7 +26,7 @@ const scenarios = [
     key: "engineering",
     icon: "code",
     title: "工程协作",
-    description: "只读分析或受控开发，保留 diff 与测试证据。",
+    description: "使用成员已获授权的能力执行，独立复核后交付。",
     sample: "分析示例仓库如何区分成员身份与任务职责。",
   },
 ] as const;

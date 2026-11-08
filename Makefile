@@ -21,14 +21,12 @@ test:
 	test -z "$$(gofmt -l $$(find cmd internal -type f -name '*.go'))"
 	go vet ./...
 	go test -race -shuffle=on ./...
-	go test -race -shuffle=on -tags=integration ./cmd/cocogem
 	cd web && npm run lint && npm run typecheck && npm test
 
 build:
 	cd web && npm run build
 	rm -rf dist/web
 	mkdir -p dist/web
-	go build -trimpath -o dist/cocogem ./cmd/cocogem
 	go build -trimpath -o dist/cocogem-server ./cmd/cocogem-server
 	cp -R web/dist/. dist/web/
 
@@ -40,8 +38,8 @@ e2e: build
 	go run ./cmd/smoke
 	cd web && npm run test:e2e
 
-# First-question, durable task, steering and budget journey against a real
-# development server. Uses the system Chrome channel by default.
+# First-question, durable task, global permissions and future-root budget
+# journey against an isolated production server using a real configured CLI.
 verify-redesign:
 	node scripts/verify-redesign.mjs
 

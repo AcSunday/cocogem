@@ -28,6 +28,9 @@ func (e *Engine) mayPublish(ctx context.Context, run w.Run, step w.Step) (bool, 
 		}
 	}
 	in := effectiveInput(current)
+	if step.ID == current.TaskPromotionStepID {
+		return false, nil
+	}
 	if RequiredArtifact(step, in) != "" {
 		return true, nil
 	}

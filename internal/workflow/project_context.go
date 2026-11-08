@@ -14,7 +14,14 @@ import (
 // task revision fails closed instead of silently retargeting this retry.
 func prepareRetryContext(tx *store.Tx, run *w.Run) error {
 	if run.TaskID == "" {
-		return nil
+		// An ordinary conversation (intake, no durable Task yet) still carries a
+		// frozen read-only authorization. A retry is a new Run, so it must freeze
+		// the live policy and the intake ceiling itself instead of inheriting an
+		// empty identity; it does not create a Task or a budget account.
+		if !run.TaskIntake {
+			return nil
+		}
+		return project.New(nil).EnsureRunAuthorization(tx, run, "retry:"+run.ContinuedFromRun)
 	}
 	revision, err := tx.TaskRevision(run.TaskID, run.TaskRevision)
 	if err != nil {

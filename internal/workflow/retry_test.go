@@ -310,6 +310,42 @@ func TestAutoRetryStopsAfterSideEffect(t *testing.T) {
 	}
 }
 
+func TestTrustedNativeInvocationIsNeverAutomaticallyReplayed(t *testing.T) {
+	db, run, step := retryTestRun(t)
+	run.EffectiveExecutionMode = w.ExecutionFullAccess
+	run.Agents[0].Tools = append(run.Agents[0].Tools, "run_command")
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.SaveAgent(run.Agents[0]); err != nil {
+			return err
+		}
+		member, err := tx.Member(run.WorkspaceID, run.Agents[0].ID)
+		if err != nil {
+			return err
+		}
+		member.Tools = run.Agents[0].Tools
+		if err := tx.SaveMember(member); err != nil {
+			return err
+		}
+		return tx.SaveRun(run)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	runner := nativeRunnerFunc(func(_ context.Context, request model.Request, _ agent.Execute, _ agent.Observe) error {
+		if !request.TrustedExecution {
+			t.Error("expected native full access")
+		}
+		calls.Add(1)
+		// A disconnect may precede every observable tool receipt.
+		return transientFailure()
+	})
+	engine := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, RetryBackoff: time.Millisecond}
+	result := runStep(t, &engine, run, step)
+	if calls.Load() != 1 {
+		t.Fatalf("trusted native invocation replayed %d times; status=%s error=%s", calls.Load(), result.Status, result.Error)
+	}
+}
+
 func TestAutoRetryStopsOnCancellationDuringBackoff(t *testing.T) {
 	db, run, step := retryTestRun(t)
 	first := make(chan struct{})

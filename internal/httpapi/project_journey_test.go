@@ -121,6 +121,10 @@ func createProjectJourneyThread(t *testing.T, api *deliveryAPI, workspaceID, tit
 	api.call("POST", "/api/v1/workspaces/"+workspaceID+"/threads", w.Thread{
 		Title: title, AgentIDs: []string{members.Items[0].ID}, CoordinatorID: members.Items[0].ID, Workflow: "free",
 	}, nil, 200, &thread)
+	// These journeys exercise durable control, not automatic intent detection.
+	var task project.TaskView
+	api.call("POST", "/api/v1/workspaces/"+workspaceID+"/tasks", project.CreateTaskInput{ThreadID: thread.ID, OwnerMemberID: thread.CoordinatorID, Goal: title}, nil, 200, &task)
+	thread.TaskID = task.Task.ID
 	return thread
 }
 
@@ -229,7 +233,12 @@ func TestProjectSteeringAndCompletionHTTPJourney(t *testing.T) {
 	completion.SubjectDigest = "browser-forged-digest"
 	completion.EvidenceProducer = "host_observed"
 	api.call("POST", "/api/v1/tasks/"+created.Task.ID+"/completions", completion, nil, 400, nil)
+	// New human acceptance no longer accepts a captured source as evidence; the
+	// shared source infrastructure keeps working, but old source-bearing records
+	// are the only place a source reference remains readable.
 	completion.EvidenceProducer = "human_confirmed"
+	api.call("POST", "/api/v1/tasks/"+created.Task.ID+"/completions", completion, nil, 400, nil)
+	completion.Results[0].Evidence = []string{candidate}
 	var record w.CompletionRecord
 	api.call("POST", "/api/v1/tasks/"+created.Task.ID+"/completions", completion, nil, 200, &record)
 	if record.SubjectDigest == "browser-forged-digest" || record.SubjectDigest == "" {
@@ -556,12 +565,15 @@ func TestProjectControlReplayAndUnchangedModeDoNotStopNewWork(t *testing.T) {
 	api.call("POST", "/api/v1/tasks/"+created.Task.ID+"/actions", TaskActionInput{Action: "resume", RequestID: "control-replay-resume"}, nil, 200, nil)
 	second := start("control-replay-second")
 	api.call("POST", "/api/v1/tasks/"+created.Task.ID+"/actions", action, nil, 200, nil)
-	api.call("PATCH", "/api/v1/workspaces/"+workspace.ID+"/execution-policy", ExecutionPolicyInput{Mode: w.ExecutionControlled, SourceMessageID: "unchanged-mode"}, map[string]string{"If-Match": "1"}, 200, nil)
+	// Re-saving the current global mode must not stop new work.
+	var currentSettings w.Settings
+	api.call("GET", "/api/v1/settings", nil, nil, 200, &currentSettings)
+	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(currentSettings.ExecutionMode)}, map[string]string{"If-Match": fmt.Sprint(currentSettings.Revision)}, 200, nil)
 	var current RunView
 	api.call("GET", "/api/v1/runs/"+second.ID, nil, nil, 200, &current)
 	if w.Terminal(current.Run.Status) || current.Run.Status == "canceling" {
 		t.Fatalf("replayed pause or unchanged mode stopped new work: %+v", current.Run)
 	}
-	api.call("PATCH", "/api/v1/workspaces/"+workspace.ID+"/execution-policy", ExecutionPolicyInput{Mode: w.ExecutionProjectAutonomous, SourceMessageID: "actual-mode-change"}, map[string]string{"If-Match": "2"}, 200, nil)
+	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionControlled)}, map[string]string{"If-Match": fmt.Sprint(currentSettings.Revision + 1)}, 200, nil)
 	awaitStop(second.ID)
 }

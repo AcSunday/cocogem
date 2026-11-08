@@ -1,4 +1,3 @@
-CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision > 0), body TEXT NOT NULL CHECK(json_valid(body)));
 CREATE TABLE IF NOT EXISTS global_agents(id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision > 0), body TEXT NOT NULL CHECK(json_valid(body)));
 CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision > 0), body TEXT NOT NULL CHECK(json_valid(body)));
@@ -20,17 +19,13 @@ CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY, run_id TEXT NOT NULL RE
 CREATE INDEX IF NOT EXISTS attempt_order ON attempts(run_id,step_id,number);
 CREATE INDEX IF NOT EXISTS active_attempts ON attempts(status) WHERE status='running';
 CREATE TABLE IF NOT EXISTS run_claims(run_id TEXT PRIMARY KEY REFERENCES runs(id), owner_id TEXT NOT NULL, owner_pid INTEGER NOT NULL, owner_start TEXT NOT NULL, claimed_at TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
-INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(2,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(3,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
-INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 -- M1–M4 project collaboration kernel. JSON bodies preserve the same immutable
 -- version snapshots as the original workflow store; indexed columns are only
 -- CAS, authorization, queue and projection keys.
 CREATE TABLE IF NOT EXISTS project_records(id TEXT NOT NULL, workspace_id TEXT NOT NULL REFERENCES workspaces(id), revision INTEGER NOT NULL CHECK(revision>0), status TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(id,revision));
 CREATE INDEX IF NOT EXISTS project_record_current ON project_records(workspace_id,id,revision DESC);
-CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), parent_id TEXT, thread_id TEXT NOT NULL REFERENCES threads(id), current_revision INTEGER NOT NULL CHECK(current_revision>0), root_task_id TEXT NOT NULL, budget_account_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','ready','active','waiting','paused','completed','canceled')), updated_at TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), parent_id TEXT, thread_id TEXT REFERENCES threads(id), current_revision INTEGER NOT NULL CHECK(current_revision>0), root_task_id TEXT NOT NULL, budget_account_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','ready','active','waiting','paused','completed','canceled')), updated_at TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
 CREATE INDEX IF NOT EXISTS task_workspace ON tasks(workspace_id,updated_at DESC,id);
 CREATE INDEX IF NOT EXISTS task_children ON tasks(parent_id,status);
 CREATE TABLE IF NOT EXISTS task_revisions(task_id TEXT NOT NULL REFERENCES tasks(id), revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(task_id,revision));
@@ -61,14 +56,30 @@ CREATE TABLE IF NOT EXISTS read_receipts(id TEXT PRIMARY KEY, manifest_id TEXT N
 CREATE TABLE IF NOT EXISTS memory_records(id TEXT NOT NULL, workspace_id TEXT NOT NULL REFERENCES workspaces(id), revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(id,revision));
 CREATE TABLE IF NOT EXISTS claims(id TEXT NOT NULL, workspace_id TEXT NOT NULL REFERENCES workspaces(id), task_id TEXT NOT NULL REFERENCES tasks(id), revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(id,revision));
 CREATE TABLE IF NOT EXISTS dataset_manifests(id TEXT NOT NULL, workspace_id TEXT NOT NULL REFERENCES workspaces(id), task_id TEXT NOT NULL REFERENCES tasks(id), revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(id,revision));
-INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(5,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 -- First input may create a project and conversation before Run idempotency exists.
 CREATE TABLE IF NOT EXISTS bootstrap_receipts(key TEXT PRIMARY KEY, request_digest TEXT NOT NULL, workspace_id TEXT NOT NULL REFERENCES workspaces(id), thread_id TEXT NOT NULL REFERENCES threads(id));
-INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(6,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 -- Uploads precede Runs and retain failed originals; a parsed import is published
 -- atomically with the first Run that explicitly selects it.
 CREATE TABLE IF NOT EXISTS source_imports(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), thread_id TEXT NOT NULL REFERENCES threads(id), body TEXT NOT NULL CHECK(json_valid(body)));
 CREATE INDEX IF NOT EXISTS source_import_threads ON source_imports(thread_id);
-INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(7,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+CREATE TABLE IF NOT EXISTS task_creation_receipts(workspace_id TEXT NOT NULL REFERENCES workspaces(id), request_id TEXT NOT NULL, request_digest TEXT NOT NULL, task_id TEXT NOT NULL REFERENCES tasks(id), PRIMARY KEY(workspace_id,request_id));
+
+-- One-time schema markers. Each row records that a migration already ran, so a
+-- restart never re-applies a default over a user's later choice.
+CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+-- Execution-time authorization: one row per pending/settled request, one row
+-- per conversation-scoped grant, and at most one admission per request and call.
+-- The identity columns are the query keys; the body keeps the complete object.
+CREATE TABLE IF NOT EXISTS tool_permission_requests(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), workspace_id TEXT NOT NULL REFERENCES workspaces(id), run_id TEXT NOT NULL REFERENCES runs(id), step_id TEXT NOT NULL, attempt_id TEXT NOT NULL, member_id TEXT NOT NULL, tool_call_id TEXT NOT NULL, action TEXT NOT NULL, tool_name TEXT NOT NULL, normalized_scope TEXT NOT NULL, arguments_digest TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','allowed_once','allowed_conversation','denied','expired','canceled')), permission_epoch INTEGER NOT NULL CHECK(permission_epoch>0), created_at TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0), body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE INDEX IF NOT EXISTS permission_request_thread ON tool_permission_requests(thread_id,status,created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS permission_request_invocation ON tool_permission_requests(run_id,step_id,attempt_id,tool_call_id);
+CREATE TABLE IF NOT EXISTS conversation_grants(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), action TEXT NOT NULL, tool_matcher TEXT NOT NULL, normalized_scope TEXT NOT NULL, permission_epoch INTEGER NOT NULL CHECK(permission_epoch>0), status TEXT NOT NULL CHECK(status IN ('active','revoked')), created_at TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE INDEX IF NOT EXISTS conversation_grant_match ON conversation_grants(thread_id,action,tool_matcher,normalized_scope,permission_epoch,status);
+-- One approval yields exactly one effect: the request id alone is unique here, so
+-- two different calls can never both consume the same one-time allowance.
+CREATE TABLE IF NOT EXISTS tool_invocation_admissions(id TEXT PRIMARY KEY, permission_request_id TEXT NOT NULL UNIQUE REFERENCES tool_permission_requests(id), tool_call_id TEXT NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id), step_id TEXT NOT NULL, attempt_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('reserved','started','completed','failed','unknown')), created_at TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
+CREATE INDEX IF NOT EXISTS admission_run ON tool_invocation_admissions(run_id,status);

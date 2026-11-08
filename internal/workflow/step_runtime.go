@@ -43,10 +43,30 @@ type stepRuntime struct {
 	publishCount   int
 	yieldRequest   *yieldToolInput
 	delegated      bool
+	taskPromoted   bool
 	closed         bool
 	execWG         sync.WaitGroup
 	mutated        atomic.Bool
 	internalFailed atomic.Bool
+
+	// toolCallID is the current host tool call being executed; admission and
+	// request identity are bound to it.
+	toolCallID string
+	// admissionID is the reserved one-time allowance consumed by this call.
+	admissionID string
+	// awaiting holds the tool calls suspended on a human permission decision.
+	awaiting map[string]bool
+	// pauseBudget is the test seam for the executing tool's pausable deadline.
+	// Production leaves it nil and uses the native bridge hook attached to the
+	// tool-call context.
+	pauseBudget func(context.Context) func()
+	// nativeAdmissions maps one native call identity to the one-time admission it
+	// consumed, so each call settles with its own real outcome.
+	nativeAdmissions map[string]string
+	// hostCallSeq numbers host tool calls that arrive without a protocol identity
+	// (direct engine calls, legacy callers). Each call still gets its own stable
+	// identity so a one-time allowance can never be shared by two calls.
+	hostCallSeq atomic.Int64
 
 	retiredSession string
 }
@@ -65,7 +85,13 @@ func (x *stepRuntime) capture(source w.Source) (w.Source, error) {
 	metadata := source
 	metadata.Content = ""
 	metadata.OriginalContent = ""
-	err := x.engine.Store.Write(x.ctx, func(tx *store.Tx) error {
+	captureCtx := x.ctx
+	if source.Kind == "command" {
+		var cancel context.CancelFunc
+		captureCtx, cancel = context.WithTimeout(context.WithoutCancel(x.ctx), 5*time.Second)
+		defer cancel()
+	}
+	err := x.engine.Store.Write(captureCtx, func(tx *store.Tx) error {
 		if err := tx.SaveSource(source); err != nil {
 			return err
 		}
@@ -75,7 +101,7 @@ func (x *stepRuntime) capture(source w.Source) (w.Source, error) {
 		return tx.AppendEvent(x.run.ID, x.step.ID, x.agent.ID, "source_captured", metadata)
 	})
 	if err == nil {
-		err = x.engine.recordAttemptExposure(x.ctx, x.attempt.ID, "source_id:"+source.ID+":"+source.ContentDigest)
+		err = x.engine.recordAttemptExposure(captureCtx, x.attemptSnapshot().ID, "source_id:"+source.ID+":"+source.ContentDigest)
 	}
 	if err == nil {
 		x.mu.Lock()
@@ -85,6 +111,49 @@ func (x *stepRuntime) capture(source w.Source) (w.Source, error) {
 		x.mu.Unlock()
 	}
 	return source, err
+}
+
+// attemptSnapshot returns a consistent copy of the attempt record. Concurrent
+// native tool hooks may run while the event observer updates it, so callers must
+// never read the field directly outside the runtime mutex.
+func (x *stepRuntime) attemptSnapshot() w.Attempt {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return x.attempt
+}
+
+// setAttempt replaces the runtime attempt snapshot under the same mutex.
+func (x *stepRuntime) setAttempt(value w.Attempt) {
+	x.mu.Lock()
+	x.attempt = value
+	x.mu.Unlock()
+}
+
+// setDraftArtifact records the unpublished draft on the runtime copy.
+func (x *stepRuntime) setDraftArtifact(value *w.Artifact) {
+	x.mu.Lock()
+	x.attempt.DraftArtifact = value
+	x.mu.Unlock()
+}
+
+// baseContext returns a non-nil context even for the direct unit-test call
+// paths that build a stepRuntime without one.
+func (x *stepRuntime) baseContext() context.Context {
+	if x.ctx != nil {
+		return x.ctx
+	}
+	return context.Background()
+}
+
+// pauseToolDeadline pauses the executing tool's own bounded deadline while a
+// human permission decision is pending. The native bridge attaches that budget
+// to the tool-call context; a direct engine caller without one gets a no-op, so
+// the approved effect keeps its ordinary finite timeout.
+func (x *stepRuntime) pauseToolDeadline(ctx context.Context) func() {
+	if x.pauseBudget != nil {
+		return x.pauseBudget(ctx)
+	}
+	return nativecli.PauseToolDeadline(ctx)
 }
 
 func (x *stepRuntime) executeTool(callCtx context.Context, name string, input json.RawMessage) (string, error) {
@@ -97,9 +166,41 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		x.mu.Unlock()
 		return "", errors.New("finish the invocation after yield_run; no further tools are admitted")
 	}
+	if x.taskPromoted && name != "promote_to_task" {
+		x.mu.Unlock()
+		return "", errors.New("finish the intake invocation after task promotion; execution continues in a fresh step")
+	}
 	x.execWG.Add(1)
 	x.mu.Unlock()
 	defer x.execWG.Done()
+	// Every call carries its own identity and its own admission. Concurrent
+	// calls must never share either: one approval is exactly one effect.
+	callID := x.currentCallID(callCtx)
+	authorization, permissionErr := x.authorizeCall(callCtx, callID, name, input)
+	if permissionErr != nil {
+		return "", permissionErr
+	}
+	output, callErr := x.executeAuthorizedTool(callCtx, callID, authorization, name, input)
+	// Settle with the real outcome. A canceled/uncertain call is unknown, never
+	// success; a failed call is failure.
+	x.settleAdmission(callCtx, authorization.admission, output, callErr)
+	return output, callErr
+}
+
+// callAuthorization carries the result of the pre-execution permission check for
+// exactly one call.
+type callAuthorization struct {
+	admission *w.ToolInvocationAdmission
+	// scope is the host-normalized target the user approved, empty when the call
+	// was admitted by mode/role without a decision.
+	scope string
+	// approved marks that a human decision authorized this call.
+	approved bool
+}
+
+// authorizeCall runs the live permission boundary for one host tool call and
+// returns the consumed one-time admission, if any.
+func (x *stepRuntime) authorizeCall(callCtx context.Context, callID, name string, input json.RawMessage) (callAuthorization, error) {
 	if permissionErr := x.engine.Store.Read(callCtx, func(tx *store.Tx) error {
 		if err := x.engine.validateMember(tx, x.run, x.step.AgentID); err != nil {
 			return err
@@ -108,21 +209,66 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		if err != nil {
 			return err
 		}
-		if x.run.GrantSnapshot != "" && len(allowed) == 0 {
-			return errors.New("tool is outside the current project grant")
+		// request_tool_access is the request path itself and carries no action
+		// class; it is never "outside the bound".
+		if x.run.GrantSnapshot != "" && len(allowed) == 0 && name != "request_tool_access" {
+			return errors.New("tool is outside the current project action bound")
 		}
 		return nil
 	}); permissionErr != nil {
-		return "", permissionErr
+		return callAuthorization{}, permissionErr
 	}
-	if (name == "write_file" || name == "patch_file" || name == "run_test") && !slices.Contains(x.allowed, name) {
-		return "", errors.New("tool is not granted for this step's role and engineering action")
+	// The live permission boundary decides whether this concrete effect may run,
+	// needs a user decision, or must be refused. It runs before any side effect.
+	// request_tool_access is the request path itself and never needs admission.
+	if name != "request_tool_access" {
+		admission, scope, approved, err := x.decideHostAccess(callCtx, callID, name, input)
+		if err != nil {
+			return callAuthorization{}, err
+		}
+		if !x.toolAllowedForRole(name) {
+			return callAuthorization{}, errors.New("tool is not granted for this step's role and engineering action")
+		}
+		return callAuthorization{admission: admission, scope: scope, approved: approved}, nil
 	}
+	return callAuthorization{}, nil
+}
+
+// toolAllowedForRole reports whether this step's role/engineering ceiling lists
+// the mutating tool. Read-only tools are governed by the action bound instead.
+func (x *stepRuntime) toolAllowedForRole(name string) bool {
 	switch name {
+	case "write_file", "patch_file", "run_test", "run_command", "view_image", "publish_file":
+		return slices.Contains(x.allowed, name)
+	}
+	return true
+}
+
+// executeAuthorizedTool dispatches one already-authorized call.
+func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID string, authorization callAuthorization, name string, input json.RawMessage) (string, error) {
+	switch name {
+	case "request_tool_access":
+		return x.requestAccess(callCtx, callID, input)
+	case "promote_to_task":
+		x.mutated.Store(true)
+		result, err := x.engine.promoteTask(callCtx, x.run, x.step, input)
+		if err == nil {
+			x.mu.Lock()
+			x.taskPromoted = true
+			x.delegated = true
+			x.mu.Unlock()
+		}
+		return result, err
+	case "publish_file":
+		return x.publishFiles(callCtx, input)
+	case "view_image":
+		return x.viewImage(callCtx, input)
+	case "external_publish":
+		return x.externalPublish(callCtx, input)
 	case "read_skill":
 		return x.engine.readSkill(callCtx, x.run, x.step, input)
 	case "read_context":
-		return x.engine.readContextForAttempt(callCtx, x.run, x.step, x.scope, input, x.attempt.ID)
+		return x.engine.readContextForAttempt(callCtx, x.run, x.step, x.scope, input, x.attemptSnapshot().ID)
 	case "handoff_task":
 		x.mutated.Store(true)
 		result, handoffErr := x.engine.submitHandoff(callCtx, x.run, x.step, input)
@@ -141,7 +287,7 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		x.mu.Lock()
 		snapshot := slices.Clone(x.sources)
 		x.mu.Unlock()
-		return x.engine.readSourceForAttempt(callCtx, x.run, snapshot, input, x.attempt.ID)
+		return x.engine.readSourceForAttempt(callCtx, x.run, snapshot, input, x.attemptSnapshot().ID)
 	case "list_sources":
 		x.mu.Lock()
 		snapshot := slices.Clone(x.sources)
@@ -169,11 +315,35 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		}
 	}
 	if name != "publish_artifact" {
-		if slices.Contains([]string{"write_file", "patch_file", "run_test"}, name) {
+		if slices.Contains([]string{"write_file", "patch_file", "run_test", "run_command"}, name) {
 			x.mutated.Store(true)
 		}
-		return tools.Execute(callCtx, name, input, tools.Scope{Root: x.run.ProjectRoot(), Web: x.engine.Web, Capture: x.capture})
+		workDir := ""
+		if slices.Contains(x.allowed, "run_command") {
+			switch x.run.EffectiveExecutionMode {
+			case w.ExecutionFullAccess, w.ExecutionProjectAutonomous:
+				workDir = x.run.TaskDirectory
+			}
+		}
+		scope := tools.Scope{Root: x.run.ProjectRoot(), WorkDir: workDir, ExecutionMode: x.run.EffectiveExecutionMode, Web: x.engine.Web, Capture: x.capture}
+		if authorization.approved {
+			// A human decision authorized this exact call. A command runs under the
+			// sandbox with the approved target; a file tool may resolve an outside
+			// path only under the approved scope.
+			scope.ApprovedCommand = true
+			if authorization.scope != "" && !x.scopeInsideProject(authorization.scope) {
+				scope.ApprovedRoots = []string{authorization.scope}
+			}
+		}
+		return tools.Execute(callCtx, name, input, scope)
 	}
+	if !slices.Contains(x.allowed, "publish_artifact") {
+		return "", errors.New("artifact publication is not granted for this step")
+	}
+	return x.acceptArtifact(callCtx, input)
+}
+
+func (x *stepRuntime) acceptArtifact(callCtx context.Context, input json.RawMessage) (string, error) {
 	x.mutated.Store(true)
 	allowedPublisher, permissionErr := x.engine.mayPublish(callCtx, x.run, x.step)
 	if permissionErr != nil {
@@ -190,23 +360,26 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 	x.publishCount++
 	x.mu.Unlock()
 	var payload struct {
-		Type        string      `json:"type"`
-		Title       string      `json:"title"`
-		Body        string      `json:"body"`
-		Findings    []w.Finding `json:"findings"`
-		SourceIDs   []string    `json:"source_ids"`
-		Limitations []string    `json:"limitations"`
+		Type        string           `json:"type"`
+		Title       string           `json:"title"`
+		Body        string           `json:"body"`
+		Findings    []w.Finding      `json:"findings"`
+		SourceIDs   []string         `json:"source_ids"`
+		Limitations []string         `json:"limitations"`
+		Files       []w.ArtifactFile `json:"files,omitempty"`
 	}
 	if err := tools.Decode(input, &payload); err != nil {
 		return "", err
 	}
 	artifact := w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: x.run.ThreadID, RunID: x.run.ID, StepID: x.step.ID, Type: payload.Type, Title: payload.Title, Body: payload.Body, Findings: payload.Findings, SourceIDs: payload.SourceIDs, Limitations: payload.Limitations, Feedback: "unreviewed", CreatedAt: w.Now()}
+	artifact.Files = payload.Files
 	x.mu.Lock()
 	knownSources := slices.Clone(x.sources)
 	x.mu.Unlock()
+	attemptID := x.attemptSnapshot().ID
 	if err := x.engine.Store.Read(callCtx, func(tx *store.Tx) error {
 		var err error
-		artifact.Visibility, artifact.ExposureDigest, err = project.InheritAttemptDisclosure(tx, x.run, x.attempt.ID, knownSources)
+		artifact.Visibility, artifact.ExposureDigest, err = project.InheritAttemptDisclosure(tx, x.run, attemptID, knownSources)
 		return err
 	}); err != nil {
 		return "", err
@@ -223,7 +396,7 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 	draft := artifact
 	draftCtx, draftCancel := context.WithTimeout(context.WithoutCancel(callCtx), 5*time.Second)
 	draftErr := x.engine.Store.Write(draftCtx, func(tx *store.Tx) error {
-		current, err := tx.Attempt(x.attempt.ID)
+		current, err := tx.Attempt(attemptID)
 		if err != nil {
 			return err
 		}
@@ -236,13 +409,16 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 	}
 	x.mu.Lock()
 	x.published = &artifact
-	x.attempt.DraftArtifact = &draft
 	x.mu.Unlock()
+	x.setDraftArtifact(&draft)
 	return `{"accepted":true,"publication":"after_step_success"}`, nil
 }
 
 func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
-	if stringValue(data["origin"]) == "native" && x.stepCtx.Err() != nil {
+	if kind == "native_action" || kind == "tool_started" && stringValue(data["origin"]) == "native" && slices.Contains([]string{"Bash", "Write", "Edit", "bash", "write", "edit", "run_shell_command", "write_file", "replace"}, stringValue(data["name"])) {
+		x.mutated.Store(true)
+	}
+	if stringValue(data["origin"]) == "native" && x.stepCtx != nil && x.stepCtx.Err() != nil {
 		// Revocation, user cancel or a frozen deadline already stopped this
 		// step; native output emitted afterwards is not evidence.
 		return nil
@@ -252,6 +428,7 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 	}
 	if kind == "tool_finished" && stringValue(data["origin"]) == "native" {
 		callID := stringValue(data["tool_call_id"])
+		x.settleNativeAdmission(callID, stringValue(data["status"]))
 		x.mu.Lock()
 		duplicate := callID != "" && x.nativeCaptured[callID]
 		if callID != "" {
@@ -274,7 +451,9 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 	if x.closed {
 		return nil
 	}
-	if x.writer.SnapshotError() != nil {
+	// Direct engine/test callers may not stream a message; observation still
+	// records durable events for them.
+	if x.writer != nil && x.writer.SnapshotError() != nil {
 		return x.writer.SnapshotError()
 	}
 	switch kind {
@@ -288,6 +467,9 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 		activity, explicit := data["activity"].(bool)
 		if !explicit {
 			activity = strings.TrimSpace(text) != ""
+		}
+		if x.writer == nil {
+			return nil
 		}
 		if activity {
 			return x.writer.Append(text)
@@ -303,8 +485,10 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 		})
 	case "native_activity":
 		activityKind := stringValue(data["kind"])
-		if activityKind != "reasoning" && activityKind != "text_delta" {
-			return errors.New("native_activity kind must be reasoning or text_delta")
+		// permission_wait heartbeats keep a suspended approval from being
+		// treated as CLI silence; they are activity, never progress.
+		if activityKind != "reasoning" && activityKind != "text_delta" && activityKind != "permission_wait" {
+			return errors.New("native_activity kind must be reasoning, text_delta or permission_wait")
 		}
 		return x.engine.Store.Write(x.ctx, func(tx *store.Tx) error {
 			if err := touchAttempt(tx, x.attempt.ID, w.Now()); err != nil {

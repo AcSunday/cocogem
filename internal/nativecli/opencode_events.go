@@ -39,7 +39,7 @@ func openCodeRequest(ctx context.Context, client *http.Client, method, endpoint,
 	if err != nil || len(raw) > 1024*1024 {
 		return newFailure(FailureProtocol, "OpenCode response exceeded its budget")
 	}
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return nativeFailure(fmt.Sprint(response.StatusCode), string(raw))
 	}
 	if output != nil && json.Unmarshal(raw, output) != nil {
@@ -118,31 +118,36 @@ func runOpenCodeTurn(ctx context.Context, client *http.Client, endpoint, dir, pa
 	if err := gate.emit("native_session", map[string]any{"executor": "opencode", "session_id": session.Data.ID, "mode": mode, "cwd": "isolated"}); err != nil {
 		return err
 	}
-	return parseOpenCodeEvents(reader, session.Data.ID, gate, live)
+	return parseOpenCodeEvents(ctx, reader, session.Data.ID, gate, live, client, endpoint, password)
+}
+
+type openCodeEventData struct {
+	SessionID string                       `json:"sessionID"`
+	MessageID string                       `json:"assistantMessageID"`
+	Ordinal   *int                         `json:"ordinal"`
+	Delta     string                       `json:"delta"`
+	Text      string                       `json:"text"`
+	ID        string                       `json:"id"`
+	Name      string                       `json:"name"`
+	Action    string                       `json:"action"`
+	Resources []string                     `json:"resources"`
+	Message   string                       `json:"message"`
+	Finish    string                       `json:"finish"`
+	Error     json.RawMessage              `json:"error"`
+	Tokens    struct{ Input, Output *int } `json:"tokens"`
 }
 
 type openCodeEvent struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-	Data struct {
-		SessionID string                       `json:"sessionID"`
-		MessageID string                       `json:"assistantMessageID"`
-		Ordinal   *int                         `json:"ordinal"`
-		Delta     string                       `json:"delta"`
-		Text      string                       `json:"text"`
-		ID        string                       `json:"id"`
-		Name      string                       `json:"name"`
-		Finish    string                       `json:"finish"`
-		Error     json.RawMessage              `json:"error"`
-		Tokens    struct{ Input, Output *int } `json:"tokens"`
-	} `json:"data"`
+	ID   string            `json:"id"`
+	Type string            `json:"type"`
+	Data openCodeEventData `json:"data"`
 }
 
 type openCodeEvents struct{ scanner *bufio.Scanner }
 
 func newOpenCodeEvents(reader io.Reader) *openCodeEvents {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
+	scanner.Buffer(make([]byte, 4096), maxCLIFrameBytes)
 	return &openCodeEvents{scanner: scanner}
 }
 
@@ -176,7 +181,7 @@ func (r *openCodeEvents) next() (openCodeEvent, error) {
 		if bytes.HasPrefix(line, []byte("data:")) {
 			part := bytes.TrimPrefix(line, []byte("data:"))
 			part = bytes.TrimPrefix(part, []byte(" "))
-			if len(data)+len(part)+1 > 4*1024*1024 {
+			if len(data)+len(part)+1 > maxCLIFrameBytes {
 				return openCodeEvent{}, newFailure(FailureProtocol, "OpenCode event exceeded its budget")
 			}
 			if len(data) > 0 {
@@ -188,7 +193,7 @@ func (r *openCodeEvents) next() (openCodeEvent, error) {
 	return openCodeEvent{}, newFailure(FailureProtocol, "OpenCode event stream ended before execution completed")
 }
 
-func parseOpenCodeEvents(reader *openCodeEvents, session string, gate *bridge, live *liveness) error {
+func parseOpenCodeEvents(ctx context.Context, reader *openCodeEvents, session string, gate *bridge, live *liveness, client *http.Client, endpoint, password string) error {
 	streams := newTextStreams()
 	activity := newActivityTracker()
 	blocks := map[string]bool{}
@@ -208,6 +213,12 @@ func parseOpenCodeEvents(reader *openCodeEvents, session string, gate *bridge, l
 			return confirmedFailure(FailurePermission, "OpenCode requested interaction outside this step's permissions")
 		}
 		if data.SessionID != session {
+			continue
+		}
+		if event.Type == "permission.asked" {
+			if err := handleOpenCodePermission(ctx, gate, live, client, endpoint, password, session, data); err != nil {
+				return err
+			}
 			continue
 		}
 		encoded, _ := json.Marshal(event)
@@ -264,13 +275,18 @@ func parseOpenCodeEvents(reader *openCodeEvents, session string, gate *bridge, l
 			}
 		case "session.tool.input.started":
 			name := strings.TrimPrefix(data.Name, "cocogem_")
-			if !stepOpen || data.MessageID != message || data.ID == "" || !strings.HasPrefix(data.Name, "cocogem_") || !gate.allowedToolName("mcp__cocogem__"+name) {
+			if !stepOpen || data.MessageID != message || data.ID == "" || (!gate.trustedNative && !gate.nativeBoundary && (!strings.HasPrefix(data.Name, "cocogem_") || !gate.allowedToolName("mcp__cocogem__"+name))) {
 				return newFailure(FailureProtocol, "OpenCode requested an unauthorized tool")
 			}
 			if _, ok := calls[data.ID]; ok || len(calls) >= maxTextStreamStates {
 				return newFailure(FailureProtocol, "OpenCode repeated or exceeded its active tool calls")
 			}
 			calls[data.ID] = toolCall{}
+			if (gate.trustedNative || gate.nativeBoundary) && !strings.HasPrefix(data.Name, "cocogem_") {
+				if err := gate.emit("native_action", map[string]any{"name": data.Name, "event": event.Type, "observation": "runner_reported; native_effect_audit=partial"}); err != nil {
+					return err
+				}
+			}
 			live.valid("tool_call")
 		case "session.tool.called", "session.tool.input.delta", "session.tool.input.ended", "session.tool.progress", "session.tool.success", "session.tool.failed":
 			call, ok := calls[data.ID]
@@ -327,7 +343,7 @@ func parseOpenCodeEvents(reader *openCodeEvents, session string, gate *bridge, l
 			return nativeFailure("opencode", string(data.Error))
 		case "session.execution.interrupted":
 			return confirmedFailure(FailureProtocol, "OpenCode execution was interrupted")
-		case "permission.asked", "form.created":
+		case "form.created":
 			return confirmedFailure(FailurePermission, "OpenCode requested interaction outside this step's permissions")
 		default:
 			if strings.HasPrefix(event.Type, "session.tool.") {
@@ -335,5 +351,61 @@ func parseOpenCodeEvents(reader *openCodeEvents, session string, gate *bridge, l
 			}
 			live.notice(event.Type)
 		}
+	}
+}
+
+// handleOpenCodePermission answers one real permission.asked event through the
+// local server API. The host decision is always sent as `once` or `reject`;
+// `always` is never used because Cocogem's own conversation grant is the only
+// durable authorization.
+func handleOpenCodePermission(ctx context.Context, gate *bridge, live *liveness, client *http.Client, endpoint, password, session string, data openCodeEventData) error {
+	if data.ID == "" || !strings.HasPrefix(data.ID, "per") {
+		return newFailure(FailureProtocol, "OpenCode emitted an invalid permission request identity")
+	}
+	if gate.approver == nil {
+		return confirmedFailure(FailurePermission, "OpenCode requested an interaction without a host approval callback")
+	}
+	name, input := openCodePermissionCall(data)
+	authorization, err := gate.approver.authorize(ctx, "cli:"+data.ID, name, input, data.Message)
+	if err != nil {
+		return err
+	}
+	reply := map[string]any{"decision": "reject", "message": authorization.Reason}
+	if authorization.Allow {
+		reply = map[string]any{"decision": "once"}
+	}
+	if err := openCodeRequest(ctx, client, http.MethodPost, endpoint+"/api/session/"+url.PathEscape(session)+"/permission/"+url.PathEscape(data.ID)+"/reply", password, reply, nil); err != nil {
+		return err
+	}
+	live.valid("permission")
+	return nil
+}
+
+func openCodePermissionCall(data openCodeEventData) (string, json.RawMessage) {
+	action := strings.ToLower(data.Action)
+	resource := ""
+	if len(data.Resources) > 0 {
+		resource = data.Resources[0]
+	}
+	switch action {
+	case "bash", "shell", "execute", "run":
+		encoded, _ := json.Marshal(map[string]string{"command": resource})
+		return "Bash", encoded
+	case "read":
+		encoded, _ := json.Marshal(map[string]string{"path": resource})
+		return "Read", encoded
+	case "write", "edit", "patch":
+		encoded, _ := json.Marshal(map[string]string{"path": resource})
+		return "Write", encoded
+	case "webfetch", "fetch", "websearch", "web_search":
+		encoded, _ := json.Marshal(map[string]string{"url": resource})
+		return "WebFetch", encoded
+	default:
+		encoded, _ := json.Marshal(map[string]any{"resources": data.Resources})
+		name := data.Action
+		if name == "" {
+			name = "Native"
+		}
+		return name, encoded
 	}
 }

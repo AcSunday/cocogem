@@ -1,66 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  api,
-  type Agent,
-  type BudgetPolicy,
-  type BudgetPolicyOverride,
-  type Grant,
-  type Settings,
-  type Workspace,
-} from "../api/client";
+import { useEffect, useState } from "react";
+import { api, type Agent, type Settings, type Workspace } from "../api/client";
 import { errorText } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
 import styles from "../styles/project.module.css";
+import { executionModeOf, executionModes } from "../app/useGlobalSettings";
 
 const cx = scoped(base, controls, styles);
-const fields: [keyof BudgetPolicy, keyof BudgetPolicyOverride, string][] = [
-  ["auto_continuations", "auto_continuations", "自动续办次数"],
-  ["parallel_branches", "parallel_branches", "并行分支数"],
-  ["writer_branches", "writer_branches", "写分支数"],
-  ["fix_rounds", "fix_rounds", "修复轮次"],
-  ["no_progress_failures", "no_progress_failures", "连续无进展失败"],
-];
 
-const modes = [
-  {
-    value: "controlled",
-    label: "受控",
-    description: "使用宿主工具、隔离目录和显式授权；首次与迁移默认。",
-  },
-  {
-    value: "project_autonomous",
-    label: "项目内自主",
-    description: "项目范围内连续执行；隔离能力未验证时仍回退受控。",
-  },
-  {
-    value: "full_access",
-    label: "完全访问",
-    description: "明确信任本机能力、命令与既有凭据；不是沙箱隔离。",
-  },
-];
-
-const actionLabels: Record<string, string> = {
-  read: "读取",
-  write: "写入",
-  run_test: "运行测试",
-  network: "联网",
-  publish_artifact: "发布产物",
-  collaborate: "协作",
-  native_read: "原生读取",
-  native_write: "原生写入",
-  native_execute: "原生执行",
-};
-
-const grantStatus: Record<string, string> = {
-  active: "有效",
-  revoking: "撤销中",
-  revoked: "已撤销",
-  revocation_uncertain: "撤销待核实",
-};
-
-/** Project-level execution, grants and future root-task budget defaults. */
+/**
+ * Workspace-level context only. The execution mode, conversation grants and the
+ * future root-task budget are global settings (设置 → 权限 / 协作), so this panel
+ * never offers a workspace override: a second effective configuration would be
+ * a hidden permission source. The workspace keeps its name, description and
+ * directory binding in `WorkspaceForm`; this panel explains the global state
+ * and links nowhere that could silently change it.
+ */
 export function ProjectSettings({
   workspace,
   settings,
@@ -70,234 +26,97 @@ export function ProjectSettings({
   workspace: Workspace;
   settings?: Settings;
   agents?: Agent[];
-  onWorkspaceChange: (workspace: Workspace) => void;
+  onWorkspaceChange?: (workspace: Workspace) => void;
 }) {
-  const [mode, setMode] = useState(workspace.execution_mode || "controlled");
-  const [override, setOverride] = useState<Record<string, string>>({});
-  const [grants, setGrants] = useState<Grant[]>([]);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const load = useCallback(async () => {
-    try {
-      const page = await api<{ items: Grant[] }>(
-        `/api/v1/workspaces/${workspace.id}/grants`,
-      );
-      setGrants(page.items ?? []);
-      setError("");
-    } catch (failure) {
-      setError(errorText(failure));
-    }
-  }, [workspace.id]);
-  useEffect(() => {
-    setMode(workspace.execution_mode || "controlled");
-    const next: Record<string, string> = {};
-    for (const [, overrideKey, label] of fields) {
-      const value = workspace.budget_override?.[overrideKey];
-      if (typeof value === "number") next[label] = String(value);
-    }
-    setOverride(next);
-    void load();
-  }, [workspace, load]);
-
-  const save = async (name: string, action: () => Promise<Workspace>) => {
-    if (busy) return;
-    setBusy(name);
-    setError("");
-    try {
-      onWorkspaceChange(await action());
-    } catch (failure) {
-      setError(errorText(failure));
-    } finally {
-      setBusy("");
-    }
-  };
-  const defaults = settings?.collaboration_budget;
-  const memberName = (id: string) =>
-    agents.find((agent) => agent.id === id)?.display_name ||
-    agents.find((agent) => agent.id === id)?.handle ||
-    id;
+  // The workspace mode/budget fields are inert audit data; keep the prop for
+  // callers that still render the panel inside a workspace form.
+  void onWorkspaceChange;
+  const mode = executionModeOf(settings);
+  const option = executionModes.find((item) => item.value === mode);
   return (
     <div className={cx("project-settings-panel")}>
       <header className={cx("settings-panel-head")}>
         <div>
-          <h3>权限与预算</h3>
-          <p>项目级设置会立即影响后续执行；历史 Run 保留冻结授权快照。</p>
+          <h3>继承的全局设置</h3>
+          <p>
+            权限与根任务预算属于整个 Cocogem，不在这里按工作空间覆盖。切换空间不会改变权限，历史 Run 继续使用冻结快照。
+          </p>
         </div>
       </header>
-      {error && (
-        <p className={cx("error")} role="alert">
-          {error}
+
+      <section className={cx("settings-card")} aria-label="当前全局权限">
+        <div className={cx("settings-card-head")}>
+          <h4>执行权限</h4>
+          <p>由设置 → 权限统一管理；输入框下方的权限选择与这里读取同一个值。</p>
+        </div>
+        <p className={cx("mode-readout")} data-mode={mode}>
+          <strong>{option?.label ?? "项目内自主"}</strong>
+          <small>{option?.summary ?? "项目内自主，项目外申请"}</small>
         </p>
-      )}
-
-      <section className={cx("settings-card")} aria-labelledby="project-execution-mode">
-        <div className={cx("settings-card-head")}>
-          <h4 id="project-execution-mode">执行权限模式</h4>
-          <p>切换会停止受影响项目的在途执行，不重置协作预算。</p>
-        </div>
-        <div className={cx("mode-options")} role="radiogroup" aria-label="执行权限模式">
-          {modes.map((option) => (
-            <label
-              key={option.value}
-              className={cx("mode-option")}
-              data-selected={mode === option.value || undefined}
-            >
-              <input
-                type="radio"
-                name="execution-mode"
-                value={option.value}
-                checked={mode === option.value}
-                onChange={() => setMode(option.value)}
-              />
-              <span>
-                <strong>{option.label}</strong>
-                <small>{option.description}</small>
-              </span>
-            </label>
-          ))}
-        </div>
-        <div className={cx("settings-card-actions")}>
-          <button
-            className={cx("primary")}
-            disabled={!!busy || mode === (workspace.execution_mode || "controlled")}
-            onClick={() =>
-              void save("mode", () =>
-                api(
-                  `/api/v1/workspaces/${workspace.id}/execution-policy`,
-                  "PATCH",
-                  { mode, source_message_id: crypto.randomUUID() },
-                  { "If-Match": String(workspace.revision) },
-                ),
-              )
-            }
-          >
-            保存权限模式
-          </button>
-        </div>
       </section>
 
-      <section className={cx("settings-card")} aria-labelledby="project-budget-defaults">
+      <section className={cx("settings-card")} aria-label="本空间成员">
         <div className={cx("settings-card-head")}>
-          <h4 id="project-budget-defaults">新根任务默认预算</h4>
-          <p>留空继承全局设置；只影响以后创建的根任务，现有任务保持原预算。</p>
-        </div>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value: BudgetPolicyOverride = {};
-            for (const [, key, label] of fields) {
-              if (override[label]?.trim()) value[key] = Number(override[label]);
-            }
-            void save("budget", () =>
-              api(
-                `/api/v1/workspaces/${workspace.id}/budget-policy`,
-                "PATCH",
-                { override: value },
-                { "If-Match": String(workspace.revision) },
-              ),
-            );
-          }}
-        >
-          <div className={cx("budget-fields")}>
-            {fields.map(([defaultKey, , label]) => (
-              <label className={cx("budget-field")} key={label}>
-                <span>{label}</span>
-                <input
-                  type="number"
-                  aria-label={label}
-                  min={1}
-                  value={override[label] ?? ""}
-                  placeholder={defaults ? String(defaults[defaultKey]) : "继承"}
-                  onChange={(event) =>
-                    setOverride((current) => ({
-                      ...current,
-                      [label]: event.target.value,
-                    }))
-                  }
-                />
-                <small>继承 {defaults ? defaults[defaultKey] : "全局"}</small>
-              </label>
-            ))}
-          </div>
-          <div className={cx("settings-card-actions")}>
-            <button className={cx("primary")} disabled={!!busy}>
-              保存项目覆盖
-            </button>
-            <button
-              type="button"
-              disabled={!!busy}
-              onClick={() => {
-                setOverride({});
-                void save("budget-reset", () =>
-                  api(
-                    `/api/v1/workspaces/${workspace.id}/budget-policy`,
-                    "PATCH",
-                    { override: null },
-                    { "If-Match": String(workspace.revision) },
-                  ),
-                );
-              }}
-            >
-              全部恢复继承
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <section className={cx("settings-card")} aria-labelledby="project-grants">
-        <div className={cx("settings-card-head")}>
-          <h4 id="project-grants">持续授权</h4>
-          <p>成员能力上限与实际项目授权取交集；撤销后新执行立即被拒绝。</p>
-        </div>
-        {grants.length ? (
-          <div className={cx("grant-list")}>
-            {grants.map((grant) => (
-              <article className={cx("grant-row")} key={grant.id}>
-                <div className={cx("grant-main")}>
-                  <div className={cx("grant-title")}>
-                    <strong>{memberName(grant.subject_member_id)}</strong>
-                    <span className={cx(`grant-status ${grant.status}`)}>
-                      {grantStatus[grant.status] || grant.status}
-                    </span>
-                  </div>
-                  <small>
-                    {grant.actions?.map((action) => actionLabels[action] || action).join("、") || "无动作"} ·{" "}
-                    {grant.resources?.some((item) => item.startsWith("workspace:"))
-                      ? "项目范围"
-                      : grant.resources?.join("、") || "无资源"}{" "}
-                    · 代次 {grant.epoch}
-                    {grant.expires_at ? ` · 到期 ${grant.expires_at}` : ""}
-                  </small>
-                </div>
-                {["active", "revocation_uncertain"].includes(grant.status) && (
-                  <button
-                    type="button"
-                    className={cx("small")}
-                    disabled={!!busy}
-                    onClick={() => {
-                      setBusy(`revoke-${grant.id}`);
-                      void api(
-                        `/api/v1/workspaces/${workspace.id}/grants/${grant.subject_member_id}/revoke`,
-                        "POST",
-                        { source_message_id: crypto.randomUUID() },
-                      )
-                        .then(load)
-                        .catch((failure) => setError(errorText(failure)))
-                        .finally(() => setBusy(""));
-                    }}
-                  >
-                    撤销
-                  </button>
-                )}
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className={cx("project-empty")}>
-            尚无持续授权记录；首次受控执行不会自动扩大权限。
+          <h4>成员与执行</h4>
+          <p>
+            成员是否加入并在本空间启用仍按空间管理；成员的工具与命令边界不再按空间或成员授权，而由全局权限决定。
           </p>
-        )}
+        </div>
+        <p className={cx("project-empty")}>
+          {agents.length
+            ? `${agents.length} 位成员可用于本空间。`
+            : "本空间还没有成员。可在成员管理中把全局档案加入本空间。"}
+        </p>
+      </section>
+
+      <section className={cx("settings-card")} aria-label="本空间根预算">
+        <div className={cx("settings-card-head")}>
+          <h4>新根任务预算</h4>
+          <p>
+            新建根任务读取设置 → 协作中的全局预算默认值。已有根任务的账本、预留和子任务关联保持不变，不再有空间覆盖。
+          </p>
+        </div>
+        <p className={cx("project-empty")}>
+          {settings?.collaboration_budget
+            ? `续办 ${settings.collaboration_budget.auto_continuations} · 并行 ${settings.collaboration_budget.parallel_branches} · 写分支 ${settings.collaboration_budget.writer_branches} · 修复 ${settings.collaboration_budget.fix_rounds} · 无进展 ${settings.collaboration_budget.no_progress_failures}`
+            : "尚未读取全局预算默认值。"}
+        </p>
+      </section>
+
+      <section className={cx("settings-card")} aria-label="本空间持续授权">
+        <div className={cx("settings-card-head")}>
+          <h4>持续授权</h4>
+          <p>
+            持续授权按会话管理：设置 → 权限可以查看并撤销当前会话的授权记录。本空间不再保存独立授权。
+          </p>
+        </div>
+        <p className={cx("project-empty")}>
+          当前空间：{workspace.name || "未命名"}。
+        </p>
       </section>
     </div>
   );
+}
+
+/**
+ * Reads the current global settings for a panel that has no parent state, so a
+ * standalone workspace dialog still shows the same truth as the settings page.
+ */
+export function useReadonlySettings(initial?: Settings) {
+  const [settings, setSettings] = useState<Settings | undefined>(initial);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let canceled = false;
+    void api<Settings>("/api/v1/settings")
+      .then((value) => {
+        if (!canceled) setSettings(value);
+      })
+      .catch((failure) => {
+        if (!canceled) setError(errorText(failure));
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+  return { settings, error };
 }

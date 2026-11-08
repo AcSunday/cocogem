@@ -138,7 +138,12 @@ it("keeps the created identity and configures a CLI without granting tools", asy
   await open(user, /新成员/);
   await user.type(screen.getByLabelText("显示名"), "布偶猫");
   await user.type(screen.getByLabelText("Handle"), "ragdoll");
-  await user.click(screen.getByLabelText("read_file"));
+  // Tool grants are gone from every member form: there is no checkbox to toggle.
+  expect(
+    screen.queryByRole("group", { name: "全局允许工具" }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("read_file")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("run_command")).not.toBeInTheDocument();
   await chooseOption(user, screen.getByLabelText("执行 CLI"), "codex");
   expect(screen.getByRole("status")).toHaveTextContent(
     "说明：只读工具范围由 Cocogem 管理",
@@ -149,9 +154,9 @@ it("keeps the created identity and configures a CLI without granting tools", asy
     expect.objectContaining({
       executor: "codex",
       model: "default",
-      tools: expect.not.arrayContaining(["read_file"]),
     }),
   );
+  expect(save.mock.calls.at(-1)?.[0].tools ?? null).toBeNull();
   await user.type(
     screen.getByLabelText("模型（留空使用 CLI 默认）"),
     "chosen-model",
@@ -163,7 +168,6 @@ it("keeps the created identity and configures a CLI without granting tools", asy
       revision: 1,
       executor: "codex",
       model: "chosen-model",
-      tools: expect.not.arrayContaining(["read_file"]),
     }),
   );
   await chooseOption(user, screen.getByLabelText("执行 CLI"), "gemini");
@@ -254,23 +258,30 @@ it("edits the global profile separately from workspace permissions", async () =>
       id: "shared",
       revision: 4,
       display_name: "统一新名称",
+      // The legacy array travels back untouched; it is never re-edited here.
       tools: ["read_file", "web_search"],
       capabilities: ["资料分析", "技术复核"],
     }),
   );
-  const globalGrants = within(
-    screen.getByRole("group", { name: "全局允许工具" }),
-  );
-  expect(globalGrants.getByLabelText("patch_file")).not.toBeChecked();
-  const grants = within(screen.getByRole("group", { name: "本工作空间权限" }));
-  expect(grants.getByLabelText(/patch_file/)).not.toBeChecked();
-  expect(grants.getByLabelText("web_search")).not.toBeChecked();
-  await user.click(grants.getByLabelText("在本工作空间启用"));
-  await user.click(screen.getByRole("button", { name: "保存本空间权限" }));
+  // D04: neither the global tool checkboxes nor the workspace grants exist.
+  expect(
+    screen.queryByRole("group", { name: "全局允许工具" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("group", { name: "本工作空间权限" }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("patch_file")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("web_search")).not.toBeInTheDocument();
+  expect(screen.queryByText(/全局未允许/)).not.toBeInTheDocument();
+  // Enable/disable is still editable.
+  expect(screen.getByLabelText("在所有工作空间停用此成员")).not.toBeChecked();
+  expect(screen.getByLabelText("在本工作空间启用")).toBeChecked();
+  await user.click(screen.getByLabelText("在本工作空间启用"));
+  await user.click(screen.getByRole("button", { name: "保存本空间设置" }));
   expect(saveMembership).toHaveBeenCalledWith(
     expect.objectContaining({ id: "shared", revision: 5 }),
     membership,
-    { enabled: false, tools: ["read_file"] },
+    { enabled: false },
   );
   await user.click(screen.getByRole("button", { name: "移出本工作空间" }));
   expect(unlink).toHaveBeenCalledWith(membership);
@@ -425,6 +436,9 @@ it("uploads, clears and rejects avatars without touching workspace grants", asyn
   await open(user, /全局成员/);
   expect(
     screen.queryByRole("group", { name: "本工作空间权限" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("group", { name: "全局允许工具" }),
   ).not.toBeInTheDocument();
   expect(screen.getByText("全")).toBeInTheDocument();
   expect(screen.queryByText("🦊")).not.toBeInTheDocument();
@@ -683,10 +697,7 @@ it("reuses a global member identity without creating a new profile", async () =>
   expect(saveMembership).toHaveBeenCalledWith(
     expect.objectContaining(agent),
     undefined,
-    {
-      enabled: true,
-      tools: ["read_file"],
-    },
+    { enabled: true },
   );
   expect(save).not.toHaveBeenCalled();
 });
@@ -824,6 +835,51 @@ it("clears a thinking override when switching to an OpenCode model without varia
       thinking_level: undefined,
     }),
   );
+});
+
+it("deletes a member only after an icon-only confirmation", async () => {
+  const agent = member({
+    id: "global",
+    workspace_id: "",
+    display_name: "全局成员",
+    handle: "global",
+  });
+  const remove = vi.fn(async () => {});
+  const user = userEvent.setup();
+  render(
+    <MembersForm
+      agents={[]}
+      catalog={[agent]}
+      global
+      system={system(["claude"])}
+      workspaceID=""
+      close={() => {}}
+      save={vi.fn(async (value: Agent) => value)}
+      remove={remove}
+    />,
+  );
+  const button = screen.getByRole("button", {
+    name: "删除成员 全局成员",
+  });
+  expect(button).toHaveTextContent("");
+  expect(button.querySelector("svg")).toBeInTheDocument();
+  await user.click(button);
+  const dialog = screen.getByRole("dialog", { name: "删除成员" });
+  expect(within(dialog).getByText(/全局成员/)).toBeVisible();
+  expect(remove).not.toHaveBeenCalled();
+  await user.click(within(dialog).getByRole("button", { name: "取消" }));
+  expect(remove).not.toHaveBeenCalled();
+  await user.click(button);
+  await user.click(screen.getByRole("button", { name: "确认删除" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledWith(agent));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: "删除成员 全局成员" }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(
+    screen.queryByRole("dialog", { name: "删除成员" }),
+  ).not.toBeInTheDocument();
 });
 
 it("reports OpenCode capability errors without discarding the saved thinking override", async () => {

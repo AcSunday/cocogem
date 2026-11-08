@@ -1,7 +1,6 @@
 package nativecli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AcSunday/cocogem/internal/cli"
 	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/proc"
 )
@@ -215,7 +213,7 @@ func TestInstalledOpenCodeCredentialForwarding(t *testing.T) {
 	}
 }
 
-func TestInstalledOpenCodeTerminalResumeAndFailures(t *testing.T) {
+func TestInstalledOpenCodeFailures(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		status int
@@ -248,26 +246,6 @@ func TestInstalledOpenCodeTerminalResumeAndFailures(t *testing.T) {
 			response, err := (Provider{}).Complete(ctx, request, nil)
 			if FailureKindOf(err) != test.kind || test.kind == "" && err != nil {
 				t.Fatalf("response=%v err=%v want=%v", response, err, test.kind)
-			}
-			t.Chdir(t.TempDir())
-			var output bytes.Buffer
-			result, err := cli.Invoke("opencode", cli.Request{Prompt: "Public synthetic fixture prompt"}, &output)
-			if (err != nil) != (test.kind != "") {
-				t.Fatalf("terminal err=%v", err)
-			}
-			if test.kind != "" {
-				return
-			}
-			if output.String() != "public synthetic answer\n" {
-				t.Fatalf("terminal output=%q", output.String())
-			}
-			resumed, err := cli.Invoke("opencode", cli.Request{Prompt: "Public continuation", SessionID: result.SessionID}, &output)
-			if err != nil || resumed.SessionID != result.SessionID {
-				t.Fatalf("resume failed: %v", err)
-			}
-			_, err = cli.Invoke("opencode", cli.Request{Prompt: "Public continuation", SessionID: "ses_missingabcdefghijklmnopqrstuvwxyz"}, &output)
-			if err == nil || !strings.Contains(err.Error(), "session is missing or unavailable") {
-				t.Fatalf("missing native session was silently recreated: %v", err)
 			}
 		})
 	}

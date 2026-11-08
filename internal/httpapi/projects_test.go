@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -9,7 +10,11 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-func TestProjectPolicyPatchesRequireCurrentRevision(t *testing.T) {
+// TestWorkspacePolicyRoutesAreRetired pins the API收口: the old per-workspace
+// execution mode, budget override and file-execution routes no longer exist and
+// cannot change a running permission. The global settings endpoint is the only
+// write path.
+func TestWorkspacePolicyRoutesAreRetired(t *testing.T) {
 	root := t.TempDir()
 	db, err := store.Open(filepath.Join(root, "state.sqlite"))
 	if err != nil {
@@ -22,10 +27,27 @@ func TestProjectPolicyPatchesRequireCurrentRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := newDeliveryAPI(t, root, db, nil)
-	api.call("PATCH", "/api/v1/workspaces/project/execution-policy", ExecutionPolicyInput{Mode: w.ExecutionFullAccess, SourceMessageID: "stale-mode"}, map[string]string{"If-Match": "9"}, 409, nil)
-	api.call("PATCH", "/api/v1/workspaces/project/execution-policy", ExecutionPolicyInput{Mode: w.ExecutionFullAccess, SourceMessageID: "current-mode"}, map[string]string{"If-Match": "1"}, 200, nil)
-	api.call("PATCH", "/api/v1/workspaces/project/budget-policy", BudgetPolicyInput{Override: &w.BudgetPolicyOverride{}}, map[string]string{"If-Match": "1"}, 409, nil)
-	api.call("PATCH", "/api/v1/workspaces/project/budget-policy", BudgetPolicyInput{Override: &w.BudgetPolicyOverride{}}, map[string]string{"If-Match": "2"}, 200, nil)
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{"PATCH", "/api/v1/workspaces/project/execution-policy"},
+		{"PATCH", "/api/v1/workspaces/project/budget-policy"},
+		{"POST", "/api/v1/workspaces/project/file-execution"},
+		{"GET", "/api/v1/workspaces/project/grants"},
+		{"POST", "/api/v1/workspaces/project/grants/member/revoke"},
+	} {
+		api.call(route.method, route.path, map[string]any{}, map[string]string{"If-Match": "1"}, 404, nil)
+	}
+	// The global settings route still accepts a permission change with CAS.
+	var settings w.Settings
+	api.call("GET", "/api/v1/settings", nil, nil, 200, &settings)
+	var updated w.Settings
+	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionFullAccess)}, map[string]string{"If-Match": fmt.Sprint(settings.Revision)}, 200, &updated)
+	if updated.ExecutionMode != w.ExecutionFullAccess || updated.PermissionEpoch != settings.PermissionEpoch+1 {
+		t.Fatalf("global permission change = %+v", updated)
+	}
+	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionControlled)}, map[string]string{"If-Match": fmt.Sprint(settings.Revision)}, 412, nil)
 }
 
 func TestProjectInboxHTTPReceiptAndEvidenceBoundary(t *testing.T) {
@@ -67,4 +89,13 @@ func TestProjectInboxHTTPReceiptAndEvidenceBoundary(t *testing.T) {
 		Results:       []w.CriterionResult{{CriterionID: "outcome", Result: "passed", Evidence: []string{"test@1"}}},
 		JudgeMemberID: "reviewer", EvidenceProducer: "host_observed",
 	}, nil, 400, nil)
+}
+
+// setGlobalMode changes the one global permission policy through its only
+// write path. Tests must not use a retired per-workspace route.
+func setGlobalMode(t *testing.T, api *deliveryAPI, mode string) {
+	t.Helper()
+	var settings w.Settings
+	api.call("GET", "/api/v1/settings", nil, nil, 200, &settings)
+	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: &mode}, map[string]string{"If-Match": fmt.Sprint(settings.Revision)}, 200, nil)
 }

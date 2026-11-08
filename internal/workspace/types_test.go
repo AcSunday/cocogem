@@ -67,7 +67,9 @@ func TestAgentIdentityAndNames(t *testing.T) {
 		{"invalid handle", func(a *Agent) { a.Handle = "--bad" }, true},
 		{"duplicate alias", func(a *Agent) { a.Aliases = []string{"布布", "布布"} }, true},
 		{"unknown model", func(a *Agent) { a.Model = "unknown" }, true},
-		{"unknown tool", func(a *Agent) { a.Tools = []string{"shell"} }, true},
+		// Member tool arrays are retired history: even an unknown historical name
+		// is preserved and never interpreted, so it must not reject a valid profile.
+		{"legacy tool array is inert", func(a *Agent) { a.Tools = []string{"shell"} }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			copy := a

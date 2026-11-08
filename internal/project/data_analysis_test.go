@@ -33,7 +33,7 @@ func TestAnalyzeCSVUsesImmutableCaptureAndPublishesVersionedResults(t *testing.T
 		Visibility: "project", CapturedAt: w.Now(),
 	}
 	session := w.ExecutionSession{
-		ID: "csv-analysis-session", TaskID: created.Task.ID, MemberID: "owner", Status: "fresh_only",
+		ID: "csv-analysis-session", TaskID: created.Task.ID, MemberID: "owner", VisibilityEpoch: 1, Status: "fresh_only",
 		ExposedRefs: []string{}, CreatedAt: w.Now(), UpdatedAt: w.Now(),
 	}
 	session.ExposureDigest = exposureRefsDigest(session.ExposedRefs)

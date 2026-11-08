@@ -30,7 +30,7 @@ func prepareStepHandoff(
 	planningRoot := planningRootStep(run)
 	dependentArtifacts := []w.Artifact{}
 	for _, artifact := range artifacts {
-		if artifact.RunID != run.ID || artifact.StepID == planningRoot || !slices.Contains(step.DependsOn, artifact.StepID) {
+		if artifact.RunID != run.ID || artifact.StepID == planningRoot || artifact.StepID == run.TaskPromotionStepID || !slices.Contains(step.DependsOn, artifact.StepID) {
 			continue
 		}
 		preview, err := tx.ArtifactPreview(artifact.ID, artifact.Version, 6000)
@@ -41,7 +41,7 @@ func prepareStepHandoff(
 	}
 	messages := all
 	if planningRoot != "" {
-		messages = slices.DeleteFunc(slices.Clone(all), func(m w.Message) bool { return m.StepID == planningRoot })
+		messages = slices.DeleteFunc(slices.Clone(all), func(m w.Message) bool { return m.StepID == planningRoot || m.StepID == run.TaskPromotionStepID })
 	}
 	handoff := prepareHandoff(step, run.Input.Message, messages, dependentArtifacts, sourceSnapshot)
 	if err := addReferencedInputs(tx, step, run.ThreadID, &handoff); err != nil {

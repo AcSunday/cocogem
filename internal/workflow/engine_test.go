@@ -666,6 +666,10 @@ func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
 	}
 }
 
+// TestRevokedMemberToolStopsQueuedDispatch keeps the real revocation guarantee:
+// a queued dispatch revalidates current membership and enablement before it
+// launches. The legacy tool array is no longer an execution limit, so this test
+// disables the member (a revocation that still applies) instead of editing it.
 func TestRevokedMemberToolStopsQueuedDispatch(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
 	if err != nil {
@@ -674,10 +678,12 @@ func TestRevokedMemberToolStopsQueuedDispatch(t *testing.T) {
 	defer s.Close()
 	run := seedRun(t, s)
 	if err := s.Write(t.Context(), func(tx *store.Tx) error {
-		a := run.Agents[0]
-		a.Tools = []string{"publish_artifact"}
-		a.Revision++
-		return tx.SaveAgent(a)
+		member, err := tx.Member(run.WorkspaceID, run.Agents[0].ID)
+		if err != nil {
+			return err
+		}
+		member.Enabled, member.Revision = false, member.Revision+1
+		return tx.SaveMember(member)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -690,7 +696,7 @@ func TestRevokedMemberToolStopsQueuedDispatch(t *testing.T) {
 	got := awaitRun(t, s, run.ID)
 	cancel()
 	e.Wait()
-	if got.Status != "failed" || !strings.Contains(got.Error, "tool permission was revoked") {
+	if got.Status != "failed" || !strings.Contains(got.Error, "unavailable") {
 		t.Fatalf("run=%+v", got)
 	}
 	if err := s.Read(t.Context(), func(tx *store.Tx) error {

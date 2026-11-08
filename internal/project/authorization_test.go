@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"slices"
 	"testing"
 	"time"
 
@@ -15,7 +14,12 @@ func authorizationFixture(t *testing.T) (*store.Store, *Service, TaskView, w.Run
 	db, service, th := setup(t)
 	member := w.Agent{ID: "owner", WorkspaceID: th.WorkspaceID, DisplayName: "Owner", Handle: "owner", Revision: 1,
 		Tools: []string{"read_file", "write_file", "patch_file", "run_test", "publish_artifact", "web_search", "handoff_task"}}
-	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveAgent(member) }); err != nil {
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.SaveAgent(member); err != nil {
+			return err
+		}
+		return tx.SaveMember(w.WorkspaceMember{WorkspaceID: th.WorkspaceID, AgentID: member.ID, Enabled: true, Tools: member.Tools, Revision: 1})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	created := create(t, service, th)
@@ -24,97 +28,127 @@ func authorizationFixture(t *testing.T) (*store.Store, *Service, TaskView, w.Run
 	return db, service, created, run
 }
 
-func TestRunAuthorizationFreezesModeAndTaskActions(t *testing.T) {
-	db, service, created, run := authorizationFixture(t)
-	if err := db.Write(t.Context(), func(tx *store.Tx) error {
-		return service.EnsureRunAuthorization(tx, &run, "message-1")
-	}); err != nil {
-		t.Fatal(err)
-	}
-	for _, action := range []string{"read", "write", "run_test"} {
-		if !slices.Contains(run.GrantActions, action) {
-			t.Fatalf("controlled develop lost %q: %+v", action, run.GrantActions)
-		}
-	}
-	for _, action := range w.ModeActions(w.ExecutionControlled) {
-		if slices.Contains([]string{"native_read", "native_write", "native_execute"}, action) {
-			t.Fatalf("controlled mode exposed native action %q", action)
-		}
-	}
-	frozen := slices.Clone(run.GrantActions)
-	if _, err := service.SetExecutionMode(t.Context(), created.Task.WorkspaceID, w.ExecutionFullAccess, "message-mode", 1); err != nil {
-		t.Fatal(err)
-	}
-	allowed, err := readAuthorizedTools(db, service, run, []string{"read_file", "write_file", "run_test"})
-	if err != nil || len(allowed) != 3 {
-		t.Fatalf("current controlled develop tools = %+v, %v", allowed, err)
-	}
-	if !slices.Equal(frozen, run.GrantActions) {
-		t.Fatalf("mode switch rewrote old Run actions: before=%v after=%v", frozen, run.GrantActions)
-	}
-	view, err := service.Task(t.Context(), created.Task.ID)
-	if err != nil || view.Budget.Revision != created.Budget.Revision {
-		t.Fatalf("mode switch reset budget: %+v, %v", view.Budget, err)
+// TestLegacyWorkspaceGrantIsInertHistory pins the migration outcome: the legacy
+// workspace+member grant (whose UI and routes are removed) must not veto a new
+// Run of the global policy, in any of its historical statuses. Live authority is
+// the global mode, the task/role ceiling and the conversation grants.
+func TestLegacyWorkspaceGrantIsInertHistory(t *testing.T) {
+	for _, legacy := range []struct {
+		name   string
+		status string
+		expiry string
+	}{
+		{name: "active", status: "active"},
+		{name: "revoked", status: "revoked"},
+		{name: "revoking", status: "revoking"},
+		{name: "expired active row", status: "active", expiry: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)},
+	} {
+		t.Run(legacy.name, func(t *testing.T) {
+			db, service, _, run := authorizationFixture(t)
+			if err := db.Write(t.Context(), func(tx *store.Tx) error {
+				return service.EnsureRunAuthorization(tx, &run, "message-1")
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Write(t.Context(), func(tx *store.Tx) error {
+				grant, err := tx.Grant(grantID(run.WorkspaceID, "owner"))
+				if err != nil {
+					return err
+				}
+				grant.Status, grant.ExpiresAt, grant.Revision = legacy.status, legacy.expiry, grant.Revision+1
+				return tx.SaveGrant(grant)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			allowed, err := readAuthorizedTools(db, service, run, []string{"read_file"})
+			if err != nil || len(allowed) != 1 {
+				t.Fatalf("legacy %s grant vetoed a live step: %v %v", legacy.status, allowed, err)
+			}
+			// A brand-new Run of the same workspace also starts successfully.
+			fresh := run
+			fresh.ID = "after-legacy-" + legacy.status
+			if err := db.Write(t.Context(), func(tx *store.Tx) error {
+				return service.EnsureRunAuthorization(tx, &fresh, "message-2")
+			}); err != nil {
+				t.Fatalf("new Run was blocked by legacy %s grant: %v", legacy.status, err)
+			}
+		})
 	}
 }
 
-func TestCurrentGrantRevocationAndExpiryBlockOldRun(t *testing.T) {
+// TestLiveAdmissionIsGovernedByEnablementAndEpoch proves the checks that still
+// carry real authority: a disabled member cannot execute, and a policy change
+// closes old-epoch admission.
+func TestLiveAdmissionIsGovernedByEnablementAndEpoch(t *testing.T) {
 	db, service, _, run := authorizationFixture(t)
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		return service.EnsureRunAuthorization(tx, &run, "message-1")
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if allowed, err := readAuthorizedTools(db, service, run, []string{"read_file"}); err != nil || len(allowed) != 1 {
+		t.Fatalf("baseline step was rejected: %v %v", allowed, err)
+	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
-		grant, err := tx.Grant(grantID(run.WorkspaceID, "owner"))
+		member, err := tx.Member(run.WorkspaceID, "owner")
 		if err != nil {
 			return err
 		}
-		grant.Status = "revoked"
-		grant.Epoch++
-		grant.Revision++
-		grant.RevokedAt = w.Now()
-		return tx.SaveGrant(grant)
+		member.Enabled, member.Revision = false, member.Revision+1
+		return tx.SaveMember(member)
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readAuthorizedTools(db, service, run, []string{"read_file"}); !IsCode(err, "authority_revoked") {
-		t.Fatalf("revoked old Run tool error = %v", err)
+		t.Fatalf("disabled member still admitted: %v", err)
 	}
+}
+
+// TestRevocationSettlementStillRetiresExposedSessions keeps the durable
+// revocation machinery (uncertain-stop honesty + session retirement) intact even
+// though the legacy grant no longer gates new execution.
+func TestRevocationSettlementStillRetiresExposedSessions(t *testing.T) {
+	db, service, _, run := authorizationFixture(t)
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
-		return service.EnsureRunAuthorization(tx, &run, "message-1")
-	}); !IsCode(err, "authority_revoked") {
-		t.Fatalf("new Run revived revoked grant: %v", err)
-	}
-	if _, err := service.SetExecutionMode(t.Context(), run.WorkspaceID, w.ExecutionProjectAutonomous, "message-mode", 1); err != nil {
+		if err := service.EnsureRunAuthorization(tx, &run, "message-1"); err != nil {
+			return err
+		}
+		return tx.SaveSession(w.ExecutionSession{
+			ID: "managed-session", TaskID: run.TaskID, MemberID: "owner", Role: "developer",
+			Fingerprint: "fingerprint", VisibilityEpoch: 1, ExposedRefs: []string{"source:1"},
+			ExposureDigest: "exposure", Acknowledgement: "resume_unsupported", Status: "fresh_only",
+			CreatedAt: w.Now(), UpdatedAt: w.Now(),
+		})
+	}); err != nil {
 		t.Fatal(err)
 	}
+	grant, err := service.BeginRevocation(t.Context(), run.WorkspaceID, "owner", "message-revoke")
+	if err != nil || grant.Status != "revoking" || grant.Epoch != 2 {
+		t.Fatalf("begin revocation = %+v, %v", grant, err)
+	}
 	if err := db.Read(t.Context(), func(tx *store.Tx) error {
-		grant, err := tx.Grant(grantID(run.WorkspaceID, "owner"))
+		session, err := tx.Session("managed-session")
 		if err != nil {
 			return err
 		}
-		if grant.Status != "revoked" {
-			t.Fatalf("mode switch revived grant: %+v", grant)
+		if session.Status != "revoked" {
+			t.Fatalf("revocation did not retire exposed session: %+v", session)
 		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := db.Write(t.Context(), func(tx *store.Tx) error {
-		grant, err := tx.Grant(grantID(run.WorkspaceID, "owner"))
-		if err != nil {
-			return err
-		}
-		grant.Status = "active"
-		grant.ExpiresAt = time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
-		return tx.SaveGrant(grant)
-	}); err != nil {
-		t.Fatal(err)
+	grant, err = service.FinishRevocation(t.Context(), run.WorkspaceID, "owner", true)
+	if err != nil || grant.Status != "revocation_uncertain" || grant.RevokedAt != "" {
+		t.Fatalf("uncertain stop was hidden: %+v, %v", grant, err)
 	}
-	if _, err := readAuthorizedTools(db, service, run, []string{"read_file"}); !IsCode(err, "authority_revoked") {
-		t.Fatalf("expired old Run tool error = %v", err)
+	grant, err = service.FinishRevocation(t.Context(), run.WorkspaceID, "owner", false)
+	if err != nil || grant.Status != "revoked" || grant.RevokedAt == "" {
+		t.Fatalf("settled revocation = %+v, %v", grant, err)
+	}
+	again, err := service.BeginRevocation(t.Context(), run.WorkspaceID, "owner", "message-revoke")
+	if err != nil || again.Epoch != grant.Epoch || again.Status != "revoked" {
+		t.Fatalf("idempotent revoked projection = %+v, %v", again, err)
 	}
 }
 
@@ -126,4 +160,20 @@ func readAuthorizedTools(db *store.Store, service *Service, run w.Run, names []s
 		return err
 	})
 	return allowed, err
+}
+
+// setGlobalMode changes the single global permission policy through the same
+// service entry HTTP uses.
+func setGlobalMode(t *testing.T, service *Service, mode string) (w.Settings, error) {
+	t.Helper()
+	var current w.Settings
+	if err := service.store.Read(t.Context(), func(tx *store.Tx) error {
+		var err error
+		current, err = tx.Settings()
+		return err
+	}); err != nil {
+		return current, err
+	}
+	change, err := service.UpdateSettings(t.Context(), current.Revision, SettingsPatch{ExecutionMode: &mode})
+	return change.Settings, err
 }

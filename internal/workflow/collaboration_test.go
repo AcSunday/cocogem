@@ -311,7 +311,9 @@ func TestSubmitHandoffRejectsInvalidTargetsAndInput(t *testing.T) {
 func TestSubmitHandoffRechecksCurrentGrants(t *testing.T) {
 	t.Parallel()
 	for _, who := range []string{"sender", "target"} {
-		for _, change := range []string{"profile disabled", "membership disabled", "membership removed", "global tool revoked", "local tool revoked"} {
+		// Legacy tool arrays no longer revoke anything; dispatch is gated by
+		// membership, enablement and the live permission decision instead.
+		for _, change := range []string{"profile disabled", "membership disabled", "membership removed"} {
 			t.Run(who+"/"+change, func(t *testing.T) {
 				t.Parallel()
 				e, run, sender := collaborationFixture(t)
@@ -647,8 +649,13 @@ func TestCollaborationContextReportsCurrentAvailabilityAndGrants(t *testing.T) {
 	if roster.CoordinatorID != sender.AgentID || roster.CurrentStepID != sender.ID || len(roster.Tasks) != 5 || len(roster.Members) != 3 {
 		t.Fatalf("incomplete runtime context: %+v", roster)
 	}
-	if roster.Members[1].Available || !slices.Equal(roster.Members[1].Tools, []string{"read_source"}) || !slices.Equal(roster.Members[1].Capabilities, []string{"source-verification"}) {
-		t.Fatalf("local grants or capabilities missing: %+v", roster.Members[1])
+	// The retired workspace tool array no longer hides profile capabilities, so
+	// the member stays available and the roster advertises its real tools.
+	if !roster.Members[1].Available || !slices.Contains(roster.Members[1].Tools, "read_source") || !slices.Equal(roster.Members[1].Capabilities, []string{"source-verification"}) {
+		t.Fatalf("current capabilities missing: %+v", roster.Members[1])
+	}
+	if len(roster.Members[1].Tools) <= 1 {
+		t.Fatalf("retired workspace tool array still hid profile capabilities: %+v", roster.Members[1])
 	}
 	if roster.Members[2].Available || len(roster.Members[2].Tools) != 0 {
 		t.Fatalf("revoked member shown as available: %+v", roster.Members[2])

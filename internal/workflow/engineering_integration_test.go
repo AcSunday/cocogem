@@ -22,11 +22,11 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-// TestEngineeringDevelopRealWriteTestReviewFlow drives the real four-step
+// TestEngineeringWriteTestReviewFlow drives the real four-step
 // development plan against a temporary Go project. The developer and reviewer
 // tools are the production host tools; the test child is the actual OS
 // sandbox, so the diff and exit-code evidence in the final report is real.
-func TestEngineeringDevelopRealWriteTestReviewFlow(t *testing.T) {
+func TestEngineeringWriteTestReviewFlow(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("real sandbox path is verified on macOS; Linux run_test is blocked")
 	}
@@ -129,7 +129,7 @@ func seedEngineeringRun(t *testing.T, s *store.Store, root, original string) w.R
 		{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "复核者", Handle: "reviewer", Executor: "claude", Model: "default", Tools: []string{"read_file", "run_test", "read_source", "list_sources", "read_context", "publish_artifact"}, Revision: 1},
 	}
 	th := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, AgentIDs: []string{agents[0].ID, agents[1].ID}, CoordinatorID: agents[1].ID, Revision: 1, UpdatedAt: w.Now()}
-	in := w.RunInput{Message: "修复 Add，使测试通过。", Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: map[string]string{"developer": agents[0].ID, "reviewer": agents[1].ID}, ResearchScope: "given_sources"}
+	in := w.RunInput{Message: "修复 Add，使测试通过。", Workflow: "engineering", Assignments: map[string]string{"engineer": agents[0].ID, "reviewer": agents[1].ID}, ResearchScope: "given_sources"}
 	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, CoordinatorID: th.CoordinatorID, Input: in}
 	steps, err := Plan(run.ID, in, agents)
 	if err != nil {
@@ -235,7 +235,7 @@ func (r *engineeringRunner) Run(ctx context.Context, request model.Request, exec
 		}
 		r.finalArtifact = "engineering_report"
 		return emit()
-	case strings.Contains(system, "The reviewer's exact step message"):
+	case strings.Contains(system, "Read the reviewer's exact step reply"):
 		// The developer must consume the reviewer's exact plain reply and its
 		// source references from the frozen handoff, not an artifact.
 		prompt := request.Messages[0].Content[0].Text
@@ -246,7 +246,7 @@ func (r *engineeringRunner) Run(ctx context.Context, request model.Request, exec
 			return err
 		}
 		return observe("text", map[string]any{"text": "Developer retest passed; reviewer message and references were consumed."})
-	case strings.Contains(system, "role=developer"):
+	case strings.Contains(system, "role=engineer"):
 		content, err := os.ReadFile(filepath.Join(r.root, "calc.go"))
 		if err != nil {
 			return err

@@ -15,7 +15,7 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-func TestEngineeringActionRequiresExplicitModeAndGrants(t *testing.T) {
+func TestEngineeringWorkflowAndGrants(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("test"), 0600); err != nil {
 		t.Fatal(err)
@@ -93,35 +93,27 @@ func TestEngineeringActionRequiresExplicitModeAndGrants(t *testing.T) {
 	}
 	var thread w.Thread
 	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "工程", AgentIDs: []string{agents.Items[0].ID, agents.Items[1].ID}, CoordinatorID: agents.Items[1].ID, Workflow: "engineering"}, &thread, 0, 200)
-	assignments := map[string]string{"developer": agents.Items[0].ID, "reviewer": agents.Items[1].ID}
-	analyzeAssignments := map[string]string{"analyst": agents.Items[0].ID, "reviewer": agents.Items[1].ID}
-	preview := func(action string, roles map[string]string, want int) RoutingPreview {
+	assignments := map[string]string{"engineer": agents.Items[0].ID, "reviewer": agents.Items[1].ID}
+	preview := func(roles map[string]string, want int) RoutingPreview {
 		t.Helper()
 		var out RoutingPreview
-		call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "修复 Add 并运行测试", Workflow: "engineering", EngineeringAction: action, Assignments: roles, ResearchScope: "given_sources"}, &out, 0, want)
+		call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "修复 Add 并运行测试", Workflow: "engineering", Assignments: roles, ResearchScope: "given_sources"}, &out, 0, want)
 		return out
 	}
-	develop := preview(w.EngineeringDevelop, assignments, 200)
-	if develop.ProposalID == "" || develop.Routing.Workflow != "engineering" {
-		t.Fatalf("develop preview = %+v", develop)
+	engineering := preview(assignments, 200)
+	if engineering.ProposalID == "" || engineering.Routing.Workflow != "engineering" {
+		t.Fatalf("engineering preview = %+v", engineering)
 	}
-	analyze := preview("", analyzeAssignments, 200)
-	if analyze.ProposalID == "" {
-		t.Fatal("analysis preview did not default to analyze")
-	}
-	// The action's applicable role subset rejects the other action's roles.
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "修复", Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: analyzeAssignments}, nil, 0, 400)
-	// An unknown action and a develop action on another workflow are rejected
-	// before a proposal can be submitted.
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "修复", Workflow: "engineering", EngineeringAction: "deploy", Assignments: assignments}, nil, 0, 400)
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "修复", Workflow: "free", EngineeringAction: w.EngineeringDevelop}, nil, 0, 400)
-	var clarified RoutingPreview
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "@" + agents.Items[0].Handle + " 修复", Workflow: "engineering", EngineeringAction: w.EngineeringDevelop}, &clarified, 0, 200)
-	if clarified.Routing.Clarification == "" {
-		t.Fatalf("engineering mention conflict did not clarify: %+v", clarified)
+	// The old analyze/develop role vocabulary is gone; an explicit legacy role
+	// is rejected instead of silently selecting another plan.
+	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "修复", Workflow: "engineering", Assignments: map[string]string{"developer": agents.Items[0].ID, "reviewer": agents.Items[1].ID}}, nil, 0, 400)
+	var directed RoutingPreview
+	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "@" + agents.Items[0].Handle + " 修复", Workflow: "engineering"}, &directed, 0, 200)
+	if directed.ProposalID == "" || directed.Routing.Workflow != "free" || !slices.Equal(directed.Routing.Targets, []string{agents.Items[0].ID}) || len(directed.Routing.Assignments) != 0 {
+		t.Fatalf("explicit member did not override the selected workflow: %+v", directed)
 	}
 
-	req := httptest.NewRequest("POST", "http://local.test/api/v1/threads/"+thread.ID+"/runs", bytes.NewReader(mustJSON(t, w.RunInput{Message: "修复 Add 并运行测试", Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: assignments, ResearchScope: "given_sources", ProposalID: develop.ProposalID})))
+	req := httptest.NewRequest("POST", "http://local.test/api/v1/threads/"+thread.ID+"/runs", bytes.NewReader(mustJSON(t, w.RunInput{Message: "修复 Add 并运行测试", Workflow: "engineering", Assignments: assignments, ResearchScope: "given_sources", ProposalID: engineering.ProposalID})))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", "engineering-test-key-0001")
 	req.AddCookie(cookie)
@@ -135,7 +127,7 @@ func TestEngineeringActionRequiresExplicitModeAndGrants(t *testing.T) {
 	if err := json.Unmarshal(rw.Body.Bytes(), &run); err != nil {
 		t.Fatal(err)
 	}
-	if run.Input.EngineeringAction != w.EngineeringDevelop || run.Input.Workflow != "engineering" {
+	if run.Input.Workflow != "engineering" {
 		t.Fatalf("persisted input = %+v", run.Input)
 	}
 	var view RunView
@@ -144,8 +136,8 @@ func TestEngineeringActionRequiresExplicitModeAndGrants(t *testing.T) {
 	for _, step := range view.Steps {
 		roles = append(roles, step.Role)
 	}
-	if !slices.Equal(roles, []string{"developer", "reviewer", "developer", "final_reviewer"}) {
-		t.Fatalf("development plan roles = %v", roles)
+	if !slices.Equal(roles, []string{"engineer", "reviewer", "engineer", "final_reviewer"}) {
+		t.Fatalf("engineering plan roles = %v", roles)
 	}
 }
 

@@ -90,7 +90,7 @@ func TestA2ABodyInheritsOnlyVerifiableCurrentExposure(t *testing.T) {
 	run := w.Run{ID: "derived-run", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: sender.Task.ID, TaskRevision: 1, Status: "succeeded", CreatedAt: w.Now()}
 	privateSource := w.Source{ID: "derived-private", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, RunID: run.ID, Kind: "file", Content: "secret", Visibility: "private"}
 	session := w.ExecutionSession{
-		ID: "derived-session", TaskID: sender.Task.ID, MemberID: "owner", Status: "fresh_only",
+		ID: "derived-session", TaskID: sender.Task.ID, MemberID: "owner", VisibilityEpoch: 1, Status: "fresh_only",
 		ExposedRefs: []string{"source_id:derived-private:digest"}, CreatedAt: w.Now(), UpdatedAt: w.Now(),
 	}
 	session.ExposureDigest = exposureRefsDigest(session.ExposedRefs)
@@ -129,7 +129,13 @@ func TestA2ABodyInheritsOnlyVerifiableCurrentExposure(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		current.VisibilityEpoch = 1
+		// Not the live global epoch: a session bound to another authority epoch
+		// cannot forward private content across tasks.
+		settings, err := tx.Settings()
+		if err != nil {
+			return err
+		}
+		current.VisibilityEpoch = settings.PermissionEpoch + 1
 		return tx.SaveSession(current)
 	}); err != nil {
 		t.Fatal(err)

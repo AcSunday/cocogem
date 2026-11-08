@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
@@ -58,6 +59,15 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 		thread.DeletedAt = now.Format(time.RFC3339Nano)
 		thread.PurgeAt = now.AddDate(0, 0, w.EffectiveRetentionDays(settings.RetentionDays)).Format(time.RFC3339Nano)
 		thread.Revision++
+		// Moving a conversation to the trash ends its execution authorization:
+		// conversation grants are revoked and pending requests are canceled so a
+		// restore never revives authority the user did not re-approve.
+		if err := tx.RevokeConversationGrantsForThread(id, now.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+		if err := tx.CancelThreadPendingRequests(id, now.Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
 		purgeAt = thread.PurgeAt
 		return tx.SaveThread(thread)
 	})
@@ -148,7 +158,7 @@ func (s *Server) PurgeExpiredThreads(ctx context.Context) (int, error) {
 		if err != nil {
 			return err
 		}
-		return rescheduleTrash(tx, settings.RetentionDays)
+		return project.RescheduleTrashInTx(tx, settings.RetentionDays)
 	}); err != nil {
 		return 0, err
 	}

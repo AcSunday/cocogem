@@ -11,6 +11,9 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
+// TestGlobalMemberSharingAndWorkspaceRevocation verifies that membership and
+// enablement are enforced while the legacy per-workspace tool array no longer
+// intersects the profile's tools (that array is audit data after the redesign).
 func TestGlobalMemberSharingAndWorkspaceRevocation(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "state.sqlite"))
 	if err != nil {
@@ -46,14 +49,16 @@ func TestGlobalMemberSharingAndWorkspaceRevocation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	assertMember("one", []string{"read_file"}, false)
-	assertMember("two", []string{"web_search"}, false)
+	// Both workspaces see the profile's own tools; the stored workspace arrays
+	// differ but no longer hide a capability.
+	assertMember("one", []string{"read_file", "web_search"}, false)
+	assertMember("two", []string{"read_file", "web_search"}, false)
 	agent.DisplayName, agent.Tools, agent.Revision = "新名称", []string{"read_file"}, 2
 	if err := s.Write(t.Context(), func(tx *Tx) error { return tx.SaveAgent(agent) }); err != nil {
 		t.Fatal(err)
 	}
 	assertMember("one", []string{"read_file"}, false)
-	assertMember("two", []string{}, false)
+	assertMember("two", []string{"read_file"}, false)
 	if err := s.Write(t.Context(), func(tx *Tx) error {
 		member, err := tx.Member("one", agent.ID)
 		if err != nil {
@@ -65,11 +70,11 @@ func TestGlobalMemberSharingAndWorkspaceRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertMember("one", []string{"read_file"}, true)
-	assertMember("two", []string{}, false)
+	assertMember("two", []string{"read_file"}, false)
 	if err := s.Write(t.Context(), func(tx *Tx) error { return tx.DeleteWorkspace("one") }); err != nil {
 		t.Fatal(err)
 	}
-	assertMember("two", []string{}, false)
+	assertMember("two", []string{"read_file"}, false)
 	if err := s.Write(t.Context(), func(tx *Tx) error { return tx.DeleteMember("two", agent.ID) }); err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +84,70 @@ func TestGlobalMemberSharingAndWorkspaceRevocation(t *testing.T) {
 		}
 		_, err := tx.Agent(agent.ID)
 		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentProfileDeletionCleansLinksThreadsAndDefaults(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	gone := w.Agent{ID: "gone", DisplayName: "待删除", Handle: "gone", Model: "default", Revision: 1}
+	kept := w.Agent{ID: "kept", DisplayName: "保留", Handle: "kept", Model: "default", Revision: 1}
+	thread := w.Thread{ID: "thread", WorkspaceID: "ws", Title: "会话", AgentIDs: []string{gone.ID, kept.ID}, CoordinatorID: gone.ID, Revision: 1, UpdatedAt: w.Now()}
+	if err := s.Write(t.Context(), func(tx *Tx) error {
+		if err := tx.SaveWorkspace(w.Workspace{ID: "ws", Name: "空间", Revision: 1}); err != nil {
+			return err
+		}
+		for _, agent := range []w.Agent{gone, kept} {
+			if err := tx.SaveAgent(agent); err != nil {
+				return err
+			}
+			if err := tx.SaveMember(w.WorkspaceMember{WorkspaceID: "ws", AgentID: agent.ID, Enabled: true, Tools: agent.Tools, Revision: 1}); err != nil {
+				return err
+			}
+		}
+		if err := tx.SaveThread(thread); err != nil {
+			return err
+		}
+		settings, err := tx.Settings()
+		if err != nil {
+			return err
+		}
+		settings.DefaultCoordinatorID = gone.ID
+		settings.Assignments = map[string]map[string]string{"research": {"researcher": gone.ID, "critic": kept.ID}}
+		return tx.SaveSettings(settings)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(t.Context(), func(tx *Tx) error { return tx.DeleteAgentProfile(gone.ID) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Read(t.Context(), func(tx *Tx) error {
+		if _, err := tx.Agent(gone.ID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("deleted profile still exists: %v", err)
+		}
+		if _, err := tx.Member("ws", gone.ID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("deleted workspace link still exists: %v", err)
+		}
+		updated, err := tx.Thread(thread.ID)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(updated.AgentIDs, []string{kept.ID}) || updated.CoordinatorID != kept.ID || updated.Revision != 2 {
+			t.Fatalf("thread roster was not cleaned: %+v", updated)
+		}
+		settings, err := tx.Settings()
+		if err != nil {
+			return err
+		}
+		if settings.DefaultCoordinatorID != "" || settings.Assignments["research"]["researcher"] != "" || settings.Assignments["research"]["critic"] != kept.ID {
+			t.Fatalf("defaults still reference the deleted profile: %+v", settings)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}

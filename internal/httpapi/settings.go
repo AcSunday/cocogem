@@ -1,13 +1,15 @@
 package httpapi
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -21,89 +23,65 @@ func (s *Server) settings(rw http.ResponseWriter, r *http.Request) {
 	respond(rw, r, value, err)
 }
 
+// updateSettings applies a field-merge PATCH through the project service so the
+// settings CAS, the permission epoch change, request expiry and conversation
+// grant revocation commit in one transaction. Saving collaboration never
+// overwrites the permission, and saving the permission never clears the
+// collaboration defaults, retention or role assignments.
 func (s *Server) updateSettings(rw http.ResponseWriter, r *http.Request) {
 	var in SettingsInput
 	if !decode(rw, r, &in) {
 		return
 	}
-	var value w.Settings
-	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
-		current, err := tx.Settings()
-		if err != nil {
-			return err
-		}
-		if err := revision(r, current.Revision); err != nil {
-			return err
-		}
-		assignments := in.Assignments
-		if assignments == nil {
-			assignments = map[string]map[string]string{}
-		}
-		retention := current.RetentionDays
-		if in.RetentionDays != nil {
-			retention = *in.RetentionDays
-		}
-		if err := w.ValidateRetentionDays(retention); err != nil {
-			return err
-		}
-		budget := current.CollaborationBudget
-		if in.CollaborationBudget != nil {
-			budget = *in.CollaborationBudget
-		}
-		if err := w.ValidateBudgetPolicy(budget); err != nil {
-			return err
-		}
-		workspaces, err := tx.Workspaces()
-		if err != nil {
-			return err
-		}
-		for _, workspace := range workspaces {
-			if _, err := w.ResolveBudget(budget, workspace.BudgetOverride); err != nil {
-				return fmt.Errorf("project %s budget override conflicts with the new defaults: %w", workspace.Name, err)
-			}
-		}
-		value = w.Settings{Revision: current.Revision + 1, DefaultCoordinatorID: in.DefaultCoordinatorID, Assignments: assignments, RetentionDays: retention, CollaborationBudget: budget}
-		agents, err := tx.GlobalAgents()
-		if err != nil {
-			return err
-		}
-		if err := w.ValidateSettings(value, agents); err != nil {
-			return err
-		}
-		if err := tx.SaveSettings(value); err != nil {
-			return err
-		}
-		if in.RetentionDays != nil {
-			return rescheduleTrash(tx, retention)
-		}
-		return nil
-	})
-	respond(rw, r, value, err)
-}
-
-// rescheduleTrash applies the current retention period to conversations already
-// in the trash, so their displayed purge time matches the setting. Purge time is
-// lifecycle metadata, so this leaves thread revisions untouched.
-func rescheduleTrash(tx *store.Tx, retention int) error {
-	threads, err := tx.DeletedThreads()
-	if err != nil {
+	var current w.Settings
+	if err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+		var err error
+		current, err = tx.Settings()
 		return err
+	}); err != nil {
+		respond(rw, r, nil, err)
+		return
 	}
-	for _, thread := range threads {
-		deleted, err := time.Parse(time.RFC3339Nano, thread.DeletedAt)
-		if err != nil {
-			continue
+	if err := revision(r, current.Revision); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	change, err := s.projects.UpdateSettings(r.Context(), current.Revision, in.patch())
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	if in.RetentionDays != nil {
+		if err := s.projects.RescheduleTrash(r.Context(), change.Settings.RetentionDays); err != nil {
+			respond(rw, r, nil, err)
+			return
 		}
-		purgeAt := deleted.AddDate(0, 0, w.EffectiveRetentionDays(retention)).Format(time.RFC3339Nano)
-		if thread.PurgeAt == purgeAt {
-			continue
-		}
-		thread.PurgeAt = purgeAt
-		if err := tx.SaveThread(thread); err != nil {
+	}
+	if change.PermissionMoved && s.engine != nil {
+		// A real permission boundary change stops in-flight executions that
+		// cannot be narrowed inside their own process. Re-saving the current
+		// mode never cancels newer work. The settings change is already
+		// committed, so a failed or uncertain stop is reported instead of being
+		// hidden behind a normal 200.
+		var workspaces []w.Workspace
+		if err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+			var err error
+			workspaces, err = tx.Workspaces()
 			return err
+		}); err != nil {
+			writeError(rw, r, 409, "revocation_uncertain", "权限已保存，但无法读取受影响项目以停止在途执行；请核实运行中的任务")
+			return
+		}
+		var stopErr error
+		for _, workspace := range workspaces {
+			stopErr = errors.Join(stopErr, s.engine.CancelWorkspace(context.WithoutCancel(r.Context()), workspace.ID))
+		}
+		if stopErr != nil {
+			writeError(rw, r, 409, "revocation_uncertain", "权限已保存；部分在途执行未能确认安全停止，请核实")
+			return
 		}
 	}
-	return nil
+	respond(rw, r, change.Settings, nil)
 }
 
 // routingCatalog keeps presentation-only avatars out of routing validity.
@@ -162,10 +140,14 @@ func applyThreadDefaults(th *w.Thread, agents []w.Agent, settings w.Settings) {
 	}
 }
 
-func missingTools(agent w.Agent, required []string) []string {
+// missingTools reports the host capabilities a planned role requires but the
+// runtime standard catalog lacks. Member tool arrays are retired history and are
+// never consulted, so deleting the per-member configuration cannot strand a role.
+func missingTools(_ w.Agent, required []string) []string {
+	catalog := w.StandardToolCatalog()
 	missing := []string{}
 	for _, tool := range required {
-		if !slices.Contains(agent.Tools, tool) {
+		if !slices.Contains(catalog, tool) {
 			missing = append(missing, tool)
 		}
 	}
@@ -174,18 +156,7 @@ func missingTools(agent w.Agent, required []string) []string {
 
 // roleConflict reports whether two exclusive roles cannot share a member.
 func roleConflict(workflow, role, other string) bool {
-	switch workflow {
-	case "research":
-		return role == "researcher" && other == "critic" || role == "critic" && other == "researcher"
-	case "code_analysis":
-		return role == "analyst" && other == "reviewer" || role == "reviewer" && other == "analyst"
-	case "engineering":
-		// Develop uses developer+reviewer, analyze uses analyst+reviewer; the
-		// reviewer would otherwise review its own work.
-		return role == "reviewer" && (other == "analyst" || other == "developer") ||
-			(role == "analyst" || role == "developer") && other == "reviewer"
-	}
-	return false
+	return w.RolesConflict(workflow, role, other)
 }
 
 // applySettingsDefaults fills omitted built-in roles from an explicit override,
@@ -202,15 +173,6 @@ func applySettingsDefaults(in w.RunInput, th w.Thread, agents []w.Agent, setting
 	roles, builtin := w.WorkflowRoles[workflow]
 	if !builtin {
 		return in, nil
-	}
-	if workflow == "engineering" {
-		var err error
-		action, err = w.NormalizeEngineeringAction(workflow, in.EngineeringAction)
-		if err != nil {
-			return in, err
-		}
-		// Only the roles the selected action actually plans are assignable.
-		roles = w.WorkflowActionRoles(workflow, action)
 	}
 	roleTools := func(role string) []string {
 		return w.RoleTools(workflow, action, role)
@@ -275,6 +237,114 @@ func applySettingsDefaults(in w.RunInput, th w.Thread, agents []w.Agent, setting
 	return in, nil
 }
 
+// rolePreferences returns the roles already fixed by the user or global
+// defaults, plus the roles left for the coordinator to fill by responsibility.
+// An unavailable preference is treated as open; the model can choose an
+// eligible member and the deterministic resolver remains the fallback.
+func rolePreferences(workflow string, in w.RunInput, th w.Thread, agents []w.Agent, settings w.Settings) (map[string]string, []string) {
+	roles, ok := w.WorkflowRoles[workflow]
+	if !ok {
+		return nil, nil
+	}
+	pool := slices.Clone(th.AgentIDs)
+	for _, id := range in.Targets {
+		if !slices.Contains(pool, id) {
+			pool = append(pool, id)
+		}
+	}
+	if len(pool) == 0 {
+		for _, agent := range agents {
+			if !agent.Disabled {
+				pool = append(pool, agent.ID)
+			}
+		}
+	}
+	inPool := map[string]bool{}
+	for _, id := range pool {
+		inPool[id] = true
+	}
+	enabled := map[string]w.Agent{}
+	for _, agent := range agents {
+		if !agent.Disabled {
+			enabled[agent.ID] = agent
+		}
+	}
+	can := func(role, id string) bool {
+		agent, ok := enabled[id]
+		if !ok || !inPool[id] {
+			return false
+		}
+		return len(missingTools(agent, w.RoleTools(workflow, "", role))) == 0
+	}
+	fixed := map[string]string{}
+	open := []string{}
+	preferences := settings.Assignments[workflow]
+	for _, role := range roles {
+		if id := in.Assignments[role]; id != "" {
+			fixed[role] = id
+			continue
+		}
+		if id := preferences[role]; id != "" && can(role, id) {
+			fixed[role] = id
+			continue
+		}
+		if role == "coordinator" {
+			id := settings.DefaultCoordinatorID
+			if id == "" {
+				id = th.CoordinatorID
+			}
+			if id != "" && can(role, id) {
+				fixed[role] = id
+				continue
+			}
+		}
+		open = append(open, role)
+	}
+	return fixed, open
+}
+
+// applySettingsDefaultsWithModel keeps user assignments and configured role
+// defaults fixed, then asks the conversation coordinator to fill only the open
+// roles from the runtime roster. Any failure falls back to the deterministic
+// roster-order resolver instead of blocking the run.
+func (s *Server) applySettingsDefaultsWithModel(ctx context.Context, in w.RunInput, th w.Thread, agents []w.Agent, settings w.Settings, fallback w.RunInput) (w.RunInput, string) {
+	method := in.Workflow
+	if method == "" {
+		method = "free"
+	}
+	if _, ok := w.WorkflowRoles[method]; !ok {
+		return fallback, ""
+	}
+	fixed, open := rolePreferences(method, in, th, agents, settings)
+	if len(open) == 0 || s.config.Model == nil {
+		return fallback, ""
+	}
+	selectionThread := th
+	for _, id := range in.Targets {
+		if !slices.Contains(selectionThread.AgentIDs, id) {
+			selectionThread.AgentIDs = append(selectionThread.AgentIDs, id)
+		}
+	}
+	assignments, reason, called := workflow.SelectMissingRoles(ctx, s.config.Model, method, open, fixed, in.Message, selectionThread, agents)
+	if !called || len(assignments) == 0 {
+		return fallback, "自动组队未完成，按默认顺序补齐"
+	}
+	merged := map[string]string{}
+	for role, id := range in.Assignments {
+		merged[role] = id
+	}
+	for role, id := range assignments {
+		merged[role] = id
+	}
+	candidate := in
+	candidate.Assignments = merged
+	filled, err := applySettingsDefaults(candidate, th, agents, settings)
+	if err != nil {
+		return fallback, "自动组队结果不可执行，按默认顺序补齐"
+	}
+	return filled, reason
+}
+
 // defaultRoleAssignments fills omitted roles with enabled members from the pool.
 // Configured roles are placed first, then each role tries the global preference,
 // the conversation coordinator, and pool order. A pick that leaves a later role
@@ -330,9 +400,21 @@ func defaultRoleAssignments(workflow string, roles []string, assigned, preferenc
 		add(preferences[role])
 		if role == "coordinator" {
 			add(coordinatorID)
-		}
-		for _, id := range pool {
-			add(id)
+			for _, id := range pool {
+				add(id)
+			}
+		} else {
+			// The conversation coordinator is the fallback scheduler, not the
+			// first worker. Prefer other eligible members for worker roles so a
+			// configured coordinator is not consumed as the researcher or
+			// analyst before the intended member; backtracking still uses it
+			// when the remaining roster cannot staff the plan.
+			for _, id := range pool {
+				if id != coordinatorID {
+					add(id)
+				}
+			}
+			add(coordinatorID)
 		}
 		for _, id := range candidates {
 			if !inPool[id] || !can(role, id) || conflicts(role, id) {

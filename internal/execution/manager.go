@@ -45,6 +45,32 @@ func New(db *store.Store, base, owner string) *Manager {
 	}
 }
 
+// TaskDirectory persists outputs across execution segments without copying a whole user directory.
+func (m *Manager) TaskDirectory(taskID string) (string, error) {
+	if taskID == "" || !filepath.IsLocal(taskID) || filepath.Base(taskID) != taskID {
+		return "", errors.New("invalid task identity")
+	}
+	dir := filepath.Join(m.base, "task-files", taskID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "outputs"), 0700); err != nil {
+		return "", err
+	}
+	resolved, err := canonical(dir)
+	if err != nil {
+		return "", err
+	}
+	base, err := canonical(m.base)
+	if err != nil {
+		return "", err
+	}
+	if rel, err := filepath.Rel(base, resolved); err != nil || !filepath.IsLocal(rel) {
+		return "", errors.New("task directory escaped execution storage")
+	}
+	return resolved, nil
+}
+
 func canonical(path string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
@@ -74,6 +100,7 @@ func (m *Manager) Prepare(ctx context.Context, run w.Run) (w.WorkspaceExecution,
 		return w.WorkspaceExecution{}, errors.New("execution base is not a private directory")
 	}
 	now := m.now().UTC()
+	var retrySource *w.WorkspaceExecution
 	candidate := w.WorkspaceExecution{
 		ID: w.NewID(), WorkspaceID: run.WorkspaceID, TaskID: run.TaskID, CanonicalRoot: root,
 		Path: filepath.Join(base, run.TaskID+"-"+run.ID), OwnerMemberID: run.CoordinatorID,
@@ -81,6 +108,17 @@ func (m *Manager) Prepare(ctx context.Context, run w.Run) (w.WorkspaceExecution,
 		Status: "active", Observation: "candidate_tree_only; external_effects=unknown", CreatedAt: now.Format(time.RFC3339Nano), UpdatedAt: now.Format(time.RFC3339Nano),
 	}
 	if err := m.store.Write(ctx, func(tx *store.Tx) error {
+		if run.RetryOfStepID != "" && run.ContinuedFromRun != "" {
+			previous, err := tx.Run(run.ContinuedFromRun)
+			if err != nil {
+				return err
+			}
+			original, err := tx.Execution(previous.ExecutionRef)
+			if err != nil || original.Status != "completed" || original.TaskID != run.TaskID || original.CanonicalRoot != root || previous.WorkspaceID != run.WorkspaceID || previous.ThreadID != run.ThreadID {
+				return errors.New("原候选执行目录尚未核实或已不可用，无法只重试该成员")
+			}
+			retrySource = &original
+		}
 		existing, err := tx.Executions(run.WorkspaceID)
 		if err != nil {
 			return err
@@ -109,15 +147,43 @@ func (m *Manager) Prepare(ctx context.Context, run w.Run) (w.WorkspaceExecution,
 	if candidate.TreeDigest != "" {
 		return candidate, nil
 	}
-	if err := m.materialize(ctx, root, &candidate); err != nil {
+	var materializeErr error
+	if retrySource != nil {
+		materializeErr = m.materializeRetry(ctx, *retrySource, &candidate)
+	} else {
+		materializeErr = m.materialize(ctx, root, &candidate)
+	}
+	if materializeErr != nil {
 		_ = m.store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
 			candidate.Status = "failed"
 			candidate.UpdatedAt = m.now().UTC().Format(time.RFC3339Nano)
 			return tx.SaveExecutionEpoch(candidate, candidate.LeaseEpoch)
 		})
-		return candidate, err
+		return candidate, materializeErr
 	}
 	return candidate, nil
+}
+
+func (m *Manager) materializeRetry(ctx context.Context, source w.WorkspaceExecution, candidate *w.WorkspaceExecution) error {
+	before, err := m.digestTree(source.Path)
+	if err != nil || before != source.TreeDigest {
+		return errors.New("原候选执行目录已变化，无法复用已完成成员的工作")
+	}
+	if err := copyTree(ctx, source.Path, candidate.Path); err != nil {
+		return err
+	}
+	after, err := m.digestTree(source.Path)
+	if err != nil || after != before {
+		return errors.New("原候选执行目录在复制期间变化")
+	}
+	copied, err := m.digestTree(candidate.Path)
+	if err != nil || copied != before {
+		return errors.New("复制的候选执行目录与已核实版本不一致")
+	}
+	candidate.Kind, candidate.BaseRevision, candidate.TreeDigest = "file_copy", source.BaseRevision, copied
+	candidate.Observation = "copied verified candidate from execution:" + source.ID
+	candidate.UpdatedAt = m.now().UTC().Format(time.RFC3339Nano)
+	return m.store.Write(ctx, func(tx *store.Tx) error { return tx.SaveExecutionEpoch(*candidate, candidate.LeaseEpoch) })
 }
 
 func (m *Manager) materialize(ctx context.Context, root string, candidate *w.WorkspaceExecution) error {

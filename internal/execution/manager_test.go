@@ -96,6 +96,52 @@ func TestFileCopyIsIndependentAndSkipsSecrets(t *testing.T) {
 	}
 }
 
+func TestMemberRetryCopiesVerifiedCandidateWithoutRepeatingAuthor(t *testing.T) {
+	db, root, run := executionFixture(t)
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	first, err := manager.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(first.Path, "main.txt"), []byte("completed author's change"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Finish(t.Context(), first.ID); err != nil {
+		t.Fatal(err)
+	}
+	run.Status, run.CreatedAt, run.ExecutionRef = "failed", w.Now(), first.ID
+	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.InsertRun(run, "source", "source") }); err != nil {
+		t.Fatal(err)
+	}
+	retry := run
+	retry.ID, retry.RetryOfStepID, retry.ContinuedFromRun = "retry", "failed-reviewer", run.ID
+	second, err := manager.Prepare(t.Context(), retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(second.Path, "main.txt"))
+	if err != nil || string(data) != "completed author's change" || second.Path == first.Path || second.Path == root {
+		t.Fatalf("retry lost the author's exact candidate: body=%q candidate=%+v error=%v", data, second, err)
+	}
+	if err := os.WriteFile(filepath.Join(second.Path, "main.txt"), []byte("next correction"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(filepath.Join(first.Path, "main.txt"))
+	if err != nil || string(data) != "completed author's change" {
+		t.Fatal("retry changed the historical candidate")
+	}
+	if err := manager.Finish(t.Context(), second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(first.Path, "main.txt"), []byte("unverified edit"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	retry.ID = "changed-retry"
+	if _, err := manager.Prepare(t.Context(), retry); err == nil {
+		t.Fatal("retry accepted an altered historical candidate")
+	}
+}
+
 func TestCanonicalRootLeaseRejectsParentChildAcrossConnections(t *testing.T) {
 	db, root, run := executionFixture(t)
 	second, err := store.Open(filepath.Join(filepath.Dir(root), "state.sqlite"))

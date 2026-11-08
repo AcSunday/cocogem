@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -29,12 +30,18 @@ type claudeEvent struct {
 	Usage             tokenUsage      `json:"usage"`
 	Error             json.RawMessage `json:"error"`
 	IsAPIErrorMessage bool            `json:"is_api_error_message"`
+	// Bidirectional control frames. Request/Response are only interpreted when
+	// Type names a control frame; the shape is validated before use.
+	RequestID string          `json:"request_id"`
+	Request   json.RawMessage `json:"request"`
+	Response  json.RawMessage `json:"response"`
 }
 
 // claudeParser holds the state one Claude stream invocation accumulates.
 type claudeParser struct {
-	gate *bridge
-	live *liveness
+	gate    *bridge
+	live    *liveness
+	control *claudeControl
 
 	initialized bool
 	finished    bool
@@ -45,7 +52,7 @@ type claudeParser struct {
 	anonymous    int
 
 	activity    *activityTracker
-	nativeCalls map[string]*nativeCall
+	nativeCalls map[string]*claudeNativeCall
 	deniedCalls map[string]*deniedCall
 	deniedCount int
 
@@ -57,11 +64,16 @@ type claudeParser struct {
 }
 
 func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
+	return parseClaudeWithControl(reader, gate, live, nil)
+}
+
+func parseClaudeWithControl(reader io.Reader, gate *bridge, live *liveness, control *claudeControl) error {
 	p := &claudeParser{
 		gate:        gate,
 		live:        live,
+		control:     control,
 		activity:    newActivityTracker(),
-		nativeCalls: map[string]*nativeCall{},
+		nativeCalls: map[string]*claudeNativeCall{},
 		deniedCalls: map[string]*deniedCall{},
 		streams:     newTextStreams(),
 	}
@@ -70,7 +82,7 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 
 func (p *claudeParser) parse(reader io.Reader) error {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
+	scanner.Buffer(make([]byte, 4096), maxCLIFrameBytes)
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
@@ -79,6 +91,9 @@ func (p *claudeParser) parse(reader io.Reader) error {
 		var event claudeEvent
 		if err := json.Unmarshal(line, &event); err != nil || event.Type == "" {
 			return newFailure(FailureProtocol, "native CLI emitted a malformed event")
+		}
+		if debugNative() {
+			fmt.Fprintf(os.Stderr, "native debug: frame type=%q subtype=%q len=%d\n", event.Type, event.Subtype, len(line))
 		}
 		errorCode, errorMessage, errorValid := decodeClaudeError(event.Error)
 		if !errorValid {
@@ -91,6 +106,14 @@ func (p *claudeParser) parse(reader io.Reader) error {
 			return newFailure(FailureProtocol, "native CLI changed its session identity")
 		}
 		switch event.Type {
+		case "control_request", "control_response", "control_cancel_request":
+			if p.control == nil {
+				return newFailure(FailureProtocol, "native CLI emitted an unexpected control frame")
+			}
+			if err := p.control.handle(p.gate.ctx, event, line); err != nil {
+				return err
+			}
+			continue
 		case "system":
 			if err := p.handleSystem(event, errorCode); err != nil {
 				return err
@@ -124,14 +147,23 @@ func (p *claudeParser) parse(reader io.Reader) error {
 	}
 	if err := scanner.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			return newFailure(FailureProtocol, "native CLI output frame exceeds the 4 MiB frame limit")
+			return newFailure(FailureProtocol, "native CLI output frame exceeds the 16 MiB frame limit")
 		}
 		return newFailure(FailureProtocol, "native CLI output could not be read")
+	}
+	if p.control != nil {
+		if err := p.control.failure(); err != nil {
+			return err
+		}
 	}
 	if !p.finished {
 		return newFailure(FailureProtocol, "native CLI ended without a confirmed terminal result")
 	}
 	return nil
+}
+
+func (p *claudeParser) controlDenied(callID string) bool {
+	return p.control != nil && p.control.isDenied(callID)
 }
 
 func (p *claudeParser) handleSystem(event claudeEvent, errorCode string) error {
@@ -271,7 +303,7 @@ func (p *claudeParser) handleToolUse(item string, index int, callID, name string
 		if len(observed) == 0 {
 			observed = json.RawMessage("{}")
 		}
-		p.nativeCalls[callID] = &nativeCall{name: name, input: observed}
+		p.nativeCalls[callID] = &claudeNativeCall{name: name, input: observed}
 		if p.activity.newTool(item, callID) {
 			p.live.valid("tool_call")
 			if err := p.gate.emit("tool_started", map[string]any{"tool_call_id": "cli:" + callID, "name": name, "input": observed, "origin": "native"}); err != nil {
@@ -318,6 +350,12 @@ func (p *claudeParser) handleResult(event claudeEvent, errorCode, errorMessage s
 	if err := p.gate.recordUsage(event.Usage); err != nil {
 		return err
 	}
+	if p.control != nil {
+		// A successful result still leaves a bidirectional CLI waiting for stdin
+		// EOF. Close the control stream now; trailing frames are still validated
+		// below because the parser keeps reading until the process closes stdout.
+		p.control.close()
+	}
 	terminalReason := event.TerminalReason
 	if terminalReason == "" && p.apiErrorCode != "" && (event.IsError || event.Subtype != "success") {
 		terminalReason = p.apiErrorCode
@@ -341,7 +379,7 @@ func (p *claudeParser) handleResult(event claudeEvent, errorCode, errorMessage s
 		return err
 	}
 	for id, call := range p.nativeCalls {
-		if !call.resultSeen {
+		if !call.resultSeen && !p.controlDenied(id) {
 			return newFailure(FailureProtocol, "native CLI ended with an unresolved native tool call %s", safeToken(id))
 		}
 	}
@@ -412,6 +450,9 @@ func (p *claudeParser) handleStreamEvent(event claudeEvent, line []byte) error {
 }
 
 func (p *claudeParser) handleUser(event claudeEvent) error {
+	if debugNative() {
+		fmt.Fprintf(os.Stderr, "native debug: user frame=%s\n", truncateDebug(event.Message))
+	}
 	if !p.initialized {
 		return newFailure(FailureProtocol, "native CLI returned a tool result before session initialization")
 	}
@@ -490,6 +531,12 @@ func (p *claudeParser) handleToolResult(
 	call, ok := p.nativeCalls[callID]
 	if !ok {
 		// Host MCP results are owned and recorded by the bridge.
+		return nil
+	}
+	if p.controlDenied(callID) {
+		// The denial event was already emitted before the CLI produced its
+		// synthetic error result; do not report the same call twice.
+		call.resultSeen = true
 		return nil
 	}
 	text, unsupported := nativeResultText(raw)

@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"unicode/utf8"
 
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
@@ -118,18 +117,20 @@ func ReadFile(ctx context.Context, root, path string, start, end int) (w.Source,
 	if !info.Mode().IsRegular() {
 		return w.Source{}, errors.New("only regular text files are readable")
 	}
-	if info.Size() > 1024*1024 {
-		return w.Source{}, errors.New("file exceeds 1 MiB read budget")
+	limit := documentReadLimit(filepath.ToSlash(local))
+	if info.Size() > limit {
+		return w.Source{}, fmt.Errorf("file exceeds the %d MiB read budget", limit>>20)
 	}
-	b, err := io.ReadAll(io.LimitReader(f, 1024*1024+1))
+	b, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return w.Source{}, err
 	}
-	if len(b) > 1024*1024 {
+	if int64(len(b)) > limit {
 		return w.Source{}, errors.New("file exceeds read budget")
 	}
+	original := b
 	adapted := w.Source{}
-	if parsed, ok, err := AdaptDocument(local, b); ok {
+	if parsed, ok, err := AdaptDocument(ctx, local, b); ok {
 		if err != nil {
 			return w.Source{}, err
 		}
@@ -140,9 +141,11 @@ func ReadFile(ctx context.Context, root, path string, start, end int) (w.Source,
 			return parsed, nil
 		}
 		b = []byte(parsed.Content)
-	}
-	if !utf8.Valid(b) || strings.ContainsRune(string(b), 0) {
-		return w.Source{}, errors.New("binary files are not supported")
+	} else {
+		b = decodeTextContent(original)
+		if b == nil {
+			return w.Source{}, fmt.Errorf("unsupported file type %q: supported text, CSV/TSV, HTML, PDF, DOCX/XLSX/PPTX; legacy .doc, RTF and ODT need textutil or pandoc", filepath.Ext(local))
+		}
 	}
 	lines := strings.Split(string(b), "\n")
 	if start == 0 {
@@ -175,14 +178,14 @@ func ReadFile(ctx context.Context, root, path string, start, end int) (w.Source,
 	}
 	digest := adapted.SHA256
 	if digest == "" {
-		sum := sha256.Sum256(b)
+		sum := sha256.Sum256(original)
 		digest = hex.EncodeToString(sum[:])
 	}
 	kind := adapted.Kind
 	if kind == "" {
 		kind = "file"
 	}
-	source := w.Source{Kind: kind, Title: filepath.ToSlash(local), Path: filepath.ToSlash(local), StartLine: start, EndLine: actualEnd, SHA256: digest, Content: out.String(), CapturedAt: w.Now(), Truncated: truncated}
+	source := w.Source{Kind: kind, Title: filepath.ToSlash(local), Path: filepath.ToSlash(local), StartLine: start, EndLine: actualEnd, SHA256: digest, Content: out.String(), CapturedAt: w.Now(), Truncated: truncated || adapted.Truncated}
 	source.OriginalContent = adapted.OriginalContent
 	source.OriginalDigest = adapted.OriginalDigest
 	source.MediaType = adapted.MediaType
@@ -281,11 +284,12 @@ func SearchContent(ctx context.Context, root, path, query string) ([]map[string]
 			f.Close()
 			return err
 		}
-		if !info.Mode().IsRegular() || info.Size() > 1024*1024 {
+		limit := documentReadLimit(path)
+		if !info.Mode().IsRegular() || info.Size() > limit {
 			f.Close()
 			return nil
 		}
-		b, readErr := io.ReadAll(io.LimitReader(f, 1024*1024+1))
+		b, readErr := io.ReadAll(io.LimitReader(f, limit+1))
 		closeErr := f.Close()
 		if readErr != nil {
 			return readErr
@@ -294,8 +298,17 @@ func SearchContent(ctx context.Context, root, path, query string) ([]map[string]
 			return closeErr
 		}
 		bytesRead += len(b)
-		if !utf8.Valid(b) || strings.ContainsRune(string(b), 0) {
-			return nil
+		original := b
+		if parsed, ok, parseErr := AdaptDocument(ctx, path, b); ok {
+			if parseErr != nil {
+				return nil
+			}
+			b = []byte(parsed.Content)
+		} else {
+			b = decodeTextContent(original)
+			if b == nil {
+				return nil
+			}
 		}
 		for i, line := range strings.Split(string(b), "\n") {
 			if strings.Contains(line, query) {

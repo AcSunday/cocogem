@@ -23,13 +23,16 @@ const DefaultMaxParallelRuns = 4
 
 // Engine owns a bounded durable dispatcher and each run's cancellation context.
 type Engine struct {
-	Store       *store.Store
-	Executions  *execution.Manager
-	Model       model.Model
-	Runners     map[string]agent.Runner
-	Fallback    agent.Runner
-	Adapters    agent.AdapterChecker
-	Web         tools.WebClient
+	Store      *store.Store
+	Executions *execution.Manager
+	Model      model.Model
+	Runners    map[string]agent.Runner
+	Fallback   agent.Runner
+	Adapters   agent.AdapterChecker
+	Web        tools.WebClient
+	// Egress forwards approved external publish/deploy requests. Nil means the
+	// host has no external-write integration and the tool fails closed.
+	Egress      tools.Egress
 	NativeProxy string
 	// NativeSessionRoot is the private, server-owned parent for resumable CLI
 	// state. It never points at a user's terminal history.
@@ -258,4 +261,66 @@ func (e *Engine) report(err error) {
 	case e.Errors <- err:
 	default:
 	}
+}
+
+// CancelThread stops every active execution of one conversation. It is used when
+// a conversation-scoped authorization is withdrawn.
+func (e *Engine) CancelThread(ctx context.Context, threadID string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	var ids []string
+	if err := e.Store.Read(ctx, func(tx *store.Tx) error {
+		runs, err := tx.Active()
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if run.ThreadID == threadID {
+				ids = append(ids, run.ID)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return e.cancelRuns(ctx, ids)
+}
+
+// ThreadStopUncertain reports whether a conversation still has an execution that
+// cannot be confirmed stopped. A revocation must never claim a clean stop when
+// this is true.
+func (e *Engine) ThreadStopUncertain(ctx context.Context, threadID string) (bool, error) {
+	uncertain := false
+	err := e.Store.Read(ctx, func(tx *store.Tx) error {
+		runs, err := tx.Active()
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if run.ThreadID != threadID {
+				continue
+			}
+			steps, err := tx.Steps(run.ID)
+			if err != nil {
+				return err
+			}
+			for _, step := range steps {
+				if step.Status == "running" {
+					uncertain = true
+				}
+				attempts, err := tx.StepAttempts(step.ID)
+				if err != nil {
+					return err
+				}
+				for _, attempt := range attempts {
+					if attempt.Process != nil && attempt.Process.PGID > 0 {
+						uncertain = true
+					}
+				}
+			}
+			uncertain = true
+		}
+		return nil
+	})
+	return uncertain, err
 }

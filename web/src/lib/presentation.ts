@@ -55,6 +55,9 @@ export const toolLabel = labels({
   write_file: "写入文件",
   patch_file: "局部修改",
   run_test: "运行测试",
+  run_command: "任务执行（完全访问）",
+  view_image: "查看图片",
+  publish_file: "交付文件",
   handoff_task: "交接任务",
   get_task: "查询协作任务",
   read_skill: "读取协作技能",
@@ -75,6 +78,7 @@ export const roleLabel = labels({
   researcher: "研究",
   critic: "质疑",
   coordinator: "汇总",
+  engineer: "执行",
   analyst: "分析",
   developer: "开发",
   reviewer: "复核",
@@ -92,7 +96,7 @@ export const methodLabel = labels({
   discussion: "协作讨论",
   research: "研究协作",
   engineering: "工程协作",
-  code_analysis: "工程分析（旧）",
+  code_analysis: "代码分析（旧）",
 });
 
 /**
@@ -101,8 +105,9 @@ export const methodLabel = labels({
  * message or current member setting can fill a missing record.
  */
 export function runMethod(
-  run: Pick<Run, "input" | "method" | "selected_workflow">,
+  run: Pick<Run, "input" | "method" | "selected_workflow" | "retry_of_step_id">,
 ) {
+  if (run.retry_of_step_id) return { method: "member_retry", label: "成员重试", reason: "保留已完成的回复，仅重试失败步骤并继续其尚未执行的后续工作" };
   const selected = run.selected_workflow;
   const input = run.input?.workflow ?? "";
   const method =
@@ -110,15 +115,9 @@ export function runMethod(
     (input && input !== "free" ? input : "") ||
     run.method ||
     "";
-  // Engineering labels the explicit action instead of a generic method.
-  const label =
-    method === "engineering"
-      ? run.input?.engineering_action === "develop"
-        ? "工程开发"
-        : "工程分析"
-      : method
-        ? methodLabel(method)
-        : workflows.free;
+  // Engineering is one user-facing method; the accepted input still records
+  // whether the host planned read-only analysis or development.
+  const label = method ? methodLabel(method) : workflows.free;
   return {
     method,
     label,
@@ -150,6 +149,22 @@ export function runErrorText(error = "", status = "") {
     return "执行被中断，检查点已保留；需要你确认后手动继续。不会自动重试。";
   if (error.includes("category=protocol_mismatch"))
     return "当前 CLI 的接口协议与现有上游不匹配，请检查本机 CLI 的服务地址与供应商映射。";
+  if (error.includes("Gemini returned an empty, truncated or malformed response"))
+    return "Gemini 返回了空响应、截断内容或无效工具调用，本次回复未完成；可以重试该成员。";
+  if (error.includes("Gemini model stream ended with an incomplete event"))
+    return "Gemini 的模型响应流不完整，本次回复未完成；可以重试该成员。";
+  if (error.includes("Gemini provider returned a temporary server error"))
+    return "Gemini 上游服务暂时出错，本次回复未完成；可以稍后重试该成员。";
+  if (error.includes("Gemini provider returned an unclassified stream error"))
+    return "Gemini 上游服务返回了错误，本次回复未完成；可以稍后重试该成员。";
+  if (error.includes("Gemini provider reported a quota or rate limit"))
+    return "Gemini 上游服务报告额度或速率限制，本次回复未完成；可以稍后重试该成员。";
+  if (error.includes("Gemini provider rejected the existing authentication"))
+    return "Gemini 上游服务未接受现有认证，本次回复未完成；请检查本机 CLI 的连接配置。";
+  if (error.includes("Gemini provider denied this request"))
+    return "Gemini 上游服务拒绝了这次请求，本次回复未完成。";
+  if (error.includes("result=result_error, category=execution") || error.includes("Gemini reported an unsuccessful result without diagnostic details"))
+    return "Gemini 未确认回复成功，CLI 没有提供具体失败原因；可以重试该成员。";
   if (error.includes("connection_changed:")) {
     return `本机 CLI 的解析模型或上游连接已变化，任务与检查点已保留：${error.replace(/^.*?connection_changed:/, "").trim()}`;
   }
@@ -272,9 +287,9 @@ export function methodEventLabel(event: Event) {
     if (!workflow) return "";
     const reason =
       typeof selection.reason === "string" ? selection.reason.trim() : "";
-    // Selection can only mean read-only engineering analysis.
+    // Selection can only mean read-only engineering collaboration.
     const label =
-      workflow === "engineering" ? "工程分析（只读）" : methodLabel(workflow);
+      workflow === "engineering" ? "工程协作（只读）" : methodLabel(workflow);
     return `协调者选择方法：${label}${reason ? ` · ${reason}` : ""}`;
   }
   if (event.type === "method_recorded") {
@@ -644,6 +659,22 @@ export function formatDateTime(iso?: string) {
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock(date)}`;
 }
+/** Compact task-list timestamps: minutes, hours, yesterday, days, then a date. */
+export function formatRelativeTime(iso?: string, now = new Date()) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const elapsed = Math.max(0, now.getTime() - date.getTime());
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (elapsed < minute) return "刚刚";
+  if (elapsed < hour) return `${Math.floor(elapsed / minute)} 分钟前`;
+  if (elapsed < day) return `${Math.floor(elapsed / hour)} 小时前`;
+  if (elapsed < 2 * day) return "昨天";
+  if (elapsed < 7 * day) return `${Math.floor(elapsed / day)} 天前`;
+  return formatDateTime(iso).slice(0, 10);
+}
 /** Today shows only the time; older messages carry their date. */
 export function formatMessageTime(iso: string, now = new Date()) {
   const date = new Date(iso);
@@ -684,7 +715,7 @@ export function threadTitle(text: string) {
 export const workflowRoles: Record<string, string[]> = {
   discussion: ["coordinator"],
   research: ["researcher", "critic", "coordinator"],
-  engineering: ["analyst", "developer", "reviewer"],
+  engineering: ["engineer", "reviewer"],
   code_analysis: ["analyst", "reviewer"],
 };
 

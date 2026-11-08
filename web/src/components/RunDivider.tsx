@@ -20,22 +20,12 @@ import {
   runDuration,
   runErrorText,
   runUsageSummary,
-  toolLabel,
   runMethod,
 } from "../lib/presentation";
 import { Icon } from "./Icon";
 import { CollaborationTasks } from "./CollaborationTasks";
 
 const cx = scoped(base, controls, layout, conversation);
-
-function eventData(event?: Event): Record<string, unknown> {
-  return event?.data && typeof event.data === "object"
-    ? (event.data as Record<string, unknown>)
-    : {};
-}
-
-const stepKey = (event: Event) =>
-  event.step_id || event.agent_id || "";
 
 const PROCESS_KEY = "cocogem.run-process";
 const PROCESS_LIMIT = 200;
@@ -72,34 +62,9 @@ function saveProcessDecision(run: Run, open: boolean) {
 }
 
 /**
- * Native tool ids restart at native-1 per attempt, so a finish only pairs with
- * the first unmatched start in the same step before any attempt boundary. A
- * restored page without that start yields no target instead of an older
- * attempt's one.
+ * One bar per collaboration: what ran, how it went, and what can be done with it.
+ * Tool activity is rendered by each member reply, not as one global latest line.
  */
-function pairedStart(events: Event[], finish: Event): Event | undefined {
-  const step = stepKey(finish);
-  const open = new Map<string, Event[]>();
-  for (const event of events) {
-    if (stepKey(event) !== step) continue;
-    if (event.type === "attempt_started" || event.type === "attempt_finished") {
-      open.clear();
-    } else if (event.type === "tool_started") {
-      const id = String(eventData(event).tool_call_id ?? "");
-      const starts = open.get(id) ?? [];
-      starts.push(event);
-      open.set(id, starts);
-    } else if (event.type === "tool_finished") {
-      const start = open
-        .get(String(eventData(event).tool_call_id ?? ""))
-        ?.shift();
-      if (event === finish) return start;
-    }
-  }
-  return undefined;
-}
-
-/** One bar per collaboration: what ran, how it went, and what can be done with it. */
 export function RunDivider({
   run,
   index,
@@ -110,13 +75,11 @@ export function RunDivider({
   artifacts = [],
   connection,
   liveness,
-  events = [],
   latest,
   busy,
   processCount = steps?.length ?? 0,
   children,
   onSnapshot,
-  onRetry,
   onResume,
   onSource,
   onArtifact,
@@ -130,13 +93,11 @@ export function RunDivider({
   artifacts?: Artifact[];
   connection?: string;
   liveness?: Event[];
-  events?: Event[];
   latest: boolean;
   busy: boolean;
   processCount?: number;
   children?: ReactNode;
   onSnapshot: () => void;
-  onRetry: () => void;
   onResume: () => void;
   onSource?: (id: string) => void;
   onArtifact?: (artifact: Artifact) => void;
@@ -157,51 +118,6 @@ export function RunDivider({
   };
   const duration = runDuration(run);
   const usage = runUsageSummary(run, attempts);
-  const retryable = ["failed", "canceled"].includes(run.status);
-  const activeTool = terminal(run.status)
-    ? undefined
-    : events
-        .filter(
-          (event) =>
-            event.type === "tool_started" || event.type === "tool_finished",
-        )
-        .at(-1);
-  const toolData = eventData(activeTool);
-  const toolStart =
-    activeTool?.type === "tool_started"
-      ? activeTool
-      : activeTool
-        ? pairedStart(events, activeTool)
-        : undefined;
-  const toolStatus =
-    activeTool?.type === "tool_started"
-      ? "执行中"
-      : toolData.status === "ok"
-        ? "完成"
-        : "失败";
-  const rawToolError =
-    activeTool?.type === "tool_finished" && toolData.status !== "ok"
-      ? String(toolData.output ?? "")
-      : "";
-  const toolError =
-    rawToolError.length > 160
-      ? `${rawToolError.slice(0, 160)}…`
-      : rawToolError;
-  const toolInput = eventData(toolStart).input;
-  const toolValues =
-    toolInput && typeof toolInput === "object"
-      ? (toolInput as Record<string, unknown>)
-      : {};
-  const rawToolTarget =
-    typeof toolValues.query === "string"
-      ? toolValues.query
-      : typeof toolValues.url === "string"
-        ? toolValues.url
-        : "";
-  const toolTarget =
-    rawToolTarget.length > 80
-      ? `${rawToolTarget.slice(0, 80)}…`
-      : rawToolTarget;
   return (
     <section className={cx("run-card")} aria-label={`第 ${index} 次协作`}>
       <div className={cx("run-card-head")}>
@@ -263,14 +179,6 @@ export function RunDivider({
               </span>
             );
           })}
-        {activeTool && (
-          <span className={cx("muted")} role="status" data-testid="latest-tool">
-            最近工具：
-            {toolLabel(String(toolData.name ?? "")) || "工具调用"}
-            {toolTarget ? `（${toolTarget}）` : ""} · {toolStatus}
-            {toolError ? ` · ${toolError}` : ""}
-          </span>
-        )}
         <span className={cx("run-actions")}>
           <button
             type="button"
@@ -281,16 +189,6 @@ export function RunDivider({
           >
             <Icon name="settings" size={14} />
           </button>
-          {retryable && (
-            <button
-              type="button"
-              className={cx("ghost small")}
-              onClick={onRetry}
-              disabled={busy}
-            >
-              <Icon name="refresh" size={14} /> 重新运行
-            </button>
-          )}
           {run.status === "interrupted" && (
             <button
               type="button"
@@ -345,16 +243,6 @@ export function RunDivider({
           role="status"
         >
           {runErrorText(run.error, run.status)}
-          {retryable && (
-            <button
-              type="button"
-              className={cx("ghost small")}
-              onClick={onRetry}
-              disabled={busy}
-            >
-              <Icon name="refresh" size={14} /> 重试此轮
-            </button>
-          )}
         </p>
       )}
     </section>

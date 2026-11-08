@@ -2,11 +2,9 @@ package httpapi
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/AcSunday/cocogem/internal/project"
-	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -40,20 +38,12 @@ type TaskBudgetInput struct {
 	Policy w.BudgetPolicy `json:"policy"`
 }
 
+type TaskDeleteInput struct {
+	TaskIDs []string `json:"task_ids"`
+}
+
 type ExecutionPolicyInput struct {
 	Mode            string `json:"mode"`
-	SourceMessageID string `json:"source_message_id"`
-}
-
-type BudgetPolicyInput struct {
-	Override *w.BudgetPolicyOverride `json:"override"`
-}
-
-type GrantList struct {
-	Items []w.Grant `json:"items"`
-}
-
-type RevokeGrantInput struct {
 	SourceMessageID string `json:"source_message_id"`
 }
 
@@ -78,12 +68,32 @@ func (s *Server) createProjectTask(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.WorkspaceID = r.PathValue("id")
-	value, err := s.projects.CreateTask(r.Context(), in)
+	in.AcceptedBy = "user"
+	if in.SourceMessageID == "" {
+		in.SourceMessageID = in.RequestID
+	}
+	value, err := s.projects.CreateUserTask(r.Context(), in)
 	respond(rw, r, value, err)
 }
 
 func (s *Server) projectTask(rw http.ResponseWriter, r *http.Request) {
 	value, err := s.projects.Task(r.Context(), r.PathValue("id"))
+	respond(rw, r, value, err)
+}
+
+func (s *Server) deleteProjectTasks(rw http.ResponseWriter, r *http.Request) {
+	var in TaskDeleteInput
+	if !decode(rw, r, &in) {
+		return
+	}
+	value, err := s.projects.PermanentDeleteTasks(r.Context(), in.TaskIDs)
+	if err == nil && len(value.ThreadIDs) > 0 {
+		threads := make(map[string]bool, len(value.ThreadIDs))
+		for _, id := range value.ThreadIDs {
+			threads[id] = true
+		}
+		s.dropProposals(func(p proposal) bool { return threads[p.ThreadID] })
+	}
 	respond(rw, r, value, err)
 }
 
@@ -135,6 +145,15 @@ func (s *Server) projectTaskAction(rw http.ResponseWriter, r *http.Request) {
 	if !decode(rw, r, &in) {
 		return
 	}
+	if in.Action == "start" {
+		if _, err := s.startTaskRun(r.Context(), r.PathValue("id")); err != nil {
+			respond(rw, r, nil, err)
+			return
+		}
+		value, err := s.projects.Task(r.Context(), r.PathValue("id"))
+		respond(rw, r, value.Task, err)
+		return
+	}
 	value, replayed, err := s.projects.TaskActionWithReplay(r.Context(), r.PathValue("id"), in.Action, in.RequestID)
 	if err == nil && !replayed && (in.Action == "pause" || in.Action == "cancel") && s.engine != nil {
 		// Replay of an already committed action must not stop newer work. A new
@@ -180,76 +199,6 @@ func (s *Server) saveProjectRecord(rw http.ResponseWriter, r *http.Request) {
 	in.WorkspaceID = r.PathValue("id")
 	value, err := s.projects.SaveProjectRecord(r.Context(), in)
 	respond(rw, r, value, err)
-}
-
-func (s *Server) setProjectBudgetPolicy(rw http.ResponseWriter, r *http.Request) {
-	expected, err := project.ParseRevision(r.Header.Get("If-Match"))
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	var in BudgetPolicyInput
-	if !decode(rw, r, &in) {
-		return
-	}
-	value, err := s.projects.SetBudgetOverride(r.Context(), r.PathValue("id"), in.Override, expected)
-	respond(rw, r, value, err)
-}
-
-func (s *Server) setProjectExecutionPolicy(rw http.ResponseWriter, r *http.Request) {
-	expected, err := project.ParseRevision(r.Header.Get("If-Match"))
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	var in ExecutionPolicyInput
-	if !decode(rw, r, &in) {
-		return
-	}
-	var previous w.Workspace
-	err = s.store.Read(r.Context(), func(tx *store.Tx) error {
-		var readErr error
-		previous, readErr = tx.Workspace(r.PathValue("id"))
-		return readErr
-	})
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	value, err := s.projects.SetExecutionMode(r.Context(), r.PathValue("id"), in.Mode, in.SourceMessageID, expected)
-	if err == nil && previous.ExecutionMode != in.Mode && s.engine != nil {
-		// Only an actual mode change stops old work. Re-saving the current mode
-		// must not cancel a newer run or reset its native session.
-		err = s.engine.CancelWorkspace(context.WithoutCancel(r.Context()), r.PathValue("id"))
-	}
-	respond(rw, r, value, err)
-}
-
-func (s *Server) projectGrants(rw http.ResponseWriter, r *http.Request) {
-	items, err := s.projects.Grants(r.Context(), r.PathValue("id"))
-	respond(rw, r, GrantList{Items: items}, err)
-}
-
-func (s *Server) revokeProjectGrant(rw http.ResponseWriter, r *http.Request) {
-	var in RevokeGrantInput
-	if !decode(rw, r, &in) {
-		return
-	}
-	workspaceID, memberID := r.PathValue("id"), r.PathValue("memberID")
-	if _, err := s.projects.BeginRevocation(r.Context(), workspaceID, memberID, in.SourceMessageID); err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	// Revocation is committed before process cancellation. Browser cancellation
-	// must not leave an authorized native invocation running.
-	stopErr := s.engine.CancelMember(context.WithoutCancel(r.Context()), workspaceID, memberID)
-	stopUncertain, checkErr := s.engine.RevocationStopUncertain(context.WithoutCancel(r.Context()), workspaceID, memberID)
-	stopErr = errors.Join(stopErr, checkErr)
-	grant, err := s.projects.FinishRevocation(context.WithoutCancel(r.Context()), workspaceID, memberID, stopErr != nil || stopUncertain)
-	if err == nil && stopErr != nil && grant.Status != "revocation_uncertain" {
-		err = stopErr
-	}
-	respond(rw, r, grant, err)
 }
 
 func (s *Server) submitTaskInbox(rw http.ResponseWriter, r *http.Request) {

@@ -78,11 +78,12 @@ func TestDiscussionPlanBuildsBoundedFiveStageDAG(t *testing.T) {
 	if RequiredArtifact(final, in) != "note" {
 		t.Fatalf("final delivery artifact = %q, want note", RequiredArtifact(final, in))
 	}
-	// Only the final coordinator needs publish_artifact; the same member's
-	// intermediate synthesizer step must not require it.
+	// Only the final coordinator needs the publish capability, and that comes
+	// from the runtime catalog: a coordinator whose legacy member array omits
+	// publish_artifact is still staffable, while a role conflict stays rejected.
 	in.Assignments = map[string]string{"coordinator": "member-2"}
-	if _, err := Plan("run", in, agents); err == nil {
-		t.Fatal("discussion accepted a coordinator without publish_artifact")
+	if _, err := Plan("run", in, agents); err != nil {
+		t.Fatalf("a legacy member array still excluded the coordinator: %v", err)
 	}
 	for _, bad := range []w.RunInput{
 		{Workflow: "discussion", Targets: []string{"member-0"}, Assignments: map[string]string{"coordinator": "member-3"}},

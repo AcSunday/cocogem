@@ -556,7 +556,9 @@ it.each([
     render(<App />);
     const user = userEvent.setup();
     await screen.findByRole("heading", { name: "双成员研究" });
-    expect(screen.getByLabelText("工作方式")).toHaveValue("research");
+    // The thread's saved method is shown as a chip; the selector is gone.
+    expect(screen.getByText("研究协作")).toBeVisible();
+    expect(screen.queryByLabelText("工作方式")).not.toBeInTheDocument();
     // Sessions no longer edit roles; globals are resolved by the server.
     expect(screen.queryByLabelText(/^成员与分工/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("研究")).not.toBeInTheDocument();
@@ -783,6 +785,95 @@ it("uses the run's member snapshot for message avatars, not the current profile"
   expect(await within(timeline).findByText("历史回复")).toBeVisible();
   expect(timeline.querySelector("img")).toHaveAttribute("src", snapshotAvatar);
   expect(timeline.querySelector(`img[src="${currentAvatar}"]`)).toBeNull();
+});
+
+it("keeps the conversation content when the same sidebar conversation is clicked again", async () => {
+  history.replaceState({}, "", "/w/ws");
+  const agent = {
+    id: "one",
+    workspace_id: "ws",
+    display_name: "布偶猫",
+    handle: "ragdoll",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "codex",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  };
+  const thread = {
+    id: "repeat",
+    workspace_id: "ws",
+    title: "重复会话",
+    agent_ids: ["one"],
+    coordinator_id: "one",
+    workflow: "free",
+    revision: 1,
+    updated_at: "2026-10-24T00:00:00Z",
+  };
+  const run = {
+    id: "run",
+    input: { workflow: "free" },
+    agents: [agent],
+    status: "succeeded",
+    created_at: "2026-10-24T00:00:00Z",
+  } as unknown as Run;
+  const message = {
+    id: "message",
+    thread_id: "repeat",
+    run_id: "run",
+    step_id: "step",
+    agent_id: "one",
+    agent_name: "布偶猫",
+    role: "assistant",
+    content: "重复点击后仍然可见",
+    status: "completed",
+    created_at: "2026-10-24T00:00:01Z",
+  } as Message;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "空间" }] });
+      if (path === "/api/v1/workspaces/ws/agents")
+        return Response.json({ items: [agent] });
+      if (path === "/api/v1/settings")
+        return Response.json({
+          revision: 1,
+          default_coordinator_id: "one",
+          assignments: {},
+          retention_days: 7,
+        });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [thread], next_cursor: "" });
+      if (path.startsWith("/api/v1/threads/repeat?"))
+        return Response.json({
+          thread,
+          messages: { items: [message], next_cursor: "" },
+          runs: [run],
+          sources: [],
+        });
+      if (path === "/api/v1/runs/run")
+        return Response.json({ run, steps: [], attempts: [] });
+      if (path.endsWith("/artifacts")) return Response.json({ items: [] });
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", { name: "重复会话" }),
+  );
+  expect(await screen.findByText("重复点击后仍然可见")).toBeVisible();
+  expect(location.pathname).toBe("/w/ws/t/repeat");
+
+  await user.click(
+    screen.getByRole("button", { name: "重复会话" }),
+  );
+  expect(screen.getByText("重复点击后仍然可见")).toBeVisible();
+  expect(location.pathname).toBe("/w/ws/t/repeat");
 });
 
 it("sends workspace skill selections to the API when editing", async () => {
@@ -1663,6 +1754,19 @@ it("loads one page of run event history only when asked", async () => {
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
   } as Run;
+  // Tool activity renders next to the member reply that produced it.
+  const reply = {
+    id: "reply",
+    run_id: "run",
+    thread_id: "thread",
+    agent_id: "one",
+    agent_name: "合成成员",
+    role: "assistant",
+    step_id: "step",
+    status: "processing",
+    content: "正在读取",
+    created_at: "2026-10-26T00:00:01Z",
+  } as Message;
   vi.stubGlobal(
     "EventSource",
     class {
@@ -1680,17 +1784,54 @@ it("loads one page of run event history only when asked", async () => {
     if (path.startsWith("/api/v1/threads/thread?"))
       return Response.json({
         thread,
-        messages: { items: [], next_cursor: "" },
+        messages: { items: [reply], next_cursor: "" },
         runs: [run],
         sources: [],
       });
     if (path === "/api/v1/runs/run")
-      return Response.json({ run, steps: [], attempts: [], cursor: 600 });
+      return Response.json({
+        run,
+        steps: [{ id: "step", run_id: "run", agent_id: "one" }],
+        attempts: [],
+        cursor: 600,
+      });
     if (path.startsWith("/api/v1/runs/run/event-history")) {
       // The initial seed only covers the recent window; older events stay on
       // the explicit history page.
       if (path.includes("limit=500"))
-        return Response.json({ items: [], next_cursor: "" });
+        return Response.json({
+          items: [
+            {
+              schema_version: 1,
+              run_id: "run",
+              seq: 900,
+              type: "tool_started",
+              occurred_at: "",
+              agent_id: "one",
+              step_id: "step",
+              data: {
+                tool_call_id: "call-seed",
+                name: "read_file",
+                input: { path: "a.go" },
+              },
+            },
+            {
+              schema_version: 1,
+              run_id: "run",
+              seq: 901,
+              type: "tool_finished",
+              occurred_at: "",
+              agent_id: "one",
+              step_id: "step",
+              data: {
+                tool_call_id: "call-seed",
+                status: "ok",
+                duration_ms: 4,
+              },
+            },
+          ],
+          next_cursor: "",
+        });
       return Response.json({
         items: [
           {
@@ -1728,15 +1869,22 @@ it("loads one page of run event history only when asked", async () => {
   render(<App />);
   const user = userEvent.setup();
   await screen.findByRole("heading", { name: "历史事件测试" });
+  // D08/A15: there is no "过程" tab any more; tool activity is part of the
+  // conversation body, and the sidebar only offers sources/artifacts.
   await user.click(screen.getByRole("button", { name: "打开协作面板" }));
-  await user.click(screen.getByRole("tab", { name: "过程" }));
-  await user.click(screen.getByRole("button", { name: "浏览历史事件" }));
-  expect(await screen.findByText("读取文件")).toBeVisible();
-  expect(screen.getByText("完成")).toBeVisible();
-  expect(fetcher).toHaveBeenCalledWith(
-    "/api/v1/runs/run/event-history?limit=100",
-    expect.objectContaining({ method: "GET" }),
-  );
+  expect(screen.queryByRole("tab", { name: "过程" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "工具" })).not.toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "来源" })).toBeVisible();
+  // The seeded window renders the member's own activity block with the real
+  // tool receipt (not a global "latest tool" line).
+  expect(await screen.findByTestId("tool-activity")).toBeVisible();
+  expect(screen.getByText(/读取 1 个文件/)).toBeVisible();
+  const paths = fetcher.mock.calls.map((call) => String(call[0]));
+  expect(paths.filter((path) => path.includes("event-history"))).toEqual([
+    "/api/v1/runs/run/event-history?limit=500&after=100",
+  ]);
+  // The explicit history page is never loaded just to show the collapsed block.
+  expect(paths).not.toContain("/api/v1/runs/run/event-history?limit=100");
 });
 
 it("seeds the recent event window and resumes live from the snapshot cursor", async () => {
@@ -1769,6 +1917,18 @@ it("seeds the recent event window and resumes live from the snapshot cursor", as
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
   } as Run;
+  const reply = {
+    id: "reply-seed",
+    run_id: "run",
+    thread_id: "thread",
+    agent_id: "one",
+    agent_name: "合成成员",
+    role: "assistant",
+    step_id: "step",
+    status: "processing",
+    content: "正在读取",
+    created_at: "2026-10-26T00:00:01Z",
+  } as Message;
   const streams: string[] = [];
   vi.stubGlobal(
     "EventSource",
@@ -1790,12 +1950,17 @@ it("seeds the recent event window and resumes live from the snapshot cursor", as
     if (path.startsWith("/api/v1/threads/thread?"))
       return Response.json({
         thread,
-        messages: { items: [], next_cursor: "" },
+        messages: { items: [reply], next_cursor: "" },
         runs: [run],
         sources: [],
       });
     if (path === "/api/v1/runs/run")
-      return Response.json({ run, steps: [], attempts: [], cursor: 620 });
+      return Response.json({
+        run,
+        steps: [{ id: "step", run_id: "run", agent_id: "one" }],
+        attempts: [],
+        cursor: 620,
+      });
     if (path.startsWith("/api/v1/runs/run/event-history"))
       return Response.json({
         items: [
@@ -1819,17 +1984,22 @@ it("seeds the recent event window and resumes live from the snapshot cursor", as
   const user = userEvent.setup();
   await screen.findByRole("heading", { name: "种子测试" });
   await waitFor(() => expect(streams).toHaveLength(1));
-  expect(screen.getByTestId("latest-tool")).toHaveTextContent(
-    "最近工具：读取文件 · 执行中",
-  );
+  // P4/D08: no global "latest tool" line survives; the running call belongs to
+  // the member's own collapsed activity block.
+  expect(screen.queryByTestId("latest-tool")).not.toBeInTheDocument();
+  expect(screen.queryByText(/最近工具/)).not.toBeInTheDocument();
+  const block = await screen.findByTestId("tool-activity");
+  expect(block).toHaveTextContent("读取 1 个文件");
+  // The collapsed summary still marks a live call as running.
+  expect(block).toHaveAttribute("data-running", "true");
+  expect(block).toHaveTextContent("执行中");
   expect(streams[0]).toBe("/api/v1/runs/run/events?after=620");
-  expect(fetcher).toHaveBeenCalledWith(
-    "/api/v1/runs/run/event-history?limit=500&after=120",
-    expect.objectContaining({ method: "GET" }),
-  );
+  const paths = fetcher.mock.calls.map((call) => String(call[0]));
+  expect(paths).toContain("/api/v1/runs/run/event-history?limit=500&after=120");
+  // The sidebar no longer carries a tools tab; a running call is body-content.
   await user.click(screen.getByRole("button", { name: "打开协作面板" }));
-  await user.click(screen.getByRole("tab", { name: "过程" }));
-  expect(await screen.findByText("读取文件")).toBeVisible();
+  expect(screen.queryByRole("tab", { name: "过程" })).not.toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "来源" })).toBeVisible();
 });
 
 it("merges a bounded seed history into the run view without repeating or dropping steps", async () => {
@@ -2540,7 +2710,7 @@ it("ignores replayed and cross-run SSE frames without regressing state", async (
   expect(await screen.findByText(/现有回复新正文/)).toBeVisible();
 });
 
-it("submits the explicit engineering action and defaults to analysis", async () => {
+it("submits engineering as auto without an analysis/development selector", async () => {
   history.replaceState({}, "", "/w/ws/t/eng");
   const agents: Agent[] = ["dev", "review"].map((id) => ({
     id,
@@ -2593,22 +2763,20 @@ it("submits the explicit engineering action and defaults to analysis", async () 
   render(<App />);
   const user = userEvent.setup();
   await screen.findByRole("heading", { name: "工程会话" });
-  expect(screen.getByLabelText("工程动作")).toHaveTextContent("分析（只读）");
+  expect(screen.queryByLabelText("工程动作")).not.toBeInTheDocument();
+  expect(
+    screen.getByText(/按成员已获授权的能力执行/),
+  ).toBeVisible();
   await user.type(screen.getByLabelText("输入问题"), "先看看这个工程");
   await user.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() => expect(inputs).toHaveLength(1));
   expect(inputs[0].workflow).toBe("engineering");
-  expect(inputs[0].engineering_action).toBe("analyze");
-  await chooseOption(user, screen.getByLabelText("工程动作"), "develop");
-  await user.click(screen.getByRole("button", { name: "发送" }));
-  await waitFor(() => expect(inputs).toHaveLength(2));
-  expect(inputs[1].engineering_action).toBe("develop");
   // The composer never carries assignment controls; the server resolves the
-  // action's role defaults from global settings and the conversation roster.
-  expect(inputs[1].assignments).toEqual({});
+  // role defaults from the conversation roster.
+  expect(inputs[0].assignments).toEqual({});
 });
 
-it("describes conversation deletion as a recoverable trash period", async () => {
+it("moves a conversation to the trash without a confirmation dialog", async () => {
   history.replaceState({}, "", "/w/ws");
   const keep = {
     id: "keep",
@@ -2635,6 +2803,8 @@ it("describes conversation deletion as a recoverable trash period", async () => 
     disabled: false,
     revision: 1,
   };
+  let deleted = false;
+  let method = "";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path: string, options?: RequestInit) => {
@@ -2650,9 +2820,18 @@ it("describes conversation deletion as a recoverable trash period", async () => 
           retention_days: 45,
         });
       if (path.startsWith("/api/v1/workspaces/ws/threads"))
-        return Response.json({ items: [keep], next_cursor: "" });
-      if (path === "/api/v1/threads/keep" && options?.method === "DELETE")
-        return Response.json({ id: "keep", purge_at: "2026-12-04T00:00:00Z" });
+        return Response.json({
+          items: deleted ? [] : [keep],
+          next_cursor: "",
+        });
+      if (path === "/api/v1/threads/keep" && options?.method === "DELETE") {
+        deleted = true;
+        method = options.method;
+        return Response.json({
+          id: "keep",
+          purge_at: "2026-12-04T00:00:00Z",
+        });
+      }
       return Response.json({ items: [] });
     }),
   );
@@ -2663,11 +2842,83 @@ it("describes conversation deletion as a recoverable trash period", async () => 
     screen.getByRole("button", { name: "更多会话操作：待删除会话" }),
   );
   await user.click(screen.getByRole("menuitem", { name: "删除" }));
-  const dialog = screen.getByRole("dialog", { name: "删除会话" });
-  expect(dialog).toHaveTextContent(
-    "会被移入回收站，保留 45 天。期间可在“设置 → 回收站”恢复；到期后自动清理。",
+  expect(screen.queryByRole("dialog", { name: "删除会话" })).toBeNull();
+  await waitFor(() => expect(deleted).toBe(true));
+  expect(method).toBe("DELETE");
+  expect(
+    screen.queryByRole("button", { name: "待删除会话" }),
+  ).toBeNull();
+  expect(
+    await screen.findByText("还没有会话，从一个问题开始。"),
+  ).toBeVisible();
+});
+
+it("keeps the conversation and reports why an immediate trash move was refused", async () => {
+  history.replaceState({}, "", "/w/ws");
+  const keep = {
+    id: "keep",
+    workspace_id: "ws",
+    title: "待删除会话",
+    agent_ids: ["one"],
+    coordinator_id: "one",
+    workflow: "free",
+    revision: 4,
+    updated_at: "2026-10-20T00:00:00Z",
+    active_run_id: "run",
+    active_run_status: "running",
+  };
+  const agent = {
+    id: "one",
+    workspace_id: "ws",
+    display_name: "布偶猫",
+    handle: "ragdoll",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "claude",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, options?: RequestInit) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "空间" }] });
+      if (path.endsWith("/agents")) return Response.json({ items: [agent] });
+      if (path === "/api/v1/settings")
+        return Response.json({
+          revision: 2,
+          default_coordinator_id: "one",
+          assignments: {},
+          retention_days: 7,
+        });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [keep], next_cursor: "" });
+      if (path === "/api/v1/threads/keep" && options?.method === "DELETE")
+        return new Response(
+          JSON.stringify({
+            error: { message: "有协作正在进行，请先停止再删除" },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      return Response.json({ items: [] });
+    }),
   );
-  expect(dialog).not.toHaveTextContent("永久删除");
+  render(<App />);
+  const user = userEvent.setup();
+  await screen.findByRole("button", { name: "待删除会话" });
+  await user.click(
+    screen.getByRole("button", { name: "更多会话操作：待删除会话" }),
+  );
+  await user.click(screen.getByRole("menuitem", { name: "删除" }));
+  expect(
+    await screen.findByText("有协作正在进行，请先停止再删除"),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "待删除会话" }),
+  ).toBeVisible();
 });
 
 it("refreshes the visible sidebar from bounded polling", async () => {
@@ -2795,7 +3046,7 @@ it("saves retention with the current revision and keeps collaboration settings",
   });
 });
 
-it("restores a trashed conversation, refreshes the sidebar and navigates to it", async () => {
+it("restores a selected trashed conversation, refreshes the sidebar and keeps settings open", async () => {
   history.replaceState({}, "", "/w/ws");
   const restoredThread = {
     id: "restored",
@@ -2877,15 +3128,13 @@ it("restores a trashed conversation, refreshes the sidebar and navigates to it",
   await user.click(await screen.findByRole("button", { name: "设置" }));
   await user.click(screen.getByRole("tab", { name: "回收站" }));
   await user.click(
-    await screen.findByRole("button", { name: "恢复会话：已恢复会话" }),
+    await screen.findByRole("checkbox", { name: "选择会话：已恢复会话" }),
   );
-  await user.click(screen.getByRole("button", { name: "确认恢复" }));
-  expect(
-    await screen.findByRole("heading", { name: "已恢复会话" }),
-  ).toBeVisible();
-  expect(location.pathname).toBe("/w/ws/t/restored");
+  await user.click(screen.getByRole("button", { name: "恢复所选" }));
   expect(
     await screen.findByRole("button", { name: "已恢复会话" }),
   ).toBeVisible();
-  expect(screen.queryByRole("dialog", { name: "设置" })).toBeNull();
+  expect(await screen.findByText("回收站为空。")).toBeVisible();
+  expect(screen.getByRole("dialog", { name: "设置" })).toBeVisible();
+  expect(location.pathname).toBe("/w/ws");
 });

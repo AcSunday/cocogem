@@ -99,6 +99,18 @@ export function ArtifactReader({
             下载 Markdown
           </a>
         </div>
+        {!!artifact.files?.length && (
+          <section className={cx("reader-section")} aria-label="交付文件">
+            <h3>交付文件</h3>
+            <div className={cx("artifact-actions")}>
+              {artifact.files.map((file) => (
+                <a key={file.source_id} className={cx("button")} href={`/api/v1/artifacts/${artifact.id}/versions/${artifact.version}/files/${file.source_id}`} download={file.name}>
+                  <Icon name="download" size={14} />下载 {file.name}（{Math.ceil(file.size / 1024)} KiB）
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
         {artifact.type === "data_chart" ? (
           <DataChart source={artifact.body} />
         ) : (

@@ -227,6 +227,12 @@ func run() error {
 		return err
 	}
 	native := nativecli.Provider{}
+	// External publish/deploy/install is offered only when an exact allowlist is
+	// configured. There is no implicit public-web write path.
+	var egress tools.Egress
+	if hosts := strings.Split(os.Getenv("COCOGEM_EXTERNAL_EGRESS_HOSTS"), ","); len(hosts) > 0 && strings.TrimSpace(strings.Join(hosts, "")) != "" {
+		egress = tools.NewHTTPEgress(hosts, nil)
+	}
 	runners := map[string]agent.Runner{}
 	discover := func(ctx context.Context) []httpapi.ExecutorInfo {
 		result := []httpapi.ExecutorInfo{}
@@ -252,7 +258,7 @@ func run() error {
 	defer db.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	engine := &workflow.Engine{Store: db, Executions: execution.New(db, filepath.Join(dataDir, "executions"), ""), NativeSessionRoot: filepath.Join(dataDir, "native-sessions"), AllowedRoots: roots, AllowedModels: models, Model: native, Runners: runners, Fallback: native, Adapters: native, Limits: limits, History: historyLimits, MaxParallelRuns: parallelRuns, Web: web, NativeProxy: web.ProxyURL()}
+	engine := &workflow.Engine{Store: db, Executions: execution.New(db, filepath.Join(dataDir, "executions"), ""), NativeSessionRoot: filepath.Join(dataDir, "native-sessions"), AllowedRoots: roots, AllowedModels: models, Model: native, Runners: runners, Fallback: native, Adapters: native, Limits: limits, History: historyLimits, MaxParallelRuns: parallelRuns, Web: web, NativeProxy: web.ProxyURL(), Egress: egress}
 	server, err := httpapi.New(httpapi.Config{Host: *listen, AuthFile: filepath.Join(dataDir, "auth.json"), WebDir: *webDir, Models: models, Roots: roots, ModelConfigured: configured, SearchConfigured: web.SearchEnabled(), SearchProvider: web.SearchProvider(), Model: native, Executors: executors, Discover: discover, Limits: limitSeconds(limits)}, db, engine)
 	if err != nil {
 		return err

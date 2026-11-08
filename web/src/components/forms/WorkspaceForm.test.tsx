@@ -89,7 +89,7 @@ it("defaults to the shared skills and saves an explicit empty selection", async 
   );
 });
 
-it("edits project permissions and budget defaults inside the workspace form", async () => {
+it("keeps workspace details without any permission or budget editor", async () => {
   const save = vi.fn().mockResolvedValue(undefined);
   render(
     <WorkspaceForm
@@ -108,14 +108,21 @@ it("edits project permissions and budget defaults inside the workspace form", as
       save={save}
     />,
   );
-  expect(screen.getByRole("heading", { name: "权限与预算" })).toBeVisible();
+  // Section 5.2: the whole permission/budget/grants card is gone from the
+  // workspace dialog; name, description and directory stay editable.
+  expect(screen.queryByRole("heading", { name: "权限与预算" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "执行权限模式" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "持续授权" })).toBeNull();
   expect(
-    screen.getByRole("heading", { name: "执行权限模式" }),
-  ).toBeVisible();
-  expect(screen.getByRole("heading", { name: "持续授权" })).toBeVisible();
+    screen.queryByRole("heading", { name: "新根任务默认预算" }),
+  ).toBeNull();
   expect(
-    screen.getByRole("heading", { name: "新根任务默认预算" }),
-  ).toBeVisible();
+    screen.queryByRole("radiogroup", { name: "执行权限模式" }),
+  ).toBeNull();
+  expect(screen.queryByText(/权限、持续授权/)).toBeNull();
+  expect(screen.getByLabelText("名称")).toHaveValue("权限项目");
+  expect(screen.getByLabelText("说明")).toBeVisible();
+  expect(screen.getByRole("button", { name: "保存工作空间" })).toBeEnabled();
 });
 
 it("preserves a saved disabled skill selection when editing workspace details", async () => {

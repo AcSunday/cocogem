@@ -167,11 +167,10 @@ func (e *Engine) collaborationContext(ctx context.Context, run w.Run, step w.Ste
 			}
 			allowed := []string{}
 			if memberEnabled {
-				for _, name := range a.Tools {
-					if slices.Contains(current.Tools, name) {
-						allowed = append(allowed, name)
-					}
-				}
+				// The roster advertises the runtime standard catalog. Member tool
+				// arrays (profile or workspace) are retired history and never narrow
+				// a new execution; role/task/grant checks remain authoritative.
+				allowed = w.StandardToolCatalog()
 			}
 			roster = append(roster, member{a.ID, a.DisplayName, a.Handle, a.RoleDescription, a.Capabilities, allowed, a.Executor, a.Model, available})
 		}
@@ -569,11 +568,10 @@ func (e *Engine) validateMember(tx *store.Tx, run w.Run, id string) error {
 	if err != nil || current.Disabled {
 		return errors.New("member became unavailable before dispatch")
 	}
-	for _, tool := range snapshot.Tools {
-		if !slices.Contains(current.Tools, tool) {
-			return errors.New("member tool permission was revoked before dispatch")
-		}
-	}
+	// The legacy Agent.Tools / WorkspaceMember.Tools arrays are audit data after
+	// the redesign: they no longer narrow a new execution. Membership and
+	// enablement still gate dispatch above, and the mode/role/grant checks in
+	// the request and admission path remain authoritative.
 	if snapshot.Executor != "" {
 		if e.Runners[snapshot.Executor] == nil && e.Fallback == nil {
 			return errors.New("selected CLI executor is unavailable")

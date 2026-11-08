@@ -25,7 +25,7 @@ func TestDerivedBodyInheritsReadMessageAndArtifactExposure(t *testing.T) {
 				t.Fatal(err)
 			}
 			originalRun := w.Run{ID: "read-original-run-" + kind, WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: sender.Task.ID, TaskRevision: 1, Status: "succeeded", CreatedAt: w.Now()}
-			originalSession := w.ExecutionSession{ID: "read-original-session-" + kind, TaskID: sender.Task.ID, MemberID: "owner", Status: "fresh_only", ExposedRefs: []string{"source_id:read-private-" + kind + ":digest"}, CreatedAt: w.Now(), UpdatedAt: w.Now()}
+			originalSession := w.ExecutionSession{ID: "read-original-session-" + kind, TaskID: sender.Task.ID, MemberID: "owner", VisibilityEpoch: 1, Status: "fresh_only", ExposedRefs: []string{"source_id:read-private-" + kind + ":digest"}, CreatedAt: w.Now(), UpdatedAt: w.Now()}
 			originalSession.ExposureDigest = exposureRefsDigest(originalSession.ExposedRefs)
 			originalAttempt := w.Attempt{ID: "read-original-attempt-" + kind, RunID: originalRun.ID, StepID: "read-original-step-" + kind, Number: 1, Status: "succeeded", ExecutionSessionRef: originalSession.ID}
 			message := w.Message{ID: "read-private-message-" + kind, ThreadID: th.ID, RunID: originalRun.ID, StepID: originalAttempt.StepID, AttemptID: originalAttempt.ID, AgentID: "owner", Role: "assistant", Content: "private result", Status: "completed", CreatedAt: w.Now()}
@@ -72,7 +72,7 @@ func TestDerivedBodyInheritsReadMessageAndArtifactExposure(t *testing.T) {
 			} else if kind == "artifact" {
 				exposed = fmt.Sprintf("artifact:%s@1:artifact-digest", artifact.ID)
 			}
-			currentSession := w.ExecutionSession{ID: currentAttempt.ExecutionSessionRef, TaskID: sender.Task.ID, MemberID: "owner", Status: "fresh_only", ExposedRefs: []string{exposed}, CreatedAt: w.Now(), UpdatedAt: w.Now()}
+			currentSession := w.ExecutionSession{ID: currentAttempt.ExecutionSessionRef, TaskID: sender.Task.ID, MemberID: "owner", VisibilityEpoch: 1, Status: "fresh_only", ExposedRefs: []string{exposed}, CreatedAt: w.Now(), UpdatedAt: w.Now()}
 			currentSession.ExposureDigest = exposureRefsDigest(currentSession.ExposedRefs)
 			if err := db.Write(t.Context(), func(tx *store.Tx) error {
 				if err := tx.SaveSession(currentSession); err != nil {

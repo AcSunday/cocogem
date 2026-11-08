@@ -62,16 +62,13 @@ func derivedMessageDisclosure(tx *store.Tx, sender w.Task, in SendTaskMessageInp
 	if session.Status == "revoked" || session.Status == "quarantined" {
 		return "", "", errorf("authority_revoked", "sender session exposure has been revoked")
 	}
-	currentEpoch := 0
-	grants, err := tx.Grants(sender.WorkspaceID)
+	// The live global permission epoch is the only current authority boundary.
+	// Retired workspace grants are history and cannot keep an old exposure valid.
+	settings, err := tx.Settings()
 	if err != nil {
 		return "", "", err
 	}
-	for _, grant := range grants {
-		if grant.SubjectMemberID == producerMemberID && grant.Status == "active" {
-			currentEpoch = max(currentEpoch, grant.Epoch)
-		}
-	}
+	currentEpoch := max(1, settings.PermissionEpoch)
 	if currentEpoch != session.VisibilityEpoch {
 		return "", "", errorf("authority_revoked", "sender session visibility epoch is no longer current")
 	}

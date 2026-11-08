@@ -108,3 +108,46 @@ func TestRetryEndpointRejectsSuccessfulRun(t *testing.T) {
 		t.Fatalf("successful retry status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+func TestRetryEndpointAcceptsExactFailedStepAndRequiresStableKey(t *testing.T) {
+	server, db, cookie, csrf := pagingServer(t, workflow.DefaultLimits())
+	server.engine.Model = testutil.Model{}
+	server.engine.AllowedModels = []string{"test"}
+	_, source := seedRetrySource(t, db, "failed")
+	var failed w.Step
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		steps, err := tx.Steps(source.ID)
+		if err != nil {
+			return err
+		}
+		failed = steps[0]
+		failed.Status, failed.Error = "failed", "Gemini did not confirm success"
+		return tx.SaveStep(failed)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	input := RetryInput{StepID: failed.ID}
+	path := "/api/v1/runs/" + source.ID + "/retry"
+	if got := apiCall(server, http.MethodPost, path, input, cookie, csrf, nil); got.Code != 400 {
+		t.Fatalf("missing key accepted: %d %s", got.Code, got.Body.String())
+	}
+	headers := map[string]string{"Idempotency-Key": "exact-member-retry-key-0001"}
+	response := apiCall(server, http.MethodPost, path, input, cookie, csrf, headers)
+	if response.Code != 202 {
+		t.Fatalf("retry failed: %d %s", response.Code, response.Body.String())
+	}
+	validateResponse(t, "/api/v1/runs/{id}/retry", "post", 202, response.Body.Bytes())
+	var retry w.Run
+	if err := json.Unmarshal(response.Body.Bytes(), &retry); err != nil {
+		t.Fatal(err)
+	}
+	if retry.RetryOfStepID != failed.ID {
+		t.Fatalf("retry ignored step: %+v", retry)
+	}
+	if got := apiCall(server, http.MethodPost, path, input, cookie, csrf, headers); got.Code != 202 {
+		t.Fatalf("retry replay failed: %s", got.Body.String())
+	}
+	if got := apiCall(server, http.MethodPost, path, RetryInput{StepID: w.NewID()}, cookie, csrf, headers); got.Code != 409 {
+		t.Fatal("reused a retry key for another step")
+	}
+}

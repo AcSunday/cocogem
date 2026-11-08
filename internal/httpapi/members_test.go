@@ -7,12 +7,56 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
+
+func TestDeleteGlobalAgentRemovesWorkspaceLinksAtomically(t *testing.T) {
+	server, _, cookie, csrf := pagingServer(t, workflow.DefaultLimits())
+	var workspace w.Workspace
+	response := apiCall(server, http.MethodPost, "/api/v1/workspaces", WorkspaceInput{Name: "删除成员"}, cookie, csrf, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("create workspace: %d %s", response.Code, response.Body.String())
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &workspace); err != nil {
+		t.Fatal(err)
+	}
+	var globals struct{ Items []w.Agent }
+	response = apiCall(server, http.MethodGet, "/api/v1/agents", nil, cookie, csrf, nil)
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &globals) != nil || len(globals.Items) != 3 {
+		t.Fatalf("global agents: %d %s", response.Code, response.Body.String())
+	}
+	victim := globals.Items[0]
+	path := "/api/v1/agents/" + victim.ID
+	if got := apiCall(server, http.MethodDelete, path, nil, cookie, csrf, nil); got.Code != http.StatusPreconditionFailed {
+		t.Fatalf("delete without If-Match: %d %s", got.Code, got.Body.String())
+	}
+	response = apiCall(server, http.MethodDelete, path, nil, cookie, csrf, map[string]string{"If-Match": strconv.Itoa(victim.Revision)})
+	if response.Code != http.StatusOK {
+		t.Fatalf("delete agent: %d %s", response.Code, response.Body.String())
+	}
+	var reply DeleteReply
+	if err := json.Unmarshal(response.Body.Bytes(), &reply); err != nil || reply.ID != victim.ID {
+		t.Fatalf("delete reply: %+v %v", reply, err)
+	}
+	response = apiCall(server, http.MethodGet, "/api/v1/agents", nil, cookie, csrf, nil)
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &globals) != nil || len(globals.Items) != 2 {
+		t.Fatalf("deleted profile still listed: %d %s", response.Code, response.Body.String())
+	}
+	var linked struct{ Items []w.Agent }
+	response = apiCall(server, http.MethodGet, "/api/v1/workspaces/"+workspace.ID+"/agents", nil, cookie, csrf, nil)
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &linked) != nil || len(linked.Items) != 2 {
+		t.Fatalf("workspace link survived deletion: %d %s", response.Code, response.Body.String())
+	}
+	if got := apiCall(server, http.MethodDelete, path, nil, cookie, csrf, map[string]string{"If-Match": "1"}); got.Code != http.StatusNotFound {
+		t.Fatalf("repeat delete: %d %s", got.Code, got.Body.String())
+	}
+}
 
 func TestGlobalMembersCanBeReusedAndLocallyRestricted(t *testing.T) {
 	dir := t.TempDir()
@@ -95,12 +139,14 @@ func TestGlobalMembersCanBeReusedAndLocallyRestricted(t *testing.T) {
 	grant := w.WorkspaceMember{Enabled: false, Tools: []string{"read_file"}}
 	var effective w.Agent
 	call("PATCH", memberPath, grant, &effective, 1, 200)
-	if !effective.Disabled || len(effective.Tools) != 1 || effective.Membership == nil || effective.Membership.Revision != 2 {
-		t.Fatal("local grants not applied", effective)
+	// Enablement is enforced; the legacy workspace tool array is audit data and
+	// no longer strips the profile's inherited capabilities.
+	if !effective.Disabled || len(effective.Tools) != len(agent.Tools) || effective.Membership == nil || effective.Membership.Revision != 2 {
+		t.Fatal("local enablement not applied", effective)
 	}
 	call("PATCH", memberPath, grant, nil, 1, 412)
 	call("GET", "/api/v1/workspaces/"+second.ID+"/agents", nil, &linked, 0, 200)
-	if linked.Items[0].Disabled || len(linked.Items[0].Tools) <= 1 {
+	if linked.Items[0].Disabled || len(linked.Items[0].Tools) != len(agent.Tools) {
 		t.Fatal("workspace restriction leaked to another workspace", linked.Items[0])
 	}
 	call("DELETE", memberPath, nil, nil, 1, 412)
@@ -120,5 +166,50 @@ func TestGlobalMembersCanBeReusedAndLocallyRestricted(t *testing.T) {
 	call("GET", "/api/v1/agents", nil, &globals, 0, 200)
 	if len(globals.Items) != 4 {
 		t.Fatal("workspace deletion deleted reusable global profiles")
+	}
+}
+
+// TestMemberProfileWithoutToolsIsUsable is the retirement acceptance at the API
+// boundary: a new global profile with no tools is accepted, the runtime catalog
+// applies to it, and an old restricted profile keeps its history while still
+// running with the standard catalog.
+func TestMemberProfileWithoutToolsIsUsable(t *testing.T) {
+	server, _, cookie, csrf := pagingServer(t, workflow.DefaultLimits())
+	response := apiCall(server, http.MethodPost, "/api/v1/agents", w.Agent{
+		DisplayName: "无工具成员", Handle: "no-tools", Aliases: []string{}, Model: "default",
+	}, cookie, csrf, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("create member without tools: %d %s", response.Code, response.Body.String())
+	}
+	var created w.Agent
+	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == "" || len(created.Tools) != 0 {
+		t.Fatalf("new profile = %+v", created)
+	}
+	// It can be edited without sending a tool array, and a legacy profile keeps
+	// its historical array untouched.
+	created.DisplayName = "无工具成员改名"
+	response = apiCall(server, http.MethodPatch, "/api/v1/agents/"+created.ID, created, cookie, csrf,
+		map[string]string{"If-Match": strconv.Itoa(created.Revision)})
+	if response.Code != http.StatusOK {
+		t.Fatalf("edit member without tools: %d %s", response.Code, response.Body.String())
+	}
+	var edited w.Agent
+	if err := json.Unmarshal(response.Body.Bytes(), &edited); err != nil {
+		t.Fatal(err)
+	}
+	if edited.DisplayName != created.DisplayName || len(edited.Tools) != 0 {
+		t.Fatalf("edited profile = %+v", edited)
+	}
+	// The runtime catalog, not the profile array, decides what a member may run.
+	if len(w.StandardToolCatalog()) == 0 {
+		t.Fatal("runtime catalog is empty")
+	}
+	for _, tool := range []string{"read_file", "write_file", "run_test", "publish_artifact", "run_command"} {
+		if !slices.Contains(w.StandardToolCatalog(), tool) {
+			t.Fatalf("runtime catalog lacks %s", tool)
+		}
 	}
 }

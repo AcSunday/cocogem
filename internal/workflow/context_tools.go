@@ -65,6 +65,29 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 	for _, id := range historyIDs {
 		selectedHistory[id] = true
 	}
+	retryAncestors := map[string]bool{}
+	if run.RetryOfStepID != "" {
+		for id := run.Input.RetryOfRunID; id != "" && !retryAncestors[id]; {
+			prior, err := tx.Run(id)
+			if err != nil || prior.ThreadID != run.ThreadID {
+				return nil, errors.New("member retry history is unavailable")
+			}
+			retryAncestors[id] = true
+			id = prior.Input.RetryOfRunID
+		}
+		family, err := tx.Runs(run.ThreadID)
+		if err != nil {
+			return nil, err
+		}
+		for changed := true; changed; {
+			changed = false
+			for _, related := range family {
+				if related.ID != run.ID && !retryAncestors[related.ID] && retryAncestors[related.Input.RetryOfRunID] {
+					retryAncestors[related.ID], changed = true, true
+				}
+			}
+		}
+	}
 	explicitMessage := map[string]bool{}
 	explicitArtifact := map[string]map[int]bool{}
 	for _, ref := range step.ContextRefs {
@@ -98,7 +121,10 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		if message.ThreadID != run.ThreadID || message.Status != "completed" || message.StepID == step.ID {
 			continue
 		}
-		allowed := message.StepID != planningRoot && (dependencies[message.StepID] || explicitMessage[message.ID] || selectedHistory[message.ID])
+		allowed := message.StepID != planningRoot && message.StepID != run.TaskPromotionStepID && (dependencies[message.StepID] || explicitMessage[message.ID] || selectedHistory[message.ID])
+		if retryAncestors[message.RunID] && !explicitMessage[message.ID] {
+			allowed = false
+		}
 		if !allowed {
 			continue
 		}
@@ -575,7 +601,9 @@ type sourceListCursor struct {
 // CLI-processed observation, not raw page text; native search is only a lead.
 func evidenceStrength(kind string) string {
 	switch kind {
-	case "file", "web", "native_file", "diff", "test", "csv", "pdf":
+	case "file", "web", "html", "native_file", "diff", "test",
+		"csv", "tsv", "pdf", "docx", "xlsx", "pptx",
+		"doc", "rtf", "odt", "wordml", "webarchive":
 		return "original"
 	case "native_web":
 		return "observation"
@@ -787,40 +815,40 @@ func (e *Engine) readSourceForAttempt(ctx context.Context, run w.Run, sources []
 // Attempt/session/time/cursor/timeout policy never enter it.
 func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, connection agent.ConnectionInfo, adapter agent.AdapterInfo, scope *readScope, toolNames []string, sources []w.Source) (string, error) {
 	type plan struct {
-		AgentID           string   `json:"agent_id"`
-		AgentName         string   `json:"agent_name"`
-		Handle            string   `json:"handle"`
-		Role              string   `json:"role"`
-		RoleProfile       string   `json:"role_profile"`
-		Capabilities      []string `json:"capabilities"`
-		Instruction       string   `json:"instruction"`
-		OriginalTask      string   `json:"original_task"`
-		Workflow          string   `json:"workflow"`
-		EngineeringAction string   `json:"engineering_action,omitempty"`
-		ResearchScope     string   `json:"research_scope"`
-		SourceURLs        []string `json:"source_urls"`
-		Executor          string   `json:"executor"`
-		Model             string   `json:"model"`
-		ContextSize       int      `json:"context_size,omitempty"`
-		ThinkingLevel     string   `json:"thinking_level,omitempty"`
-		ResolvedModel     string   `json:"resolved_model"`
-		Connection        string   `json:"connection"`
-		CLIIdentity       string   `json:"cli_identity"`
-		CLIProgram        string   `json:"cli_program"`
-		Adapter           string   `json:"adapter"`
-		Tools             []string `json:"tools"`
-		NativeTools       []string `json:"native_tools"`
-		Skills            []string `json:"skills"`
-		Roster            []string `json:"roster"`
-		System            string   `json:"system_identity"`
-		Refs              []string `json:"refs"`
+		AgentID             string   `json:"agent_id"`
+		AgentName           string   `json:"agent_name"`
+		Handle              string   `json:"handle"`
+		Role                string   `json:"role"`
+		RoleProfile         string   `json:"role_profile"`
+		Capabilities        []string `json:"capabilities"`
+		Instruction         string   `json:"instruction"`
+		OriginalTask        string   `json:"original_task"`
+		Workflow            string   `json:"workflow"`
+		EngineeringReadOnly bool     `json:"engineering_read_only,omitempty"`
+		ResearchScope       string   `json:"research_scope"`
+		SourceURLs          []string `json:"source_urls"`
+		Executor            string   `json:"executor"`
+		Model               string   `json:"model"`
+		ContextSize         int      `json:"context_size,omitempty"`
+		ThinkingLevel       string   `json:"thinking_level,omitempty"`
+		ResolvedModel       string   `json:"resolved_model"`
+		Connection          string   `json:"connection"`
+		CLIIdentity         string   `json:"cli_identity"`
+		CLIProgram          string   `json:"cli_program"`
+		Adapter             string   `json:"adapter"`
+		Tools               []string `json:"tools"`
+		NativeTools         []string `json:"native_tools"`
+		Skills              []string `json:"skills"`
+		Roster              []string `json:"roster"`
+		System              string   `json:"system_identity"`
+		Refs                []string `json:"refs"`
 	}
 	member := w.Agent{ID: step.AgentID}
 	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
 		member = run.Agents[index]
 	}
 	in := effectiveInput(run)
-	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, EngineeringAction: in.EngineeringAction, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
+	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, EngineeringReadOnly: in.EngineeringReadOnly, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
 	if run.ContextRef != "" {
 		manifest, err := tx.ContextManifest(run.ContextRef)
 		if err != nil {
@@ -841,11 +869,9 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 		enabled := err == nil && !current.Disabled
 		effective := []string{}
 		if enabled {
-			for _, name := range a.Tools {
-				if slices.Contains(current.Tools, name) {
-					effective = append(effective, name)
-				}
-			}
+			// The roster advertises the runtime standard catalog; the legacy
+			// member array is history and never narrows a new execution.
+			effective = w.StandardToolCatalog()
 		}
 		slices.Sort(effective)
 		value.Roster = append(value.Roster, fmt.Sprintf("%s:%s:%s:%t:%s", a.ID, a.Executor, a.Model, enabled, strings.Join(effective, ",")))

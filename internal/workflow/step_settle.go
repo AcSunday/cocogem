@@ -170,6 +170,13 @@ func (e *Engine) persistStepCompletion(ctx context.Context, c stepCompletion) (w
 		for _, final := range finalSteps(effectiveInput(current), steps) {
 			formal[final.ID] = true
 		}
+		if current.TaskPromotionStepID == step.ID {
+			step.Role = "task_intake"
+			message.Content = "任务已建立，正在继续执行。"
+			message.ContentFormat = ""
+			message.ContentBytes = len(message.Content)
+			message.ContentTruncated = false
+		}
 		if published != nil && step.Status == "succeeded" && formal[step.ID] {
 			if len(current.Input.ArtifactRefs) > 0 {
 				ref := current.Input.ArtifactRefs[0]

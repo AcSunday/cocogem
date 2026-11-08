@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -18,14 +21,14 @@ import (
 // Names is the default read-only vocabulary for new members, including the
 // workflow-owned publisher. Engineering write/test tools are deliberately not
 // default grants, so adding them cannot expand existing or new-install rights.
-var Names = []string{"list_files", "read_file", "search_content", "web_search", "fetch_url", "read_source", "publish_artifact"}
+var Names = []string{"list_files", "read_file", "view_image", "search_content", "web_search", "fetch_url", "read_source", "publish_artifact", "publish_file"}
 
 // EngineeringNames are writable/executable host tools. They are valid grants,
 // but the workflow action and step role must also authorize them.
 var EngineeringNames = []string{"write_file", "patch_file", "run_test"}
 
 // AllNames is the complete grant vocabulary accepted by member configuration.
-var AllNames = append(append([]string{}, Names...), EngineeringNames...)
+var AllNames = append(append(append([]string{}, Names...), EngineeringNames...), "run_command")
 
 func object(properties map[string]any, required ...string) map[string]any {
 	if required == nil {
@@ -40,9 +43,12 @@ func text(description string) map[string]any {
 // Definitions returns schemas only for explicitly allowed capabilities.
 func Definitions(names []string) []model.Tool {
 	defs := map[string]model.Tool{
+		"run_command":    {Name: "run_command", Description: "Execute an argv command in this task's persistent working directory using explicitly authorized full access. Use Python, document/image libraries, converters and installed tools as needed; inspect available programs first. This is not a sandbox: local files, network and existing credentials may be accessible. Work on copies, preserve inputs, obey the user's objective and publish actual output files with publish_file. No shell is inserted; use an explicit shell argv only when needed. Captures exit code and bounded output. Never rerun an uncertain external write.", Schema: object(map[string]any{"argv": map[string]any{"type": "array", "minItems": 1, "maxItems": 128, "items": text("An exact argv element")}, "cwd": text("Relative directory under the task working directory; default ."), "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600}}, "argv")},
+		"view_image":     {Name: "view_image", Description: "Return actual image pixels to the model, with a captured source ID. Supply either a path in the bound project/task directory or an authorized image source_id. Do not infer image contents from filenames. PNG, JPEG and GIF are decoded; use available conversion tools for other image formats.", Schema: object(map[string]any{"path": text("Relative image path, or an absolute path inside this task/project"), "source_id": text("Authorized image source ID")})},
+		"publish_file":   {Name: "publish_file", Description: "Deliver real files created in this task's working directory. The host snapshots the bytes, computes hashes and adds download links to the final deliverable. Accepts any file format; a filename alone is not a delivery. Verify the file opens and the requested content/format is correct before publication. Intermediate authors leave files in the task directory and return exact paths to the final publisher.", Schema: object(map[string]any{"paths": map[string]any{"type": "array", "minItems": 1, "maxItems": 10, "items": text("Relative output file path under the task working directory")}, "title": text("Deliverable title"), "body": text("What was delivered, checks and remaining limitations")}, "paths", "title", "body")},
 		"read_source":    {Name: "read_source", Description: "Page an exact captured source visible in this step's input snapshot. Does not refresh the original.", Schema: object(map[string]any{"source_id": text("Captured source UUID"), "cursor": text("Opaque next_cursor from the previous page"), "max_bytes": map[string]any{"type": "integer", "minimum": 1, "maximum": w.MaxTextPageBytes}}, "source_id")},
 		"list_files":     {Name: "list_files", Description: "List files in the bound source directory; symbolic links and secrets are excluded.", Schema: object(map[string]any{"path": text("Relative directory; defaults to .")})},
-		"read_file":      {Name: "read_file", Description: "Read a bounded, line-numbered text excerpt and obtain a captured source ID. The returned sha256 is the SHA-256 of the complete file, not just the excerpt, so it can be passed as expected_sha256 to patch_file or write_file.", Schema: object(map[string]any{"path": text("Relative file path"), "start_line": map[string]any{"type": "integer", "minimum": 1}, "end_line": map[string]any{"type": "integer", "minimum": 1}}, "path")},
+		"read_file":      {Name: "read_file", Description: "Read a bounded, line-numbered text excerpt and obtain a captured source ID. Text files, CSV/TSV, HTML, text PDF, and DOCX/XLSX/PPTX are extracted on the host; legacy .doc, RTF and ODT use an installed host converter. Images, OCR, encrypted files and unsupported formats return a specific error. The returned sha256 is the SHA-256 of the complete file, not just the excerpt, so it can be passed as expected_sha256 to patch_file or write_file.", Schema: object(map[string]any{"path": text("Relative file path"), "start_line": map[string]any{"type": "integer", "minimum": 1}, "end_line": map[string]any{"type": "integer", "minimum": 1}}, "path")},
 		"search_content": {Name: "search_content", Description: "Search literal text in allowed source files; results are navigation hints, not read-file evidence.", Schema: object(map[string]any{"path": text("Relative directory"), "query": text("Literal search text")}, "query")},
 		"web_search":     {Name: "web_search", Description: "Search public web sources. Results are snippets; fetch original pages to verify claims.", Schema: object(map[string]any{"query": text("Search query")}, "query")},
 		"fetch_url":      {Name: "fetch_url", Description: "Read a public original text page and capture its exact source. Search-engine result pages are captured as leads, not originals.", Schema: object(map[string]any{"url": text("Public HTTP(S) URL")}, "url")},
@@ -91,21 +97,74 @@ type WebClient interface {
 
 // Scope limits a tool call to its workspace and exact evidence capture callback.
 type Scope struct {
-	Root    string
-	Web     WebClient
-	Capture func(w.Source) (w.Source, error)
+	Root          string
+	WorkDir       string
+	ExecutionMode string
+	Web           WebClient
+	Capture       func(w.Source) (w.Source, error)
+	// ApprovedRoots are exact, host-normalized targets the user approved for this
+	// one call (a file or a directory outside the workspace). A tool may resolve
+	// its target under one of them and nowhere else. They never widen the
+	// workspace root itself.
+	ApprovedRoots []string
+	// ApprovedCommand marks a command whose exact invocation the user approved in
+	// a mode that does not run commands autonomously. It runs under the project
+	// sandbox with writes limited to the project and any approved roots.
+	ApprovedCommand bool
 }
 
 // Execute returns a JSON observation for a registered host operation. run_test
 // applies its own bounded timeout instead of the short read-tool budget.
 func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope) (string, error) {
-	if name != "run_test" {
+	if len(scope.ApprovedRoots) > 0 && rebindApprovedTarget(name, &raw, &scope) {
+		// The scope now points at exactly the approved location.
+	} else if name == "read_file" || name == "list_files" || name == "search_content" {
+		var args map[string]json.RawMessage
+		if json.Unmarshal(raw, &args) == nil {
+			var path string
+			_ = json.Unmarshal(args["path"], &path)
+			for _, root := range []string{scope.Root, scope.WorkDir} {
+				if root == "" {
+					continue
+				}
+				local := path
+				if filepath.IsAbs(local) {
+					local, _ = filepath.Rel(root, local)
+				}
+				if local == "" {
+					local = "."
+				}
+				if !filepath.IsLocal(local) {
+					continue
+				}
+				if _, err := os.Lstat(filepath.Join(root, local)); err != nil {
+					continue
+				}
+				scope.Root = root
+				args["path"], _ = json.Marshal(local)
+				raw, _ = json.Marshal(args)
+				break
+			}
+		}
+	}
+	if name != "run_test" && name != "run_command" {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 	}
 	var result any
 	switch name {
+	case "run_command":
+		return ExecuteCommand(ctx, raw, scope)
+	case "view_image":
+		var in struct {
+			Path     string `json:"path"`
+			SourceID string `json:"source_id"`
+		}
+		if err := Decode(raw, &in); err != nil {
+			return "", err
+		}
+		return ViewImage(ctx, scope, in.Path)
 	case "write_file":
 		var in WriteFileInput
 		if err := Decode(raw, &in); err != nil {
@@ -353,5 +412,92 @@ func searchPreview(sources []w.Source) map[string]any {
 		result["truncated"] = true
 		result["content_omitted"] = true
 		return result
+	}
+}
+
+// rebindApprovedTarget narrows the scope to exactly the user-approved target and
+// returns true when it applied. It only accepts a normalized target equal to an
+// approved file, or one inside an approved directory; anything else is left to
+// the normal workspace confinement and will fail there.
+func rebindApprovedTarget(name string, raw *json.RawMessage, scope *Scope) bool {
+	switch name {
+	case "read_file", "list_files", "search_content", "write_file", "patch_file", "view_image":
+	default:
+		return false
+	}
+	var args map[string]json.RawMessage
+	if json.Unmarshal(*raw, &args) != nil {
+		return false
+	}
+	var path string
+	if err := json.Unmarshal(args["path"], &path); err != nil || path == "" {
+		return false
+	}
+	if !filepath.IsAbs(path) {
+		base := scope.Root
+		if base == "" {
+			base = scope.WorkDir
+		}
+		if base == "" {
+			return false
+		}
+		path = filepath.Join(base, path)
+	}
+	resolved, err := resolveApprovedPath(path)
+	if err != nil {
+		return false
+	}
+	for _, approved := range scope.ApprovedRoots {
+		root := approved
+		local := ""
+		if resolved == root {
+			// An exact file approval: operate on its parent with its base name.
+			if info, err := os.Lstat(resolved); err == nil && info.IsDir() {
+				local = "."
+			} else {
+				root, local = filepath.Dir(resolved), filepath.Base(resolved)
+			}
+		} else if rel, err := filepath.Rel(root, resolved); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			local = rel
+		} else {
+			continue
+		}
+		if DeniedPath(local) {
+			return false
+		}
+		scope.Root, scope.WorkDir = root, ""
+		args["path"], _ = json.Marshal(local)
+		encoded, err := json.Marshal(args)
+		if err != nil {
+			return false
+		}
+		*raw = encoded
+		return true
+	}
+	return false
+}
+
+// resolveApprovedPath resolves a path to its real location, following symlinks on
+// the deepest existing ancestor so a not-yet-created child cannot hide an escape.
+func resolveApprovedPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		return resolved, nil
+	}
+	remaining := []string{}
+	current := filepath.Clean(absolute)
+	for {
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", errors.New("path cannot be resolved")
+		}
+		remaining = append([]string{filepath.Base(current)}, remaining...)
+		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+			return filepath.Join(append([]string{resolved}, remaining...)...), nil
+		}
+		current = parent
 	}
 }

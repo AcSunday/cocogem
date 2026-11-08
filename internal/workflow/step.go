@@ -66,8 +66,20 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		stopStep()
 	})
 	request, requestErr := e.buildRequest(stepCtx, run, step, a, allowed, required, connection, adapter, message, handoff, scope, history, all, sourceSnapshot, previousDraft, rt.attempt)
+	if requestErr == nil {
+		// Every CLI-owned effect must be admitted by the live host policy before
+		// it happens. The callback is bound here, per attempt, so it always sees
+		// this run's frozen identity and the live epoch.
+		rt.bindNativeAuthorizer(&request)
+	}
 	if requestErr != nil {
 		err = requestErr
+	} else if run.TaskPromotionStepID == step.ID && run.TaskID != "" {
+		// Promotion already committed before interruption. Complete only the
+		// planning receipt; its persisted continuation owns the actual work.
+		rt.delegated = true
+		request.TrustedExecution = false
+		err = rt.observeEvent("text", map[string]any{"text": "任务已建立，正在继续执行。"})
 	} else if err = stepCtx.Err(); err != nil {
 		// A checkpoint, user cancel or frozen deadline arrived before launch.
 	} else if a.Executor != "" {
@@ -78,10 +90,23 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		if runner == nil {
 			err = errors.New(capabilityBlockedPrefix + " " + a.Executor + ": selected CLI executor is unavailable")
 		} else {
+			// Arbitrary native tools may have effects the runner cannot report before a disconnect.
+			// Never replay a trusted invocation automatically to guess whether those effects happened.
+			if request.TrustedExecution {
+				rt.mutated.Store(true)
+			}
 			err = runner.Run(stepCtx, request, rt.executeTool, rt.observeEvent)
 		}
 	} else {
 		err = (agent.Loop{Model: e.Model}).Run(stepCtx, request, rt.executeTool, rt.observeEvent)
+	}
+	// A successful file-producing step publishes its declared outputs. Full
+	// access trusted execution and project-autonomous host/native file work both
+	// count; a read-only step simply has no outputs directory.
+	if err == nil && (request.TrustedExecution || rt.collectsAutonomousOutputs()) {
+		if fileErr := rt.collectOutputFiles(stepCtx); fileErr != nil {
+			err = fileErr
+		}
 	}
 	rt.mu.Lock()
 	rt.closed = true

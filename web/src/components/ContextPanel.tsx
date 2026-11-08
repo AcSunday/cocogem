@@ -1,7 +1,4 @@
-import { Select } from "./Select";
-import { useEffect, useState } from "react";
-import type { Artifact, Event, Run, Source } from "../api/client";
-import { EVENT_WINDOW, statusText } from "../api/client";
+import type { Artifact, Source } from "../api/client";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -14,19 +11,21 @@ import {
   sourceKindLabel,
 } from "../lib/presentation";
 import { ArtifactCard } from "./ArtifactCard";
-import { EventHistory } from "./EventHistory";
 import { Icon } from "./Icon";
-import { ToolTimeline } from "./ToolTimeline";
 
 const cx = scoped(base, controls, layout, panels, settings);
 
-export type PanelTab = "sources" | "artifacts" | "tools";
+export type PanelTab = "sources" | "artifacts";
 const tabs: [PanelTab, string][] = [
   ["sources", "来源"],
   ["artifacts", "产物"],
-  ["tools", "过程"],
 ];
 
+/**
+ * Sources and artifacts only. Tool activity lives in the conversation body
+ * (D08), so a stale "tools" selection falls back to sources instead of leaving
+ * an empty panel.
+ */
 export function ContextPanel({
   open,
   close,
@@ -39,10 +38,6 @@ export function ContextPanel({
   onSource,
   artifacts,
   onArtifact,
-  runs,
-  inspectedRun,
-  onInspect,
-  events,
 }: {
   open: boolean;
   close: () => void;
@@ -55,14 +50,9 @@ export function ContextPanel({
   onSource: (source: Source | string) => void;
   artifacts: Artifact[];
   onArtifact: (artifact: Artifact) => void;
-  runs: Run[];
-  inspectedRun?: Run;
-  onInspect: (id: string) => void;
-  events: Event[];
 }) {
+  const activeTab: PanelTab = tab === "artifacts" ? "artifacts" : "sources";
   const shownSources = latestSources(sources);
-  const [historyAfter, setHistoryAfter] = useState<number | null>(null);
-  useEffect(() => setHistoryAfter(null), [inspectedRun?.id]);
   const counts: Partial<Record<PanelTab, number>> = {
     sources: shownSources.length,
     artifacts: artifacts.length,
@@ -82,8 +72,8 @@ export function ContextPanel({
               role="tab"
               id={`tab-${key}`}
               aria-controls="context-panel"
-              aria-selected={tab === key}
-              tabIndex={tab === key ? 0 : -1}
+              aria-selected={activeTab === key}
+              tabIndex={activeTab === key ? 0 : -1}
               onClick={() => setTab(key)}
               onKeyDown={(event) => {
                 const next = (
@@ -119,9 +109,9 @@ export function ContextPanel({
         className={cx("panel-body")}
         id="context-panel"
         role="tabpanel"
-        aria-labelledby={`tab-${tab}`}
+        aria-labelledby={`tab-${activeTab}`}
       >
-        {tab === "sources" && (
+        {activeTab === "sources" && (
           <>
             {!shownSources.length && (
               <p className={cx("panel-empty")}>
@@ -203,65 +193,6 @@ export function ContextPanel({
                 onOpen={onArtifact}
               />
             ))}
-          </>
-        )}
-        {tab === "tools" && (
-          <>
-            {runs.length > 1 && (
-              <label className={cx("panel-select")}>
-                历史协作
-                <Select
-                  value={inspectedRun?.id ?? ""}
-                  onChange={(selected) => onInspect(selected)}
-                >
-                  {runs.map((run, index) => (
-                    <option key={run.id} value={run.id}>
-                      第 {index + 1} 次 · {statusText[run.status]}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            )}
-            {inspectedRun && (
-              <div className={cx("history-actions")}>
-                <button
-                  type="button"
-                  className={cx("ghost small")}
-                  onClick={() => setHistoryAfter(0)}
-                >
-                  浏览历史事件
-                </button>
-                {events.length >= EVENT_WINDOW && (
-                  <small className={cx("muted")}>
-                    仅保留最近 {EVENT_WINDOW} 条事件
-                  </small>
-                )}
-              </div>
-            )}
-            {historyAfter !== null && inspectedRun && (
-              <EventHistory
-                key={`${inspectedRun.id}:${historyAfter}`}
-                runID={inspectedRun.id}
-                after={historyAfter}
-                agents={inspectedRun.agents ?? []}
-                sources={sources}
-                onSource={onSource}
-                close={() => setHistoryAfter(null)}
-              />
-            )}
-            {!events.length && (
-              <p className={cx("panel-empty")}>
-                工具调用和交接记录会在协作期间实时出现。
-              </p>
-            )}
-            <ToolTimeline
-              events={events}
-              agents={inspectedRun?.agents ?? []}
-              sources={sources}
-              onSource={onSource}
-              runStatus={inspectedRun?.status}
-              onHistory={(after) => setHistoryAfter(after ?? 0)}
-            />
           </>
         )}
       </div>

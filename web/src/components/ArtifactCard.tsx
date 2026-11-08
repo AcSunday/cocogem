@@ -18,6 +18,7 @@ export function ArtifactCard({
       <Icon name="report" size={20} />
       <span className={cx("artifact-card-content")}>
         <strong>{artifact.title}</strong>
+        {!!artifact.files?.length && <small>{artifact.files.map((file) => file.name).join(" · ")}</small>}
         <span className={cx("card-kicker")}>
           {artifactTypeLabel(artifact.type)} · v{artifact.version}
         </span>

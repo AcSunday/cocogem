@@ -45,7 +45,7 @@ func parseOpenCodeFixture(t *testing.T, stream string) ([]string, error) {
 	}
 	defer gate.close()
 	live := newLiveness(t.Context(), func() {}, nil, 0, 0, "")
-	err = parseOpenCodeEvents(newOpenCodeEvents(strings.NewReader(stream)), openCodeSession, gate, live)
+	err = parseOpenCodeEvents(context.Background(), newOpenCodeEvents(strings.NewReader(stream)), openCodeSession, gate, live, nil, "", "")
 	return output, err
 }
 func TestOpenCodeTextDeltasAndFinalSnapshot(t *testing.T) {
@@ -74,7 +74,9 @@ func TestOpenCodeEmitsBeforeFinalTextOrEOF(t *testing.T) {
 	defer gate.close()
 	live := newLiveness(t.Context(), func() {}, nil, 0, 0, "")
 	done := make(chan error, 1)
-	go func() { done <- parseOpenCodeEvents(newOpenCodeEvents(reader), openCodeSession, gate, live) }()
+	go func() {
+		done <- parseOpenCodeEvents(context.Background(), newOpenCodeEvents(reader), openCodeSession, gate, live, nil, "", "")
+	}()
 	t.Cleanup(func() { writer.Close(); <-done })
 	fmt.Fprint(writer, openCodeStart()+openCodeSSE("session.text.started", map[string]any{"ordinal": 0})+openCodeSSE("session.text.delta", map[string]any{"ordinal": 0, "delta": "早"}))
 	select {
@@ -102,7 +104,7 @@ func TestOpenCodeRejectsInvalidStreams(t *testing.T) {
 		{"unmatched result", openCodeStart() + openCodeSSE("session.tool.success", map[string]any{"id": "call"}), FailureProtocol},
 		{"authentication", openCodeSSE("session.execution.failed", map[string]any{"error": map[string]string{"message": "synthetic invalid api key"}}), FailureAuthentication},
 		{"negative usage", openCodeStart() + openCodeSSE("session.step.ended", map[string]any{"finish": "stop", "tokens": map[string]int{"input": -1, "output": 2}}), FailureProtocol},
-		{"permission", openCodeSSE("permission.asked", nil), FailurePermission},
+		{"permission", openCodeSSE("permission.asked", map[string]any{"id": "per_1", "sessionID": openCodeSession, "action": "bash", "resources": []string{"echo"}}), FailurePermission},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := parseOpenCodeFixture(t, test.stream)
@@ -143,7 +145,7 @@ func TestOpenCodeObserverFailure(t *testing.T) {
 	}
 	defer gate.close()
 	live := newLiveness(t.Context(), func() {}, nil, 0, 0, "")
-	err = parseOpenCodeEvents(newOpenCodeEvents(strings.NewReader(openCodeStart()+openCodeSSE("session.text.started", map[string]any{"ordinal": 0})+openCodeSSE("session.text.delta", map[string]any{"ordinal": 0, "delta": "hello"}))), openCodeSession, gate, live)
+	err = parseOpenCodeEvents(context.Background(), newOpenCodeEvents(strings.NewReader(openCodeStart()+openCodeSSE("session.text.started", map[string]any{"ordinal": 0})+openCodeSSE("session.text.delta", map[string]any{"ordinal": 0, "delta": "hello"}))), openCodeSession, gate, live, nil, "", "")
 	if !errors.Is(err, problem) {
 		t.Fatal(err)
 	}

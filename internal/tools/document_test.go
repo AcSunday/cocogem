@@ -74,11 +74,11 @@ func TestReadFileParsesSinglePageTextPDF(t *testing.T) {
 
 func TestPDFParserRefusesUnsupportedComplexity(t *testing.T) {
 	multiPage := []byte("%PDF-1.4\n<< /Type /Page >> << /Type /Page >>")
-	if _, _, err := AdaptDocument("multi.pdf", multiPage); err == nil {
+	if _, _, err := AdaptDocument(t.Context(), "multi.pdf", multiPage); err == nil {
 		t.Fatal("multi-page PDF was falsely reported as parsed")
 	}
 	imageOnly := []byte("%PDF-1.4\n<< /Type /Page >>\nstream\n/Image\nendstream")
-	if _, _, err := AdaptDocument("scan.pdf", imageOnly); err == nil {
+	if _, _, err := AdaptDocument(t.Context(), "scan.pdf", imageOnly); err == nil {
 		t.Fatal("image-only PDF was falsely reported as text")
 	}
 }

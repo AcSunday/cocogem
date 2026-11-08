@@ -24,6 +24,20 @@ var ErrQueueFull = errors.New("执行队列已满")
 // run. It never revives the old attempt history: the source run stays terminal,
 // and the retry is linked through Input.RetryOfRunID.
 func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
+	return e.retry(ctx, id, "", "")
+}
+
+// RetryStep retries one failed member step, preserving successful upstream work
+// and replacing that member's unfinished reply in the conversation. A stable
+// request key also deduplicates responses lost after execution settled.
+func (e *Engine) RetryStep(ctx context.Context, id, stepID, requestKey string) (w.Run, error) {
+	if stepID == "" || len(requestKey) < 16 || len(requestKey) > 100 {
+		return w.Run{}, errors.New("a failed step and a stable retry request key are required")
+	}
+	return e.retry(ctx, id, stepID, requestKey)
+}
+
+func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Run, error) {
 	var source w.Run
 	if err := e.Store.Read(ctx, func(tx *store.Tx) error {
 		var err error
@@ -42,6 +56,7 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 	if e.Model == nil && len(e.Runners) == 0 && e.Fallback == nil {
 		return source, errors.New("model is unavailable; cannot retry")
 	}
+	requestHash := contentDigest(id + ":" + stepID)
 
 	var retried w.Run
 	err := e.Store.Write(ctx, func(tx *store.Tx) error {
@@ -52,12 +67,37 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 		if _, err := tx.Thread(current.ThreadID); err != nil {
 			return err
 		}
+		if requestKey != "" {
+			previous, hash, err := tx.Idempotent(current.ThreadID, "member-retry-"+requestKey)
+			if err == nil {
+				if hash != requestHash {
+					return w.ErrConflict
+				}
+				retried = previous
+				return nil
+			}
+			if !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+		}
 		if current.Status != "failed" && current.Status != "canceled" {
 			return w.ErrConflict
 		}
 		thread, err := tx.Thread(current.ThreadID)
 		if err != nil {
 			return err
+		}
+		if stepID != "" {
+			history, err := tx.Runs(current.ThreadID)
+			if err != nil {
+				return err
+			}
+			for _, previous := range history {
+				if previous.Input.RetryOfRunID == current.ID && previous.RetryOfStepID == stepID {
+					retried = previous
+					return nil
+				}
+			}
 		}
 		workspace, err := tx.Workspace(current.WorkspaceID)
 		if err != nil {
@@ -73,7 +113,7 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 			}
 			// Repeated clicks while the retry is queued return the accepted run
 			// instead of creating duplicates.
-			if other.Input.RetryOfRunID == current.ID {
+			if other.Input.RetryOfRunID == current.ID && other.RetryOfStepID == stepID {
 				retried = other
 				return nil
 			}
@@ -110,7 +150,24 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 			}
 		}
 		runID := w.NewID()
-		steps, err := Plan(runID, input, agents)
+		var steps []w.Step
+		if stepID == "" {
+			steps, err = Plan(runID, input, agents)
+		} else {
+			attempts, readErr := tx.Attempts(current.ID)
+			if readErr != nil {
+				return readErr
+			}
+			if err := e.verifyResumeProcesses(attempts); err != nil {
+				return err
+			}
+			steps, err = retryStepPlan(tx, runID, current, stepID)
+			if err == nil {
+				// The retried member's unfinished reply is replaced by the new
+				// attempt's message; completed peers keep their exact records.
+				err = tx.DeleteUnfinishedStepMessages(current.ID, stepID)
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -130,11 +187,13 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 			ThreadID:              thread.ID,
 			Input:                 input,
 			Routing:               current.Routing,
+			RetryOfStepID:         stepID,
 			Status:                "queued",
 			CreatedAt:             w.Now(),
 			CoordinatorID:         coordinatorID,
 			SkillVersions:         map[string]string{},
 			TaskID:                current.TaskID,
+			TaskIntake:            current.TaskIntake && current.TaskID == "",
 			TaskRevision:          current.TaskRevision,
 			PolicyVersion:         current.PolicyVersion,
 			BudgetAccountID:       current.BudgetAccountID,
@@ -152,6 +211,10 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 				Stall:         policy.Stall,
 				StallAction:   policy.StallAction,
 			},
+		}
+		if stepID != "" {
+			run.Routing.Decision = "assign"
+			run.Routing.Explanation = "重试指定失败成员，保留已完成的工作"
 		}
 		if err := tx.ReserveTaskRun(&run); err != nil {
 			return err
@@ -180,7 +243,7 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 				thread.AgentIDs = append(thread.AgentIDs, member.ID)
 			}
 		}
-		if input.Workflow == "free" || input.Workflow == "" {
+		if stepID == "" && (input.Workflow == "free" || input.Workflow == "") {
 			for _, member := range agents {
 				if !member.Disabled && slices.Contains(thread.AgentIDs, member.ID) && !slices.ContainsFunc(run.Agents, func(agent w.Agent) bool { return agent.ID == member.ID }) {
 					run.Agents = append(run.Agents, member)
@@ -203,7 +266,11 @@ func (e *Engine) Retry(ctx context.Context, id string) (w.Run, error) {
 			return err
 		}
 		key := "retry-" + current.ID + "-" + w.NewID()
-		if err := tx.InsertRun(run, key, contentDigest(string(body))); err != nil {
+		hash := contentDigest(string(body))
+		if requestKey != "" {
+			key, hash = "member-retry-"+requestKey, requestHash
+		}
+		if err := tx.InsertRun(run, key, hash); err != nil {
 			return err
 		}
 		for _, step := range steps {

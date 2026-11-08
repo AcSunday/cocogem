@@ -10,9 +10,10 @@ export type StyleModule = Record<string, string>;
  * module from leaking into components that never asked for it.
  */
 export function scoped(...modules: StyleModule[]) {
-  return (value: string): string =>
-    value
-      .split(/\s+/)
+  return (...values: (string | false | null | undefined)[]): string =>
+    values
+      .filter((value): value is string => Boolean(value))
+      .flatMap((value) => value.split(/\s+/))
       .filter(Boolean)
       .map((name) => {
         const hits = modules.map((m) => m[name]).filter(Boolean);

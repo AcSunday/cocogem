@@ -12,12 +12,15 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
+	"github.com/AcSunday/cocogem/internal/execution"
 	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/nativecli"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/testutil"
 	"github.com/AcSunday/cocogem/internal/workflow"
@@ -44,6 +47,16 @@ func TestBrowserServer(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Browser test fixture\n\nStable identity is separate from display names and model settings.\nWorkflows have finite dependencies and capture sources.\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	// A real file outside the bound fixture root. The permission E2E asks a member
+	// to read it, so the browser must exercise a real host approval instead of a
+	// mock: nothing happens until the user decides in the UI.
+	permissionFile := filepath.Join(data, "permission-outside.txt")
+	if err := os.WriteFile(permissionFile, []byte("PERMISSION_E2E_OUTSIDE_CONTENT"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Setenv("COCOGEM_E2E_PERMISSION_FILE", permissionFile); err != nil {
+		t.Fatal(err)
+	}
 	db, err := store.Open(filepath.Join(data, "state.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +66,7 @@ func TestBrowserServer(t *testing.T) {
 	defer cancel()
 	provider := browserModel{}
 	engine := &workflow.Engine{Store: db, Model: provider, Runners: map[string]agent.Runner{"claude": browserRunner{model: provider}}, Web: testutil.Web{}, AllowedModels: []string{"default"}, AllowedRoots: []string{root}}
+	engine.Executions = execution.New(db, filepath.Join(data, "executions"), "browser-fixture")
 	listener, err := net.Listen("tcp", os.Getenv("COCOGEM_E2E_LISTEN"))
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +104,55 @@ type browserModel struct{ testutil.Model }
 // The product loop limits are untouched.
 type browserRunner struct{ model model.Model }
 
+var browserMemberRetryOnce sync.Map
+
 func (r browserRunner) Run(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
+	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && strings.Contains(request.Messages[0].Content[0].Text, "成员重试浏览器验收：") {
+		if strings.Contains(request.System, "@orange") {
+			if _, retried := browserMemberRetryOnce.LoadOrStore("orange", true); !retried {
+				if err := observe("text", map[string]any{"text": "橘猫的首次回复未完成。"}); err != nil {
+					return err
+				}
+				return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "Gemini returned an empty, truncated or malformed response; this step did not complete"}
+			}
+		}
+		return observe("text", map[string]any{"text": "成员回复已完成（成员重试合成验证）。"})
+	}
+	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && slices.ContainsFunc(request.Tools, func(tool model.Tool) bool { return tool.Name == "promote_to_task" }) {
+		text := request.Messages[0].Content[0].Text
+		for _, marker := range []string{"文件交付浏览器验收：", "任务触发浏览器验收："} {
+			if strings.Contains(text, "Original user task:\n"+marker) {
+				goal := strings.SplitN(strings.SplitN(text, "Original user task:\n", 2)[1], "\n", 2)[0]
+				raw, _ := json.Marshal(map[string]string{"title": "浏览器合成任务", "goal": goal, "evidence_quote": goal})
+				_, err := execute(ctx, "promote_to_task", raw)
+				return err
+			}
+		}
+	}
+	if browserOriginalTaskHasPrefix(request, "Original user task:\n权限审批浏览器验收：") || browserOriginalTaskHasPrefix(request, "权限审批浏览器验收：") {
+		return r.runPermissionFixture(ctx, request, execute, observe)
+	}
+	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && strings.Contains(request.Messages[0].Content[0].Text, "Original user task:\n文件交付浏览器验收：") {
+		if !request.TrustedExecution || request.WorkingDirectory == "" {
+			return fmt.Errorf("file fixture requires authorized task execution")
+		}
+		files, err := filepath.Glob(filepath.Join(request.WorkingDirectory, "inputs", "*"))
+		if err != nil || len(files) != 1 {
+			return fmt.Errorf("expected one original attachment")
+		}
+		data, err := os.ReadFile(files[0])
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "result.custom"), append([]byte("processed:"), data...), 0600); err != nil {
+			return err
+		}
+		raw, _ := json.Marshal(map[string]any{"paths": []string{"result.custom"}, "title": "文件处理完成", "body": "已读取附件原件并生成可下载文件。"})
+		if _, err := execute(ctx, "publish_file", raw); err != nil {
+			return err
+		}
+		return observe("text", map[string]any{"text": "已处理附件并交付成品。"})
+	}
 	if len(request.Messages) > 0 && len(request.Messages[0].Content) > 0 && strings.Contains(request.Messages[0].Content[0].Text, "Original user task:\n长任务浏览器验收：") {
 		return browserLongTask(ctx, execute, observe)
 	}
@@ -367,4 +429,135 @@ func browserCollaboration(request model.Request, emit func(string) error) (model
 		}
 	}
 	return model.Response{}, errors.New("browser collaboration fixture cannot find the required member capability")
+}
+
+// runPermissionFixture asks for one real host read outside the bound project root
+// through the ordinary executeTool path. The step only continues after the UI
+// decision; a denial returns the real error and publishes nothing.
+func (r browserRunner) runPermissionFixture(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
+	path := os.Getenv("COCOGEM_E2E_PERMISSION_FILE")
+	if path == "" {
+		return fmt.Errorf("permission fixture path is not configured")
+	}
+	// The fixture must use the same honest lifecycle as the real bridge: a stable
+	// call identity, tool_started before the dispatch, and tool_finished only with
+	// the actual result. Nothing is reported as succeeded before the host returns.
+	const callID = "browser-permission-read"
+	raw, _ := json.Marshal(map[string]string{"path": path})
+	if err := observe("tool_started", map[string]any{"tool_call_id": callID, "name": "read_file", "origin": "host", "input": raw}); err != nil {
+		return err
+	}
+	started := time.Now()
+	output, err := execute(agent.WithToolCall(ctx, callID), "read_file", raw)
+	status := "succeeded"
+	if err != nil {
+		status = "denied"
+	}
+	if obsErr := observe("tool_finished", map[string]any{"tool_call_id": callID, "name": "read_file", "origin": "host", "status": status, "output": output, "duration_ms": time.Since(started).Milliseconds()}); obsErr != nil {
+		return obsErr
+	}
+	if err != nil {
+		return observe("text", map[string]any{"text": "授权未通过：" + err.Error()})
+	}
+	content := "已读取"
+	if strings.Contains(output, "PERMISSION_E2E_OUTSIDE_CONTENT") {
+		content = "PERMISSION_E2E_OUTSIDE_CONTENT"
+	}
+	artifact, _ := json.Marshal(map[string]any{
+		"type": "note", "title": "权限审批浏览器验收", "body": "审批后读取内容：" + content,
+		"findings": []any{}, "source_ids": []string{}, "limitations": []string{"浏览器合成验证据此文件与临时目录。"},
+	})
+	const publishCallID = "browser-permission-publish"
+	if err := observe("tool_started", map[string]any{"tool_call_id": publishCallID, "name": "publish_artifact", "origin": "host", "input": artifact}); err != nil {
+		return err
+	}
+	publishStarted := time.Now()
+	receipt, err := execute(agent.WithToolCall(ctx, publishCallID), "publish_artifact", artifact)
+	publishStatus := "succeeded"
+	if err != nil {
+		publishStatus = "failed"
+	}
+	if obsErr := observe("tool_finished", map[string]any{"tool_call_id": publishCallID, "name": "publish_artifact", "origin": "host", "status": publishStatus, "output": receipt, "duration_ms": time.Since(publishStarted).Milliseconds()}); obsErr != nil {
+		return obsErr
+	}
+	if err != nil {
+		return err
+	}
+	return observe("text", map[string]any{"text": "权限审批浏览器验收完成。"})
+}
+
+// TestPermissionBrowserFixtureWaitsForDecision proves the browser fixture itself
+// uses the ordinary host path: a denied execute produces no artifact, and an
+// allowed one publishes the real bytes it read.
+func TestPermissionBrowserFixtureWaitsForDecision(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(root, "permission-outside.txt")
+	if err := os.WriteFile(outside, []byte("PERMISSION_E2E_OUTSIDE_CONTENT"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COCOGEM_E2E_PERMISSION_FILE", outside)
+	request := model.Request{Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Original user task:\n权限审批浏览器验收：读取项目外文件。"}}}}}
+	var published map[string]any
+	events := []string{}
+	record := func(kind string, _ map[string]any) error { return nil }
+	executeDeny := func(_ context.Context, name string, _ json.RawMessage) (string, error) {
+		if name == "publish_artifact" {
+			t.Fatal("denied fixture published an artifact")
+		}
+		return "", errors.New("permission_denied: the user denied this operation")
+	}
+	texts := []string{}
+	observeDeny := func(kind string, data map[string]any) error {
+		if kind == "tool_started" || kind == "tool_finished" {
+			events = append(events, kind+":"+fmt.Sprint(data["tool_call_id"])+":"+fmt.Sprint(data["status"]))
+		}
+		if kind == "text" {
+			if text, ok := data["text"].(string); ok {
+				texts = append(texts, text)
+			}
+		}
+		return nil
+	}
+	if err := (browserRunner{}).runPermissionFixture(context.Background(), request, executeDeny, observeDeny); err != nil {
+		t.Fatalf("denied fixture returned an error: %v", err)
+	}
+	if len(texts) == 0 || !strings.Contains(texts[0], "授权未通过") {
+		t.Fatalf("denial was not reported: %v", texts)
+	}
+	// Honest lifecycle: start before the dispatch, finish with the real denial.
+	if len(events) != 2 || events[0] != "tool_started:browser-permission-read:<nil>" || events[1] != "tool_finished:browser-permission-read:denied" {
+		t.Fatalf("denied fixture lifecycle = %v", events)
+	}
+	_ = record
+	executeAllow := func(_ context.Context, name string, input json.RawMessage) (string, error) {
+		switch name {
+		case "read_file":
+			return "1\tPERMISSION_E2E_OUTSIDE_CONTENT", nil
+		case "publish_artifact":
+			if err := json.Unmarshal(input, &published); err != nil {
+				t.Fatal(err)
+			}
+			return `{"accepted":true}`, nil
+		}
+		return "", errors.New("unexpected tool")
+	}
+	texts = nil
+	events = nil
+	if err := (browserRunner{}).runPermissionFixture(context.Background(), request, executeAllow, observeDeny); err != nil {
+		t.Fatalf("allowed fixture failed: %v", err)
+	}
+	if published == nil || !strings.Contains(fmt.Sprint(published["body"]), "PERMISSION_E2E_OUTSIDE_CONTENT") {
+		t.Fatalf("allowed fixture did not publish the real content: %+v", published)
+	}
+	// The same call row moves pending -> succeeded only after the real read, then
+	// the publish follows its own start/finish.
+	want := []string{
+		"tool_started:browser-permission-read:<nil>",
+		"tool_finished:browser-permission-read:succeeded",
+		"tool_started:browser-permission-publish:<nil>",
+		"tool_finished:browser-permission-publish:succeeded",
+	}
+	if fmt.Sprint(events) != fmt.Sprint(want) {
+		t.Fatalf("allowed fixture lifecycle = %v, want %v", events, want)
+	}
 }

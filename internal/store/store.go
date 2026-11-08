@@ -38,7 +38,7 @@ type Tx struct {
 	tx  *sql.Tx
 }
 
-// Open creates or migrates a private SQLite database.
+// Open initializes a private SQLite database with the current schema.
 func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
@@ -66,6 +66,14 @@ func Open(path string) (*Store, error) {
 	if _, err = db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize schema: %w", err)
+	}
+	if err = migrateExecutionPolicy(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate global execution policy: %w", err)
+	}
+	if err = migrateTaskThreads(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate task conversations: %w", err)
 	}
 	return &Store{db: db, changed: make(chan struct{})}, nil
 }
@@ -314,7 +322,7 @@ func (t *Tx) SaveRun(v w.Run) error {
 	if w.Terminal(old.Status) {
 		return w.ErrConflict
 	}
-	if err := t.exec("UPDATE runs SET status=?,body=? WHERE id=?", v.Status, body(v), v.ID); err != nil {
+	if err := t.exec("UPDATE runs SET task_id=?,status=?,body=? WHERE id=?", v.TaskID, v.Status, body(v), v.ID); err != nil {
 		return err
 	}
 	if w.Terminal(v.Status) {
@@ -539,11 +547,18 @@ func (t *Tx) DeleteThread(id string) error {
 		return w.ErrConflict
 	}
 	for _, q := range []string{
+		// Execution authorization rows reference the thread and its runs, so they
+		// must be removed before the runs and the thread itself. Admissions first
+		// (they reference requests), then requests and conversation grants.
+		"DELETE FROM tool_invocation_admissions WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
+		"DELETE FROM tool_permission_requests WHERE thread_id=?",
+		"DELETE FROM conversation_grants WHERE thread_id=?",
 		"DELETE FROM delivery_receipts WHERE target_task_id IN (SELECT id FROM tasks WHERE thread_id=?) OR message_id IN (SELECT id FROM collaboration_messages WHERE sender_task_id IN (SELECT id FROM tasks WHERE thread_id=?))",
 		"DELETE FROM collaboration_messages WHERE sender_task_id IN (SELECT id FROM tasks WHERE thread_id=?) OR target_task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM wakeups WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM inbox_items WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM task_action_receipts WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM task_creation_receipts WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM questions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM effect_records WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM execution_sessions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
@@ -568,6 +583,7 @@ func (t *Tx) DeleteThread(id string) error {
 		"DELETE FROM source_imports WHERE thread_id=?",
 		"DELETE FROM artifacts WHERE thread_id=?",
 		"DELETE FROM runs WHERE thread_id=?",
+		"DELETE FROM bootstrap_receipts WHERE thread_id=?",
 		"DELETE FROM threads WHERE id=?",
 	} {
 		args := []any{id}
@@ -594,6 +610,11 @@ func (t *Tx) DeleteWorkspace(id string) error {
 	}
 	for _, q := range []string{
 		"DELETE FROM bootstrap_receipts WHERE workspace_id=?",
+		"DELETE FROM task_creation_receipts WHERE workspace_id=?",
+		"DELETE FROM task_dependencies WHERE consumer_task_id IN (SELECT id FROM tasks WHERE workspace_id=?)",
+		"DELETE FROM task_revisions WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id=?)",
+		"DELETE FROM budget_accounts WHERE root_task_id IN (SELECT id FROM tasks WHERE workspace_id=?)",
+		"DELETE FROM tasks WHERE workspace_id=?",
 		"DELETE FROM grants WHERE workspace_id=?",
 		"DELETE FROM memory_records WHERE workspace_id=?",
 		"DELETE FROM project_records WHERE workspace_id=?",

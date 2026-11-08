@@ -25,16 +25,10 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 	if in.run.TaskID == "" {
 		return w.ExecutionSession{}, nil
 	}
-	visibilityEpoch := 0
-	grants, err := tx.Grants(in.run.WorkspaceID)
-	if err != nil {
-		return w.ExecutionSession{}, err
-	}
-	for _, grant := range grants {
-		if grant.SubjectMemberID == in.member.ID && grant.Status == "active" {
-			visibilityEpoch = max(visibilityEpoch, grant.Epoch)
-		}
-	}
+	// Visibility is bound to the global permission epoch frozen on this Run.
+	// Retired workspace grants are history: their epoch must not keep an old
+	// session alive after a full_access -> controlled -> full_access round trip.
+	visibilityEpoch := max(1, in.run.PermissionEpoch)
 	exposed := make([]string, 0, len(in.sources))
 	for _, source := range in.sources {
 		digest, err := sourceDigest(tx, source)
@@ -96,6 +90,7 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 		UnenforcedConstraints []string `json:"unenforced_constraints"`
 		ExecutionRef          string   `json:"execution_ref"`
 		ExecutionRoot         string   `json:"execution_root"`
+		PermissionEpoch       int      `json:"permission_epoch"`
 		GrantSnapshot         string   `json:"grant_snapshot"`
 		GrantActions          []string `json:"grant_actions"`
 		ContextProtocol       string   `json:"context_protocol"`
@@ -107,7 +102,8 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 		RequestedMode: in.run.RequestedExecutionMode, EffectiveMode: in.run.EffectiveExecutionMode,
 		UnenforcedConstraints: in.run.UnenforcedConstraints,
 		ExecutionRef:          in.run.ExecutionRef, ExecutionRoot: in.run.ProjectRoot(),
-		GrantSnapshot: in.run.GrantSnapshot, GrantActions: grantActions, ContextProtocol: contextProtocol,
+		PermissionEpoch: in.run.PermissionEpoch,
+		GrantSnapshot:   in.run.GrantSnapshot, GrantActions: grantActions, ContextProtocol: contextProtocol,
 	}
 	encoded, err := json.Marshal(fingerprintInput)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"io"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -77,7 +78,20 @@ func watchCancel(ctx context.Context, stop func()) func() {
 // The verdict always comes from checking the group afterwards, not from it.
 const processGroupGrace = 250 * time.Millisecond
 
+// claudeStreamInput enables the bidirectional Claude control protocol. It is
+// nil for print-mode adapters and for full access.
+type claudeStreamInput struct {
+	prompt   string
+	approver *nativeApprover
+	sandbox  *nativeSandbox
+	cwd      string
+}
+
 func streamProcess(ctx context.Context, executor string, cmd *exec.Cmd, gate *bridge, live *liveness) error {
+	return streamProcessWithClaude(ctx, executor, cmd, gate, live, nil)
+}
+
+func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd, gate *bridge, live *liveness, claude *claudeStreamInput) error {
 	if err := configureProcess(cmd); err != nil {
 		return err
 	}
@@ -86,11 +100,28 @@ func streamProcess(ctx context.Context, executor string, cmd *exec.Cmd, gate *br
 	if err != nil {
 		return newFailure(FailureProcess, "open native CLI output")
 	}
+	var stdin io.WriteCloser
+	if claude != nil {
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			return newFailure(FailureProcess, "open native CLI input")
+		}
+	}
 	if err := cmd.Start(); err != nil {
 		return newFailure(FailureProcess, "start native CLI: executable unavailable")
 	}
 	if live != nil {
 		live.dispatched()
+	}
+	var control *claudeControl
+	if claude != nil {
+		control = newClaudeControl(stdin, gate, live, claude.approver, claude.sandbox, claude.cwd, claude.prompt)
+		if err := control.begin(); err != nil {
+			terminateProcess(cmd)
+			_ = cmd.Wait()
+			return err
+		}
+		defer control.close()
 	}
 	joinCancel := watchCancel(ctx, func() { terminateProcess(cmd) })
 	defer joinCancel()
@@ -124,7 +155,17 @@ func streamProcess(ctx context.Context, executor string, cmd *exec.Cmd, gate *br
 	case "pi":
 		streamErr = parsePi(stdout, gate, live)
 	default:
-		streamErr = parseClaude(stdout, gate, live)
+		streamErr = parseClaudeWithControl(stdout, gate, live, control)
+	}
+	if control != nil {
+		if controlErr := control.failure(); controlErr != nil && streamErr == nil {
+			streamErr = controlErr
+		}
+	}
+	if control != nil {
+		// A successful result still leaves the CLI waiting on stdin; close the
+		// control stream before waiting so a normal turn does not deadlock.
+		control.close()
 	}
 	if streamErr != nil {
 		terminateProcess(cmd)

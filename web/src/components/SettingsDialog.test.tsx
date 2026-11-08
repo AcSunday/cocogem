@@ -31,9 +31,12 @@ afterEach(() => {
 
 const savedSettings = (value: SettingsInput): Settings => ({
   revision: 2,
-  default_coordinator_id: value.default_coordinator_id,
-  assignments: value.assignments,
+  default_coordinator_id: value.default_coordinator_id ?? "",
+  assignments: value.assignments ?? {},
   retention_days: value.retention_days ?? undefined,
+  // Saving collaboration must never move the permission boundary.
+  execution_mode: "project_autonomous",
+  permission_epoch: 1,
 });
 
 it("shows the recorded coordinator and exact shared skill versions", () => {
@@ -181,7 +184,7 @@ it("clears an unavailable member instead of saving the stale id", async () => {
   });
 });
 
-it("configures engineering analyst, developer and reviewer defaults", async () => {
+it("configures engineering engineer and reviewer defaults", async () => {
   const system = {
     csrf_token: "",
     limits: {},
@@ -192,7 +195,7 @@ it("configures engineering analyst, developer and reviewer defaults", async () =
     verified: {},
     executors: [],
   } as unknown as System;
-  const agents: Agent[] = ["analyst", "developer", "reviewer"].map((id) => ({
+  const agents: Agent[] = ["engineer", "reviewer"].map((id) => ({
     id,
     workspace_id: "",
     display_name: id,
@@ -223,18 +226,18 @@ it("configures engineering analyst, developer and reviewer defaults", async () =
   const engineering = screen
     .getByText("工程协作")
     .closest("fieldset") as HTMLElement;
-  expect(within(engineering).getByLabelText("分析")).toBeInTheDocument();
+  expect(within(engineering).getByLabelText("执行")).toBeInTheDocument();
   expect(within(engineering).getByLabelText("复核")).toBeInTheDocument();
   await chooseOption(
     user,
-    within(engineering).getByLabelText("开发"),
-    "developer",
+    within(engineering).getByLabelText("执行"),
+    "engineer",
   );
   await user.click(screen.getByRole("button", { name: "保存协作默认" }));
   await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
   expect(
-    saveSettings.mock.calls[0][0].assignments?.engineering?.developer,
-  ).toBe("developer");
+    saveSettings.mock.calls[0][0].assignments?.engineering?.engineer,
+  ).toBe("engineer");
 });
 
 it("shows the persisted method and selection reason without raw payloads", () => {
@@ -373,7 +376,7 @@ it("shows install, execution and connection state independently", async () => {
   ).toBeInTheDocument();
 });
 
-it("restores or purges trash entries only after explicit confirmation", async () => {
+it("keeps retention first and restores or purges selected entries only from the toolbar", async () => {
   const items = [
     trashItem("old", "旧会话", 7),
     trashItem("gone", "已清理会话", 8, "别的空间"),
@@ -383,7 +386,6 @@ it("restores or purges trash entries only after explicit confirmation", async ()
     return Response.json({ id: path.split("/")[4] });
   });
   vi.stubGlobal("fetch", fetcher);
-  const onRestoreThread = vi.fn(async () => {});
   const onTrashChanged = vi.fn(async () => {});
   render(
     <SettingsDialog
@@ -398,33 +400,33 @@ it("restores or purges trash entries only after explicit confirmation", async ()
         retention_days: 30,
       }}
       saveSettings={async (value) => savedSettings(value)}
-      onRestoreThread={onRestoreThread}
       onTrashChanged={onTrashChanged}
     />,
   );
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "回收站" }));
+  const retention = screen.getByRole("heading", { name: "保留周期" });
+  const trash = screen.getByRole("heading", { name: "回收站" });
+  expect(
+    retention.compareDocumentPosition(trash) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).not.toBe(0);
   expect(await screen.findByText("旧会话")).toBeVisible();
   expect(screen.getAllByText("研究室").length).toBeGreaterThan(0);
   expect(screen.getAllByText(/删除于 2026-10-01/).length).toBeGreaterThan(0);
   expect(
     screen.getAllByText(/计划于 2026-10-31.*自动清理/).length,
   ).toBeGreaterThan(0);
-
-  await user.click(screen.getByRole("button", { name: "恢复会话：旧会话" }));
   expect(
-    screen.getByRole("alertdialog", { name: "确认恢复 旧会话" }),
-  ).toBeVisible();
-  expect(fetcher).not.toHaveBeenCalledWith(
-    "/api/v1/threads/old/restore",
-    expect.anything(),
-  );
-  await user.click(screen.getByRole("button", { name: "确认恢复" }));
-  await waitFor(() =>
-    expect(onRestoreThread).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "old", workspace_id: "ws" }),
-    ),
-  );
+    screen.queryByRole("button", { name: "恢复会话：旧会话" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "永久删除会话：旧会话" }),
+  ).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("checkbox", { name: "选择会话：旧会话" }));
+  await user.click(screen.getByRole("button", { name: "恢复所选" }));
+  await waitFor(() => expect(onTrashChanged).toHaveBeenCalledOnce());
   expect(fetcher).toHaveBeenCalledWith(
     "/api/v1/threads/old/restore",
     expect.objectContaining({
@@ -434,13 +436,14 @@ it("restores or purges trash entries only after explicit confirmation", async ()
   );
 
   await user.click(
-    screen.getByRole("button", { name: "永久删除会话：已清理会话" }),
+    screen.getByRole("checkbox", { name: "选择会话：已清理会话" }),
   );
+  await user.click(screen.getByRole("button", { name: "永久删除所选" }));
   expect(
-    screen.getByRole("alertdialog", { name: "确认永久删除 已清理会话" }),
+    screen.getByRole("alertdialog", { name: "确认永久删除 1 个会话" }),
   ).toHaveTextContent("无法恢复");
   await user.click(screen.getByRole("button", { name: "确认永久删除" }));
-  await waitFor(() => expect(onTrashChanged).toHaveBeenCalledOnce());
+  await waitFor(() => expect(onTrashChanged).toHaveBeenCalledTimes(2));
   expect(fetcher).toHaveBeenCalledWith(
     "/api/v1/threads/gone/permanent",
     expect.objectContaining({
@@ -448,6 +451,134 @@ it("restores or purges trash entries only after explicit confirmation", async ()
       headers: expect.objectContaining({ "If-Match": "8" }),
     }),
   );
+});
+
+it("restores multiple selected trash entries without a confirmation", async () => {
+  const items = [
+    trashItem("a", "会话 A", 3),
+    trashItem("b", "会话 B", 4),
+    trashItem("c", "会话 C", 5),
+  ];
+  const fetcher = vi.fn(async (path: string) => {
+    if (path === "/api/v1/trash") return Response.json({ items });
+    return Response.json({ id: path.split("/")[4] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const onTrashChanged = vi.fn(async () => {});
+  render(
+    <SettingsDialog
+      system={serviceSystem()}
+      setSystem={() => {}}
+      close={() => {}}
+      lock={async () => {}}
+      settings={{
+        revision: 4,
+        default_coordinator_id: "one",
+        assignments: {},
+        retention_days: 30,
+      }}
+      saveSettings={async (value) => savedSettings(value)}
+      onTrashChanged={onTrashChanged}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "回收站" }));
+  expect(await screen.findByText("会话 A")).toBeVisible();
+  const selectAll = screen.getByRole("checkbox", { name: "全选" });
+  await user.click(screen.getByRole("checkbox", { name: "选择会话：会话 A" }));
+  await waitFor(() =>
+    expect(selectAll).toHaveProperty("indeterminate", true),
+  );
+  await user.click(screen.getByRole("checkbox", { name: "选择会话：会话 B" }));
+  expect(screen.getByText("已选 2 项")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "恢复所选" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await waitFor(() => expect(onTrashChanged).toHaveBeenCalledOnce());
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/v1/threads/a/restore",
+    expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "If-Match": "3" }),
+    }),
+  );
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/v1/threads/b/restore",
+    expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "If-Match": "4" }),
+    }),
+  );
+  expect(fetcher).not.toHaveBeenCalledWith(
+    "/api/v1/threads/c/restore",
+    expect.anything(),
+  );
+  expect(await screen.findByText("已恢复 2 个会话。")).toBeVisible();
+  expect(screen.queryByText("会话 A")).toBeNull();
+  expect(screen.getByText("会话 C")).toBeVisible();
+});
+
+it("selects all trash entries and purges them only after confirmation", async () => {
+  const items = [
+    trashItem("a", "会话 A", 3),
+    trashItem("b", "会话 B", 4),
+    trashItem("c", "会话 C", 5),
+  ];
+  const fetcher = vi.fn(async (path: string) => {
+    if (path === "/api/v1/trash") return Response.json({ items });
+    return Response.json({ id: path.split("/")[4] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const onTrashChanged = vi.fn(async () => {});
+  render(
+    <SettingsDialog
+      system={serviceSystem()}
+      setSystem={() => {}}
+      close={() => {}}
+      lock={async () => {}}
+      settings={{
+        revision: 4,
+        default_coordinator_id: "one",
+        assignments: {},
+        retention_days: 30,
+      }}
+      saveSettings={async (value) => savedSettings(value)}
+      onTrashChanged={onTrashChanged}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "回收站" }));
+  expect(await screen.findByText("会话 A")).toBeVisible();
+  const selectAll = screen.getByRole("checkbox", { name: "全选" });
+  await user.click(selectAll);
+  expect(selectAll).toBeChecked();
+  expect(screen.getByText("已选 3 项")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "永久删除所选" }));
+  const dialog = screen.getByRole("alertdialog", {
+    name: "确认永久删除 3 个会话",
+  });
+  expect(dialog).toHaveTextContent("无法恢复");
+  expect(fetcher).not.toHaveBeenCalledWith(
+    expect.stringContaining("/permanent"),
+    expect.anything(),
+  );
+  await user.click(screen.getByRole("button", { name: "确认永久删除" }));
+  await waitFor(() => expect(onTrashChanged).toHaveBeenCalledOnce());
+  for (const [id, revision] of [
+    ["a", "3"],
+    ["b", "4"],
+    ["c", "5"],
+  ]) {
+    expect(fetcher).toHaveBeenCalledWith(
+      `/api/v1/threads/${id}/permanent`,
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ "If-Match": revision }),
+      }),
+    );
+  }
+  expect(await screen.findByText("回收站为空。")).toBeVisible();
 });
 
 it("saves retention with the existing collaboration defaults intact", async () => {

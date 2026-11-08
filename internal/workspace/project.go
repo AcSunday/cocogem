@@ -160,6 +160,7 @@ type Task struct {
 	WorkspaceID          string `json:"workspace_id"`
 	ParentID             string `json:"parent_id,omitempty"`
 	ThreadID             string `json:"thread_id"`
+	Title                string `json:"title,omitempty"`
 	CurrentRevision      int    `json:"current_revision"`
 	OwnerMemberID        string `json:"owner_member_id"`
 	OwnerRevision        int    `json:"owner_revision"`

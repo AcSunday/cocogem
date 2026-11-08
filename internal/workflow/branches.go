@@ -20,7 +20,7 @@ func (e *Engine) stepWritesCandidate(run w.Run, step w.Step) bool {
 			continue
 		}
 		allowed := e.allowedTools(run, member, step)
-		return slices.Contains(allowed, "write_file") || slices.Contains(allowed, "patch_file") || slices.Contains(allowed, "run_test")
+		return slices.Contains(allowed, "write_file") || slices.Contains(allowed, "patch_file") || slices.Contains(allowed, "run_test") || slices.Contains(allowed, "run_command")
 	}
 	return false
 }

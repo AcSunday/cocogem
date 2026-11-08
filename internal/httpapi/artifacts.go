@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"slices"
 	"strconv"
@@ -11,6 +13,58 @@ import (
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
+
+func (s *Server) artifactFile(rw http.ResponseWriter, r *http.Request) {
+	version, err := artifactVersion(r)
+	var file w.ArtifactFile
+	var source w.Source
+	if err == nil {
+		err = s.store.Read(r.Context(), func(tx *store.Tx) error {
+			artifact, err := tx.Artifact(r.PathValue("id"), version)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Thread(artifact.ThreadID); err != nil {
+				return err
+			}
+			run, err := tx.Run(artifact.RunID)
+			if err != nil {
+				return err
+			}
+			if !w.IsDeliveredArtifact(run, artifact) {
+				return store.ErrNotFound
+			}
+			index := slices.IndexFunc(artifact.Files, func(f w.ArtifactFile) bool { return f.SourceID == r.PathValue("sourceID") })
+			if index < 0 {
+				return store.ErrNotFound
+			}
+			file = artifact.Files[index]
+			source, err = tx.Source(file.SourceID)
+			if err != nil {
+				return err
+			}
+			if source.ThreadID != artifact.ThreadID || source.Kind != "file_output" || source.OriginalDigest != file.SHA256 {
+				return store.ErrNotFound
+			}
+			return nil
+		})
+	}
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(source.OriginalContent)
+	if err != nil || len(data) != file.Size || digestBytes(data) != file.SHA256 {
+		respond(rw, r, nil, store.ErrNotFound)
+		return
+	}
+	rw.Header().Set("Content-Type", file.MediaType)
+	rw.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Name}))
+	rw.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	rw.Header().Set("X-Content-Type-Options", "nosniff")
+	rw.Header().Set("Cache-Control", "private, no-store")
+	_, _ = rw.Write(data)
+}
 
 func (s *Server) source(rw http.ResponseWriter, r *http.Request) {
 	var source w.Source

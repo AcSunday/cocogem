@@ -372,3 +372,82 @@ func (p Provider) openCodePlan(ctx context.Context, selected string) (connection
 	}
 	return plan, errors.New("OpenCode has no matching configured model; use provider/model or provider/model#variant")
 }
+
+// writeOpenCodePlugin installs the private execute.before host gate. A local
+// plugin path must be a directory; index.js is the server part.
+func writeOpenCodePlugin(dir string) error {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return errors.New("create private OpenCode plugin directory")
+	}
+	code := `import { Plugin } from "@opencode/plugin"
+import fs from "node:fs"
+
+const endpoint = process.env.COCOGEM_PLUGIN_URL
+const tokenFile = process.env.COCOGEM_PLUGIN_TOKEN_FILE
+let token = ""
+try {
+  token = fs.readFileSync(tokenFile, "utf8").trim()
+  fs.unlinkSync(tokenFile)
+} catch {}
+
+async function host(path, body) {
+  const response = await fetch(endpoint + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    let detail = ""
+    try { detail = await response.text() } catch {}
+    throw new Error("host approval endpoint failed: " + response.status + " " + detail)
+  }
+  return response.json()
+}
+
+export default Plugin.define({
+  id: "cocogem-native-gate",
+  async setup(ctx) {
+    await ctx.tool.hook("execute.before", async (event) => {
+      if (typeof event.tool === "string" && event.tool.startsWith("cocogem_")) return
+      const decision = await host("/permission", { id: event.id, tool: event.tool, input: event.input })
+      if (!decision.allow) throw new Error(decision.reason || "permission_denied")
+    })
+    await ctx.tool.transform((editor) => {
+      for (const name of ["bash", "shell"]) {
+        if (!editor.get(name)) continue
+        editor.update(name, (tool) => {
+          const original = tool.execute
+          tool.execute = async (input, context) => {
+            const command = input.command || input.cmd || ""
+            if (!command) return original(input, context)
+            const result = await host("/execute", { id: context.id, tool: "shell", input })
+            if (!result.ok) throw new Error(result.error || "native command failed")
+            return { content: result.output || "", metadata: { exit_code: result.exit_code, duration_ms: result.duration_ms } }
+          }
+        })
+      }
+      const root = process.env.COCOGEM_PROJECT_ROOT || ""
+      const outside = (value) => {
+        if (!root || !value) return false
+        const prefix = root.endsWith("/") ? root : root + "/"
+        return !(value === root || value.startsWith(prefix))
+      }
+      for (const name of ["read", "write", "edit"]) {
+        if (!editor.get(name)) continue
+        editor.update(name, (tool) => {
+          const original = tool.execute
+          tool.execute = async (input, context) => {
+            const path = input.path || input.filePath || ""
+            if (!outside(path)) return original(input, context)
+            const result = await host("/file", { id: context.id, tool: name, input })
+            if (!result.ok) throw new Error(result.error || "native file operation failed")
+            return { content: result.content || "", metadata: {} }
+          }
+        })
+      }
+    })
+  },
+})
+`
+	return os.WriteFile(filepath.Join(dir, "index.js"), []byte(code), 0600)
+}

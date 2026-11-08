@@ -23,7 +23,7 @@ func TestManagedSessionResumesWithExactDeltaAfterProcessRestart(t *testing.T) {
 	run := seedCustomRun(t, db, []customStepSpec{{Agent: 0, Role: "developer", Instruction: "implement the accepted objective"}})
 	created := attachSessionTask(t, db, &run)
 	service := project.New(db)
-	if _, err := service.SetExecutionMode(t.Context(), run.WorkspaceID, w.ExecutionFullAccess, "full-access-choice", 1); err != nil {
+	if _, err := setGlobalMode(t, db, service, w.ExecutionFullAccess); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
@@ -208,4 +208,19 @@ func TestManagedSessionReuseBoundaries(t *testing.T) {
 			}
 		})
 	}
+}
+
+// setGlobalMode changes the one global permission policy used by a Run.
+func setGlobalMode(t *testing.T, db *store.Store, service *project.Service, mode string) (w.Settings, error) {
+	t.Helper()
+	var current w.Settings
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		var err error
+		current, err = tx.Settings()
+		return err
+	}); err != nil {
+		return current, err
+	}
+	change, err := service.UpdateSettings(t.Context(), current.Revision, project.SettingsPatch{ExecutionMode: &mode})
+	return change.Settings, err
 }

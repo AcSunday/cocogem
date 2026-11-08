@@ -3,13 +3,13 @@ import type {
   Artifact,
   Run,
   Settings,
+  SettingsInput,
   Source,
   System,
   Thread,
   ThreadView,
   Workspace,
 } from "../api/client";
-import type { RunInput } from "../api/client";
 import type { WorkflowKey } from "../components/Composer";
 import { ArtifactReader } from "../components/ArtifactReader";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -20,6 +20,7 @@ import { WorkspaceForm } from "../components/forms/WorkspaceForm";
 import { WorkspaceMembersForm } from "../components/forms/WorkspaceMembersForm";
 import { api } from "../api/client";
 import type { Appearance } from "../components/AppearanceSelect";
+import type { ExecutionMode } from "./useGlobalSettings";
 import { errorText } from "../lib/presentation";
 
 export type ModalState =
@@ -29,7 +30,6 @@ export type ModalState =
   | { kind: "snapshot"; run: Run }
   | { kind: "artifact" }
   | { kind: "rename-thread"; thread: Thread }
-  | { kind: "delete-thread"; thread: Thread }
   | { kind: "delete-workspace"; workspace: Workspace };
 
 /**
@@ -43,12 +43,18 @@ export function AppModals({
   setSystem,
   workspace,
   workspaceID,
-  threadID,
   agents,
   globalAgents,
   view,
   settings,
   setSettings,
+  saveSettings,
+  executionMode,
+  onExecutionModeChange,
+  permissionLoading,
+  permissionError,
+  permissionThreadID,
+  permissionThreadTitle,
   artifact,
   threads,
   lock,
@@ -64,7 +70,6 @@ export function AppModals({
   setError,
   openSource,
   saveFeedback,
-  pendingSubmission,
   appearance,
   onAppearance,
   setModal,
@@ -76,7 +81,6 @@ export function AppModals({
   setSystem: (value: System) => void;
   workspace?: Workspace;
   workspaceID: string;
-  threadID: string;
   agents: Agent[];
   globalAgents: Agent[];
   view?: ThreadView;
@@ -103,9 +107,16 @@ export function AppModals({
   setError: (value: string) => void;
   openSource: (value: Source | string) => void;
   saveFeedback: (value: string) => Promise<void>;
-  pendingSubmission: Map<string, { input: RunInput; key: string; threadID: string }>;
   appearance: Appearance;
   onAppearance: (value: Appearance) => void;
+  /** Field-merge settings save shared with the Composer permission select. */
+  saveSettings?: (value: SettingsInput) => Promise<Settings>;
+  executionMode?: ExecutionMode;
+  onExecutionModeChange?: (mode: ExecutionMode) => Promise<unknown>;
+  permissionLoading?: boolean;
+  permissionError?: string;
+  permissionThreadID?: string;
+  permissionThreadTitle?: string;
 }) {
   return (
     <>
@@ -114,10 +125,7 @@ export function AppModals({
           <WorkspaceForm
             current={modal.kind === "edit-workspace" ? workspace : undefined}
             system={system}
-            settings={settings}
-            agents={agents}
             close={close}
-            onWorkspaceChange={() => void loadSpaces()}
             onDelete={
               modal.kind === "edit-workspace" && workspace
                 ? () => setModal({ kind: "delete-workspace", workspace })
@@ -203,16 +211,7 @@ export function AppModals({
           close={close}
           lock={lock}
           settings={settings}
-          saveSettings={async (value) => {
-            const saved = await api<Settings>(
-              "/api/v1/settings",
-              "PATCH",
-              value,
-              { "If-Match": String(settings?.revision ?? 0) },
-            );
-            setSettings(saved);
-            return saved;
-          }}
+          saveSettings={saveSettings}
           agents={globalAgents}
           saveAgent={async (value) => {
             const saved = await api<Agent>(
@@ -225,14 +224,49 @@ export function AppModals({
             if (workspaceID) await loadMembers(workspaceID);
             return saved;
           }}
-          onRestoreThread={async (thread) => {
-            close();
-            navigate(thread.workspace_id, thread.id);
-            await loadThreads(thread.workspace_id);
+          deleteAgent={async (agent) => {
+            await api(
+              `/api/v1/agents/${agent.id}`,
+              "DELETE",
+              undefined,
+              { "If-Match": String(agent.revision) },
+            );
+            // The profile is gone even if a follow-up refresh fails; keep the
+            // delete confirmed and let the next navigation reload stale lists.
+            await loadGlobalAgents().catch(() => {});
+            if (workspaceID) await loadMembers(workspaceID).catch(() => {});
+            setView((current) => {
+              if (!current || !current.thread.agent_ids?.includes(agent.id))
+                return current;
+              const agentIDs = current.thread.agent_ids.filter(
+                (id) => id !== agent.id,
+              );
+              return {
+                ...current,
+                thread: {
+                  ...current.thread,
+                  agent_ids: agentIDs,
+                  coordinator_id:
+                    current.thread.coordinator_id === agent.id
+                      ? (agentIDs[0] ?? "")
+                      : current.thread.coordinator_id,
+                  revision: current.thread.revision + 1,
+                },
+              };
+            });
+            await api<Settings>("/api/v1/settings")
+              .then(setSettings)
+              .catch(() => {});
           }}
           onTrashChanged={() => loadThreads(workspaceID)}
           appearance={appearance}
           onAppearance={onAppearance}
+          executionMode={executionMode}
+          onExecutionModeChange={onExecutionModeChange}
+          permissionLoading={permissionLoading}
+          permissionError={permissionError}
+          permissionThreadID={permissionThreadID}
+          permissionThreadTitle={permissionThreadTitle}
         />
       )}
       {modal?.kind === "artifact" && artifact && (
@@ -277,26 +311,6 @@ export function AppModals({
             await loadThreads(workspaceID);
           }}
         />
-      )}
-      {modal?.kind === "delete-thread" && (
-        <ConfirmDialog
-          title="删除会话"
-          action="删除会话"
-          close={close}
-          confirm={async () => {
-            await api(`/api/v1/threads/${modal.thread.id}`, "DELETE");
-            close();
-            pendingSubmission.delete(modal.thread.id);
-            await loadThreads(workspaceID);
-            if (modal.thread.id === threadID) navigate(workspaceID);
-          }}
-        >
-          <p>
-            “{modal.thread.title}
-            ”会被移入回收站，保留 {settings?.retention_days ?? 7}{" "}
-            天。期间可在“设置 → 回收站”恢复；到期后自动清理。
-          </p>
-        </ConfirmDialog>
       )}
       {modal?.kind === "delete-workspace" && (
         <ConfirmDialog

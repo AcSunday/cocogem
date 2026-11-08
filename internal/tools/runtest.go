@@ -511,6 +511,9 @@ type sandboxSpec struct {
 	Root      string
 	Temp      string
 	Toolchain toolchainSpec
+	// ExtraWrites are exact approved outside roots a project-autonomous command
+	// may write. Test execution never sets them.
+	ExtraWrites []string
 }
 
 type sandboxPlan struct {

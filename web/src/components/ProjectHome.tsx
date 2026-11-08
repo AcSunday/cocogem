@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type ProjectOverview, type Workspace } from "../api/client";
+import { taskPhase } from "../lib/tasks";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import conversation from "../styles/conversation.module.css";
@@ -26,6 +27,17 @@ export function ProjectHome({
   onEditWorkspace: () => void;
 }) {
   const [summary, setSummary] = useState<ProjectOverview>();
+  const [compact, setCompact] = useState(
+    () => window.matchMedia?.("(max-width: 700px)")?.matches ?? false,
+  );
+  useEffect(() => {
+    const media = window.matchMedia?.("(max-width: 700px)");
+    if (!media) return;
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const load = useCallback(async () => {
     try {
       setSummary(
@@ -39,23 +51,27 @@ export function ProjectHome({
   }, [workspace.id]);
   useEffect(() => {
     setSummary(undefined);
+    if (compact) return;
     void load();
-  }, [load]);
+  }, [compact, load]);
   useEffect(() => {
+    if (compact) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [compact, load]);
 
   const tasks = summary?.tasks ?? [];
+  const questions = summary?.needs_attention ?? [];
   const open = tasks.filter(
-    (item) => !["completed", "canceled"].includes(item.task.status),
+    (item) =>
+      !["completed", "canceled"].includes(taskPhase(item, questions)),
   ).length;
   const completed = tasks.filter(
-    (item) => item.task.status === "completed",
+    (item) => taskPhase(item, questions) === "completed",
   ).length;
-  const attention = summary?.needs_attention?.length ?? 0;
+  const attention = questions.length;
   const goal = summary?.records?.find((record) =>
     ["goal", "decision", "constraint", "rule"].includes(record.kind),
   )?.content;
@@ -68,7 +84,7 @@ export function ProjectHome({
         onCreate={onCreate}
         onPick={onPick}
       />
-      {summary && (
+      {!compact && summary && (
         <section className={cx("project-summary")} aria-label="项目摘要">
           <div className={cx("project-summary-main")}>
             <span className={cx("eyebrow")}>项目摘要</span>

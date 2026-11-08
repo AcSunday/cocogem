@@ -135,7 +135,7 @@ func TestBudgetSharedAcrossRevisionAndModeChanges(t *testing.T) {
 	if account.ReservedRuns != 1 || account.RemainingContinuations() != 19 {
 		t.Fatalf("reservation = %+v", account)
 	}
-	if _, err := service.SetExecutionMode(t.Context(), th.WorkspaceID, w.ExecutionFullAccess, "message-mode", 1); err != nil {
+	if _, err := setGlobalMode(t, service, w.ExecutionFullAccess); err != nil {
 		t.Fatal(err)
 	}
 	lower := account.Policy
@@ -219,5 +219,29 @@ func TestTaskActionReceiptAndChildControlBoundary(t *testing.T) {
 	descendant, err := service.Task(t.Context(), child.Task.ID)
 	if err != nil || descendant.Task.Status != "canceled" {
 		t.Fatalf("owned descendant was not canceled: %+v, %v", descendant.Task, err)
+	}
+}
+
+func TestTaskViewExposesLatestRunFailureForTheTaskBoard(t *testing.T) {
+	db, service, th := setup(t)
+	created := create(t, service, th)
+	run := w.Run{
+		ID: "run", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: created.Task.ID,
+		Status: "failed", FailureKind: "network", Error: "the CLI could not reach its endpoint",
+		CreatedAt: w.Now(), StartedAt: w.Now(), FinishedAt: w.Now(),
+	}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		return tx.InsertRun(run, "task-run", "hash")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := service.Task(t.Context(), created.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.LastRunID != run.ID || view.LastRunStatus != "failed" ||
+		view.LastRunFailureKind != "network" || view.LastRunError != run.Error ||
+		view.LastRunStartedAt != run.StartedAt || view.LastRunFinishedAt != run.FinishedAt {
+		t.Fatalf("latest run projection = %+v", view)
 	}
 }

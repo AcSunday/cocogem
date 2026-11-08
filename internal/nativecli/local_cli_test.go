@@ -258,6 +258,7 @@ func TestInstalledGeminiToolRegistry(t *testing.T) {
 		}
 		requests <- names
 		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, ": PING\r\n\r\n")
 		chosen := ""
 		for _, name := range names {
 			if strings.HasSuffix(name, "_read_file") {

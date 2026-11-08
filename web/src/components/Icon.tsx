@@ -111,6 +111,12 @@ const paths = {
       <circle cx="12" cy="12" r="3" />
     </>
   ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 7.6v.9" />
+    </>
+  ),
   eyeOff: (
     <>
       <path d="m3 3 18 18" />

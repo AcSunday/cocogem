@@ -165,7 +165,7 @@ test("member profiles: name-colored initials, image avatars and stable identity"
     return { dialog, list };
   };
   const cards = (list: Locator) =>
-    list.getByRole("button").filter({ hasNotText: "新成员" });
+    list.getByRole("button").filter({ hasText: "@" });
 
   const { dialog, list } = await openMembers();
   await expect(cards(list)).toHaveCount(3);

@@ -30,7 +30,7 @@ export interface paths {
     get?: never;
     put?: never;
     post?: never;
-    delete?: never;
+    delete: operations["deleteAgent"];
     options?: never;
     head?: never;
     patch: operations["updateAgent"];
@@ -60,6 +60,22 @@ export interface paths {
       cookie?: never;
     };
     get: operations["exportArtifact"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/artifacts/{id}/versions/{version}/files/{sourceID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["artifactFile"];
     put?: never;
     post?: never;
     delete?: never;
@@ -158,6 +174,38 @@ export interface paths {
     get: operations["execution"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/permission-grants/{id}/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["revokePermissionGrant"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/permission-requests/{id}/decisions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["decidePermissionRequest"];
     delete?: never;
     options?: never;
     head?: never;
@@ -324,6 +372,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/sources/{id}/original": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["sourceOriginal"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/system": {
     parameters: {
       query?: never;
@@ -382,6 +446,22 @@ export interface paths {
     get: operations["projectTaskBoard"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/delete": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["deleteProjectTasks"];
     delete?: never;
     options?: never;
     head?: never;
@@ -500,6 +580,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/tasks/{id}/deliveries": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projectTaskDeliveries"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/tasks/{id}/dependencies": {
     parameters: {
       query?: never;
@@ -612,6 +708,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/tasks/{id}/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["startProjectTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/tasks/{id}/wakeups": {
     parameters: {
       query?: never;
@@ -676,6 +788,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/threads/{id}/permission-grants": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["threadPermissionGrants"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/permission-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["threadPermissionRequests"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/threads/{id}/restore": {
     parameters: {
       query?: never;
@@ -718,6 +862,22 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations["submitRun"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/sources": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["sourceImports"];
+    put?: never;
+    post: operations["importSource"];
     delete?: never;
     options?: never;
     head?: never;
@@ -798,70 +958,6 @@ export interface paths {
     get: operations["agents"];
     put?: never;
     post: operations["createAgent"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/workspaces/{id}/budget-policy": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch: operations["setProjectBudgetPolicy"];
-    trace?: never;
-  };
-  "/api/v1/workspaces/{id}/execution-policy": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch: operations["setProjectExecutionPolicy"];
-    trace?: never;
-  };
-  "/api/v1/workspaces/{id}/grants": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["projectGrants"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/workspaces/{id}/grants/{memberID}/revoke": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["revokeProjectGrant"];
     delete?: never;
     options?: never;
     head?: never;
@@ -1072,7 +1168,7 @@ export interface components {
       revision?: number;
       role_description?: string;
       thinking_level?: string;
-      tools: string[] | null;
+      tools?: string[] | null;
       workspace_id?: string;
     };
     AgentList: {
@@ -1085,6 +1181,15 @@ export interface components {
       exposure_scope_digest?: string;
       feedback: string;
       feedback_at: string;
+      files?:
+        | {
+            media_type: string;
+            name: string;
+            sha256: string;
+            size: number;
+            source_id: string;
+          }[]
+        | null;
       findings:
         | {
             detail: string;
@@ -1105,6 +1210,13 @@ export interface components {
       type: string;
       version: number;
       visibility?: string;
+    };
+    ArtifactFile: {
+      media_type: string;
+      name: string;
+      sha256: string;
+      size: number;
+      source_id: string;
     };
     ArtifactList: {
       items: components["schemas"]["Artifact"][] | null;
@@ -1128,6 +1240,15 @@ export interface components {
         exposure_scope_digest?: string;
         feedback: string;
         feedback_at: string;
+        files?:
+          | {
+              media_type: string;
+              name: string;
+              sha256: string;
+              size: number;
+              source_id: string;
+            }[]
+          | null;
         findings:
           | {
               detail: string;
@@ -1299,15 +1420,6 @@ export interface components {
       no_progress_failures: number;
       parallel_branches: number;
       writer_branches: number;
-    };
-    BudgetPolicyInput: {
-      override: {
-        auto_continuations?: number | null;
-        fix_rounds?: number | null;
-        no_progress_failures?: number | null;
-        parallel_branches?: number | null;
-        writer_branches?: number | null;
-      } | null;
     };
     BudgetPolicyOverride: {
       auto_continuations?: number | null;
@@ -1574,8 +1686,38 @@ export interface components {
           }[]
         | null;
     };
+    ConversationGrant: {
+      action: string;
+      affected_active_runs?: number;
+      created_at: string;
+      id: string;
+      normalized_resource_scope: string;
+      permission_epoch: number;
+      revoked_at?: string;
+      source_request_id: string;
+      status: string;
+      thread_id: string;
+      tool_matcher: string;
+    };
+    ConversationGrantList: {
+      items:
+        | {
+            action: string;
+            affected_active_runs?: number;
+            created_at: string;
+            id: string;
+            normalized_resource_scope: string;
+            permission_epoch: number;
+            revoked_at?: string;
+            source_request_id: string;
+            status: string;
+            thread_id: string;
+            tool_matcher: string;
+          }[]
+        | null;
+    };
     CreateTaskInput: {
-      acceptance:
+      acceptance?:
         | {
             applicable_when?: string;
             criterion_id: string;
@@ -1586,20 +1728,22 @@ export interface components {
             statement: string;
           }[]
         | null;
-      accepted_by: string;
-      allowed_actions: string[] | null;
-      constraint_refs: string[] | null;
+      accepted_by?: string;
+      allowed_actions?: string[] | null;
+      constraint_refs?: string[] | null;
       goal: string;
-      input_refs: string[] | null;
+      input_refs?: string[] | null;
       kind?: string;
-      non_goals: string[] | null;
-      owner_member_id: string;
+      non_goals?: string[] | null;
+      owner_member_id?: string;
       parent_id?: string;
       priority?: number;
-      scope: string[] | null;
-      source_message_id: string;
-      thread_id: string;
-      workspace_id: string;
+      request_id?: string;
+      scope?: string[] | null;
+      source_message_id?: string;
+      thread_id?: string;
+      title?: string;
+      workspace_id?: string;
     };
     CriterionResult: {
       criterion_id: string;
@@ -1718,7 +1862,7 @@ export interface components {
           assignments: {
             [key: string]: string;
           } | null;
-          engineering_action?: string;
+          engineering_read_only?: boolean;
           message: string;
           proposal_id: string;
           research_scope: string;
@@ -1730,6 +1874,10 @@ export interface components {
         };
         input_snapshot_digest?: string;
         method?: string;
+        output_baseline?: {
+          [key: string]: string;
+        } | null;
+        permission_epoch?: number;
         policy_adopted_at?: string;
         policy_version?: number;
         progress_digest?: string;
@@ -1739,6 +1887,7 @@ export interface components {
         recovery_note?: string;
         requested_execution_mode?: string;
         reservation_release_reason?: string;
+        retry_of_step_id?: string;
         routing: {
           assignments: {
             [key: string]: string;
@@ -1775,7 +1924,11 @@ export interface components {
         } | null;
         started_at?: string;
         status: string;
+        task_directory?: string;
         task_id?: string;
+        task_intake?: boolean;
+        task_promotion_digest?: string;
+        task_promotion_step_id?: string;
         task_revision?: number;
         thread_id: string;
         unenforced_constraints?: string[] | null;
@@ -1855,6 +2008,11 @@ export interface components {
               validity: string;
             }[]
           | null;
+        last_run_error?: string;
+        last_run_failure_kind?: string;
+        last_run_finished_at?: string;
+        last_run_id?: string;
+        last_run_started_at?: string;
         last_run_status?: string;
         revision: {
           acceptance:
@@ -1901,6 +2059,7 @@ export interface components {
           root_task_id: string;
           status: string;
           thread_id: string;
+          title?: string;
           transfer_request_id?: string;
           updated_at: string;
           wait_generation?: number;
@@ -2080,26 +2239,6 @@ export interface components {
       status: string;
       subject_member_id: string;
       workspace_id: string;
-    };
-    GrantList: {
-      items:
-        | {
-            actions: string[] | null;
-            created_at: string;
-            epoch: number;
-            expires_at?: string;
-            external_actions: boolean;
-            id: string;
-            mode: string;
-            resources: string[] | null;
-            revision: number;
-            revoked_at?: string;
-            source_message_id: string;
-            status: string;
-            subject_member_id: string;
-            workspace_id: string;
-          }[]
-        | null;
     };
     HandoffInput: {
       expected_owner_revision: number;
@@ -2368,6 +2507,11 @@ export interface components {
                   validity: string;
                 }[]
               | null;
+            last_run_error?: string;
+            last_run_failure_kind?: string;
+            last_run_finished_at?: string;
+            last_run_id?: string;
+            last_run_started_at?: string;
             last_run_status?: string;
             revision: {
               acceptance:
@@ -2414,6 +2558,7 @@ export interface components {
               root_task_id: string;
               status: string;
               thread_id: string;
+              title?: string;
               transfer_request_id?: string;
               updated_at: string;
               wait_generation?: number;
@@ -2443,6 +2588,41 @@ export interface components {
     };
     PasswordInput: {
       password: string;
+    };
+    PermissionDecisionInput: {
+      decision: string;
+      request_id: string;
+    };
+    PermissionRequestList: {
+      items:
+        | {
+            action: string;
+            adapter?: string;
+            arguments_digest: string;
+            attempt_id: string;
+            created_at: string;
+            id: string;
+            member_id: string;
+            member_name?: string;
+            normalized_resource_scope: string;
+            operation_summary?: string;
+            origin: string;
+            permission_epoch: number;
+            pre_approval?: boolean;
+            reason: string;
+            request_id: string;
+            resolved_at?: string;
+            revision: number;
+            risk?: string;
+            run_id: string;
+            status: string;
+            step_id: string;
+            thread_id: string;
+            tool_call_id: string;
+            tool_name: string;
+            workspace_id: string;
+          }[]
+        | null;
     };
     ProcessRef: {
       executable?: string;
@@ -2549,6 +2729,9 @@ export interface components {
           }[]
         | null;
     };
+    RetryInput: {
+      step_id?: string;
+    };
     ReviseTaskInput: {
       acceptance:
         | {
@@ -2599,9 +2782,6 @@ export interface components {
             task_id: string;
           }[]
         | null;
-    };
-    RevokeGrantInput: {
-      source_message_id: string;
     };
     Routing: {
       assignments: {
@@ -2715,8 +2895,7 @@ export interface components {
         assignments: {
           [key: string]: string;
         } | null;
-        /** @description Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value. */
-        engineering_action?: string;
+        engineering_read_only?: boolean;
         message: string;
         proposal_id: string;
         /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -2729,6 +2908,10 @@ export interface components {
       };
       input_snapshot_digest?: string;
       method?: string;
+      output_baseline?: {
+        [key: string]: string;
+      } | null;
+      permission_epoch?: number;
       policy_adopted_at?: string;
       policy_version?: number;
       progress_digest?: string;
@@ -2738,6 +2921,7 @@ export interface components {
       recovery_note?: string;
       requested_execution_mode?: string;
       reservation_release_reason?: string;
+      retry_of_step_id?: string;
       routing: {
         assignments: {
           [key: string]: string;
@@ -2774,7 +2958,11 @@ export interface components {
       } | null;
       started_at?: string;
       status: string;
+      task_directory?: string;
       task_id?: string;
+      task_intake?: boolean;
+      task_promotion_digest?: string;
+      task_promotion_step_id?: string;
       task_revision?: number;
       thread_id: string;
       unenforced_constraints?: string[] | null;
@@ -2809,8 +2997,7 @@ export interface components {
       assignments: {
         [key: string]: string;
       } | null;
-      /** @description Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value. */
-      engineering_action?: string;
+      engineering_read_only?: boolean;
       message: string;
       proposal_id: string;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -2831,8 +3018,7 @@ export interface components {
       assignments?: {
         [key: string]: string;
       } | null;
-      /** @description Explicit Composer choice for workflow=engineering: analyze (read-only, default) or develop (may write files and run sandboxed tests only when the member grant and step role allow it). A tool grant alone never changes this value. */
-      engineering_action?: string;
+      engineering_read_only?: boolean;
       message: string;
       proposal_id?: string;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -2859,6 +3045,15 @@ export interface components {
               exposure_scope_digest?: string;
               feedback: string;
               feedback_at: string;
+              files?:
+                | {
+                    media_type: string;
+                    name: string;
+                    sha256: string;
+                    size: number;
+                    source_id: string;
+                  }[]
+                | null;
               findings:
                 | {
                     detail: string;
@@ -2991,7 +3186,7 @@ export interface components {
           assignments: {
             [key: string]: string;
           } | null;
-          engineering_action?: string;
+          engineering_read_only?: boolean;
           message: string;
           proposal_id: string;
           research_scope: string;
@@ -3003,6 +3198,10 @@ export interface components {
         };
         input_snapshot_digest?: string;
         method?: string;
+        output_baseline?: {
+          [key: string]: string;
+        } | null;
+        permission_epoch?: number;
         policy_adopted_at?: string;
         policy_version?: number;
         progress_digest?: string;
@@ -3012,6 +3211,7 @@ export interface components {
         recovery_note?: string;
         requested_execution_mode?: string;
         reservation_release_reason?: string;
+        retry_of_step_id?: string;
         routing: {
           assignments: {
             [key: string]: string;
@@ -3048,7 +3248,11 @@ export interface components {
         } | null;
         started_at?: string;
         status: string;
+        task_directory?: string;
         task_id?: string;
+        task_intake?: boolean;
+        task_promotion_digest?: string;
+        task_promotion_step_id?: string;
         task_revision?: number;
         thread_id: string;
         unenforced_constraints?: string[] | null;
@@ -3092,6 +3296,7 @@ export interface components {
             instruction: string;
             kind?: string;
             request_id?: string;
+            retry_of_step_id?: string;
             role: string;
             run_id: string;
             started_at?: string;
@@ -3116,15 +3321,19 @@ export interface components {
         writer_branches: number;
       };
       default_coordinator_id: string;
+      execution_mode?: string;
+      permission_epoch?: number;
       retention_days?: number;
       revision: number;
     };
     SettingsInput: {
-      assignments: {
-        [key: string]: {
-          [key: string]: string;
-        } | null;
-      } | null;
+      assignments?:
+        | ({
+            [key: string]: {
+              [key: string]: string;
+            } | null;
+          } | null)
+        | null;
       collaboration_budget?: {
         auto_continuations: number;
         fix_rounds: number;
@@ -3132,7 +3341,28 @@ export interface components {
         parallel_branches: number;
         writer_branches: number;
       } | null;
-      default_coordinator_id: string;
+      default_coordinator_id?: string | null;
+      execution_mode?: string | null;
+      permission_epoch?: number | null;
+      retention_days?: number | null;
+    };
+    SettingsPatch: {
+      assignments?:
+        | ({
+            [key: string]: {
+              [key: string]: string;
+            } | null;
+          } | null)
+        | null;
+      collaboration_budget?: {
+        auto_continuations: number;
+        fix_rounds: number;
+        no_progress_failures: number;
+        parallel_branches: number;
+        writer_branches: number;
+      } | null;
+      default_coordinator_id?: string | null;
+      execution_mode?: string | null;
       retention_days?: number | null;
     };
     Source: {
@@ -3143,6 +3373,8 @@ export interface components {
       end_line: number;
       exit_code?: number;
       exposure_scope_digest?: string;
+      file_modified_at?: string;
+      file_size?: number;
       id: string;
       kind: string;
       media_type?: string;
@@ -3189,6 +3421,34 @@ export interface components {
       visibility: string;
       workspace_id: string;
     };
+    SourceImportList: {
+      items:
+        | {
+            captured_at: string;
+            content?: string;
+            content_digest?: string;
+            end_line: number;
+            file_name: string;
+            id: string;
+            kind: string;
+            media_type: string;
+            original_content?: string;
+            original_digest: string;
+            parse_error?: string;
+            parse_quality?: string;
+            parse_status: string;
+            parser_version?: string;
+            sha256: string;
+            source_locator?: string;
+            start_line: number;
+            thread_id: string;
+            title: string;
+            truncated: boolean;
+            visibility: string;
+            workspace_id: string;
+          }[]
+        | null;
+    };
     Step: {
       agent_id: string;
       agent_name: string;
@@ -3207,6 +3467,7 @@ export interface components {
       instruction: string;
       kind?: string;
       request_id?: string;
+      retry_of_step_id?: string;
       role: string;
       run_id: string;
       started_at?: string;
@@ -3275,6 +3536,7 @@ export interface components {
       root_task_id: string;
       status: string;
       thread_id: string;
+      title?: string;
       transfer_request_id?: string;
       updated_at: string;
       wait_generation?: number;
@@ -3286,6 +3548,9 @@ export interface components {
       request_id: string;
     };
     TaskBoard: {
+      members?: {
+        [key: string]: string;
+      } | null;
       needs_attention:
         | {
             answer?: string;
@@ -3358,6 +3623,11 @@ export interface components {
                   validity: string;
                 }[]
               | null;
+            last_run_error?: string;
+            last_run_failure_kind?: string;
+            last_run_finished_at?: string;
+            last_run_id?: string;
+            last_run_started_at?: string;
             last_run_status?: string;
             revision: {
               acceptance:
@@ -3404,6 +3674,7 @@ export interface components {
               root_task_id: string;
               status: string;
               thread_id: string;
+              title?: string;
               transfer_request_id?: string;
               updated_at: string;
               wait_generation?: number;
@@ -3424,6 +3695,235 @@ export interface components {
         parallel_branches: number;
         writer_branches: number;
       };
+    };
+    TaskDeleteInput: {
+      task_ids: string[] | null;
+    };
+    TaskDeletion: {
+      count: number;
+      deleted: string[] | null;
+    };
+    TaskDeliveries: {
+      artifacts:
+        | {
+            body: string;
+            created_at: string;
+            exposure_scope_digest?: string;
+            feedback: string;
+            feedback_at: string;
+            files?:
+              | {
+                  media_type: string;
+                  name: string;
+                  sha256: string;
+                  size: number;
+                  source_id: string;
+                }[]
+              | null;
+            findings:
+              | {
+                  detail: string;
+                  severity?: string;
+                  source_ids: string[] | null;
+                  status: string;
+                  title: string;
+                }[]
+              | null;
+            id: string;
+            limitations: string[] | null;
+            revision: number;
+            run_id: string;
+            source_ids: string[] | null;
+            step_id: string;
+            thread_id: string;
+            title: string;
+            type: string;
+            version: number;
+            visibility?: string;
+          }[]
+        | null;
+      messages:
+        | {
+            agent_id: string;
+            agent_name: string;
+            attempt_id?: string;
+            content: string;
+            content_bytes?: number;
+            content_format?: string;
+            content_truncated?: boolean;
+            created_at: string;
+            id: string;
+            model?: string;
+            resolved_model?: string;
+            role: string;
+            run_id: string;
+            status: string;
+            step_id: string;
+            thread_id: string;
+          }[]
+        | null;
+      runs:
+        | {
+            agents:
+              | {
+                  aliases: string[] | null;
+                  avatar?: string;
+                  capabilities?: string[] | null;
+                  /** @description Estimated input token budget. Empty or 0 follows the CLI's configured context window; an explicit value must be at least 1024. */
+                  context_size?: number;
+                  disabled: boolean;
+                  display_name: string;
+                  executor?: string;
+                  handle: string;
+                  id: string;
+                  membership?: {
+                    agent_id: string;
+                    enabled: boolean;
+                    revision: number;
+                    tools: string[] | null;
+                    workspace_id: string;
+                  } | null;
+                  model: string;
+                  revision: number;
+                  role_description: string;
+                  thinking_level?: string;
+                  tools: string[] | null;
+                  workspace_id: string;
+                }[]
+              | null;
+            automatic_continuation?: boolean;
+            budget_account_id?: string;
+            budget_issue_id?: string;
+            budget_reserved?: boolean;
+            budget_started?: boolean;
+            collaboration_message_id?: string;
+            context_manifest_id?: string;
+            continued_from_run_id?: string;
+            coordinator_id?: string;
+            created_at: string;
+            deadline_at?: string;
+            /** @description Authoritative final message and exact artifact version references, recorded atomically on success. Null on legacy history that never recorded a delivery; never inferred from timestamps. */
+            delivery?: components["schemas"]["Delivery"] | null;
+            effective_execution_mode?: string;
+            enforced_capabilities?: string[] | null;
+            error: string;
+            execution_policy?: {
+              first_response_ns: number;
+              run_timeout_ns: number;
+              stall_action: string;
+              stall_ns: number;
+              step_timeout_ns: number;
+            } | null;
+            execution_ref?: string;
+            execution_root?: string;
+            failure_kind?: string;
+            finished_at: string;
+            grant_actions?: string[] | null;
+            grant_snapshot_digest?: string;
+            id: string;
+            input: {
+              artifact_refs:
+                | {
+                    id: string;
+                    version: number;
+                  }[]
+                | null;
+              assignments: {
+                [key: string]: string;
+              } | null;
+              engineering_read_only?: boolean;
+              message: string;
+              proposal_id: string;
+              research_scope: string;
+              retry_of_run_id: string;
+              source_ids: string[] | null;
+              source_urls: string[] | null;
+              targets: string[] | null;
+              workflow: string;
+            };
+            input_snapshot_digest?: string;
+            method?: string;
+            output_baseline?: {
+              [key: string]: string;
+            } | null;
+            permission_epoch?: number;
+            policy_adopted_at?: string;
+            policy_version?: number;
+            progress_digest?: string;
+            progress_observed?: boolean;
+            recovered_at?: string;
+            recovery_count?: number;
+            recovery_note?: string;
+            requested_execution_mode?: string;
+            reservation_release_reason?: string;
+            retry_of_step_id?: string;
+            routing: {
+              assignments: {
+                [key: string]: string;
+              } | null;
+              clarification: string;
+              decision: string;
+              evidence:
+                | {
+                    agent_id: string;
+                    quote: string;
+                  }[]
+                | null;
+              explanation: string;
+              input_tokens: number;
+              model_call: boolean;
+              output_tokens: number;
+              targets: string[] | null;
+              usage_known: boolean;
+              workflow: string;
+            };
+            selected_workflow?: {
+              assignments: {
+                [key: string]: string;
+              } | null;
+              reason?: string;
+              selected_at: string;
+              step_id: string;
+              targets: string[] | null;
+              workflow: string;
+            } | null;
+            skill_snapshot?: string;
+            skill_versions?: {
+              [key: string]: string;
+            } | null;
+            started_at?: string;
+            status: string;
+            task_directory?: string;
+            task_id?: string;
+            task_intake?: boolean;
+            task_promotion_digest?: string;
+            task_promotion_step_id?: string;
+            task_revision?: number;
+            thread_id: string;
+            unenforced_constraints?: string[] | null;
+            workspace: {
+              budget_override?: {
+                auto_continuations?: number | null;
+                fix_rounds?: number | null;
+                no_progress_failures?: number | null;
+                parallel_branches?: number | null;
+                writer_branches?: number | null;
+              } | null;
+              created_at: string;
+              description: string;
+              execution_mode?: string;
+              id: string;
+              name: string;
+              project_revision?: number;
+              revision: number;
+              root: string;
+              skill_ids: string[] | null;
+            };
+            workspace_id: string;
+            write_branch?: boolean;
+          }[]
+        | null;
+      task_id: string;
     };
     TaskDependency: {
       artifact_ref?: string;
@@ -3495,6 +3995,11 @@ export interface components {
                   validity: string;
                 }[]
               | null;
+            last_run_error?: string;
+            last_run_failure_kind?: string;
+            last_run_finished_at?: string;
+            last_run_id?: string;
+            last_run_started_at?: string;
             last_run_status?: string;
             revision: {
               acceptance:
@@ -3541,6 +4046,7 @@ export interface components {
               root_task_id: string;
               status: string;
               thread_id: string;
+              title?: string;
               transfer_request_id?: string;
               updated_at: string;
               wait_generation?: number;
@@ -3657,6 +4163,11 @@ export interface components {
             validity: string;
           }[]
         | null;
+      last_run_error?: string;
+      last_run_failure_kind?: string;
+      last_run_finished_at?: string;
+      last_run_id?: string;
+      last_run_started_at?: string;
       last_run_status?: string;
       revision: {
         acceptance:
@@ -3703,6 +4214,7 @@ export interface components {
         root_task_id: string;
         status: string;
         thread_id: string;
+        title?: string;
         transfer_request_id?: string;
         updated_at: string;
         wait_generation?: number;
@@ -3854,7 +4366,7 @@ export interface components {
           assignments: {
             [key: string]: string;
           } | null;
-          engineering_action?: string;
+          engineering_read_only?: boolean;
           message: string;
           proposal_id: string;
           research_scope: string;
@@ -3866,6 +4378,10 @@ export interface components {
         };
         input_snapshot_digest?: string;
         method?: string;
+        output_baseline?: {
+          [key: string]: string;
+        } | null;
+        permission_epoch?: number;
         policy_adopted_at?: string;
         policy_version?: number;
         progress_digest?: string;
@@ -3875,6 +4391,7 @@ export interface components {
         recovery_note?: string;
         requested_execution_mode?: string;
         reservation_release_reason?: string;
+        retry_of_step_id?: string;
         routing: {
           assignments: {
             [key: string]: string;
@@ -3911,7 +4428,11 @@ export interface components {
         } | null;
         started_at?: string;
         status: string;
+        task_directory?: string;
         task_id?: string;
+        task_intake?: boolean;
+        task_promotion_digest?: string;
+        task_promotion_step_id?: string;
         task_revision?: number;
         thread_id: string;
         unenforced_constraints?: string[] | null;
@@ -3944,6 +4465,8 @@ export interface components {
         end_line: number;
         exit_code?: number;
         exposure_scope_digest?: string;
+        file_modified_at?: string;
+        file_size?: number;
         id: string;
         kind: string;
         media_type?: string;
@@ -3984,6 +4507,49 @@ export interface components {
         workflow: string;
         workspace_id: string;
       };
+    };
+    ToolInvocationAdmission: {
+      arguments_digest: string;
+      attempt_id: string;
+      grant_id?: string;
+      id: string;
+      permission_epoch: number;
+      permission_request_id: string;
+      reserved_at: string;
+      result_ref?: string;
+      run_id: string;
+      settled_at?: string;
+      started_at?: string;
+      status: string;
+      step_id: string;
+      tool_call_id: string;
+    };
+    ToolPermissionRequest: {
+      action: string;
+      adapter?: string;
+      arguments_digest: string;
+      attempt_id: string;
+      created_at: string;
+      id: string;
+      member_id: string;
+      member_name?: string;
+      normalized_resource_scope: string;
+      operation_summary?: string;
+      origin: string;
+      permission_epoch: number;
+      pre_approval?: boolean;
+      reason: string;
+      request_id: string;
+      resolved_at?: string;
+      revision: number;
+      risk?: string;
+      run_id: string;
+      status: string;
+      step_id: string;
+      thread_id: string;
+      tool_call_id: string;
+      tool_name: string;
+      workspace_id: string;
     };
     TrashItem: {
       thread: {
@@ -4167,7 +4733,7 @@ export interface components {
       agent_id?: string;
       enabled: boolean;
       revision?: number;
-      tools: string[] | null;
+      tools?: string[] | null;
       workspace_id?: string;
     };
   };
@@ -4230,6 +4796,40 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Agent"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  deleteAgent: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DeleteReply"];
         };
       };
       /** @description Structured error */
@@ -4371,6 +4971,39 @@ export interface operations {
         };
         content: {
           "text/markdown": string;
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  artifactFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+        version: string;
+        sourceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Immutable file download */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/octet-stream": string;
         };
       };
       /** @description Structured error */
@@ -4567,6 +5200,80 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["WorkspaceExecution"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  revokePermissionGrant: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ConversationGrant"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  decidePermissionRequest: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PermissionDecisionInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ToolPermissionRequest"];
         };
       };
       /** @description Structured error */
@@ -4825,6 +5532,8 @@ export interface operations {
       query?: never;
       header: {
         "X-CSRF-Token": string;
+        /** @description Required when retrying a specific step; reuse the same key after a lost response. */
+        "Idempotency-Key"?: string;
       };
       path: {
         id: string;
@@ -4833,7 +5542,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        "application/json": components["schemas"]["EmptyInput"];
+        "application/json": components["schemas"]["RetryInput"];
       };
     };
     responses: {
@@ -4940,6 +5649,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Source"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  sourceOriginal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Immutable file download */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/octet-stream": string;
         };
       };
       /** @description Structured error */
@@ -5066,6 +5806,41 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["TaskBoard"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  deleteProjectTasks: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskDeleteInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDeletion"];
         };
       };
       /** @description Structured error */
@@ -5413,6 +6188,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["DelegationView"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  projectTaskDeliveries: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDeliveries"];
         };
       };
       /** @description Structured error */
@@ -5806,6 +6612,43 @@ export interface operations {
       };
     };
   };
+  startProjectTask: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   taskWakeups: {
     parameters: {
       query?: never;
@@ -6007,6 +6850,68 @@ export interface operations {
       };
     };
   };
+  threadPermissionGrants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ConversationGrantList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  threadPermissionRequests: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PermissionRequestList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   restoreThread: {
     parameters: {
       query?: never;
@@ -6107,6 +7012,77 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Run"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  sourceImports: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SourceImportList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  importSource: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          /** Format: binary */
+          file: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Success */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SourceImport"];
         };
       };
       /** @description Structured error */
@@ -6374,151 +7350,6 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Agent"];
-        };
-      };
-      /** @description Structured error */
-      default: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Error"];
-        };
-      };
-    };
-  };
-  setProjectBudgetPolicy: {
-    parameters: {
-      query?: never;
-      header: {
-        "X-CSRF-Token": string;
-        "If-Match": string;
-      };
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["BudgetPolicyInput"];
-      };
-    };
-    responses: {
-      /** @description Success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Workspace"];
-        };
-      };
-      /** @description Structured error */
-      default: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Error"];
-        };
-      };
-    };
-  };
-  setProjectExecutionPolicy: {
-    parameters: {
-      query?: never;
-      header: {
-        "X-CSRF-Token": string;
-        "If-Match": string;
-      };
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["ExecutionPolicyInput"];
-      };
-    };
-    responses: {
-      /** @description Success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Workspace"];
-        };
-      };
-      /** @description Structured error */
-      default: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Error"];
-        };
-      };
-    };
-  };
-  projectGrants: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["GrantList"];
-        };
-      };
-      /** @description Structured error */
-      default: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Error"];
-        };
-      };
-    };
-  };
-  revokeProjectGrant: {
-    parameters: {
-      query?: never;
-      header: {
-        "X-CSRF-Token": string;
-      };
-      path: {
-        id: string;
-        memberID: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["RevokeGrantInput"];
-      };
-    };
-    responses: {
-      /** @description Success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Grant"];
         };
       };
       /** @description Structured error */

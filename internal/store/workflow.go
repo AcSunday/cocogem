@@ -64,6 +64,12 @@ func (t *Tx) MessagesMetadata(threadID string) ([]w.Message, error) {
 	return list[w.Message](t, "SELECT json_remove(body,'$.content') FROM messages WHERE thread_id=? ORDER BY position", threadID)
 }
 
+// DeleteUnfinishedStepMessages removes the reply an explicit member retry
+// replaces. Completed replies, steps and attempts stay immutable.
+func (t *Tx) DeleteUnfinishedStepMessages(runID, stepID string) error {
+	return t.exec("DELETE FROM messages WHERE run_id=? AND json_extract(body,'$.step_id')=? AND COALESCE(json_extract(body,'$.status'),'')<>'completed'", runID, stepID)
+}
+
 // LatestStepMessage returns the newest timeline message for one logical step,
 // so a retry can continue the same bubble instead of adding a duplicate.
 func (t *Tx) LatestStepMessage(runID, stepID string) (w.Message, error) {

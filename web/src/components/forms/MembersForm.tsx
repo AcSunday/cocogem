@@ -16,6 +16,8 @@ import members from "../../styles/member-editor.module.css";
 import settings from "../../styles/settings.module.css";
 import { errorText } from "../../lib/presentation";
 import { Avatar, memberImage } from "../Avatar";
+import { ConfirmDialog } from "../ConfirmDialog";
+import { Icon } from "../Icon";
 import { Modal } from "../Modal";
 import { Select } from "../Select";
 
@@ -29,17 +31,6 @@ const cx = scoped(
   settings,
 );
 
-const readOnlyTools = [
-  "list_files",
-  "read_file",
-  "search_content",
-  "web_search",
-  "fetch_url",
-  "read_source",
-  "publish_artifact",
-];
-const engineeringTools = ["write_file", "patch_file", "run_test"];
-export const allTools = [...readOnlyTools, ...engineeringTools];
 const executors = ["claude", "codex", "gemini", "pi", "opencode"];
 /** Empty keeps the CLI's own default; only these explicit levels are forwarded. */
 const thinkingLevels: Record<string, string[]> = {
@@ -131,6 +122,7 @@ export function MembersForm({
   unlink,
   close,
   save,
+  remove,
 }: {
   agents: Agent[];
   system: System;
@@ -141,11 +133,12 @@ export function MembersForm({
   saveMembership?: (
     agent: Agent,
     member: WorkspaceMember | undefined,
-    value: { enabled: boolean; tools: string[] },
+    value: { enabled: boolean },
   ) => Promise<void>;
   unlink?: (member: WorkspaceMember) => Promise<void>;
   close: () => void;
   save: (value: Agent) => Promise<Agent>;
+  remove?: (agent: Agent) => Promise<void>;
 }) {
   const executor =
     system.executors?.find((item) => item.installed && item.supported !== false)
@@ -159,7 +152,10 @@ export function MembersForm({
     role_description: "",
     executor,
     model: "default",
-    tools: readOnlyTools,
+    // Tool grants are no longer edited here. New profiles keep the server's
+    // legacy default catalog as audit data; the executed boundary comes from
+    // the global permission mode.
+    tools: null,
     disabled: false,
     revision: 1,
   });
@@ -168,13 +164,18 @@ export function MembersForm({
   );
   // Keep saved profiles visible on the list even before a parent refresh lands.
   const [savedProfiles, setSavedProfiles] = useState<Record<string, Agent>>({});
+  const [deleted, setDeleted] = useState<Set<string>>(() => new Set());
+  const [deleting, setDeleting] = useState<Agent>();
   // A parent refresh at the same or newer revision wins over the local copy.
-  const profiles = (catalog ?? agents).map((agent) => {
-    const saved = savedProfiles[agent.id];
-    return saved && saved.revision > agent.revision ? saved : agent;
-  });
+  const profiles = (catalog ?? agents)
+    .filter((agent) => !deleted.has(agent.id))
+    .map((agent) => {
+      const saved = savedProfiles[agent.id];
+      return saved && saved.revision > agent.revision ? saved : agent;
+    });
   for (const saved of Object.values(savedProfiles))
-    if (!profiles.some((agent) => agent.id === saved.id)) profiles.push(saved);
+    if (!deleted.has(saved.id) && !profiles.some((agent) => agent.id === saved.id))
+      profiles.push(saved);
   const body = editing ? (
     <MemberEditor
       key={editing.key}
@@ -197,28 +198,40 @@ export function MembersForm({
   ) : (
     <div className={cx("member-list")} aria-label="成员列表">
       {profiles.map((agent) => (
-        <button
-          type="button"
-          key={agent.id}
-          className={cx("member-card")}
-          onClick={() => setEditing({ key: agent.id, agent })}
-        >
-          <Avatar name={agent.display_name} avatar={agent.avatar} />
-          <span className={cx("member-info")}>
-            <strong>{agent.display_name || "未命名成员"}</strong>
-            <span className={cx("member-handle")}>
-              @{agent.handle || "未设置"}
+        <div className={cx("member-row")} key={agent.id}>
+          <button
+            type="button"
+            className={cx("member-card")}
+            onClick={() => setEditing({ key: agent.id, agent })}
+          >
+            <Avatar name={agent.display_name} avatar={agent.avatar} />
+            <span className={cx("member-info")}>
+              <strong>{agent.display_name || "未命名成员"}</strong>
+              <span className={cx("member-handle")}>
+                @{agent.handle || "未设置"}
+              </span>
+              <small>
+                {agent.role_description || "未填写职责"}
+                {catalog && !global
+                  ? agents.some((item) => item.id === agent.id)
+                    ? " · 已加入"
+                    : " · 未加入"
+                  : ""}
+              </small>
             </span>
-            <small>
-              {agent.role_description || "未填写职责"}
-              {catalog && !global
-                ? agents.some((item) => item.id === agent.id)
-                  ? " · 已加入"
-                  : " · 未加入"
-                : ""}
-            </small>
-          </span>
-        </button>
+          </button>
+          {remove && (
+            <button
+              type="button"
+              className={cx("member-delete")}
+              aria-label={`删除成员 ${agent.display_name || "未命名成员"}`}
+              title="删除成员"
+              onClick={() => setDeleting(agent)}
+            >
+              <Icon name="trash" size={15} />
+            </button>
+          )}
+        </div>
       ))}
       <button
         type="button"
@@ -229,12 +242,42 @@ export function MembersForm({
       </button>
     </div>
   );
-  return embedded ? (
-    body
-  ) : (
-    <Modal title="成员与称呼" close={close} wide>
-      {body}
-    </Modal>
+  return (
+    <>
+      {embedded ? (
+        body
+      ) : (
+        <Modal title="成员与称呼" close={close} wide>
+          {body}
+        </Modal>
+      )}
+      {deleting && remove && (
+        <ConfirmDialog
+          title="删除成员"
+          action="确认删除"
+          close={() => setDeleting(undefined)}
+          confirm={async () => {
+            await remove(deleting);
+            setDeleted((current) => new Set(current).add(deleting.id));
+            setSavedProfiles((current) => {
+              const next = { ...current };
+              delete next[deleting.id];
+              return next;
+            });
+            if (editing?.agent.id === deleting.id) setEditing(null);
+            setDeleting(undefined);
+          }}
+        >
+          <p>
+            删除成员「{deleting.display_name || "未命名成员"}」？
+          </p>
+          <p className={cx("muted")}>
+            该成员的全局档案和所有工作空间关系会被移除；历史消息、Run
+            快照和已完成任务记录保留不变。此操作无法撤销。
+          </p>
+        </ConfirmDialog>
+      )}
+    </>
   );
 }
 
@@ -258,7 +301,7 @@ function MemberEditor({
   saveMembership?: (
     agent: Agent,
     member: WorkspaceMember | undefined,
-    value: { enabled: boolean; tools: string[] },
+    value: { enabled: boolean },
   ) => Promise<void>;
   unlink?: (member: WorkspaceMember) => Promise<void>;
   save: (value: Agent) => Promise<Agent>;
@@ -503,7 +546,7 @@ function MemberEditor({
           <h3>{catalog ? "全局成员档案" : "成员档案"}</h3>
           {catalog && (
             <p className={cx("member-note")}>
-              档案在所有工作空间共享；本空间权限单独授予，实际权限取两者交集。
+              档案在所有工作空间共享；是否加入、是否启用按工作空间管理，执行边界由全局权限设置决定。
             </p>
           )}
           <label htmlFor={field("name")}>显示名</label>
@@ -757,25 +800,7 @@ function MemberEditor({
           )}
         </section>
         <section className={cx("member-section")}>
-          <fieldset>
-            <legend>{catalog ? "全局允许工具" : "允许工具"}</legend>
-            {allTools.map((tool) => (
-              <label className={cx("check-label")} key={tool}>
-                <input
-                  type="checkbox"
-                  checked={value.tools?.includes(tool) ?? false}
-                  onChange={(event) =>
-                    update({
-                      tools: event.target.checked
-                        ? [...(value.tools ?? []), tool]
-                        : (value.tools?.filter((item) => item !== tool) ?? []),
-                    })
-                  }
-                />
-                {tool}
-              </label>
-            ))}
-          </fieldset>
+          <legend>{catalog ? "启用状态" : "成员状态"}</legend>
           <label className={cx("check-label")}>
             <input
               type="checkbox"
@@ -784,7 +809,9 @@ function MemberEditor({
             />
             {catalog ? "在所有工作空间停用此成员" : "停用此成员"}
           </label>
-          <small>工具仅控制 Cocogem 宿主工具，不授予原生命令或 shell。</small>
+          <small>
+            工具授权由全局权限模式统一决定，不再按成员配置；停用后该成员不参与任何工作空间的执行。
+          </small>
         </section>
         {error && (
           <p className={cx("error")} role="alert">
@@ -825,19 +852,13 @@ function WorkspaceMembershipForm({
 }: {
   agent: Agent;
   membership?: WorkspaceMember;
-  save: (value: { enabled: boolean; tools: string[] }) => Promise<void>;
+  save: (value: { enabled: boolean }) => Promise<void>;
   unlink: () => Promise<void>;
 }) {
-  const globalTools = agent.tools ?? [];
   const [enabled, setEnabled] = useState(membership?.enabled ?? true);
-  const [tools, setTools] = useState(membership?.tools ?? globalTools);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  const effective =
-    enabled && !agent.disabled
-      ? tools.filter((tool) => globalTools.includes(tool))
-      : [];
   const submit = (action: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -852,11 +873,11 @@ function WorkspaceMembershipForm({
       className={cx("membership-form")}
       onSubmit={(event) => {
         event.preventDefault();
-        submit(() => save({ enabled, tools }));
+        submit(() => save({ enabled }));
       }}
     >
       <fieldset disabled={busy}>
-        <legend>本工作空间权限</legend>
+        <legend>本工作空间成员</legend>
         <label className={cx("check-label")}>
           <input
             type="checkbox"
@@ -868,41 +889,19 @@ function WorkspaceMembershipForm({
           />
           在本工作空间启用
         </label>
-        {allTools.map((tool) => {
-          const allowed = globalTools.includes(tool);
-          const checked = tools.includes(tool);
-          return (
-            <label className={cx("check-label")} key={tool}>
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={!allowed && !checked}
-                onChange={(event) => {
-                  setTools(
-                    event.target.checked
-                      ? [...tools, tool]
-                      : tools.filter((item) => item !== tool),
-                  );
-                  setSaved(false);
-                }}
-              />
-              {tool}
-              {!allowed && "（全局未允许）"}
-            </label>
-          );
-        })}
       </fieldset>
       <p className={cx("member-note")}>
-        实际权限取本空间与全局配置的交集；当前生效：
-        {effective.length ? effective.join("、") : "无"}
-        。移出仅撤销本空间访问，保留全局档案与历史记录。
+        {agent.disabled
+          ? "该成员已在全局停用，加入本空间也不会执行。"
+          : "成员的工具与命令边界由设置中的全局权限决定；此处只管理是否加入与是否启用。"}
+        移出仅撤销本空间访问，保留全局档案与历史记录。
       </p>
       {error && (
         <p role="alert" className={cx("error")}>
           {error}
         </p>
       )}
-      {saved && <p role="status">本空间成员配置已保存。</p>}
+      {saved && <p role="status">本空间成员设置已保存。</p>}
       <div className={cx("form-actions")}>
         {membership && (
           <button type="button" disabled={busy} onClick={() => submit(unlink)}>
@@ -910,7 +909,7 @@ function WorkspaceMembershipForm({
           </button>
         )}
         <button className={cx("primary")} disabled={busy}>
-          {busy ? "保存中…" : membership ? "保存本空间权限" : "加入本工作空间"}
+          {busy ? "保存中…" : membership ? "保存本空间设置" : "加入本工作空间"}
         </button>
       </div>
     </form>

@@ -4,7 +4,7 @@
 
 **把问题交给一个团队。**
 
-让 Claude Code、Codex、Gemini 和 Pi 在同一个工作空间里讨论、研究、开发与复核。
+让 Claude Code、Codex、Gemini、Pi 和 OpenCode 在同一个工作空间里讨论、研究、开发与复核。
 
 [![CI](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml/badge.svg)](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.26.10+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
@@ -54,7 +54,7 @@ make dev
 
 1. 首次使用时设置 12–128 字符的本地访问密码。
 2. 直接输入目标。首次输入会在同一事务中创建「未命名项目」、会话和可编辑的默认成员档案；复用已配置的 CLI，不要求先完成成员或项目向导。
-3. 研究不需要工程目录；第一次工程任务就地选择目录，选择目录只授予读取意图。所有新项目首次为受控模式。
+3. 研究不需要工程目录；工程工作就地选择目录。权限全局统一，首次初始化及旧模型一次性迁移默认「项目内自主」，输入框与「设置 → 权限」同步，新空间沿用当前选择。
 4. 用 `@` 指定成员，或用自然语言描述如何协作。持久任务、目标修订、预算和验收记录可跨会话、跨重启继续。
 
 Enter 发送，Shift+Enter 换行；支持中文输入法确认和成员补全。本地访问密码只用于解锁网页，与 CLI 的模型凭据独立。
@@ -75,38 +75,30 @@ make build
 | 能力 | 使用方式 |
 | --- | --- |
 | 项目与持久任务 | 项目首页保留欢迎场景和少量摘要；最左侧窄栏可切换到与真实任务联动的 todo list。目标修订保留不可变历史，交付不等于验收 |
-| 自由协作 | 用 `@` 或自然语言发起任务，协调者按需要直接回答、交接任务或选择内置方法 |
+| 自由协作 | 用 `@` 或自然语言发起任务，协调者按需要直接回答、交接任务或选择内置方法；自动选择的工程协作为只读 |
 | 协作讨论 | 成员先独立思考，再交叉质疑、检查汇总，保留真实分歧 |
 | Research | 检索和阅读资料，经过质疑、回应及复查后交付研究报告 |
-| 工程分析与开发 | 分析模式保持只读；显式选择开发并授权后，修改、测试、独立复核和修复形成闭环 |
-| 可复用的成员 | 全局成员可加入多个空间，分别配置职责、模型、执行选项、头像及工具授权 |
-| 来源与交付物 | 查看捕获来源、确切报告版本、人工反馈，并导出 Markdown 或 JSON |
-| 长任务与恢复 | 实时输出、独立任务并行、停止、失败重跑、持久等待/唤醒和检查点恢复，保留已经完成的步骤与历史 |
-| 协作预算 | 根任务共享 20/4/2/3/2 默认额度，支持项目覆盖、任务级版本化调整和预算耗尽等待 |
+| 工程协作 | 显式选择该流程后，可按授权修改和测试，再独立复核并交付；仍受任务与角色约束。其他文件任务可按自身授权使用工具，无需选择该流程 |
+| 可复用的成员 | 全局成员可加入多个空间，配置职责、模型、执行选项及头像；空间关系只管理加入与启用 |
+| 全局权限 | 受控、项目内自主或完全访问；额外操作可仅允许本次、在本会话持续允许或拒绝，持续授权仍限定工具和资源范围 |
+| 来源与交付物 | 查看捕获来源、确切报告版本和人工反馈，下载 Markdown 报告及实际交付文件 |
+| 长任务与恢复 | 实时输出、独立任务并行、停止、失败成员步骤重试、持久等待/唤醒和检查点恢复，保留已经完成的步骤与历史 |
+| 协作预算 | 全局配置未来根任务的 20/4/2/3/2 默认值；每根独立累计，子任务与重试共享所属账本，预算耗尽时明确等待 |
 | 日常工作空间 | 会话搜索、重命名、回收站，浅色、深色、暖色及跟随系统的外观 |
 
-工程开发的测试工具目前依赖 macOS 沙箱；Linux 会明确阻止未验证的测试执行。只读分析与其他流程的权限、平台边界见[产品文档](docs/product.md#工具与执行边界)。
+项目内自主的命令执行目前采用 macOS 执行边界；其他未验证平台明确失败关闭。写入不保证总是在独立候选目录中进行；重启恢复可能重新排队进程已停止但结果未提交的步骤。具体权限、安装版本、测试路径与剩余限制见[产品文档](docs/product.md#工具与执行边界)和[验收记录](docs/2026-11-08-permissions-and-ui-acceptance.md)。
 
 ### CLI 接入
 
-| CLI | 终端调用 | Web 接入方式 |
+| CLI | 本机命令 | Web 接入方式 |
 | --- | --- | --- |
-| Claude Code | `claude` | stream-json、受限 MCP，按授权启用原生只读工具；显式完全访问可在任务范围内启用原生写入与 shell |
-| Codex | `codex` | exec JSON、受限 MCP，满足授权时启用原生联网 |
-| Gemini CLI | `gemini` | stream-json、受限 MCP，文件与联网使用宿主工具 |
-| Pi | `pi` | JSON、受限 MCP，关闭原生读写和 shell 工具 |
-| OpenCode | `opencode` | v2.2.5+ 实时文本增量、独立服务和受限 MCP；自动读取当前模型的思考变体 |
+| Claude Code | `claude` | 双向 stream-json 审批、受限 MCP，原生工具按次落实执行边界 |
+| Codex | `codex` | 已验证的 macOS 版本使用 app-server 与项目/任务窄权限配置；原生协议无法表达按次外部范围，项目外操作由范围受限的宿主工具承接 |
+| Gemini CLI | `gemini` | stream-json、私有工具 hooks、受限 MCP 与确切范围的原生执行 |
+| Pi | `pi` | RPC、私有工具扩展和受限 MCP，在原生效果发生前审批 |
+| OpenCode | `opencode` | 独立 v2 服务与私有执行前插件，实时正文、受限 MCP 和模型思考变体 |
 
 接入是否可用取决于安装版本的协议、隔离能力及实际模型连接；「已安装」不等于「连接已验证」。在「设置 → 服务」查看诊断和验证连接。
-
-### 也可以只用终端
-
-```sh
-go run ./cmd/cocogem codex "记住这个项目叫 Cocogem"
-go run ./cmd/cocogem codex --resume latest "项目叫什么？"
-```
-
-将 `codex` 换成 `claude`、`gemini`、`pi` 或 `opencode`；省略 CLI 名默认使用 Claude。终端会话记录保存在当前目录的 `.cocogem/`，与网页协作的隔离会话分开。参数、输出与恢复约定见[产品文档](docs/product.md#原生命令行)。
 
 ## 如何工作
 
@@ -117,7 +109,7 @@ Web 工作空间 · 成员与路由 · 共享技能
    ↓
 Go 服务 · 计划与权限 · 受限 MCP · 来源与检查点
    ↓
-Claude Code / Codex / Gemini / Pi
+Claude Code / Codex / Gemini / Pi / OpenCode
    ↓
 共享对话 · 独立复核 · 版本化交付物
 ```
@@ -132,15 +124,15 @@ GitHub Actions 在 push 和 Pull Request 时只执行 `make test`。其他验证
 
 ```sh
 make test             # Go、原生 CLI fixture、前端单元测试、Lint 与类型检查
-make check-contract   # OpenAPI 与前端生成类型一致性
+make check-contract   # 重新生成契约并检查相对 HEAD 的差异
 make e2e              # 构建、正式服务 smoke 与浏览器测试
-make verify-redesign  # 首问、持久任务、补充与预算纵向旅程
+make verify-redesign  # 使用真实 CLI 验证首问、任务、全局权限和预算
 make security         # 凭证检查与依赖漏洞扫描
 ```
 
 首次运行浏览器测试，在 `web/` 下执行 `npx playwright install chromium`；也可用 `PLAYWRIGHT_CHANNEL=chrome make e2e` 使用已有 Chrome。
 
-自动化默认使用临时进程与合成资料，不需要模型凭据。`make probe-cli` 和 `make probe-isolation` 可检查已安装 CLI 与本地假模型的协议及隔离行为；真实供应商调用需单独验证。
+`make test` 和 `make e2e` 默认使用临时进程与合成资料，不需要模型凭据。`make probe-cli` 和 `make probe-isolation` 可检查已安装 CLI 与本地假模型的协议及隔离行为。`make verify-redesign` 使用隔离数据目录，但会调用已配置的真实 CLI，可能产生供应商用量；结果只适用于该次连接和测试旅程。该命令默认使用已安装的 Chrome，可通过 `PLAYWRIGHT_CHANNEL` 选择其他浏览器 channel。`make check-contract` 也会因生成文件存在预期的未提交改动而失败。
 
 ## 致谢与许可
 

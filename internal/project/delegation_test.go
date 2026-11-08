@@ -12,7 +12,7 @@ func TestDelegateTaskBindsAttemptBudgetAndRetry(t *testing.T) {
 	parent := create(t, service, th)
 	member := w.Agent{ID: "owner", WorkspaceID: th.WorkspaceID, DisplayName: "owner", Handle: "owner", Revision: 1, Tools: []string{"read"}}
 	run := w.Run{ID: "delegate-parent-run", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: parent.Task.ID, TaskRevision: 1, Status: "running", CreatedAt: w.Now(), GrantActions: []string{"read", "collaborate"}}
-	session := w.ExecutionSession{ID: "delegate-parent-session", TaskID: parent.Task.ID, MemberID: member.ID, Status: "fresh_only", ExposedRefs: []string{}, CreatedAt: w.Now(), UpdatedAt: w.Now()}
+	session := w.ExecutionSession{ID: "delegate-parent-session", TaskID: parent.Task.ID, MemberID: member.ID, VisibilityEpoch: 1, Status: "fresh_only", ExposedRefs: []string{}, CreatedAt: w.Now(), UpdatedAt: w.Now()}
 	session.ExposureDigest = exposureRefsDigest(session.ExposedRefs)
 	attempt := w.Attempt{ID: "delegate-parent-attempt", RunID: run.ID, StepID: "delegate-parent-step", Number: 1, Status: "running", ExecutionSessionRef: session.ID, StartedAt: w.Now()}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {

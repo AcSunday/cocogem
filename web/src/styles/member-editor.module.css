@@ -4,6 +4,41 @@
   gap: 2px;
   padding: 4px 0;
 }
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.member-row .member-card {
+  flex: 1;
+  min-width: 0;
+}
+.member-delete {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.member-delete:hover {
+  border-color: color-mix(in srgb, var(--danger) 24%, transparent);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.member-delete:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 .member-card {
   display: flex;
   align-items: center;

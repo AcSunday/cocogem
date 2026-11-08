@@ -13,8 +13,10 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		os.Exit(1)
 	}
-	os.Setenv("CLAUDE_CONFIG_DIR", dir)
-	os.Setenv("CODEX_HOME", dir)
+	if os.Getenv("COCOGEM_CHECK_LIVE_NATIVE_EXECUTION") != "1" {
+		os.Setenv("CLAUDE_CONFIG_DIR", dir)
+		os.Setenv("CODEX_HOME", dir)
+	}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

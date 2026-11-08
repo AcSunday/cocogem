@@ -9,6 +9,7 @@ import {
   loadThreadPage,
   applyMessageDelta,
   eventHistory,
+  uploadSource,
   EVENT_WINDOW,
   type Agent,
   type Artifact,
@@ -21,18 +22,20 @@ import {
   type RunView,
   type Settings,
   type Source,
+  type SourceImport,
   type Step,
   type System,
   type Thread,
   type ThreadView,
   type Workspace,
+  type ProjectTaskView,
 } from "../api/client";
 import { AuthScreen } from "../components/AuthScreen";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
 import {
   Composer,
-  type EngineeringAction,
+  type ComposerAttachment,
   type WorkflowKey,
 } from "../components/Composer";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
@@ -42,6 +45,15 @@ import { ProjectHome } from "../components/ProjectHome";
 import { ProjectRail, type ProjectView } from "../components/ProjectRail";
 import { TaskBoardPage } from "../components/TaskBoardPage";
 import { TaskDetail } from "../components/TaskDetail";
+import { TaskCreateForm } from "../components/TaskCreateForm";
+import { Modal } from "../components/Modal";
+import { taskFocusMeta, taskTitle } from "../lib/tasks";
+import {
+  failedMemberRetries,
+  latestTurnRunID,
+  outstandingStepFailures,
+  runTurns,
+} from "../lib/retry";
 import { Sidebar } from "../components/Sidebar";
 import { Welcome } from "../components/Welcome";
 import {
@@ -54,6 +66,13 @@ import {
 } from "./merge";
 import { collectRunWindow } from "./stream";
 import { AppModals, type ModalState } from "./AppModals";
+import {
+  PermissionDecision,
+  submitPermissionDecision,
+  usePermissionRequests,
+} from "../components/PermissionDecision";
+import { PermissionQueue } from "../components/PermissionQueue";
+import { executionModeOf, useGlobalSettings } from "./useGlobalSettings";
 import {
   conversationCoordinator,
   errorText,
@@ -72,6 +91,12 @@ import conversation from "../styles/conversation.module.css";
 import panels from "../styles/panels.module.css";
 
 const cx = scoped(base, controls, layout, conversation, panels);
+
+/** A picked file remains a local draft until the user sends the message. */
+type DraftAttachment = ComposerAttachment & {
+  file?: File;
+  source?: SourceImport;
+};
 
 const pathSelection = () => {
   const match = location.pathname.match(
@@ -179,15 +204,25 @@ function WorkspaceApp({
   const [workspaceID, setWorkspaceID] = useState(pathSelection().workspace);
   const [threadID, setThreadID] = useState(pathSelection().thread);
   const [taskID, setTaskID] = useState(pathSelection().task);
+  const [taskConversion, setTaskConversion] = useState(false);
   const [projectView, setProjectView] = useState<ProjectView>(
     pathSelection().view,
   );
   const [agents, setAgents] = useState<Agent[]>([]);
   const [globalAgents, setGlobalAgents] = useState<Agent[]>([]);
-  const [settings, setSettings] = useState<Settings>();
+  // Settings are the single global source for the permission choice; the hook
+  // keeps Composer and 设置 → 权限 in sync across windows.
+  const globalSettings = useGlobalSettings();
+  const { settings, apply: applySettings, patch: patchSettings } = globalSettings;
+  const setSettings = useCallback(
+    (value: Settings) => applySettings(value),
+    [applySettings],
+  );
   const [threads, setThreads] = useState<Thread[]>([]);
   const [view, setView] = useState<ThreadView>();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [stepsByRun, setStepsByRun] = useState<Record<string, Step[]>>({});
   const [attemptsByRun, setAttemptsByRun] = useState<Record<string, Attempt[]>>(
     {},
@@ -218,10 +253,8 @@ function WorkspaceApp({
   const [workflowChoices, setWorkflowChoices] = useState<
     Record<string, WorkflowKey>
   >({});
-  const [engineeringActionChoices, setEngineeringActionChoices] = useState<
-    Record<string, EngineeringAction>
-  >({});
   const [routing, setRouting] = useState<Routing>();
+  const memberRetryKeys = useRef(new Map<string, string>());
   const [tab, setTab] = useState<PanelTab>("artifacts");
   const [source, setSource] = useState<Source>();
   const [artifact, setArtifact] = useState<Artifact>();
@@ -232,8 +265,7 @@ function WorkspaceApp({
   const [steeringReceipt, setSteeringReceipt] = useState("");
   const [navOpen, setNavOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [inspectedRunID, setInspectedRunID] = useState("");
-  // Live streaming waits until the selected run's recent window is seeded.
+  // Live streaming waits until the current run's recent window is seeded.
   const [seededRunID, setSeededRunID] = useState("");
   const timeline = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -241,11 +273,23 @@ function WorkspaceApp({
       timeline.current.scrollTop = 0;
     }
   }, [threadID, taskID, projectView, workspaceID]);
+  useEffect(() => {
+    // The task surface is global; a workspace drawer or collaboration panel
+    // opened from a conversation must not follow the user into it.
+    if (taskID || (!threadID && projectView === "tasks")) {
+      setNavOpen(false);
+      setPanelOpen(false);
+    }
+  }, [taskID, threadID, projectView]);
   const follows = useRef(true);
   const currentThread = useRef(threadID);
   const currentWorkspace = useRef(workspaceID);
+  const currentTask = useRef(taskID);
+  const currentProjectView = useRef(projectView);
   currentWorkspace.current = workspaceID;
   currentThread.current = threadID;
+  currentTask.current = taskID;
+  currentProjectView.current = projectView;
   const refreshGeneration = useRef(0);
   const sourceGeneration = useRef(0);
   // Page browsing replaces the page instead of accumulating all history.
@@ -267,11 +311,44 @@ function WorkspaceApp({
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const runs = view?.runs ?? [];
   const currentRun = runs.at(-1);
-  const inspectedRun =
-    runs.find((run) => run.id === inspectedRunID) ?? currentRun;
+  const turns = runTurns(runs);
+  const memberFailures = failedMemberRetries(runs, stepsByRun);
+  // Tool activity belongs to each run's own reply, so the live window is kept
+  // for the run that is currently streaming (the latest one).
+  const inspectedRun = currentRun;
   const latestLiveness = inspectedRun
     ? livenessByRun[inspectedRun.id]
     : undefined;
+  // Pending tool authorizations are read from the server, never inferred from
+  // the bounded live event window (a refresh must still find the blocked call).
+  const permissions = usePermissionRequests(threadID, currentRun);
+  const permissionRequestFor = (requestID: string) =>
+    permissions.items.find(
+      (item) => item.id === requestID || item.request_id === requestID,
+    );
+  const decidePermission = useCallback(
+    async (requestID: string, decision: "allow_once" | "allow_conversation" | "deny") => {
+      const request = permissions.items.find(
+        (item) => item.id === requestID || item.request_id === requestID,
+      );
+      if (!request) {
+        // A request that is no longer listed cannot be decided from here; the
+        // user must re-open the pending queue after a refresh.
+        throw new Error("该授权请求已不在待处理列表中，请刷新后重试。");
+      }
+      try {
+        await submitPermissionDecision(request, decision);
+      } finally {
+        // Re-read in both cases: a conflict must show the true server state
+        // instead of leaving a stale card that looks decidable.
+        await permissions.request();
+      }
+      // The decision answers exactly this blocked call. It never submits the
+      // Composer draft and never restarts the root task.
+    },
+    [permissions],
+  );
+  const mode = executionModeOf(settings);
   const active = runs.some((run) => !terminal(run.status));
   const available = agents.filter((agent) => !agent.disabled);
   const newThreadMembers = [...available].sort(
@@ -290,10 +367,6 @@ function WorkspaceApp({
     workflowChoices[draftKey] ??
     (view?.thread.workflow as WorkflowKey | undefined) ??
     "free";
-  const engineeringAction: EngineeringAction =
-    workflow === "engineering"
-      ? (engineeringActionChoices[draftKey] ?? "analyze")
-      : "analyze";
   const setWorkflow = (value: WorkflowKey) => {
     setWorkflowChoices((current) => ({ ...current, [draftKey]: value }));
     setRouting(undefined);
@@ -316,32 +389,21 @@ function WorkspaceApp({
           coordinatorID !== settings.default_coordinator_id,
       }
     : undefined;
-  const setEngineeringAction = (value: EngineeringAction) => {
-    setEngineeringActionChoices((current) => ({
-      ...current,
-      [draftKey]: value,
-    }));
-    setRouting(undefined);
-  };
   const updateDraft = (value: string) =>
     setDrafts((current) => ({ ...current, [draftKey]: value }));
 
+  /**
+   * The global permission is written through the field-merge settings PATCH.
+   * Only `execution_mode` is sent, so the collaboration defaults, assignments
+   * and retention are never overwritten, and a concurrent editor of another
+   * field is merged rather than clobbered by a stale whole-object save.
+   */
   const changeExecutionMode = useCallback(
     async (mode: string) => {
-      const current = workspace;
-      if (!current) throw new Error("请先选择工作空间");
-      if ((current.execution_mode || "controlled") === mode) return;
-      const updated = await api<Workspace>(
-        `/api/v1/workspaces/${current.id}/execution-policy`,
-        "PATCH",
-        { mode, source_message_id: crypto.randomUUID() },
-        { "If-Match": String(current.revision) },
-      );
-      setWorkspaces((items) =>
-        items.map((item) => (item.id === updated.id ? updated : item)),
-      );
+      if (executionModeOf(settings) === mode) return;
+      await patchSettings({ execution_mode: mode });
     },
-    [workspace],
+    [settings, patchSettings],
   );
 
   const navigate = useCallback(
@@ -352,27 +414,39 @@ function WorkspaceApp({
       task = "",
       view?: ProjectView,
     ) => {
-    setPendingRequest(pendingSubmission.current.has(th));
-    setSteeringReceipt("");
     setNavOpen(false);
     setPanelOpen(false);
+    const nextView = view ?? (task ? "tasks" : "home");
+    // Re-selecting the current destination must not clear the loaded view:
+    // none of the thread effects would rerun for the same thread id.
+    if (
+      ws === currentWorkspace.current &&
+      th === currentThread.current &&
+      task === currentTask.current &&
+      nextView === currentProjectView.current
+    )
+      return;
+    setPendingRequest(pendingSubmission.current.has(th));
+    setSteeringReceipt("");
     currentThread.current = th;
     currentWorkspace.current = ws;
+    currentTask.current = task;
+    currentProjectView.current = nextView;
     refreshGeneration.current++;
     setWorkspaceID(ws);
     setThreadID(th);
     setTaskID(task);
-    const nextView = view ?? (th || task ? undefined : "home");
-    if (nextView) setProjectView(nextView);
+    setProjectView(nextView);
     setView(undefined);
     setEvents([]);
     setLivenessByRun({});
-    setInspectedRunID("");
     setSeededRunID("");
     setStepsByRun({});
     setAttemptsByRun({});
     settledSteps.current.clear();
     setArtifacts([]);
+    setAttachments([]);
+    setUploading(false);
     setSource(undefined);
     setSourceID("");
     setSourceLoading(false);
@@ -408,9 +482,10 @@ function WorkspaceApp({
     const result = await api<{ items: Agent[] }>("/api/v1/agents");
     setGlobalAgents(result.items ?? []);
   }, []);
+  const refreshSettings = globalSettings.refresh;
   const loadSettings = useCallback(async () => {
-    setSettings(await api<Settings>("/api/v1/settings"));
-  }, []);
+    await refreshSettings();
+  }, [refreshSettings]);
   const loadMembers = useCallback(async (id: string) => {
     const result = await api<{ items: Agent[] }>(
       `/api/v1/workspaces/${id}/agents`,
@@ -429,6 +504,23 @@ function WorkspaceApp({
     } while (cursor);
     if (currentWorkspace.current === id) setThreads(items);
   }, []);
+  // Deleting from the conversation list is recoverable: move it to the trash
+  // immediately and reserve confirmation for permanent deletion.
+  async function trashThread(thread: Thread) {
+    setError("");
+    try {
+      await api(`/api/v1/threads/${thread.id}`, "DELETE");
+      pendingSubmission.current.delete(thread.id);
+      setThreads((current) =>
+        current.filter((item) => item.id !== thread.id),
+      );
+      const id = thread.workspace_id || currentWorkspace.current;
+      if (thread.id === currentThread.current) navigate(id);
+      await loadThreads(id);
+    } catch (failure) {
+      setError(errorText(failure));
+    }
+  }
   const refreshThread = useCallback(
     async (id: string, cursor = messageCursorRef.current) => {
       const generation = ++refreshGeneration.current;
@@ -913,10 +1005,6 @@ function WorkspaceApp({
     currentThread.current = thread.id;
     setTaskID("");
     setWorkflowChoices((current) => ({ ...current, [thread.id]: workflow }));
-    setEngineeringActionChoices((current) => ({
-      ...current,
-      [thread.id]: engineeringAction,
-    }));
     setDrafts((current) => ({
       ...current,
       [thread.id]: current[`new:${workspaceID}`] ?? text,
@@ -925,6 +1013,55 @@ function WorkspaceApp({
     history.pushState({}, "", `/w/${thread.workspace_id}/t/${thread.id}`);
     await loadThreads(thread.workspace_id);
     return thread.id;
+  }
+  function attach(file: File) {
+    if (attachments.length >= 5) {
+      setError("每次任务最多选择 5 份上传资料");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError("资料原件不能超过 8 MiB");
+      return;
+    }
+    // Keep the original local until send. Picking a file must not create a
+    // conversation the user may decide not to start.
+    setError("");
+    setAttachments((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        file,
+        title: file.name,
+        file_name: file.name,
+      },
+    ]);
+  }
+  async function uploadAttachments(
+    targetThreadID: string,
+    items: DraftAttachment[],
+  ) {
+    if (!items.some((item) => item.file && !item.source)) return items;
+    setUploading(true);
+    const next = [...items];
+    try {
+      for (let index = 0; index < next.length; index++) {
+        const item = next[index];
+        if (!item.file || item.source) continue;
+        const imported = await uploadSource(targetThreadID, item.file);
+        next[index] = {
+          id: imported.id,
+          source: imported,
+          title: imported.title || item.title,
+          file_name: imported.file_name || item.file_name,
+          kind: imported.kind,
+          parse_error: imported.parse_error,
+        };
+        setAttachments([...next]);
+      }
+      return next;
+    } finally {
+      setUploading(false);
+    }
   }
   async function send(inputOverride?: RunInput) {
     if (busy) return;
@@ -935,11 +1072,7 @@ function WorkspaceApp({
     try {
       const text = inputOverride?.message ?? draft;
       if (!text.trim()) throw new Error("请输入问题");
-      // Only the very first question bootstraps a project. Sending from an
-      // existing project's composer stays in its conversation; the durable
-      // task page remains one click away instead of hiding the run.
-      const firstProjectQuestion = !workspaceID;
-      if (active) {
+        if (active) {
         if (!currentRun?.task_id)
           throw new Error("这次旧版执行尚未关联持久任务，请完成后再补充。");
         const key = crypto.randomUUID();
@@ -959,6 +1092,9 @@ function WorkspaceApp({
         return;
       }
       const id = threadID || (await createThread(text));
+      const uploaded = inputOverride
+        ? attachments
+        : await uploadAttachments(id, attachments);
       let input: RunInput = inputOverride
         ? structuredClone(inputOverride)
         : {
@@ -968,14 +1104,11 @@ function WorkspaceApp({
             // The server resolves global/session defaults from an empty map.
             assignments: {},
             source_urls: [],
-            source_ids: [],
+            source_ids: uploaded.map((item) => item.source?.id ?? item.id),
             artifact_refs: artifactRef
               ? [{ id: artifactRef.id, version: artifactRef.version }]
               : [],
             research_scope: "auto",
-            ...(workflow === "engineering"
-              ? { engineering_action: engineeringAction }
-              : {}),
             proposal_id: "",
             retry_of_run_id: "",
           };
@@ -1008,11 +1141,12 @@ function WorkspaceApp({
       } else {
         input = pending.input;
       }
-      const submitted = await api<Run>(`/api/v1/threads/${id}/runs`, "POST", input, {
+      await api<Run>(`/api/v1/threads/${id}/runs`, "POST", input, {
         "Idempotency-Key": pending.key,
       });
       pendingSubmission.current.delete(id);
       setPendingRequest(false);
+      setAttachments([]);
       setDrafts((current) => ({
         ...current,
         [draftKey]:
@@ -1021,21 +1155,13 @@ function WorkspaceApp({
       }));
       setEvents([]);
       setLivenessByRun({});
-      setInspectedRunID("");
       setSeededRunID("");
       setArtifactRef(undefined);
       messageCursorRef.current = "";
       viewCursor.current = "";
       setMessageCursor("");
       follows.current = true;
-      if (submitted.task_id && firstProjectQuestion) {
-        // The first question opens its durable task. Later turns stay in the
-        // working conversation so users can follow the run in place and return
-        // to the task page when needed.
-        navigate(currentWorkspace.current, "", true, submitted.task_id);
-      } else {
-        await refreshThread(id);
-      }
+      await refreshThread(id);
       await loadThreads(currentWorkspace.current);
     } catch (error) {
       if (
@@ -1079,12 +1205,16 @@ function WorkspaceApp({
       setBusy(false);
     }
   }
-  async function retry(runID: string) {
+  async function retry(runID: string, stepID: string) {
     if (busy || active) return;
     setBusy(true);
     setError("");
     try {
-      await api(`/api/v1/runs/${runID}/retry`, "POST", {});
+      const identity = `${runID}/${stepID}`;
+      const key = memberRetryKeys.current.get(identity) ?? crypto.randomUUID();
+      memberRetryKeys.current.set(identity, key);
+      await api(`/api/v1/runs/${runID}/retry`, "POST", { step_id: stepID }, { "Idempotency-Key": key });
+      memberRetryKeys.current.delete(identity);
       settledSteps.current.delete(runID);
       follows.current = true;
       messageCursorRef.current = "";
@@ -1175,14 +1305,14 @@ function WorkspaceApp({
 
   const messages = view?.messages.items ?? [];
   const hideWorkspaceSidebar =
-    !threadID && !taskID && projectView === "tasks";
+    !!taskID || (!threadID && projectView === "tasks");
   return (
     <div className={cx("app-shell")}>
       <a className={cx("skip-link")} href="#composer-input">
         跳到输入框
       </a>
       <ProjectRail
-        active={taskID || threadID ? "tasks" : projectView}
+        active={threadID ? "home" : taskID ? "tasks" : projectView}
         onHome={() => navigate(workspaceID, "", true, "", "home")}
         onTasks={() => navigate(workspaceID, "", true, "", "tasks")}
         onSettings={() => setModal({ kind: "settings" })}
@@ -1202,7 +1332,7 @@ function WorkspaceApp({
           onNewThread={() => setModal({ kind: "thread" })}
           onEditThread={(thread) => setModal({ kind: "edit-thread", thread })}
           onRenameThread={(thread) => setModal({ kind: "rename-thread", thread })}
-          onDeleteThread={(thread) => setModal({ kind: "delete-thread", thread })}
+          onDeleteThread={(thread) => void trashThread(thread)}
           onCreateWorkspace={() => setModal({ kind: "workspace" })}
           onEditWorkspace={() => setModal({ kind: "edit-workspace" })}
         />
@@ -1265,38 +1395,42 @@ function WorkspaceApp({
                 <Icon name="settings" size={18} />
               </button>
             )}
-            <button
-              className={cx("ghost desktop-only")}
-              onClick={() => setModal({ kind: "agents" })}
-              disabled={!workspace}
-              aria-label={`成员 ${agents.length}`}
-            >
-              <span className={cx("avatar-stack")}>
-                {agents.slice(0, 4).map((agent) => (
-                  <Avatar
-                    key={agent.id}
-                    name={agent.display_name}
-                    avatar={agent.avatar}
-                    small
-                  />
-                ))}
-              </span>
-              {agents.length} 位成员
-            </button>
-            <button
-              className={cx("ghost panel-toggle")}
-              id="context-toggle"
-              aria-label={panelOpen ? "收起协作面板" : "打开协作面板"}
-              aria-expanded={panelOpen}
-              aria-controls="collaboration-panel"
-              onClick={() => setPanelOpen((current) => !current)}
-            >
-              <Icon name="panel" size={16} />
-              <span>协作</span>
-            </button>
+            {!hideWorkspaceSidebar && (
+              <>
+                <button
+                  className={cx("ghost desktop-only")}
+                  onClick={() => setModal({ kind: "agents" })}
+                  disabled={!workspace}
+                  aria-label={`成员 ${agents.length}`}
+                >
+                  <span className={cx("avatar-stack")}>
+                    {agents.slice(0, 4).map((agent) => (
+                      <Avatar
+                        key={agent.id}
+                        name={agent.display_name}
+                        avatar={agent.avatar}
+                        small
+                      />
+                    ))}
+                  </span>
+                  {agents.length} 位成员
+                </button>
+                <button
+                  className={cx("ghost panel-toggle")}
+                  id="context-toggle"
+                  aria-label={panelOpen ? "收起协作面板" : "打开协作面板"}
+                  aria-expanded={panelOpen}
+                  aria-controls="collaboration-panel"
+                  onClick={() => setPanelOpen((current) => !current)}
+                >
+                  <Icon name="panel" size={16} />
+                  <span>协作</span>
+                </button>
+              </>
+            )}
           </div>
         </header>
-        {error && (
+        {error && hideWorkspaceSidebar && (
           <div role="alert" className={cx("error-banner")}>
             <span>{error}</span>
             <button
@@ -1326,17 +1460,20 @@ function WorkspaceApp({
                   <TaskDetail
                     taskID={taskID}
                     agents={agents}
+                    workspaceName={workspace?.name}
                     onOpenThread={(id) => navigate(workspaceID, id)}
+                    onOpenTask={(id) => navigate(workspaceID, "", true, id)}
+                    onBack={() => navigate(workspaceID, "", true, "", "tasks")}
                     onOpenArtifact={(selected) => {
                       setArtifact(selected);
                       setModal({ kind: "artifact" });
                     }}
-                    onOpenSource={openSource}
                   />
                 ) : (
                   !threadID &&
                   (projectView === "tasks" ? (
                     <TaskBoardPage
+                      onOpenThread={(ws, id) => navigate(ws, id)}
                       onOpenTask={(workspaceID, taskID) =>
                         navigate(workspaceID, "", true, taskID)
                       }
@@ -1371,6 +1508,9 @@ function WorkspaceApp({
                   ))
                 )}
                 <div className={cx("timeline-inner")}>
+                  {view?.thread && <div className={cx("conversation-task-bar")}>
+                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>转为任务</button>}
+                  </div>}
                   {view && (messageCursor || view.messages.next_cursor) && (
                     <div
                       className={cx("timeline-paging")}
@@ -1406,39 +1546,73 @@ function WorkspaceApp({
                       )}
                     </div>
                   )}
-                  {runs.map((run, index) => (
-                    <RunSegment
-                      key={run.id}
-                      run={run}
-                      index={index + 1}
-                      steps={stepsByRun[run.id]}
-                      attempts={attemptsByRun[run.id]}
-                      messages={messages}
-                      sources={view?.sources ?? []}
-                      artifacts={artifacts}
-                      members={agents}
-                      connection={run.id === inspectedRun?.id ? connection : ""}
-                      liveness={
-                        run.id === inspectedRun?.id ? latestLiveness : undefined
-                      }
-                      events={run.id === inspectedRun?.id ? events : undefined}
-                      latest={run.id === currentRun?.id}
-                      busy={busy || active}
-                      onSnapshot={() => setModal({ kind: "snapshot", run })}
-                      onRetry={() => void retry(run.id)}
-                      onResume={() => void resume(run.id)}
-                      onRefresh={() =>
-                        void refreshThread(threadID).catch((error) =>
-                          setError(errorText(error)),
-                        )
-                      }
-                      onSource={openSource}
-                      onArtifact={(selected) => {
-                        setArtifact(selected);
-                        setModal({ kind: "artifact" });
-                      }}
-                    />
-                  ))}
+                  {turns.map((turn, index) => {
+                    // Each turn receives its own events so parallel and
+                    // retried runs never share one global "latest tool" line.
+                    const inspected = turn.runs.find(
+                      (run) => run.id === inspectedRun?.id,
+                    );
+                    const retries = turn.runs.slice(1).map((run) => ({
+                      run,
+                      steps: stepsByRun[run.id],
+                      attempts: attemptsByRun[run.id],
+                    }));
+                    return (
+                      <RunSegment
+                        key={turn.root.id}
+                        run={turn.root}
+                        retries={retries}
+                        retryableSteps={outstandingStepFailures(
+                          turn.runs,
+                          stepsByRun,
+                        )}
+                        index={index + 1}
+                        steps={stepsByRun[turn.root.id]}
+                        attempts={attemptsByRun[turn.root.id]}
+                        messages={messages}
+                        sources={view?.sources ?? []}
+                        artifacts={artifacts}
+                        members={agents}
+                        connection={inspected ? connection : ""}
+                        liveness={inspected ? latestLiveness : undefined}
+                        events={inspected ? events : undefined}
+                        latest={turn.runs.some(
+                          (run) => run.id === currentRun?.id,
+                        )}
+                        busy={busy || active}
+                        onSnapshot={() =>
+                          setModal({
+                            kind: "snapshot",
+                            run: turn.runs.at(-1) ?? turn.root,
+                          })
+                        }
+                        onRetry={(runID, stepID) =>
+                          void retry(runID, stepID)
+                        }
+                        onResume={(runID) => void resume(runID)}
+                        onRefresh={() =>
+                          void refreshThread(threadID).catch((error) =>
+                            setError(errorText(error)),
+                          )
+                        }
+                        onSource={openSource}
+                        onArtifact={(selected) => {
+                          setArtifact(selected);
+                          setModal({ kind: "artifact" });
+                        }}
+                        permissionSlot={(prompt) => (
+                          <PermissionDecision
+                            key={prompt.requestID || prompt.activityKey}
+                            prompt={prompt}
+                            request={permissionRequestFor(prompt.requestID)}
+                            onDecide={(decision) =>
+                              decidePermission(prompt.requestID, decision)
+                            }
+                          />
+                        )}
+                      />
+                    );
+                  })}
                 </div>
               </div>
               {newMessages && (
@@ -1456,6 +1630,19 @@ function WorkspaceApp({
                 </button>
               )}
             </div>
+            {!taskID &&
+              (threadID || projectView !== "tasks") &&
+              permissions.pending.length > 0 && (
+                <PermissionQueue
+                  items={permissions.pending}
+                  visible={permissions.visible}
+                  onDecide={decidePermission}
+                  onDismiss={() => {
+                    if (permissions.visible) permissions.dismiss(permissions.visible.id);
+                  }}
+                  onRestore={permissions.restore}
+                />
+              )}
             {!taskID && (threadID || projectView !== "tasks") && (
               <Composer
               agents={threadID ? threadMembers : available}
@@ -1464,16 +1651,36 @@ function WorkspaceApp({
               setDraft={updateDraft}
               workflow={workflow}
               setWorkflow={setWorkflow}
-              engineeringAction={engineeringAction}
-              setEngineeringAction={setEngineeringAction}
               artifactRef={artifactRef}
               clearArtifactRef={() => setArtifactRef(undefined)}
+              attachments={attachments}
+              uploading={uploading}
+              onAttach={attach}
+              onRemoveAttachment={(id) => {
+                setAttachments((current) =>
+                  current.filter((item) => item.id !== id),
+                );
+                const removed = attachments.find((item) => item.id === id);
+                if (removed?.source) {
+                  void api(
+                    `/api/v1/sources/${removed.source.id}`,
+                    "DELETE",
+                  ).catch((failure) => setError(errorText(failure)));
+                }
+              }}
               coordinator={coordinator}
-              executionMode={
-                workspace ? workspace.execution_mode || "controlled" : undefined
-              }
-              onExecutionModeChange={workspace ? changeExecutionMode : undefined}
+              // The global permission is the only truth; a workspace value is
+              // inert audit data and must never drive the Composer.
+              executionMode={globalSettings.loading && !settings ? undefined : mode}
+              onExecutionModeChange={changeExecutionMode}
               routing={routing}
+              error={error}
+              onDismissError={() => setError("")}
+              // One notice per accepted user turn; retries inside that turn
+              // share the root id and never persist a "shown" flag.
+              failureNoticeID={!active && memberFailures.length ? latestTurnRunID(runs) : undefined}
+              failedSteps={memberFailures.map(({ step }) => step)}
+              onRetryMember={(stepID) => { const failure = memberFailures.find(({ step }) => step.id === stepID); if (failure) void retry(failure.runID, stepID); }}
               active={!!active}
               canceling={currentRun?.status === "canceling"}
               busy={busy}
@@ -1527,18 +1734,10 @@ function WorkspaceApp({
               setArtifact(item);
               setModal({ kind: "artifact" });
             }}
-            runs={runs}
-            inspectedRun={inspectedRun}
-            onInspect={(id) => {
-              setEvents([]);
-              confirmedSeq.current[id] = 0;
-              appliedDelta.current[id] = 0;
-              setInspectedRunID(id);
-            }}
-            events={events}
           />
         </div>
       </section>
+      {taskConversion && view && workspace && <Modal title="转为任务" close={() => setTaskConversion(false)}><TaskCreateForm workspaces={{ [workspace.id]: workspace.name }} workspaceID={workspace.id} threadID={view.thread.id} initialGoal={view.messages.items.filter((message) => message.role === "user").at(-1)?.content || view.thread.title} onCreated={(task, run) => { setTaskConversion(false); if (run) navigate(task.task.workspace_id, run.thread_id); else { void refreshThread(view.thread.id); } }} /></Modal>}
       <AppModals
         modal={modal}
         setModal={setModal}
@@ -1547,12 +1746,18 @@ function WorkspaceApp({
         setSystem={setSystem}
         workspace={workspace}
         workspaceID={workspaceID}
-        threadID={threadID}
         agents={agents}
         globalAgents={globalAgents}
         view={view}
         settings={settings}
         setSettings={setSettings}
+        saveSettings={(value) => patchSettings(value)}
+        executionMode={mode}
+        onExecutionModeChange={changeExecutionMode}
+        permissionLoading={globalSettings.loading}
+        permissionError={globalSettings.error}
+        permissionThreadID={threadID}
+        permissionThreadTitle={view?.thread.title}
         artifact={artifact}
         threads={threads}
         lock={lock}
@@ -1568,10 +1773,21 @@ function WorkspaceApp({
         setError={setError}
         openSource={openSource}
         saveFeedback={saveFeedback}
-        pendingSubmission={pendingSubmission.current}
         appearance={appearance}
         onAppearance={changeAppearance}
       />
     </div>
   );
+}
+
+function ConversationTask({ taskID, onOpen }: { taskID: string; onOpen: () => void }) {
+  const [task, setTask] = useState<ProjectTaskView>();
+  useEffect(() => {
+    let canceled = false;
+    const load = () => { void api<ProjectTaskView>(`/api/v1/tasks/${taskID}`).then((value) => { if (!canceled) setTask(value); }).catch(() => {}); };
+    load();
+    const timer = window.setInterval(load, 5000);
+    return () => { canceled = true; window.clearInterval(timer); };
+  }, [taskID]);
+  return <button className={cx("ghost small")} onClick={onOpen}>{task ? `${taskTitle(task)} · ${taskFocusMeta(task).label}` : "关联任务"} <span>查看任务 →</span></button>;
 }

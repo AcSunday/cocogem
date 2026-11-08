@@ -57,7 +57,7 @@ func (t *Tx) PublishSourceImports(run w.Run, ids []string) error {
 		if err != nil {
 			return err
 		}
-		if imported.ThreadID != run.ThreadID || imported.WorkspaceID != run.WorkspaceID || imported.ParseStatus != "parsed" || imported.Content == "" {
+		if imported.ThreadID != run.ThreadID || imported.WorkspaceID != run.WorkspaceID || imported.OriginalContent == "" {
 			return w.ErrConflict
 		}
 		if existing, err := t.Source(id); err == nil {

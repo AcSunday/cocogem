@@ -26,9 +26,12 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		if !ok {
 			return errors.New("selected member is unavailable")
 		}
-		for _, tool := range w.RoleTools(in.Workflow, in.EngineeringAction, role) {
-			if !slices.Contains(a.Tools, tool) {
-				return fmt.Errorf("this role requires explicit %s permission", tool)
+		// Role capability comes from the runtime catalog, not from a retired
+		// member tool array.
+		catalog := w.StandardToolCatalog()
+		for _, tool := range w.RoleTools(in.Workflow, "", role) {
+			if !slices.Contains(catalog, tool) {
+				return fmt.Errorf("this role requires the %s host capability", tool)
 			}
 		}
 		out = append(out, w.Step{ID: w.NewID(), RunID: runID, AgentID: id, AgentName: a.DisplayName, Role: role, Instruction: instruction, DependsOn: deps, Status: "pending"})
@@ -149,45 +152,31 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 			return nil, err
 		}
 	case "engineering":
-		action, err := w.NormalizeEngineeringAction(in.Workflow, in.EngineeringAction)
-		if err != nil {
+		engineer, reviewer := in.Assignments["engineer"], in.Assignments["reviewer"]
+		if engineer == "" || reviewer == "" || engineer == reviewer {
+			return nil, errors.New("engineering requires different engineer and reviewer members")
+		}
+		execute := "Read the relevant files and perform the user's requested engineering task using only your granted tools. If write and test tools are granted and the task requires changes, implement them and cite captured diff and passing test evidence. If the task is inspection only, stay read-only and say so. Never claim a test passed unless the host reports exit code 0, and never write outside the bound project."
+		if w.EngineeringIsReadOnly(in) {
+			execute = "Read the relevant files and perform the user's requested engineering analysis. This method selection is read-only: do not modify files, run project tests, or claim runtime verification. Report concrete findings with exact file evidence."
+		}
+		if err := add(engineer, "engineer", execute, nil); err != nil {
 			return nil, err
 		}
-		a, r := in.Assignments["analyst"], in.Assignments["reviewer"]
-		if action == w.EngineeringDevelop {
-			a, r = in.Assignments["developer"], in.Assignments["reviewer"]
-		}
-		if a == "" || r == "" || a == r {
-			return nil, errors.New("engineering requires different developer/analyst and reviewer members")
-		}
-		if action == w.EngineeringDevelop {
-			if err := add(a, "developer", "Implement the user's requested change in the bound project. Read a file before replacing it and pass its exact complete-file SHA-256. Create a new file only when the path is absent. When granted, use patch_file for one exact replacement in an existing file larger than 32 KiB; otherwise use write_file. Run the relevant tests with run_test; never claim a test passed unless the host reports exit code 0. You cannot use a shell, write outside the project, or access network or credentials.", nil); err != nil {
-				return nil, err
-			}
-			if err := add(r, "reviewer", "Independently read the changed files and the captured write diff and test evidence. Run the relevant test yourself. Reply as a plain step message: if defects or missing evidence remain, state each exact defect with the captured source IDs; otherwise confirm the evidence. Do not publish an artifact and never modify files.", []string{out[0].ID}); err != nil {
-				return nil, err
-			}
-			if err := add(a, "developer", "The reviewer's exact step message and source references are in the upstream handoff. If defects remain, fix them with write_file or, when granted, patch_file (use the current complete-file expected SHA-256) and rerun run_test. If no defect remains, do not rewrite files merely to create activity; rerun the relevant test to confirm the current state. Report the final commands, exit codes and remaining limitations as a plain step reply; do not publish an artifact.", []string{out[1].ID}); err != nil {
-				return nil, err
-			}
-			if err := add(r, "final_reviewer", "Independently inspect the final files, the latest captured diff per changed file and a successful run_test captured after the last write. Publish engineering_report with confirmed, disputed or insufficient_evidence findings, severities, exact source IDs and limitations. Never modify files. If write diff or passing test evidence is missing or stale, report insufficient_evidence instead of claiming verified development.", []string{out[1].ID, out[2].ID}); err != nil {
-				return nil, err
-			}
-			break
-		}
-		if err := add(a, "analyst", "Read relevant source files. Analyze the requested behavior and report concrete findings with file evidence. This engineering action is read-only: do not modify files, execute project tests, or claim runtime verification.", nil); err != nil {
-			return nil, err
-		}
-		analysis := out[len(out)-1].ID
-		if err := add(r, "critic", "Read relevant files independently; confirm or dispute each finding with exact file source IDs and preserve disagreement. Reply as a plain step message; do not publish an artifact. This engineering action is read-only: no file writes or test execution.", []string{analysis}); err != nil {
+		initial := out[len(out)-1].ID
+		if err := add(reviewer, "reviewer", "Independently read the relevant files plus the engineer's committed reply and any captured diff or test evidence. Confirm or dispute each finding with exact source IDs and preserve disagreement. Run the relevant test yourself when run_test is granted; otherwise keep the review read-only and say runtime verification was unavailable. Reply as a plain step message and do not publish an artifact.", []string{initial}); err != nil {
 			return nil, err
 		}
 		review := out[len(out)-1].ID
-		if err := add(a, "analyst", "Read the critic's exact step reply in the handoff and answer it point by point with file evidence. Concede unsupported findings and keep unresolved disagreement visible. Stay read-only: do not modify files, execute tests, or claim runtime verification. Reply as a plain step message; do not publish an artifact.", []string{analysis, review}); err != nil {
+		respond := "Read the reviewer's exact step reply in the handoff and answer it point by point. If write or test tools are granted and defects remain, fix them and rerun the relevant test; otherwise concede unsupported claims and keep unresolved disagreement visible. Stay within the bound project and do not publish an artifact."
+		if w.EngineeringIsReadOnly(in) {
+			respond = "Read the reviewer's exact step reply in the handoff and answer it point by point with file evidence. This method selection is read-only: do not modify files, run tests, or claim runtime verification. Concede unsupported claims and keep unresolved disagreement visible. Reply as a plain step message and do not publish an artifact."
+		}
+		if err := add(engineer, "engineer", respond, []string{initial, review}); err != nil {
 			return nil, err
 		}
 		response := out[len(out)-1].ID
-		if err := add(r, "final_reviewer", "Independently read the relevant files plus the initial analysis, the committed review and the analyst response in the handoff. Check every original finding against the review and the response, then publish exactly one code_analysis with severity, impact, file source IDs and limitations. This action is read-only: no file writes or test execution, and no runtime verification is available. Keep disputes and unresolved findings visible.", []string{analysis, review, response}); err != nil {
+		if err := add(reviewer, "final_reviewer", "Independently inspect the relevant files, the initial reply, the review and the engineer response in the handoff. Publish exactly one engineering_report with confirmed, disputed or insufficient_evidence findings, severities, exact file/diff/test source IDs and limitations. Never modify files. If this run captured a write diff, cite the latest diff per changed path and a passing test captured after the last write; if it captured no write diff, report the result as read-only and do not claim runtime verification. Keep disputes and unresolved findings visible.", []string{initial, review, response}); err != nil {
 			return nil, err
 		}
 	default:
@@ -211,7 +200,7 @@ func finalSteps(in w.RunInput, steps []w.Step) []w.Step {
 	out := []w.Step{}
 	if in.Workflow == "" || in.Workflow == "free" {
 		for _, root := range steps {
-			if root.Kind != "" {
+			if root.Kind != "" && root.Kind != "retry_result" {
 				continue
 			}
 			final := root
@@ -233,25 +222,36 @@ func finalSteps(in w.RunInput, steps []w.Step) []w.Step {
 			out = append(out, step)
 		}
 	}
+	if len(out) == 0 {
+		for _, step := range steps {
+			if step.Kind == "retry_result" {
+				out = append(out, step)
+			}
+		}
+	}
 	return out
 }
 
 // RequiredArtifact determines whether success requires a validated deliverable.
 func RequiredArtifact(step w.Step, in w.RunInput) string {
+	if step.Role == "task_intake" {
+		return ""
+	}
 	if step.Kind != "" && (in.Workflow == "free" || in.Workflow == "") {
 		return ""
 	}
 	if in.Workflow == "engineering" {
-		if in.EngineeringAction == w.EngineeringDevelop {
-			// Only the final reviewer publishes. The intermediate reviewer
-			// returns a plain step reply with source references, which the
-			// developer consumes directly from the handoff.
-			if step.Role == "final_reviewer" {
+		// Only the final reviewer publishes. The intermediate reviewer returns
+		// a plain step reply with source references, which the engineer consumes
+		// directly from the handoff. Legacy engineering snapshots used analyst
+		// or developer roles and published code_analysis.
+		if step.Role == "final_reviewer" {
+			if in.EngineeringReadOnly {
 				return "engineering_report"
 			}
-			return ""
-		}
-		if step.Role == "reviewer" || step.Role == "final_reviewer" {
+			if _, ok := in.Assignments["engineer"]; ok {
+				return "engineering_report"
+			}
 			return "code_analysis"
 		}
 		return ""
@@ -299,6 +299,15 @@ func ValidateArtifact(a w.Artifact, required string, sources []w.Source) error {
 	for _, id := range a.SourceIDs {
 		if _, ok := byID[id]; !ok {
 			return errors.New("artifact cites an unavailable source")
+		}
+	}
+	if len(a.Files) > 10 {
+		return errors.New("too many output files")
+	}
+	for _, file := range a.Files {
+		source, ok := byID[file.SourceID]
+		if !ok || source.Kind != "file_output" || source.OriginalDigest == "" || source.OriginalDigest != file.SHA256 || !slices.Contains(a.SourceIDs, file.SourceID) || file.Name != source.Title || file.Size != source.FileSize || file.Size < 0 {
+			return errors.New("output file does not match a captured immutable file")
 		}
 	}
 	if len(a.Findings) > 50 || len(a.Limitations) > 30 {
@@ -359,16 +368,17 @@ func ValidateArtifact(a w.Artifact, required string, sources []w.Source) error {
 	return nil
 }
 
-// ValidateEngineeringEvidence requires the final development report to cite an
-// actual captured diff per final changed path and a passing test captured after
-// the last write. Model claims without these host records are not verification.
+// ValidateEngineeringEvidence requires a report that claims changed files to
+// cite an actual captured diff per final changed path and a passing test
+// captured after the last write. A run with no write diff is a valid read-only
+// result and is checked by ValidateArtifact's file evidence instead.
 func ValidateEngineeringEvidence(a w.Artifact, run w.Run, sources []w.Source) error {
 	if a.Type != "engineering_report" {
 		return nil
 	}
 	in := effectiveInput(run)
-	if in.Workflow != "engineering" || in.EngineeringAction != w.EngineeringDevelop {
-		return errors.New("engineering_report is only valid for an authorized develop action")
+	if in.Workflow != "engineering" {
+		return errors.New("engineering_report is only valid for the engineering workflow")
 	}
 	latestDiff := map[string]w.Source{}
 	lastWrite := time.Time{}
@@ -394,6 +404,17 @@ func ValidateEngineeringEvidence(a w.Artifact, run w.Run, sources []w.Source) er
 				successfulTests = append(successfulTests, source)
 			}
 		}
+	}
+	if len(latestDiff) == 0 {
+		for _, id := range a.SourceIDs {
+			if slices.ContainsFunc(sources, func(s w.Source) bool { return s.ID == id && s.Kind == "diff" }) {
+				return errors.New("engineering_report cites a diff that does not belong to this run")
+			}
+		}
+		if len(a.Findings) == 0 {
+			return errors.New("engineering_report without write evidence must record read-only findings")
+		}
+		return nil
 	}
 	evidenceErr := evidenceGap(latestDiff, successfulTests, a, run, lastWrite)
 	if evidenceErr == nil {

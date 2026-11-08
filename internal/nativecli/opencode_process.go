@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -29,8 +31,32 @@ func (p Provider) streamOpenCode(ctx context.Context, cmd *exec.Cmd, gate *bridg
 	}
 	cmd.Dir = dir
 	cmd.Env = overrideEnv(cmd.Env, map[string]string{"PWD": dir})
-	server := command("opencode", "serve", "--stdio", "--port", "0")
+	serveArgs := []string{"serve", "--stdio", "--port", "0"}
+	if debugNative() {
+		serveArgs = append(serveArgs, "--log-level", "debug", "--print-logs")
+	}
+	server := command("opencode", serveArgs...)
 	server.Dir, server.Env = cmd.Dir, overrideEnv(cmd.Env, map[string]string{"OPENCODE_PASSWORD": gate.token})
+	if gate.pluginTokenFile != "" {
+		server.Env = overrideEnv(server.Env, map[string]string{
+			"COCOGEM_PLUGIN_URL": gate.pluginURL(), "COCOGEM_PLUGIN_TOKEN_FILE": gate.pluginTokenFile, "COCOGEM_PROJECT_ROOT": gate.cwd,
+		})
+	}
+	if gate.sandbox != nil {
+		profile, profileErr := gate.sandbox.profile("opencode-server", nil, nil)
+		if profileErr != nil {
+			return profileErr
+		}
+		server = command("sandbox-exec", "-f", profile, "--", "opencode", serveArgs[0], serveArgs[1], serveArgs[2], serveArgs[3])
+		server.Dir = cmd.Dir
+		server.Env = overrideEnv(cmd.Env, gate.sandbox.env())
+		server.Env = overrideEnv(server.Env, map[string]string{"OPENCODE_PASSWORD": gate.token, "PWD": cmd.Dir})
+		if gate.pluginTokenFile != "" {
+			server.Env = overrideEnv(server.Env, map[string]string{
+				"COCOGEM_PLUGIN_URL": gate.pluginURL(), "COCOGEM_PLUGIN_TOKEN_FILE": gate.pluginTokenFile,
+			})
+		}
+	}
 	server.Stderr = &boundedBuffer{limit: 8192, truncate: true}
 	lease, err := server.StdinPipe()
 	if err != nil {
@@ -97,12 +123,44 @@ func (p Provider) streamOpenCode(ctx context.Context, cmd *exec.Cmd, gate *bridg
 	}
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme != "http" || parsed.Hostname() != "127.0.0.1" || parsed.Port() == "" || parsed.User != nil {
+		if debugNative() {
+			if buffer, ok := server.Stderr.(*boundedBuffer); ok {
+				fmt.Fprintf(os.Stderr, "native debug: opencode server stderr=%s\n", buffer.String())
+			}
+		}
 		return newFailure(FailureProtocol, "OpenCode returned an invalid private server address")
 	}
 	client := &http.Client{Transport: &http.Transport{Proxy: nil, ResponseHeaderTimeout: 15 * time.Second}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	defer client.CloseIdleConnections()
 	if err := waitOpenCodeMCP(startup, client, endpoint, cmd.Dir, gate.token); err != nil {
 		return err
+	}
+	if gate.pluginTokenFile != "" {
+		var plugins struct {
+			Data []struct {
+				ID    string `json:"id"`
+				State struct {
+					Status string `json:"status"`
+					Error  string `json:"error"`
+				} `json:"state"`
+			} `json:"data"`
+		}
+		if err := openCodeRequest(ctx, client, http.MethodGet, endpoint+"/api/plugin", gate.token, nil, &plugins); err != nil {
+			return newFailure(FailurePermission, "OpenCode plugin inventory could not be verified")
+		}
+		found := false
+		for _, plugin := range plugins.Data {
+			if plugin.ID != "cocogem-native-gate" {
+				continue
+			}
+			if plugin.State.Status != "active" || plugin.State.Error != "" {
+				return newFailure(FailurePermission, "the private OpenCode permission plugin is not active: %s", safeToken(plugin.State.Error))
+			}
+			found = true
+		}
+		if !found {
+			return newFailure(FailurePermission, "the private OpenCode permission plugin was not loaded")
+		}
 	}
 	selected := ""
 	for i, arg := range cmd.Args {
@@ -114,7 +172,24 @@ func (p Provider) streamOpenCode(ctx context.Context, cmd *exec.Cmd, gate *bridg
 	if err != nil {
 		return newFailure(FailureHostInputLimit, "cannot read OpenCode task input")
 	}
-	return runOpenCodeTurn(ctx, client, endpoint, cmd.Dir, gate.token, selected, string(prompt), gate, live)
+	result = runOpenCodeTurn(ctx, client, endpoint, cmd.Dir, gate.token, selected, string(prompt), gate, live)
+	if debugNative() {
+		if buffer, ok := server.Stderr.(*boundedBuffer); ok {
+			fmt.Fprintf(os.Stderr, "native debug: opencode stderr=%s\n", buffer.String())
+		}
+		filepath.WalkDir(filepath.Join(cmd.Dir, "data", "opencode", "log"), func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return nil
+			}
+			data, _ := os.ReadFile(path)
+			if len(data) > 4000 {
+				data = data[len(data)-4000:]
+			}
+			fmt.Fprintf(os.Stderr, "native debug: opencode log %s=%s\n", path, data)
+			return nil
+		})
+	}
+	return result
 }
 
 func waitOpenCodeMCP(ctx context.Context, client *http.Client, endpoint, dir, password string) error {

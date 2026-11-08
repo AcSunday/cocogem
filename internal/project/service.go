@@ -43,19 +43,21 @@ func New(db *store.Store) *Service {
 
 // CreateTaskInput is an accepted user/root or authorized owned-child objective.
 type CreateTaskInput struct {
-	WorkspaceID     string                  `json:"workspace_id"`
+	RequestID       string                  `json:"request_id,omitempty"`
+	Title           string                  `json:"title,omitempty"`
+	WorkspaceID     string                  `json:"workspace_id,omitempty"`
 	ParentID        string                  `json:"parent_id,omitempty"`
-	ThreadID        string                  `json:"thread_id"`
-	OwnerMemberID   string                  `json:"owner_member_id"`
+	ThreadID        string                  `json:"thread_id,omitempty"`
+	OwnerMemberID   string                  `json:"owner_member_id,omitempty"`
 	Goal            string                  `json:"goal"`
-	Scope           []string                `json:"scope"`
-	NonGoals        []string                `json:"non_goals"`
-	ConstraintRefs  []string                `json:"constraint_refs"`
-	Acceptance      []w.AcceptanceCriterion `json:"acceptance"`
-	InputRefs       []string                `json:"input_refs"`
-	AllowedActions  []string                `json:"allowed_actions"`
-	SourceMessageID string                  `json:"source_message_id"`
-	AcceptedBy      string                  `json:"accepted_by"`
+	Scope           []string                `json:"scope,omitempty"`
+	NonGoals        []string                `json:"non_goals,omitempty"`
+	ConstraintRefs  []string                `json:"constraint_refs,omitempty"`
+	Acceptance      []w.AcceptanceCriterion `json:"acceptance,omitempty"`
+	InputRefs       []string                `json:"input_refs,omitempty"`
+	AllowedActions  []string                `json:"allowed_actions,omitempty"`
+	SourceMessageID string                  `json:"source_message_id,omitempty"`
+	AcceptedBy      string                  `json:"accepted_by,omitempty"`
 	Kind            string                  `json:"kind,omitempty"`
 	Priority        int                     `json:"priority,omitempty"`
 }
@@ -67,6 +69,14 @@ type TaskView struct {
 	Budget        w.BudgetAccount      `json:"budget"`
 	Completions   []w.CompletionRecord `json:"completions"`
 	LastRunStatus string               `json:"last_run_status,omitempty"`
+	// LastRunFailureKind and LastRunError expose the latest run's failure
+	// classification so the task board can explain a blocked task without a
+	// second request.
+	LastRunID          string `json:"last_run_id,omitempty"`
+	LastRunFailureKind string `json:"last_run_failure_kind,omitempty"`
+	LastRunError       string `json:"last_run_error,omitempty"`
+	LastRunStartedAt   string `json:"last_run_started_at,omitempty"`
+	LastRunFinishedAt  string `json:"last_run_finished_at,omitempty"`
 }
 
 // Overview is the two-page product's project-facing projection.
@@ -83,14 +93,50 @@ type TaskBoard struct {
 	Tasks          []TaskView        `json:"tasks"`
 	Workspaces     map[string]string `json:"workspaces"`
 	NeedsAttention []w.Question      `json:"needs_attention"`
+	Members        map[string]string `json:"members,omitempty"`
 }
 
 // CreateTask persists a root or owned child with its first revision and root ledger.
 func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (TaskView, error) {
+	return s.createTask(ctx, in, false)
+}
+
+// CreateUserTask keeps manual conversion outside active execution. Native
+// promotion binds its own running segment through CreateTaskInTx instead.
+func (s *Service) CreateUserTask(ctx context.Context, in CreateTaskInput) (TaskView, error) {
+	return s.createTask(ctx, in, true)
+}
+
+func (s *Service) createTask(ctx context.Context, in CreateTaskInput, requireIdle bool) (TaskView, error) {
 	var view TaskView
 	err := s.store.Write(ctx, func(tx *store.Tx) error {
+		if in.RequestID != "" {
+			id, hash, err := tx.TaskCreationReceipt(in.WorkspaceID, in.RequestID)
+			if err == nil {
+				if hash != Digest(in) {
+					return w.ErrConflict
+				}
+				view, err = s.taskInTx(tx, id)
+				return err
+			}
+			if !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+		}
 		var err error
+		if requireIdle && in.ThreadID != "" {
+			active, err := tx.Active()
+			if err != nil {
+				return err
+			}
+			if slices.ContainsFunc(active, func(run w.Run) bool { return run.ThreadID == in.ThreadID }) {
+				return w.ErrConflict
+			}
+		}
 		view, err = s.CreateTaskInTx(tx, in)
+		if err == nil && in.RequestID != "" {
+			err = tx.SaveTaskCreationReceipt(in.WorkspaceID, in.RequestID, Digest(in), view.Task.ID)
+		}
 		return err
 	})
 	return view, err
@@ -110,12 +156,48 @@ func (s *Service) CreateTaskInTx(tx *store.Tx, in CreateTaskInput) (TaskView, er
 	if err != nil {
 		return view, err
 	}
-	th, err := tx.Thread(in.ThreadID)
-	if err != nil || th.WorkspaceID != ws.ID {
-		return view, errorf("not_found", "task thread was not found in this workspace")
+	var th w.Thread
+	if in.ThreadID != "" {
+		th, err = tx.Thread(in.ThreadID)
+		if err != nil || th.WorkspaceID != ws.ID {
+			return view, errorf("not_found", "task thread was not found in this workspace")
+		}
+		if th.TaskID != "" {
+			return view, errorf("conflict", "thread already belongs to a durable task")
+		}
+		if in.OwnerMemberID == "" {
+			in.OwnerMemberID = th.CoordinatorID
+		}
 	}
-	if th.TaskID != "" {
-		return view, errorf("conflict", "thread already belongs to a durable task")
+	if len([]rune(in.Title)) > 150 || len(in.RequestID) > 100 {
+		return view, errorf("invalid_request", "task title or request id is too long")
+	}
+	if in.ThreadID == "" {
+		members, err := tx.Agents(ws.ID)
+		if err != nil {
+			return view, err
+		}
+		if in.OwnerMemberID == "" {
+			settings, err := tx.Settings()
+			if err != nil {
+				return view, err
+			}
+			for _, a := range members {
+				if !a.Disabled && (in.OwnerMemberID == "" || a.ID == settings.DefaultCoordinatorID) {
+					in.OwnerMemberID = a.ID
+				}
+			}
+		}
+		if !slices.ContainsFunc(members, func(a w.Agent) bool { return a.ID == in.OwnerMemberID && !a.Disabled }) {
+			return view, errorf("invalid_request", "choose an enabled workspace member for this task")
+		}
+	}
+	if in.AllowedActions == nil {
+		policy, err := s.CurrentPolicy(tx)
+		if err != nil {
+			return view, err
+		}
+		in.AllowedActions = TaskActions(policy.Mode, w.RunInput{})
 	}
 	now := s.now()
 	taskID := w.NewID()
@@ -127,13 +209,15 @@ func (s *Service) CreateTaskInTx(tx *store.Tx, in CreateTaskInput) (TaskView, er
 		if err != nil {
 			return view, err
 		}
-		policy, err := w.ResolveBudget(settings.CollaborationBudget, ws.BudgetOverride)
+		// Only the global collaboration defaults apply. A workspace's legacy
+		// override is inert audit data and is never resolved for a new root.
+		policy, err := w.ResolveBudget(settings.CollaborationBudget, nil)
 		if err != nil {
 			return view, err
 		}
 		account = w.BudgetAccount{
 			ID: accountID, RootTaskID: rootID, Policy: policy,
-			Sources: budgetSources(ws.BudgetOverride), Revision: 1,
+			Sources: budgetSources(nil), Revision: 1,
 			FixRoundsByIssue: map[string]int{}, NoProgressByBranch: map[string]int{}, UpdatedAt: now,
 		}
 	} else {
@@ -150,6 +234,11 @@ func (s *Service) CreateTaskInTx(tx *store.Tx, in CreateTaskInput) (TaskView, er
 		if err != nil {
 			return view, err
 		}
+		parentRevision, err := tx.TaskRevision(parent.ID, parent.CurrentRevision)
+		if err != nil {
+			return view, err
+		}
+		in.AllowedActions = w.AuthorizedActions(in.AllowedActions, parentRevision.AllowedActions, parentRevision.AllowedActions, parentRevision.AllowedActions, parentRevision.AllowedActions)
 	}
 	acceptance, err := normalizeAcceptance(in.Acceptance, in.Goal)
 	if err != nil {
@@ -164,7 +253,7 @@ func (s *Service) CreateTaskInTx(tx *store.Tx, in CreateTaskInput) (TaskView, er
 	}
 	revision.Digest = Digest(revision)
 	task := w.Task{
-		ID: taskID, WorkspaceID: ws.ID, ParentID: in.ParentID, ThreadID: th.ID,
+		ID: taskID, WorkspaceID: ws.ID, ParentID: in.ParentID, ThreadID: th.ID, Title: strings.TrimSpace(in.Title),
 		CurrentRevision: 1, OwnerMemberID: in.OwnerMemberID, OwnerRevision: 1,
 		RootTaskID: rootID, RootControlEpoch: rootEpoch, BudgetAccountID: accountID,
 		CollaborationScopeID: scopeID, Status: "ready", Kind: in.Kind, Priority: in.Priority,
@@ -181,11 +270,13 @@ func (s *Service) CreateTaskInTx(tx *store.Tx, in CreateTaskInput) (TaskView, er
 			return view, err
 		}
 	}
-	th.TaskID = taskID
-	th.UpdatedAt = now
-	th.Revision++
-	if err := tx.SaveThread(th); err != nil {
-		return view, err
+	if th.ID != "" {
+		th.TaskID = taskID
+		th.UpdatedAt = now
+		th.Revision++
+		if err := tx.SaveThread(th); err != nil {
+			return view, err
+		}
 	}
 	return TaskView{Task: task, Revision: revision, Budget: account, Completions: []w.CompletionRecord{}}, nil
 }
@@ -202,10 +293,14 @@ func runInputRefs(in w.RunInput) []string {
 // Every later user submission is an accepted goal revision; pending steering is
 // applied once to that new execution boundary rather than mutating an old Run.
 func (s *Service) EnsureThreadTask(tx *store.Tx, th w.Thread, in w.RunInput, messageID, runID string) (TaskView, error) {
-	actions := []string{"read", "publish_artifact", "collaborate", "network"}
-	if in.EngineeringAction == w.EngineeringDevelop {
-		actions = append(actions, "write", "run_test")
+	if _, err := tx.Workspace(th.WorkspaceID); err != nil {
+		return TaskView{}, err
 	}
+	policy, err := s.CurrentPolicy(tx)
+	if err != nil {
+		return TaskView{}, err
+	}
+	actions := TaskActions(policy.Mode, in)
 	if th.TaskID == "" {
 		return s.CreateTaskInTx(tx, CreateTaskInput{
 			WorkspaceID: th.WorkspaceID, ThreadID: th.ID, OwnerMemberID: th.CoordinatorID,
@@ -269,7 +364,14 @@ func (s *Service) EnsureThreadTask(tx *store.Tx, th w.Thread, in w.RunInput, mes
 	}
 	if len(view.Revision.AllowedActions) > 0 {
 		actions = nonNil(view.Revision.AllowedActions)
-		if in.EngineeringAction == w.EngineeringDevelop {
+		policy, err := s.CurrentPolicy(tx)
+		if err != nil {
+			return TaskView{}, err
+		}
+		if policy.Mode == w.ExecutionFullAccess && !slices.Contains(actions, "execute") {
+			actions = append(actions, "execute")
+		}
+		if engineeringWrites(in) {
 			for _, action := range []string{"write", "run_test"} {
 				if !slices.Contains(actions, action) {
 					actions = append(actions, action)
@@ -328,7 +430,12 @@ func (s *Service) taskInTx(tx *store.Tx, id string) (TaskView, error) {
 	}
 	view := TaskView{Task: task, Revision: revision, Budget: budget, Completions: completions}
 	if run, err := tx.LatestTaskRun(id); err == nil {
+		view.LastRunID = run.ID
 		view.LastRunStatus = run.Status
+		view.LastRunFailureKind = run.FailureKind
+		view.LastRunError = run.Error
+		view.LastRunStartedAt = run.StartedAt
+		view.LastRunFinishedAt = run.FinishedAt
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return TaskView{}, err
 	}
@@ -802,7 +909,7 @@ func (s *Service) ReserveRun(ctx context.Context, taskID string, automatic bool)
 // ProjectOverview returns active records and task projections without loading all message bodies.
 // TaskBoard returns durable work from every workspace for the global todo view.
 func (s *Service) TaskBoard(ctx context.Context) (TaskBoard, error) {
-	out := TaskBoard{Tasks: []TaskView{}, Workspaces: map[string]string{}, NeedsAttention: []w.Question{}}
+	out := TaskBoard{Tasks: []TaskView{}, Workspaces: map[string]string{}, Members: map[string]string{}, NeedsAttention: []w.Question{}}
 	err := s.store.Read(ctx, func(tx *store.Tx) error {
 		workspaces, err := tx.Workspaces()
 		if err != nil {
@@ -810,6 +917,13 @@ func (s *Service) TaskBoard(ctx context.Context) (TaskBoard, error) {
 		}
 		for _, ws := range workspaces {
 			out.Workspaces[ws.ID] = ws.Name
+			members, err := tx.Agents(ws.ID)
+			if err != nil {
+				return err
+			}
+			for _, member := range members {
+				out.Members[member.ID] = member.DisplayName
+			}
 		}
 		tasks, err := tx.AllTasks()
 		if err != nil {
@@ -927,57 +1041,6 @@ func (s *Service) AddDependency(ctx context.Context, in w.TaskDependency) (w.Tas
 		return tx.SaveDependency(in)
 	})
 	return in, err
-}
-
-// SetExecutionMode persists an explicit project choice and never resets budget.
-func (s *Service) SetExecutionMode(ctx context.Context, workspaceID, mode, sourceMessageID string, expectedRevision int) (w.Workspace, error) {
-	if !w.ValidExecutionMode(mode) || sourceMessageID == "" {
-		return w.Workspace{}, errorf("invalid_request", "a valid execution mode and user source are required")
-	}
-	var ws w.Workspace
-	err := s.store.Write(ctx, func(tx *store.Tx) error {
-		var err error
-		ws, err = tx.Workspace(workspaceID)
-		if err != nil {
-			return err
-		}
-		if expectedRevision != ws.Revision {
-			return errorf("revision_conflict", "workspace changed before the execution mode was saved")
-		}
-		ws.ExecutionMode = mode
-		ws.Revision++
-		if err := tx.SaveWorkspace(ws); err != nil {
-			return err
-		}
-		return s.setModeGrants(tx, ws, mode, sourceMessageID)
-	})
-	return ws, err
-}
-
-// SetBudgetOverride saves only future root defaults and validates the merged value.
-func (s *Service) SetBudgetOverride(ctx context.Context, workspaceID string, override *w.BudgetPolicyOverride, expectedRevision int) (w.Workspace, error) {
-	var ws w.Workspace
-	err := s.store.Write(ctx, func(tx *store.Tx) error {
-		var err error
-		ws, err = tx.Workspace(workspaceID)
-		if err != nil {
-			return err
-		}
-		if expectedRevision != ws.Revision {
-			return errorf("revision_conflict", "workspace changed before the budget policy was saved")
-		}
-		settings, err := tx.Settings()
-		if err != nil {
-			return err
-		}
-		if _, err := w.ResolveBudget(settings.CollaborationBudget, override); err != nil {
-			return err
-		}
-		ws.BudgetOverride = override
-		ws.Revision++
-		return tx.SaveWorkspace(ws)
-	})
-	return ws, err
 }
 
 // SaveProjectRecord accepts or supersedes a versioned project fact.

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   messageContent,
   statusText,
@@ -19,6 +19,8 @@ import {
   deliveredRun,
   missingDeliveryMessages,
 } from "../lib/delivery";
+import { projectToolActivity, type ToolActivity } from "../lib/toolActivity";
+import type { RetryRef } from "../lib/retry";
 import {
   errorText,
   messageModel,
@@ -36,7 +38,14 @@ import layout from "../styles/layout.module.css";
 import conversation from "../styles/conversation.module.css";
 import { ArtifactCard } from "./ArtifactCard";
 import { Avatar } from "./Avatar";
+import { EventHistory } from "./EventHistory";
 import { Icon } from "./Icon";
+import {
+  MemberToolActivity,
+  PendingToolAuthorization,
+  ToolActivityBlock,
+  type PermissionSlot,
+} from "./MemberToolActivity";
 import { MessageCard, rememberCursor, type CursorStack } from "./MessageCard";
 import { RunDivider } from "./RunDivider";
 import { Markdown } from "./Markdown";
@@ -307,9 +316,13 @@ function MissingFinalResults({
   );
 }
 
+/** One member retry folded into the user turn it replaces. */
+export type RetryRun = { run: Run; steps?: Step[]; attempts?: Attempt[] };
+
 /** One user turn: the reader's request, the folded process and the final delivery. */
 export function RunSegment({
   run,
+  retries = [],
   index,
   steps,
   attempts = [],
@@ -324,12 +337,15 @@ export function RunSegment({
   busy,
   onSnapshot,
   onRetry,
+  retryableSteps = [],
   onResume,
   onRefresh,
   onSource,
   onArtifact,
+  permissionSlot,
 }: {
   run: Run;
+  retries?: RetryRun[];
   index: number;
   steps?: Step[];
   attempts?: Attempt[];
@@ -343,58 +359,252 @@ export function RunSegment({
   latest: boolean;
   busy: boolean;
   onSnapshot: () => void;
-  onRetry: () => void;
-  onResume: () => void;
+  onRetry: (runID: string, stepID: string) => void;
+  retryableSteps?: RetryRef[];
+  onResume: (runID: string) => void;
   onRefresh?: () => void;
   onSource?: (id: string) => void;
   onArtifact?: (artifact: Artifact) => void;
+  /** Approval actions for a pending tool request; decisions stay server-owned. */
+  permissionSlot?: PermissionSlot;
 }) {
-  const own = messages.filter((message) => message.run_id === run.id);
-  const delivered = deliveredRun(run);
-  const finalIDs = deliveredMessageIDs(run);
-  const finalMessages = delivered
-    ? own.filter(
-        (message) => message.role !== "user" && finalIDs.has(message.id),
-      )
-    : own.filter((message) => message.role !== "user");
-  const processMessages = delivered
-    ? own.filter(
-        (message) => message.role !== "user" && !finalIDs.has(message.id),
-      )
-    : [];
-  const finalArtifacts = deliveredArtifacts(run, artifacts);
-  const missingFinal = missingDeliveryMessages(run, own);
+  const groupRuns = [run, ...retries.map((item) => item.run)];
+  const latestRun = retries.at(-1)?.run ?? run;
+  // The latest retry owns the turn's visible lifecycle, while the original
+  // run keeps its user message, workflow identity and roster.
+  const displayRun: Run = retries.length
+    ? {
+        ...run,
+        status: latestRun.status,
+        error: latestRun.error,
+        failure_kind: latestRun.failure_kind,
+        finished_at: latestRun.finished_at,
+        delivery: latestRun.delivery ?? run.delivery,
+        recovery_count: latestRun.recovery_count,
+        recovery_note: latestRun.recovery_note,
+        agents: groupRuns
+          .flatMap((item) => item.agents ?? [])
+          .filter(
+            (agent, index, all) =>
+              all.findIndex((candidate) => candidate.id === agent.id) === index,
+          ),
+      }
+    : run;
+  const groupIDs = new Set(groupRuns.map((item) => item.id));
+  const superseded = new Set(
+    retries.flatMap((item) =>
+      item.run.retry_of_step_id
+        ? [`${item.run.input.retry_of_run_id}/${item.run.retry_of_step_id}`]
+        : [],
+    ),
+  );
+  const own = messages.filter((message) => groupIDs.has(message.run_id));
+  // A failed reply disappears when its exact retry is accepted. Keeping the
+  // rule here also covers a stale page loaded before that replacement.
+  const visibleOwn = own.filter(
+    (message) =>
+      message.role === "user" ||
+      message.status === "completed" ||
+      !superseded.has(`${message.run_id}/${message.step_id}`),
+  );
+  const finalIDs = new Set<string>();
+  for (const item of groupRuns) {
+    const scoped = visibleOwn.filter(
+      (message) => message.run_id === item.id && message.role !== "user",
+    );
+    if (deliveredRun(item)) {
+      const delivered = deliveredMessageIDs(item);
+      for (const message of scoped)
+        if (delivered.has(message.id)) finalIDs.add(message.id);
+    } else {
+      for (const message of scoped) finalIDs.add(message.id);
+    }
+  }
+  // A retried member replaces its failed slot instead of moving to the end of
+  // the turn. Steps that were completed peers keep their original order, and a
+  // retry of a retry resolves back to the first accepted slot.
+  const logicalOrder = new Map(
+    (steps ?? []).map((step, position) => [step.id, position]),
+  );
+  let nextOrder = logicalOrder.size;
+  for (const item of retries)
+    for (const step of item.steps ?? []) {
+      const replaced = step.retry_of_step_id
+        ? logicalOrder.get(step.retry_of_step_id)
+        : undefined;
+      logicalOrder.set(step.id, replaced ?? nextOrder++);
+    }
+  const ordered = visibleOwn.map((message, position) => ({
+    message,
+    position,
+  }));
+  const stepRank = (stepID: string) =>
+    logicalOrder.get(stepID) ?? Number.MAX_SAFE_INTEGER;
+  if (retries.length)
+    ordered.sort((left, right) => {
+      return (
+        stepRank(left.message.step_id) -
+          stepRank(right.message.step_id) ||
+        left.position - right.position
+      );
+    });
+  const finalMessages = ordered
+    .map((item) => item.message)
+    .filter(
+      (message) =>
+        message.role !== "user" && finalIDs.has(message.id),
+    );
+  const processMessages = ordered
+    .map((item) => item.message)
+    .filter(
+      (message) =>
+        message.role !== "user" && !finalIDs.has(message.id),
+    );
+  const finalArtifacts = groupRuns.flatMap((item) =>
+    deliveredArtifacts(item, artifacts),
+  );
+  const finalRefs = groupRuns.flatMap((item) =>
+    deliveredRun(item) ? (item.delivery?.artifact_refs ?? []) : [],
+  );
   // Delivery refs are authoritative; an artifact page that has not caught up
   // must stay visible with a reload path instead of collapsing to nothing.
-  const missingArtifacts = delivered
-    ? (run.delivery?.artifact_refs ?? []).filter(
-        (ref) =>
-          !finalArtifacts.some(
-            (artifact) =>
-              artifact.id === ref.id && artifact.version === ref.version,
-          ),
-      )
-    : [];
-  const processCount = steps?.length || processMessages.length;
+  const missingArtifacts = finalRefs.filter(
+    (ref) =>
+      !finalArtifacts.some(
+        (artifact) =>
+          artifact.id === ref.id && artifact.version === ref.version,
+      ),
+  );
+  const retriedSourceSteps = new Set(
+    retries
+      .map((item) => item.run.retry_of_step_id)
+      .filter((id): id is string => !!id),
+  );
+  const allSteps = [
+    ...(steps ?? []).filter((step) => !retriedSourceSteps.has(step.id)),
+    ...retries
+      .flatMap((item) => item.steps ?? [])
+      .filter((step) => !retriedSourceSteps.has(step.id)),
+  ].sort((left, right) => stepRank(left.id) - stepRank(right.id));
+  const allAttempts = [
+    ...attempts,
+    ...retries.flatMap((item) => item.attempts ?? []),
+  ];
+  // Tool activity belongs to the member step that produced it. `events` is the
+  // inspected run's live window; a retried attempt never pairs with an older
+  // native call id because the projection keys run + step + attempt + call id.
+  // The window may carry other runs' events, so scope it to this turn first.
+  const activityGroups = projectToolActivity(
+    (events ?? []).filter((event) => groupIDs.has(event.run_id)),
+    { mode: "live", runStatus: displayRun.status },
+  );
   // The run snapshot is authoritative for historical names and aliases; the
   // current workspace roster is only a fallback for legacy records.
-  const mentionMembers = run.agents?.length ? run.agents : members;
-  const badgeStatusIcon = statusIconName(run.status);
-  const card = (message: Message, final = false) => (
-    <MessageCard
-      key={message.id}
-      message={message}
-      avatar={
-        run.agents?.find((agent) => agent.id === message.agent_id)?.avatar
+  const mentionMembers = displayRun.agents?.length
+    ? displayRun.agents
+    : members;
+  const badgeStatusIcon = statusIconName(displayRun.status);
+  const duration = runDuration(displayRun);
+  const usage = runUsageTokens(displayRun, allAttempts);
+  const [footerOpen, setFooterOpen] = useState(false);
+  const [history, setHistory] = useState<{
+    runID: string;
+    after: number;
+  } | null>(null);
+  const footer = useRef<HTMLDivElement>(null);
+  const footerPopover = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!footerOpen) return;
+    footerPopover.current?.scrollIntoView?.({ block: "nearest" });
+  }, [footerOpen]);
+  useEffect(() => {
+    if (!footerOpen) return;
+    const dismiss = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key !== "Escape") return;
+      } else if (footer.current?.contains(event.target as Node)) {
+        return;
       }
-      role={steps?.find((step) => step.id === message.step_id)?.role}
-      members={mentionMembers}
-      final={final}
-    />
+      setFooterOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", dismiss);
+    };
+  }, [footerOpen]);
+  const retryFor = (message: Message) =>
+    message.role === "user"
+      ? undefined
+      : retryableSteps.find(
+          (failure) =>
+            failure.runID === message.run_id &&
+            failure.step.id === message.step_id,
+        );
+  const activityAtStep = new Map(
+    activityGroups
+      .filter((group) => group.stepID)
+      .map((group) => [group.stepID, group] as const),
   );
+  // One block per step: the first rendered reply for that step carries it.
+  const shownActivity = new Set<string>();
+  const activityFor = (message: Message) => {
+    if (message.role === "user") return undefined;
+    const group = activityAtStep.get(message.step_id);
+    if (!group || shownActivity.has(group.key)) return undefined;
+    shownActivity.add(group.key);
+    return (
+      <ToolActivityBlock
+        group={group}
+        onHistory={(activity: ToolActivity) =>
+          setHistory({
+            runID: activity.runID,
+            after: Math.max(0, activity.seq - 1),
+          })
+        }
+      />
+    );
+  };
+  const card = (message: Message, final = false) => {
+    const failure = retryFor(message);
+    return (
+      <MessageCard
+        key={message.id}
+        message={message}
+        avatar={displayRun.agents?.find(
+          (agent) => agent.id === message.agent_id,
+        )?.avatar}
+        role={allSteps.find((step) => step.id === message.step_id)?.role}
+        members={mentionMembers}
+        final={final}
+        activity={activityFor(message)}
+        retryLabel={failure?.step.agent_name}
+        retryDisabled={busy}
+        onRetry={
+          failure
+            ? () => onRetry(failure.runID, failure.step.id)
+            : undefined
+        }
+      />
+    );
+  };
+  const processCards = processMessages.map((message) => card(message));
+  const finalCards = finalMessages.map((message) => card(message, true));
+  const unattachedActivity = activityGroups.filter(
+    (group) => !shownActivity.has(group.key),
+  );
+  const processCount =
+    allSteps.length ||
+    processMessages.length ||
+    (finalMessages.length ? 0 : unattachedActivity.length);
+  const missingFinal = groupRuns.flatMap((item) => {
+    const messageIDs = missingDeliveryMessages(item, messages);
+    return messageIDs.length ? [{ run: item, messageIDs }] : [];
+  });
   return (
     <div className={cx("run-segment")}>
-      {own
+      {visibleOwn
         .filter((message) => message.role === "user")
         .map((message) => (
           <MessageCard
@@ -404,91 +614,142 @@ export function RunSegment({
           />
         ))}
       <RunDivider
-        run={run}
+        run={displayRun}
         index={index}
-        steps={steps}
-        attempts={attempts}
+        steps={allSteps}
+        attempts={allAttempts}
         messages={messages}
         sources={sources}
         artifacts={artifacts}
         connection={connection}
         liveness={liveness}
-        events={events}
         latest={latest}
         busy={busy}
         processCount={processCount}
         onSnapshot={onSnapshot}
-        onRetry={onRetry}
-        onResume={onResume}
+        onResume={() => onResume(displayRun.id)}
         onSource={onSource}
         onArtifact={onArtifact}
       >
-        {processMessages.map((message) => card(message))}
+        {processCards}
+        {unattachedActivity.length > 0 && (
+          <MemberToolActivity
+            groups={unattachedActivity}
+            agents={mentionMembers}
+            onHistory={(activity) =>
+              setHistory({
+                runID: activity.runID,
+                after: Math.max(0, activity.seq - 1),
+              })
+            }
+          />
+        )}
       </RunDivider>
-      {finalMessages.map((message) => card(message, true))}
-      {terminal(run.status) && (
-        <div className={cx("run-footer-badge-wrap")}>
-          <div className={cx("run-footer-badge")} tabIndex={0}>
-            <span>{runMethod(run).label}</span>
-            <span>·</span>
-            {badgeStatusIcon && (
-              <span
-                className={cx(`thread-status ${run.status}`)}
-                role="img"
-                aria-label={statusText[run.status]}
-                title={statusText[run.status]}
-              >
-                <Icon name={badgeStatusIcon} size={12} />
+      {/* Pending authorization sits outside every run/process disclosure so
+          folding the log cannot hide a blocked operation. */}
+      <PendingToolAuthorization
+        groups={activityGroups}
+        agents={mentionMembers}
+        permissionSlot={permissionSlot}
+      />
+      {finalCards}
+      {history && (
+        <EventHistory
+          key={`${history.runID}:${history.after}`}
+          runID={history.runID}
+          after={history.after}
+          agents={mentionMembers}
+          sources={sources}
+          onSource={onSource}
+          close={() => setHistory(null)}
+        />
+      )}
+      {terminal(displayRun.status) && (
+        <div
+          className={cx("run-footer-badge-wrap")}
+          ref={footer}
+          data-open={footerOpen ? "true" : undefined}
+        >
+          <button
+            type="button"
+            className={cx("run-footer-badge")}
+            aria-expanded={footerOpen}
+            aria-label="查看协作摘要详情"
+            onClick={() => setFooterOpen((current) => !current)}
+          >
+            <span className={cx("run-footer-identity")}>
+              <span>{runMethod(displayRun).label}</span>
+              {badgeStatusIcon && (
+                <>
+                  <span>·</span>
+                  <span
+                    className={cx(`thread-status ${displayRun.status}`)}
+                    role="img"
+                    aria-label={statusText[displayRun.status]}
+                    title={statusText[displayRun.status]}
+                  >
+                    <Icon name={badgeStatusIcon} size={12} />
+                  </span>
+                </>
+              )}
+            </span>
+            {(duration || usage) && (
+              <span className={cx("run-footer-meta-sep")}>·</span>
+            )}
+            {duration && (
+              <span className={cx("run-footer-duration")}>{duration}</span>
+            )}
+            {duration && usage && (
+              <span className={cx("run-footer-sep")}>·</span>
+            )}
+            {usage && (
+              <span className={cx("run-footer-usage")} title={usage}>
+                {usage}
               </span>
             )}
-            {runDuration(run) && (
-              <>
-                <span>·</span>
-                <span>{runDuration(run)}</span>
-              </>
+            {!duration && !usage && (
+              <span className={cx("run-footer-mobile-fallback")}>
+                {statusText[displayRun.status]}
+              </span>
             )}
-            {runUsageTokens(run, attempts) && (
-              <>
-                <span>·</span>
-                <span>{runUsageTokens(run, attempts)}</span>
-              </>
-            )}
-          </div>
-          <div className={cx("run-footer-popover")}>
+          </button>
+          <div className={cx("run-footer-popover")} ref={footerPopover}>
             <strong>
-              第 {index} 次协作 · {runMethod(run).label}
+              第 {index} 次协作 · {runMethod(displayRun).label}
             </strong>
-            <div>状态：{statusText[run.status]}</div>
-            {runDuration(run) && <div>耗时：{runDuration(run)}</div>}
-            {runUsageSummary(run, attempts) && (
-              <div>{runUsageSummary(run, attempts)}</div>
+            <div>状态：{statusText[displayRun.status]}</div>
+            {duration && <div>耗时：{duration}</div>}
+            {runUsageSummary(displayRun, allAttempts) && (
+              <div>{runUsageSummary(displayRun, allAttempts)}</div>
             )}
-            {steps && steps.length > 0 && (
+            {allSteps.length > 0 && (
               <div>
-                过程：共 {steps.length} 步（
-                {steps
+                过程：共 {allSteps.length} 步（
+                {allSteps
                   .map((s) => s.agent_name)
                   .filter(Boolean)
                   .join("、")}
                 ）
               </div>
             )}
-            {run.error && <div className={cx("error")}>异常：{run.error}</div>}
+            {displayRun.error && (
+              <div className={cx("error")}>异常：{displayRun.error}</div>
+            )}
             <small className={cx("muted")}>
               详细日志与交接记录已保存在右侧协作面板
             </small>
           </div>
         </div>
       )}
-      {missingFinal.length > 0 && (
+      {missingFinal.map(({ run: missingRun, messageIDs }) => (
         <MissingFinalResults
-          key={`${run.id}:${missingFinal.join(",")}`}
-          runID={run.id}
-          messageIDs={missingFinal}
-          agents={run.agents?.length ? run.agents : members}
-          steps={steps}
+          key={`${missingRun.id}:${messageIDs.join(",")}`}
+          runID={missingRun.id}
+          messageIDs={messageIDs}
+          agents={displayRun.agents?.length ? displayRun.agents : members}
+          steps={allSteps}
         />
-      )}
+      ))}
       {missingArtifacts.length > 0 && (
         <p className={cx("muted")} role="status">
           {finalArtifacts.length === 0
