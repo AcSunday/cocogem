@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 	"testing"
 
@@ -56,6 +57,24 @@ func (m *recordingRouter) Complete(ctx context.Context, request model.Request, e
 	return (routingModel{m.routing}).Complete(ctx, request, emit)
 }
 
+func TestExplicitMentionsOverrideSelectedWorkflow(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll"}, {ID: "b", DisplayName: "橘猫", Handle: "orange"}}
+	thread := w.Thread{CoordinatorID: "a", AgentIDs: []string{"a", "b"}}
+	for _, selected := range []string{"free", "discussion", "research", "code_analysis", "engineering"} {
+		t.Run(selected, func(t *testing.T) {
+			input := w.RunInput{Message: "@orange 新文档对比原文档有什么变化？", Workflow: selected, Assignments: map[string]string{"coordinator": "a"}}
+			got, err := ResolveRouting(t.Context(), nil, input, thread, agents)
+			if err != nil || got.Decision != "assign" || got.Workflow != "free" || !slices.Equal(got.Targets, []string{"b"}) || len(got.Assignments) != 0 {
+				t.Fatalf("routing=%+v error=%v", got, err)
+			}
+			steps, err := Plan("preview", w.RunInput{Workflow: got.Workflow, Targets: got.Targets, Assignments: got.Assignments}, agents)
+			if err != nil || len(steps) != 1 || steps[0].AgentID != "b" || steps[0].Role != "responder" {
+				t.Fatalf("steps=%+v error=%v", steps, err)
+			}
+		})
+	}
+}
+
 func TestWorkflowDoesNotBypassNamedInstructions(t *testing.T) {
 	agents := []w.Agent{
 		{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test", Executor: "codex", Tools: []string{"publish_artifact"}},
@@ -70,12 +89,12 @@ func TestWorkflowDoesNotBypassNamedInstructions(t *testing.T) {
 		decision string
 		calls    int
 	}{
-		{"named single task conflicts with research", w.RunInput{Message: "布偶猫帮我调查模型", Workflow: "research", Assignments: assignments}, Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫帮我调查模型"}}}, "clarify", 1},
+		{"named single task overrides research", w.RunInput{Message: "布偶猫帮我调查模型", Workflow: "research", Assignments: assignments}, Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫帮我调查模型"}}}, "assign", 1},
 		{"ordinary mention retains selected research", w.RunInput{Message: "我觉得布偶猫的观点值得讨论", Workflow: "research", Assignments: assignments}, Routing{Decision: "discuss"}, "discuss", 1},
 		{"unnamed task retains selected research", w.RunInput{Message: "比较三种方法", Workflow: "research", Assignments: assignments}, Routing{}, "assign", 0},
 		{"selected recipient remains authoritative", w.RunInput{Message: "布偶猫帮我调查模型", Targets: []string{"b"}}, Routing{}, "assign", 0},
 		{"same research roles are accepted", w.RunInput{Message: "布偶猫查资料，缅因猫复核并汇总", Workflow: "research", Assignments: assignments}, Routing{Decision: "assign", Workflow: "research", Assignments: assignments, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫查资料"}, {AgentID: "b", Quote: "缅因猫复核并汇总"}}}, "assign", 1},
-		{"different research roles require clarification", w.RunInput{Message: "布偶猫复核并汇总，缅因猫查资料", Workflow: "research", Assignments: assignments}, Routing{Decision: "assign", Workflow: "research", Assignments: map[string]string{"researcher": "b", "critic": "a", "coordinator": "a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫复核并汇总"}, {AgentID: "b", Quote: "缅因猫查资料"}}}, "clarify", 1},
+		{"explicit research roles override selected roles", w.RunInput{Message: "布偶猫复核并汇总，缅因猫查资料", Workflow: "research", Assignments: assignments}, Routing{Decision: "assign", Workflow: "research", Assignments: map[string]string{"researcher": "b", "critic": "a", "coordinator": "a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫复核并汇总"}, {AgentID: "b", Quote: "缅因猫查资料"}}}, "assign", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := &recordingRouter{routing: tc.route}
@@ -94,6 +113,9 @@ func TestWorkflowDoesNotBypassNamedInstructions(t *testing.T) {
 			}
 			if tc.name == "selected recipient remains authoritative" && !slices.Equal(got.Targets, []string{"b"}) {
 				t.Fatalf("replaced explicit recipient: %+v", got)
+			}
+			if tc.calls > 0 && tc.route.Decision == "assign" && (got.Workflow != tc.route.Workflow || !slices.Equal(got.Targets, tc.route.Targets) || !maps.Equal(got.Assignments, tc.route.Assignments)) {
+				t.Fatalf("replaced explicit user assignment: %+v", got)
 			}
 		})
 	}

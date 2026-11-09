@@ -33,7 +33,7 @@ test("browser, server and scheduler execute research, independent review and res
     .getByLabel("确认密码", { exact: true })
     .fill("runtime-browser-password");
   await page.getByRole("button", { name: "设置密码并进入" }).click();
-  await page.getByRole("button", { name: "创建第一个工作空间" }).click();
+  await page.getByRole("button", { name: "高级：手动创建项目" }).click();
   await page.getByLabel("名称", { exact: true }).fill("动态编排验收空间");
   await page.getByRole("checkbox", { name: /结果汇总/ }).uncheck();
   await page.getByRole("button", { name: "保存工作空间" }).click();
@@ -105,6 +105,7 @@ test("browser, server and scheduler execute research, independent review and res
     (space) => space.id === workspaceID,
   )!;
   expect(savedWorkspace.skill_ids?.sort()).toEqual([
+    "file-delivery",
     "independent-review",
     "synthesize-results",
     "task-handoff",
@@ -125,9 +126,7 @@ test("browser, server and scheduler execute research, independent review and res
   await expect(
     page.getByRole("heading", { name: "动态研究与独立复核", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("工作方式", { exact: true })).toHaveText(
-    /自由协作/,
-  );
+  await expect(page.getByTestId("composer-method")).toHaveCount(0);
   const accepted = page.waitForResponse(
     (response) =>
       response.url().endsWith("/runs") &&

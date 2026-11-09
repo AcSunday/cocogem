@@ -7,13 +7,15 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/AcSunday/cocogem/internal/model"
 )
 
 // nativeObservationLimit bounds one captured native observation. The persisted
 // event itself is bounded again by the workflow.
 const nativeObservationLimit = 512 << 10
 
-type nativeCall struct {
+type claudeNativeCall struct {
 	name         string
 	input        json.RawMessage
 	resultSeen   bool
@@ -85,10 +87,18 @@ const (
 	nativeWebSearch = "WebSearch"
 	// Codex exposes one combined Responses web tool; it is enabled only when
 	// both web grants are present so search cannot be gained from fetch alone.
-	nativeCodexWeb = "web_search"
+	nativeCodexWeb     = "web_search"
+	nativeCodexCommand = "command_execution"
+	nativeCodexFile    = "file_change"
+	nativeCodexImage   = "view_image"
+	nativeBash         = "Bash"
+	nativeWrite        = "Write"
+	nativeEdit         = "Edit"
 )
 
 var claudeNativeNames = []string{nativeRead, nativeGlob, nativeGrep, nativeWebFetch, nativeWebSearch}
+var claudeAutonomousNames = []string{nativeRead, nativeGlob, nativeGrep, nativeWebFetch, nativeWebSearch, nativeWrite, nativeEdit, nativeBash}
+var claudeFullAccessNames = []string{nativeRead, nativeGlob, nativeGrep, nativeWebFetch, nativeWebSearch, nativeBash, nativeWrite, nativeEdit}
 
 // onlineScope permits native web only for scopes that already permit
 // discovery. Given sources and legacy empty scopes keep host-only fetching.
@@ -130,15 +140,53 @@ func NativeTools(executor string, allowed []string, scope string) []string {
 	return out
 }
 
+// NativeExecutionTools maps the mode onto the CLI-owned tool catalog.
+// project_autonomous genuinely opens native read/write/command/image tools
+// inside a real OS boundary; full_access keeps the existing broad behavior.
+func NativeExecutionTools(executor string, allowed []string, scope, mode string) []string {
+	out := NativeTools(executor, allowed, scope)
+	if executor == "claude" && (mode == "project_autonomous" || mode == "full_access") {
+		if slices.Contains(allowed, "write_file") {
+			out = append(out, nativeWrite, nativeEdit)
+		}
+		if slices.Contains(allowed, "run_test") || slices.Contains(allowed, "run_command") {
+			out = append(out, nativeBash)
+		}
+	}
+	if executor == "codex" && (mode == "project_autonomous" || mode == "full_access") {
+		if slices.Contains(allowed, "write_file") {
+			out = append(out, nativeWrite, nativeCodexFile)
+		}
+		if slices.Contains(allowed, "run_test") || slices.Contains(allowed, "run_command") {
+			out = append(out, nativeBash, nativeCodexCommand)
+		}
+		if slices.Contains(allowed, "view_image") || slices.Contains(allowed, "read_file") {
+			out = append(out, nativeCodexImage)
+		}
+	}
+	return out
+}
+
 // sanitizeNativeTools is the adapter's own guard: only names this executor
 // implements survive, and file tools never appear without a bounded root.
 func sanitizeNativeTools(executor string, requested []string, root string) (files, web []string) {
+	return sanitizeExecutionNativeTools(executor, requested, root, "")
+}
+
+func sanitizeExecutionNativeTools(executor string, requested []string, root string, mode string) (files, web []string) {
 	var known []string
 	switch executor {
 	case "claude":
-		known = claudeNativeNames
+		switch mode {
+		case "project_autonomous":
+			known = claudeAutonomousNames
+		case "full_access":
+			known = claudeFullAccessNames
+		default:
+			known = claudeNativeNames
+		}
 	case "codex":
-		known = []string{nativeCodexWeb}
+		known = []string{nativeCodexWeb, nativeCodexCommand, nativeCodexFile, nativeCodexImage, nativeBash, nativeWrite}
 	default:
 		return nil, nil
 	}
@@ -147,6 +195,15 @@ func sanitizeNativeTools(executor string, requested []string, root string) (file
 			continue
 		}
 		if slices.Contains([]string{nativeRead, nativeGlob, nativeGrep}, name) {
+			if root != "" {
+				files = append(files, name)
+			}
+			continue
+		}
+		if slices.Contains([]string{nativeBash, nativeWrite, nativeEdit}, name) {
+			// Write/command tools require both a real root and an OS boundary.
+			// The caller decides whether the platform can enforce it; without a
+			// root they stay closed.
 			if root != "" {
 				files = append(files, name)
 			}
@@ -165,14 +222,77 @@ func nativeToolNames(files, web []string) []string {
 // inventory. --tools is the CLI-enforced boundary; the parser is only a
 // protocol guard.
 func claudeArgs(configPath, settingsPath string, native []string) []string {
+	return claudeExecutionArgs(configPath, settingsPath, native, model.Request{})
+}
+
+// claudeBidirectionalArgs launches the stream-json control protocol used for
+// project_autonomous. Native tools are not pre-allowed: every call goes through
+// the private fail-closed PreToolUse hook, which asks the host before effect.
+func claudeBidirectionalArgs(configPath, settingsPath string, native []string, request model.Request) []string {
 	builtins := []string{}
 	for _, name := range native {
-		if slices.Contains(claudeNativeNames, name) {
+		if slices.Contains(claudeAutonomousNames, name) {
+			builtins = append(builtins, name)
+		}
+	}
+	toolSet := strings.Join(builtins, ",")
+	allowed := "mcp__cocogem__*"
+	if request.ExecutionMode == "full_access" && request.TrustedExecution {
+		toolSet = "default"
+		allowed = "*"
+	}
+	args := []string{
+		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+		"--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
+		"--tools", toolSet,
+		"--strict-mcp-config", "--mcp-config", configPath,
+		"--allowedTools", allowed,
+		"--disallowedTools", "Agent,Task,TeamCreate,SendMessage",
+		"--disable-slash-commands", "--no-chrome",
+	}
+	if request.SessionStorageRoot == "" {
+		args = append(args, "--no-session-persistence")
+	} else if request.SessionMode == "resume" {
+		args = append(args, "--resume", request.SessionID)
+	}
+	return append(args, "--setting-sources", "", "--settings", settingsPath)
+}
+
+func claudeExecutionArgs(configPath, settingsPath string, native []string, request model.Request) []string {
+	known := claudeNativeNames
+	fullAccess := request.ExecutionMode == "full_access"
+	if fullAccess {
+		known = claudeFullAccessNames
+	}
+	builtins := []string{}
+	for _, name := range native {
+		if slices.Contains(known, name) {
 			builtins = append(builtins, name)
 		}
 	}
 	allowed := append(append([]string{}, builtins...), "mcp__cocogem__*")
-	return []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--restricted", "--tools", strings.Join(builtins, ","), "--strict-mcp-config", "--mcp-config", configPath, "--permission-mode", "dontAsk", "--permission-prompts", "none", "--allowedTools", strings.Join(allowed, ","), "--disable-slash-commands", "--no-chrome", "--no-session-persistence", "--setting-sources", "", "--settings", settingsPath}
+	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}
+	permissionMode := "dontAsk"
+	if fullAccess {
+		permissionMode = "bypassPermissions"
+	} else {
+		args = append(args, "--restricted")
+	}
+	toolSet := strings.Join(builtins, ",")
+	if request.TrustedExecution && fullAccess {
+		toolSet = "default"
+		allowed = []string{"*"}
+	}
+	args = append(args, "--tools", toolSet, "--strict-mcp-config", "--mcp-config", configPath, "--permission-mode", permissionMode, "--permission-prompts", "none", "--allowedTools", strings.Join(allowed, ","), "--disable-slash-commands", "--no-chrome")
+	if request.TrustedExecution && fullAccess {
+		args = append(args, "--disallowedTools", "Agent,Task,TeamCreate,SendMessage")
+	}
+	if request.SessionStorageRoot == "" {
+		args = append(args, "--no-session-persistence")
+	} else if request.SessionMode == "resume" {
+		args = append(args, "--resume", request.SessionID)
+	}
+	return append(args, "--setting-sources", "", "--settings", settingsPath)
 }
 
 // claudeStepSettings adds path denials aligned with tools.DeniedPath. The

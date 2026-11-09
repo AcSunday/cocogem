@@ -18,22 +18,28 @@ import (
 // resolved before an attempt. It is cached so a later config edit cannot change
 // what the already-authorized attempt launches.
 type connectionPlan struct {
-	executor       string
-	info           agent.ConnectionInfo
-	claudeSettings map[string]any
-	codexResolved  string
-	codexArgs      []string
-	codexEnv       map[string]string
-	geminiModel    string
-	geminiEnv      map[string]string
-	geminiUnset    []string
-	geminiThinking []any
-	piAuth         []byte
-	piModels       []byte
-	piSettings     []byte
-	piEnv          []string
-	piModel        string
-	piThinking     string
+	executor            string
+	info                agent.ConnectionInfo
+	claudeSettings      map[string]any
+	codexResolved       string
+	codexArgs           []string
+	codexEnv            map[string]string
+	geminiModel         string
+	geminiEnv           map[string]string
+	geminiUnset         []string
+	geminiThinking      []any
+	piAuth              []byte
+	piModels            []byte
+	piSettings          []byte
+	piEnv               []string
+	piModel             string
+	piThinking          string
+	openCodeConfig      map[string]any
+	openCodeCredentials []openCodeCredential
+	openCodeEnv         []string
+	openCodeModel       string
+	openCodeVariants    []string
+	openCodeCatalog     string
 }
 
 var connectionPlans = struct {
@@ -60,9 +66,23 @@ func cachedPlan(executor, identity string) (connectionPlan, bool) {
 
 // InspectConnection resolves the actual model and a non-secret upstream identity.
 func (p Provider) InspectConnection(ctx context.Context, executor, model string) (agent.ConnectionInfo, error) {
+	return p.InspectExecutionConnection(ctx, executor, model, "")
+}
+
+func (p Provider) InspectExecutionConnection(ctx context.Context, executor, model, thinking string) (agent.ConnectionInfo, error) {
 	plan, err := p.resolveConnection(ctx, executor, model)
 	if err != nil {
 		return agent.ConnectionInfo{}, err
+	}
+	if executor == "opencode" && thinking != "" {
+		selected, err := openCodeModelVariant(plan, thinking)
+		if err != nil {
+			return agent.ConnectionInfo{}, err
+		}
+		if selected != plan.openCodeModel {
+			plan.info.Identity = connectionDigest(map[string]string{"executor": "opencode", "connection": plan.openCodeCatalog, "model": selected})
+			plan.openCodeModel, plan.info.ResolvedModel = selected, selected
+		}
 	}
 	rememberPlan(plan)
 	return plan.info, nil
@@ -78,6 +98,8 @@ func (p Provider) resolveConnection(ctx context.Context, executor, model string)
 		return geminiPlan(model)
 	case "pi":
 		return p.piPlan(ctx, model)
+	case "opencode":
+		return p.openCodePlan(ctx, model)
 	default:
 		return connectionPlan{}, errors.New("不支持的 CLI")
 	}

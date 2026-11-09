@@ -1,6 +1,11 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../../api/client";
-import type { Agent, System, WorkspaceMember } from "../../api/client";
+import type {
+  Agent,
+  System,
+  WorkspaceMember,
+  ModelOptions,
+} from "../../api/client";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -11,6 +16,8 @@ import members from "../../styles/member-editor.module.css";
 import settings from "../../styles/settings.module.css";
 import { errorText } from "../../lib/presentation";
 import { Avatar, memberImage } from "../Avatar";
+import { ConfirmDialog } from "../ConfirmDialog";
+import { Icon } from "../Icon";
 import { Modal } from "../Modal";
 import { Select } from "../Select";
 
@@ -24,18 +31,7 @@ const cx = scoped(
   settings,
 );
 
-const readOnlyTools = [
-  "list_files",
-  "read_file",
-  "search_content",
-  "web_search",
-  "fetch_url",
-  "read_source",
-  "publish_artifact",
-];
-const engineeringTools = ["write_file", "patch_file", "run_test"];
-export const allTools = [...readOnlyTools, ...engineeringTools];
-const executors = ["claude", "codex", "gemini", "pi"];
+const executors = ["claude", "codex", "gemini", "pi", "opencode"];
 /** Empty keeps the CLI's own default; only these explicit levels are forwarded. */
 const thinkingLevels: Record<string, string[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
@@ -43,7 +39,7 @@ const thinkingLevels: Record<string, string[]> = {
   gemini: ["low", "high"],
   pi: ["low", "medium", "high", "xhigh", "max"],
 };
-const minContextSize = 1024;
+const minContextTokens = 1024;
 const avatarMaxBytes = 512 * 1024;
 const avatarMaxDimension = 2048;
 const handlePattern = /^[a-z][a-z0-9-]{1,31}$/;
@@ -126,6 +122,7 @@ export function MembersForm({
   unlink,
   close,
   save,
+  remove,
 }: {
   agents: Agent[];
   system: System;
@@ -136,11 +133,12 @@ export function MembersForm({
   saveMembership?: (
     agent: Agent,
     member: WorkspaceMember | undefined,
-    value: { enabled: boolean; tools: string[] },
+    value: { enabled: boolean },
   ) => Promise<void>;
   unlink?: (member: WorkspaceMember) => Promise<void>;
   close: () => void;
   save: (value: Agent) => Promise<Agent>;
+  remove?: (agent: Agent) => Promise<void>;
 }) {
   const executor =
     system.executors?.find((item) => item.installed && item.supported !== false)
@@ -154,7 +152,10 @@ export function MembersForm({
     role_description: "",
     executor,
     model: "default",
-    tools: readOnlyTools,
+    // Tool grants are no longer edited here. New profiles keep the server's
+    // legacy default catalog as audit data; the executed boundary comes from
+    // the global permission mode.
+    tools: null,
     disabled: false,
     revision: 1,
   });
@@ -163,13 +164,18 @@ export function MembersForm({
   );
   // Keep saved profiles visible on the list even before a parent refresh lands.
   const [savedProfiles, setSavedProfiles] = useState<Record<string, Agent>>({});
+  const [deleted, setDeleted] = useState<Set<string>>(() => new Set());
+  const [deleting, setDeleting] = useState<Agent>();
   // A parent refresh at the same or newer revision wins over the local copy.
-  const profiles = (catalog ?? agents).map((agent) => {
-    const saved = savedProfiles[agent.id];
-    return saved && saved.revision > agent.revision ? saved : agent;
-  });
+  const profiles = (catalog ?? agents)
+    .filter((agent) => !deleted.has(agent.id))
+    .map((agent) => {
+      const saved = savedProfiles[agent.id];
+      return saved && saved.revision > agent.revision ? saved : agent;
+    });
   for (const saved of Object.values(savedProfiles))
-    if (!profiles.some((agent) => agent.id === saved.id)) profiles.push(saved);
+    if (!deleted.has(saved.id) && !profiles.some((agent) => agent.id === saved.id))
+      profiles.push(saved);
   const body = editing ? (
     <MemberEditor
       key={editing.key}
@@ -192,31 +198,40 @@ export function MembersForm({
   ) : (
     <div className={cx("member-list")} aria-label="成员列表">
       {profiles.map((agent) => (
-        <button
-          type="button"
-          key={agent.id}
-          className={cx("member-card")}
-          onClick={() => setEditing({ key: agent.id, agent })}
-        >
-          <Avatar
-            name={agent.display_name}
-            avatar={agent.avatar}
-          />
-          <span className={cx("member-info")}>
-            <strong>{agent.display_name || "未命名成员"}</strong>
-            <span className={cx("member-handle")}>
-              @{agent.handle || "未设置"}
+        <div className={cx("member-row")} key={agent.id}>
+          <button
+            type="button"
+            className={cx("member-card")}
+            onClick={() => setEditing({ key: agent.id, agent })}
+          >
+            <Avatar name={agent.display_name} avatar={agent.avatar} />
+            <span className={cx("member-info")}>
+              <strong>{agent.display_name || "未命名成员"}</strong>
+              <span className={cx("member-handle")}>
+                @{agent.handle || "未设置"}
+              </span>
+              <small>
+                {agent.role_description || "未填写职责"}
+                {catalog && !global
+                  ? agents.some((item) => item.id === agent.id)
+                    ? " · 已加入"
+                    : " · 未加入"
+                  : ""}
+              </small>
             </span>
-            <small>
-              {agent.role_description || "未填写职责"}
-              {catalog && !global
-                ? agents.some((item) => item.id === agent.id)
-                  ? " · 已加入"
-                  : " · 未加入"
-                : ""}
-            </small>
-          </span>
-        </button>
+          </button>
+          {remove && (
+            <button
+              type="button"
+              className={cx("member-delete")}
+              aria-label={`删除成员 ${agent.display_name || "未命名成员"}`}
+              title="删除成员"
+              onClick={() => setDeleting(agent)}
+            >
+              <Icon name="trash" size={15} />
+            </button>
+          )}
+        </div>
       ))}
       <button
         type="button"
@@ -227,12 +242,42 @@ export function MembersForm({
       </button>
     </div>
   );
-  return embedded ? (
-    body
-  ) : (
-    <Modal title="成员与称呼" close={close} wide>
-      {body}
-    </Modal>
+  return (
+    <>
+      {embedded ? (
+        body
+      ) : (
+        <Modal title="成员与称呼" close={close} wide>
+          {body}
+        </Modal>
+      )}
+      {deleting && remove && (
+        <ConfirmDialog
+          title="删除成员"
+          action="确认删除"
+          close={() => setDeleting(undefined)}
+          confirm={async () => {
+            await remove(deleting);
+            setDeleted((current) => new Set(current).add(deleting.id));
+            setSavedProfiles((current) => {
+              const next = { ...current };
+              delete next[deleting.id];
+              return next;
+            });
+            if (editing?.agent.id === deleting.id) setEditing(null);
+            setDeleting(undefined);
+          }}
+        >
+          <p>
+            删除成员「{deleting.display_name || "未命名成员"}」？
+          </p>
+          <p className={cx("muted")}>
+            该成员的全局档案和所有工作空间关系会被移除；历史消息、Run
+            快照和已完成任务记录保留不变。此操作无法撤销。
+          </p>
+        </ConfirmDialog>
+      )}
+    </>
   );
 }
 
@@ -256,7 +301,7 @@ function MemberEditor({
   saveMembership?: (
     agent: Agent,
     member: WorkspaceMember | undefined,
-    value: { enabled: boolean; tools: string[] },
+    value: { enabled: boolean },
   ) => Promise<void>;
   unlink?: (member: WorkspaceMember) => Promise<void>;
   save: (value: Agent) => Promise<Agent>;
@@ -285,7 +330,58 @@ function MemberEditor({
     key: string;
     error: string;
   } | null>(null);
-  const levels = thinkingLevels[value.executor ?? ""] ?? [];
+  const [variantState, setVariantState] = useState<{
+    key: string;
+    levels: string[];
+    error: string;
+    loading: boolean;
+  }>({ key: "", levels: [], error: "", loading: false });
+  const modelKey = value.model.trim() || "default";
+  useEffect(() => {
+    if (value.executor !== "opencode") return;
+    let active = true;
+    const timer = setTimeout(() => {
+      setVariantState({ key: modelKey, levels: [], error: "", loading: true });
+      void api<ModelOptions>(
+        `/api/v1/system/model-options?executor=opencode&model=${encodeURIComponent(modelKey)}`,
+      )
+        .then((options) => {
+          if (active)
+            setVariantState({
+              key: modelKey,
+              levels: options.thinking_levels,
+              error: "",
+              loading: false,
+            });
+        })
+        .catch((failure) => {
+          if (active)
+            setVariantState({
+              key: modelKey,
+              levels: [],
+              error: errorText(failure),
+              loading: false,
+            });
+        });
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [value.executor, modelKey]);
+  const openCode = value.executor === "opencode";
+  const variantCurrent = variantState.key === modelKey;
+  const levels = openCode
+    ? variantCurrent
+      ? variantState.levels
+      : []
+    : (thinkingLevels[value.executor ?? ""] ?? []);
+  const variantLoading = openCode && (!variantCurrent || variantState.loading);
+  const variantError = openCode && variantCurrent ? variantState.error : "";
+  const levelValid =
+    !openCode ||
+    !value.thinking_level ||
+    (!variantLoading && !variantError && levels.includes(value.thinking_level));
   const model = value.model.trim() || "default";
   const geminiNeedsModel = value.executor === "gemini" && model === "default";
   const executorInfo = system.executors?.find(
@@ -295,7 +391,7 @@ function MemberEditor({
   const contextNumber = contextText ? Number(contextText) : 0;
   const contextValid =
     !contextText ||
-    (Number.isInteger(contextNumber) && contextNumber >= minContextSize);
+    (Number.isInteger(contextNumber) && contextNumber >= minContextTokens);
   const verifyKey = [
     value.executor,
     model,
@@ -343,7 +439,14 @@ function MemberEditor({
       setVerifyState({
         key: verifyKey,
         error:
-          "上下文大小限制必须是不小于 1024 的整数（字节），或留空跟随执行 CLI 默认。",
+          "上下文预算必须是不小于 1024 的整数（tokens），或留空跟随执行 CLI 默认。",
+      });
+      return;
+    }
+    if (!levelValid) {
+      setVerifyState({
+        key: verifyKey,
+        error: "当前模型不支持此思考级别，请重新选择。",
       });
       return;
     }
@@ -386,8 +489,12 @@ function MemberEditor({
     }
     if (!contextValid) {
       setError(
-        "上下文大小限制必须是不小于 1024 的整数（字节），或留空跟随执行 CLI 默认。",
+        "上下文预算必须是不小于 1024 的整数（tokens），或留空跟随执行 CLI 默认。",
       );
+      return;
+    }
+    if (!levelValid) {
+      setError("当前模型不支持此思考级别，请重新选择。");
       return;
     }
     if (geminiNeedsModel && value.thinking_level) {
@@ -439,7 +546,7 @@ function MemberEditor({
           <h3>{catalog ? "全局成员档案" : "成员档案"}</h3>
           {catalog && (
             <p className={cx("member-note")}>
-              档案在所有工作空间共享；本空间权限单独授予，实际权限取两者交集。
+              档案在所有工作空间共享；是否加入、是否启用按工作空间管理，执行边界由全局权限设置决定。
             </p>
           )}
           <label htmlFor={field("name")}>显示名</label>
@@ -583,10 +690,15 @@ function MemberEditor({
             <input
               id={field("model")}
               value={value.model === "default" ? "" : value.model}
-              placeholder="CLI 默认模型"
+              placeholder={
+                value.executor === "opencode"
+                  ? "provider/model 或 provider/model#variant"
+                  : "CLI 默认模型"
+              }
               onChange={(event) =>
                 update({
                   model: event.target.value || "default",
+                  ...(openCode ? { thinking_level: "" } : {}),
                   ...(value.executor === "gemini" &&
                   (!event.target.value.trim() ||
                     event.target.value.trim() === "default")
@@ -609,11 +721,11 @@ function MemberEditor({
             的供应商与登录配置，不需要额外登录或密钥；模型留空时按 CLI
             默认模型验证。
           </small>
-          <label htmlFor={field("context")}>上下文大小限制</label>
+          <label htmlFor={field("context")}>上下文预算（tokens）</label>
           <input
             id={field("context")}
             type="number"
-            min={minContextSize}
+            min={minContextTokens}
             step={1}
             inputMode="numeric"
             value={contextSize}
@@ -629,8 +741,8 @@ function MemberEditor({
             }}
           />
           <small id={field("context-hint")}>
-            留空时由所选 CLI 按其配置的上下文窗口处理；填写字节数后，Cocogem
-            会按该值限制本成员的输入大小。
+            留空时由所选 CLI 按其配置的上下文窗口处理；填写估算 token
+            数后，Cocogem 会按该值限制本成员的输入大小。
           </small>
           <label htmlFor={field("thinking")}>
             思考等级（留空保持 CLI 默认）
@@ -638,10 +750,22 @@ function MemberEditor({
           <Select
             id={field("thinking")}
             value={value.thinking_level ?? ""}
-            disabled={!value.executor || !levels.length || geminiNeedsModel}
+            disabled={
+              !value.executor ||
+              (!levels.length && !value.thinking_level) ||
+              geminiNeedsModel ||
+              variantLoading
+            }
             onChange={(thinking) => update({ thinking_level: thinking })}
           >
             <option value="">保持 CLI 默认</option>
+            {openCode &&
+              value.thinking_level &&
+              !levels.includes(value.thinking_level) && (
+                <option value={value.thinking_level}>
+                  {value.thinking_level}（待校验）
+                </option>
+              )}
             {levels.map((level) => (
               <option key={level} value={level}>
                 {level}
@@ -653,10 +777,20 @@ function MemberEditor({
               Gemini 选择思考等级前必须填写明确模型，不能留空使用默认。
             </small>
           )}
-          <small>留空时沿用 CLI 已有的思考等级配置。</small>
+          <small>
+            {value.executor === "opencode"
+              ? variantLoading
+                ? "正在读取当前模型支持的思考级别…"
+                : variantError
+                  ? `无法读取思考级别：${variantError}`
+                  : levels.length
+                    ? "按当前模型提供的变体选择，留空沿用本机或模型标识中的配置。"
+                    : "当前模型未声明可选思考变体，沿用本机配置。"
+              : "留空时沿用 CLI 已有的思考等级配置。"}
+          </small>
           {verified && (
             <p role="status" className={cx("verify-ok")}>
-              已验证当前执行 CLI、模型、上下文大小限制和思考等级。
+              已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。
             </p>
           )}
           {verifyError && (
@@ -666,25 +800,7 @@ function MemberEditor({
           )}
         </section>
         <section className={cx("member-section")}>
-          <fieldset>
-            <legend>{catalog ? "全局允许工具" : "允许工具"}</legend>
-            {allTools.map((tool) => (
-              <label className={cx("check-label")} key={tool}>
-                <input
-                  type="checkbox"
-                  checked={value.tools?.includes(tool) ?? false}
-                  onChange={(event) =>
-                    update({
-                      tools: event.target.checked
-                        ? [...(value.tools ?? []), tool]
-                        : (value.tools?.filter((item) => item !== tool) ?? []),
-                    })
-                  }
-                />
-                {tool}
-              </label>
-            ))}
-          </fieldset>
+          <legend>{catalog ? "启用状态" : "成员状态"}</legend>
           <label className={cx("check-label")}>
             <input
               type="checkbox"
@@ -693,7 +809,9 @@ function MemberEditor({
             />
             {catalog ? "在所有工作空间停用此成员" : "停用此成员"}
           </label>
-          <small>工具仅控制 Cocogem 宿主工具，不授予原生命令或 shell。</small>
+          <small>
+            工具授权由全局权限模式统一决定，不再按成员配置；停用后该成员不参与任何工作空间的执行。
+          </small>
         </section>
         {error && (
           <p className={cx("error")} role="alert">
@@ -734,19 +852,13 @@ function WorkspaceMembershipForm({
 }: {
   agent: Agent;
   membership?: WorkspaceMember;
-  save: (value: { enabled: boolean; tools: string[] }) => Promise<void>;
+  save: (value: { enabled: boolean }) => Promise<void>;
   unlink: () => Promise<void>;
 }) {
-  const globalTools = agent.tools ?? [];
   const [enabled, setEnabled] = useState(membership?.enabled ?? true);
-  const [tools, setTools] = useState(membership?.tools ?? globalTools);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  const effective =
-    enabled && !agent.disabled
-      ? tools.filter((tool) => globalTools.includes(tool))
-      : [];
   const submit = (action: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -761,11 +873,11 @@ function WorkspaceMembershipForm({
       className={cx("membership-form")}
       onSubmit={(event) => {
         event.preventDefault();
-        submit(() => save({ enabled, tools }));
+        submit(() => save({ enabled }));
       }}
     >
       <fieldset disabled={busy}>
-        <legend>本工作空间权限</legend>
+        <legend>本工作空间成员</legend>
         <label className={cx("check-label")}>
           <input
             type="checkbox"
@@ -777,41 +889,19 @@ function WorkspaceMembershipForm({
           />
           在本工作空间启用
         </label>
-        {allTools.map((tool) => {
-          const allowed = globalTools.includes(tool);
-          const checked = tools.includes(tool);
-          return (
-            <label className={cx("check-label")} key={tool}>
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={!allowed && !checked}
-                onChange={(event) => {
-                  setTools(
-                    event.target.checked
-                      ? [...tools, tool]
-                      : tools.filter((item) => item !== tool),
-                  );
-                  setSaved(false);
-                }}
-              />
-              {tool}
-              {!allowed && "（全局未允许）"}
-            </label>
-          );
-        })}
       </fieldset>
       <p className={cx("member-note")}>
-        实际权限取本空间与全局配置的交集；当前生效：
-        {effective.length ? effective.join("、") : "无"}
-        。移出仅撤销本空间访问，保留全局档案与历史记录。
+        {agent.disabled
+          ? "该成员已在全局停用，加入本空间也不会执行。"
+          : "成员的工具与命令边界由设置中的全局权限决定；此处只管理是否加入与是否启用。"}
+        移出仅撤销本空间访问，保留全局档案与历史记录。
       </p>
       {error && (
         <p role="alert" className={cx("error")}>
           {error}
         </p>
       )}
-      {saved && <p role="status">本空间成员配置已保存。</p>}
+      {saved && <p role="status">本空间成员设置已保存。</p>}
       <div className={cx("form-actions")}>
         {membership && (
           <button type="button" disabled={busy} onClick={() => submit(unlink)}>
@@ -819,7 +909,7 @@ function WorkspaceMembershipForm({
           </button>
         )}
         <button className={cx("primary")} disabled={busy}>
-          {busy ? "保存中…" : membership ? "保存本空间权限" : "加入本工作空间"}
+          {busy ? "保存中…" : membership ? "保存本空间设置" : "加入本工作空间"}
         </button>
       </div>
     </form>

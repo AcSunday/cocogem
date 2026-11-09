@@ -52,13 +52,31 @@ export function MembersSettings({
         await load();
         return saved;
       }}
+      remove={
+        props.remove
+          ? async (agent) => {
+              await props.remove!(agent);
+              await refresh();
+              try {
+                await load();
+              } catch (failure) {
+                setError(errorText(failure));
+              }
+            }
+          : undefined
+      }
       saveMembership={
         props.workspaceID && !props.global
           ? async (agent, member, grant) => {
               await api(
                 `/api/v1/workspaces/${props.workspaceID}/members/${agent.id}`,
                 member ? "PATCH" : "PUT",
-                grant,
+                // The contract keeps `tools` required; keep the stored legacy
+                // array for an existing link and start a new link empty.
+                {
+                  enabled: grant.enabled,
+                  tools: member ? (member.tools ?? []) : [],
+                },
                 member ? { "If-Match": String(member.revision) } : {},
               );
               await refresh();

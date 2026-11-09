@@ -121,7 +121,7 @@ func TestParsersAcceptLargeCumulativeStreams(t *testing.T) {
 }
 
 func TestParsersRejectOversizedFrame(t *testing.T) {
-	huge := strings.Repeat("x", 4*1024*1024+1024)
+	huge := strings.Repeat("x", maxCLIFrameBytes+1024)
 	tests := []struct {
 		name  string
 		parse func(io.Reader, *bridge, *liveness) error
@@ -152,7 +152,7 @@ func TestParsersRejectOversizedFrame(t *testing.T) {
 			gate := newTestGate(t, testRequest().Tools, discardObserve)
 			live := newLiveness(context.Background(), func() {}, discardObserve, 0, 0, "warn")
 			err := test.parse(strings.NewReader(test.head+test.line), gate, live)
-			if err == nil || FailureKindOf(err) != FailureProtocol || !strings.Contains(err.Error(), "4 MiB") {
+			if err == nil || FailureKindOf(err) != FailureProtocol || !strings.Contains(err.Error(), "16 MiB") {
 				t.Fatalf("oversized frame error=%v", err)
 			}
 		})

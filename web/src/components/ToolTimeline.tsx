@@ -1,5 +1,4 @@
 import type { Agent, Artifact, Event, Message, Source } from "../api/client";
-import { EVENT_WINDOW, terminal } from "../api/client";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -12,9 +11,15 @@ import {
   memberLabel,
   methodEventLabel,
   noticeLabel,
-  toolLabel,
   usageSummary,
 } from "../lib/presentation";
+import {
+  missingFinishLabel,
+  projectToolActivity,
+  toolStatusLabel,
+  type ToolActivity,
+  type ToolActivityStatus,
+} from "../lib/toolActivity";
 
 const cx = scoped(base, controls, layout, panels, settings);
 
@@ -57,6 +62,84 @@ function groups(events: Event[]) {
   return out;
 }
 
+function statusClass(status: ToolActivityStatus): string {
+  switch (status) {
+    case "succeeded":
+      return "succeeded";
+    case "failed":
+    case "denied":
+      return "failed";
+    case "running":
+    case "queued":
+      return "running";
+    case "awaiting_permission":
+      return "pending";
+    case "canceled":
+    case "unknown":
+      return "canceled";
+  }
+}
+
+function ToolRecord({
+  activity,
+  mode,
+  onHistory,
+}: {
+  activity: ToolActivity;
+  mode: "live" | "history";
+  onHistory?: (after?: number) => void;
+}) {
+  return (
+    <details className={cx("tool-record")}>
+      <summary>
+        <span>{activity.label}</span>
+        <span className={cx(`status ${statusClass(activity.status)}`)}>
+          {toolStatusLabel(activity.status)}
+        </span>
+        {activity.status === "unknown" && (
+          <>
+            <small className={cx("muted")}>{missingFinishLabel(activity)}</small>
+            {onHistory && mode === "live" && (
+              <button
+                type="button"
+                className={cx("ghost small")}
+                aria-label="查看这次工具调用的历史记录"
+                onClick={(click) => {
+                  click.preventDefault();
+                  click.stopPropagation();
+                  onHistory(Math.max(0, activity.seq - 1));
+                }}
+              >
+                查看历史
+              </button>
+            )}
+          </>
+        )}
+        {activity.durationMs !== undefined && (
+          <small>{activity.durationMs} ms</small>
+        )}
+        {activity.exitCode !== undefined && (
+          <small>exit {activity.exitCode}</small>
+        )}
+      </summary>
+      {activity.missingStart && (
+        <p className={cx("muted")}>调用开始记录不在当前页。</p>
+      )}
+      <h4>调用参数</h4>
+      <pre className={cx("pre")}>{JSON.stringify(activity.input, null, 2)}</pre>
+      {activity.output && (
+        <>
+          <h4>工具观察结果</h4>
+          <pre className={cx("pre")}>{activity.output}</pre>
+          {activity.outputTruncated && (
+            <p className={cx("muted")}>输出已截断。</p>
+          )}
+        </>
+      )}
+    </details>
+  );
+}
+
 export function ToolTimeline({
   events,
   agents,
@@ -78,11 +161,18 @@ export function ToolTimeline({
     const agent = agents.find((agent) => agent.id === id);
     return agent ? memberLabel(agent) : "成员";
   };
-  const endedRun =
-    mode === "history" || (runStatus ? terminal(runStatus) : false);
-  // The live window evicts old events; a start without a finish then cannot
-  // prove the tool is still running.
-  const windowEvicted = mode === "live" && events.length >= EVENT_WINDOW;
+  // One projection for both the live body and on-demand history: the pairing
+  // key is run + step + attempt + tool_call_id, so a retried native-1 never
+  // inherits an older attempt's finish.
+  const projected = projectToolActivity(events, { mode, runStatus });
+  const activityAtSeq = new Map<number, ToolActivity>();
+  const attachedFinishes = new Set<number>();
+  for (const group of projected)
+    for (const activity of group.activities) {
+      activityAtSeq.set(activity.seq, activity);
+      if (activity.finishSeq !== undefined && !activity.missingStart)
+        attachedFinishes.add(activity.finishSeq);
+    }
   // method_recorded is a run-level event without a step or member group.
   const runNotices = events.filter(
     (event) => !event.agent_id && methodEventLabel(event),
@@ -91,38 +181,6 @@ export function ToolTimeline({
     <div>
       {groups(events).map((group) => {
         const usage = usageSummary(group.events);
-        // Native tool ids restart at native-1 for every attempt, so a finish
-        // only pairs with a start from the same attempt segment.
-        const attemptAt = new Map<number, string>();
-        const endedAttempts = new Set<string>();
-        let attempt = "";
-        for (const event of group.events) {
-          if (event.type === "attempt_started")
-            attempt = String(data(event).id ?? "") || `seq:${event.seq}`;
-          attemptAt.set(event.seq, attempt);
-          if (event.type === "attempt_finished") {
-            if (attempt) endedAttempts.add(attempt);
-            attempt = "";
-          }
-        }
-        const openStarts = new Map<string, Event[]>();
-        const finishByStart = new Map<number, Event>();
-        for (const event of group.events) {
-          if (event.type !== "tool_started" && event.type !== "tool_finished")
-            continue;
-          const key = `${attemptAt.get(event.seq) ?? ""}\u0000${String(data(event).tool_call_id ?? "")}`;
-          if (event.type === "tool_started") {
-            const starts = openStarts.get(key) ?? [];
-            starts.push(event);
-            openStarts.set(key, starts);
-            continue;
-          }
-          const start = openStarts.get(key)?.shift();
-          if (start) finishByStart.set(start.seq, event);
-        }
-        const attachedFinishes = new Set(
-          [...finishByStart.values()].map((event) => event.seq),
-        );
         return (
           <section className={cx("tool-group")} key={group.key}>
             <div className={cx("tool-group-head")}>
@@ -188,91 +246,18 @@ export function ToolTimeline({
               }
               if (event.type === "tool_finished") {
                 if (attachedFinishes.has(event.seq)) return null;
-                const output = data(event);
-                const status =
-                  output.status === "ok"
-                    ? ["succeeded", "完成"]
-                    : ["failed", "失败"];
-                return (
-                  <details className={cx("tool-record")} key={event.seq}>
-                    <summary>
-                      <span>{toolLabel(String(output.name || "")) || "工具调用"}</span>
-                      <span className={cx(`status ${status[0]}`)}>
-                        {status[1]}
-                      </span>
-                      {typeof output.duration_ms === "number" && (
-                        <small>{output.duration_ms} ms</small>
-                      )}
-                    </summary>
-                    <p className={cx("muted")}>调用开始记录不在当前页。</p>
-                    {output.output !== undefined && (
-                      <>
-                        <h4>工具观察结果</h4>
-                        <pre className={cx("pre")}>{String(output.output)}</pre>
-                      </>
-                    )}
-                  </details>
-                );
+              } else if (event.type !== "tool_started") {
+                return null;
               }
-              if (event.type !== "tool_started") return null;
-              const input = data(event);
-              const end = finishByStart.get(event.seq);
-              const result = end ? data(end) : undefined;
-              const status = result
-                ? result.status === "ok"
-                  ? ["succeeded", "完成"]
-                  : ["failed", "失败"]
-                : ["running", "执行中"];
-              const missingFinish =
-                !result &&
-                (endedRun ||
-                  windowEvicted ||
-                  endedAttempts.has(attemptAt.get(event.seq) ?? ""));
-              return (
-                <details className={cx("tool-record")} key={event.seq}>
-                  <summary>
-                    <span>{toolLabel(String(input.name))}</span>
-                    {result ? (
-                      <span className={cx(`status ${status[0]}`)}>
-                        {status[1]}
-                      </span>
-                    ) : missingFinish ? (
-                      <>
-                        <span className={cx("muted")}>完成记录不在当前页</span>
-                        {onHistory && mode === "live" && (
-                          <button
-                            type="button"
-                            className={cx("ghost small")}
-                            aria-label="查看这次工具调用的历史记录"
-                            onClick={(click) => {
-                              click.preventDefault();
-                              click.stopPropagation();
-                              onHistory(Math.max(0, event.seq - 1));
-                            }}
-                          >
-                            查看历史
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <span className={cx("status running")}>执行中</span>
-                    )}
-                    {result && typeof result.duration_ms === "number" && (
-                      <small>{result.duration_ms} ms</small>
-                    )}
-                  </summary>
-                  <h4>调用参数</h4>
-                  <pre className={cx("pre")}>
-                    {JSON.stringify(input.input, null, 2)}
-                  </pre>
-                  {result && (
-                    <>
-                      <h4>工具观察结果</h4>
-                      <pre className={cx("pre")}>{String(result.output)}</pre>
-                    </>
-                  )}
-                </details>
-              );
+              const activity = activityAtSeq.get(event.seq);
+              return activity ? (
+                <ToolRecord
+                  key={event.seq}
+                  activity={activity}
+                  mode={mode}
+                  onHistory={onHistory}
+                />
+              ) : null;
             })}
           </section>
         );

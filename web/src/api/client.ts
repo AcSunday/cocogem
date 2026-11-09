@@ -12,15 +12,48 @@ export type RunInput = components["schemas"]["RunInput"];
 export type Step = components["schemas"]["Step"];
 export type Attempt = components["schemas"]["Attempt"];
 export type Source = components["schemas"]["Source"];
+export type SourceImport = components["schemas"]["SourceImport"];
 export type Artifact = components["schemas"]["Artifact"];
 export type Event = components["schemas"]["Event"];
 export type System = components["schemas"]["SystemInfo"];
+export type ModelOptions = components["schemas"]["ModelOptions"];
 export type Routing = components["schemas"]["Routing"];
 export type ThreadView = components["schemas"]["ThreadView"];
 export type RunView = components["schemas"]["RunView"];
 export type MessageContentPage = components["schemas"]["MessageContentPage"];
 export type EventPage = components["schemas"]["EventPage"];
 export type DirectoryListing = components["schemas"]["DirectoryListing"];
+export type ProjectOverview = components["schemas"]["Overview"];
+export type ProjectTaskView = components["schemas"]["TaskView"];
+export type TaskBoard = components["schemas"]["TaskBoard"];
+export type TaskDeletion = components["schemas"]["TaskDeletion"];
+export type ProjectRecord = components["schemas"]["ProjectRecord"];
+export type BudgetPolicy = components["schemas"]["BudgetPolicy"];
+export type BudgetAccount = components["schemas"]["BudgetAccount"];
+export type BudgetPolicyOverride =
+  components["schemas"]["BudgetPolicyOverride"];
+export type BootstrapInput = components["schemas"]["BootstrapInput"];
+export type BootstrapReply = components["schemas"]["BootstrapReply"];
+export type InboxItem = components["schemas"]["InboxItem"];
+export type ProjectTask = components["schemas"]["Task"];
+export type TaskRevision = components["schemas"]["TaskRevision"];
+export type Question = components["schemas"]["Question"];
+export type CompletionRecord = components["schemas"]["CompletionRecord"];
+export type CriterionResult = components["schemas"]["CriterionResult"];
+export type Grant = components["schemas"]["Grant"];
+export type Claim = components["schemas"]["Claim"];
+export type DatasetManifest = components["schemas"]["DatasetManifest"];
+export type CollaborationMessage =
+  components["schemas"]["CollaborationMessage"];
+export type Wakeup = components["schemas"]["Wakeup"];
+export type TaskDeliveries = components["schemas"]["TaskDeliveries"];
+export type ToolPermissionRequest =
+  components["schemas"]["ToolPermissionRequest"];
+export type PermissionRequestList =
+  components["schemas"]["PermissionRequestList"];
+export type ConversationGrant = components["schemas"]["ConversationGrant"];
+export type ConversationGrantList =
+  components["schemas"]["ConversationGrantList"];
 
 /** The browser keeps a bounded activity window; older history is paged on demand. */
 export const EVENT_WINDOW = 500;
@@ -73,8 +106,7 @@ const messageTerminalStatus = new Set([
   "failed",
 ]);
 
-const messageTerminal = (status: string) =>
-  messageTerminalStatus.has(status);
+const messageTerminal = (status: string) => messageTerminalStatus.has(status);
 
 const messageBytes = (message: Message) =>
   Math.max(
@@ -214,6 +246,57 @@ export class APIError extends Error {
 export function setCSRF(value: string) {
   csrf = value;
 }
+export async function uploadSource(
+  threadID: string,
+  file: File,
+): Promise<SourceImport> {
+  const form = new FormData();
+  form.append("file", file);
+  let response: Response;
+  try {
+    response = await fetch(
+      `/api/v1/threads/${encodeURIComponent(threadID)}/sources`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "X-CSRF-Token": csrf },
+        body: form,
+      },
+    );
+  } catch {
+    throw new APIError("无法连接本地服务；请确认服务正在运行。", 0);
+  }
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    throw new APIError("读取本地服务响应失败；请确认服务正在运行。", 0);
+  }
+  let result: { error?: { message?: string } } | undefined;
+  if (text.trim()) {
+    try {
+      result = JSON.parse(text) as { error?: { message?: string } };
+    } catch {
+      result = undefined;
+    }
+  }
+  if (!response.ok) {
+    if (response.status === 401)
+      window.dispatchEvent(new Event("cocogem:unauthorized"));
+    throw new APIError(
+      result?.error?.message ?? `资料上传失败（HTTP ${response.status}）`,
+      response.status,
+    );
+  }
+  if (result === undefined)
+    throw new APIError("本地服务返回了空响应；请确认服务正在运行。", 0);
+  return result as SourceImport;
+}
+
+/** True for a local-service conflict that the caller can resolve by re-reading. */
+export const isConflict = (error: unknown) =>
+  error instanceof APIError && error.status === 409;
+
 export async function api<T>(
   path: string,
   method = "GET",
@@ -364,5 +447,60 @@ export function eventHistory(
   if (after) query.set("after", after);
   return api<EventPage>(
     `/api/v1/runs/${encodeURIComponent(runID)}/event-history?${query}`,
+  );
+}
+
+/** Pending-first, bounded permission history for one conversation. */
+export async function threadPermissionRequests(
+  threadID: string,
+  limit = 100,
+): Promise<ToolPermissionRequest[]> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  const page = await api<PermissionRequestList>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/permission-requests?${query}`,
+  );
+  return page.items ?? [];
+}
+
+/**
+ * The three-way decision. The scope always comes from the original request; a
+ * retried identical submission returns the stored decision, so callers can pass
+ * the request id as the idempotency key.
+ */
+export async function decidePermissionRequest(
+  request: ToolPermissionRequest,
+  decision: "allow_once" | "allow_conversation" | "deny",
+): Promise<ToolPermissionRequest> {
+  return api<ToolPermissionRequest>(
+    `/api/v1/permission-requests/${encodeURIComponent(request.id)}/decisions`,
+    "POST",
+    { decision, request_id: request.request_id },
+    { "If-Match": String(request.revision) },
+  );
+}
+
+export async function threadPermissionGrants(
+  threadID: string,
+): Promise<ConversationGrant[]> {
+  const page = await api<ConversationGrantList>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/permission-grants`,
+  );
+  return page.items ?? [];
+}
+
+export async function revokePermissionGrant(
+  grantID: string,
+): Promise<ConversationGrant> {
+  return api<ConversationGrant>(
+    `/api/v1/permission-grants/${encodeURIComponent(grantID)}/revoke`,
+    "POST",
+    {},
+  );
+}
+
+/** Narrow delivery projection used by TaskDetail; never loads sources. */
+export function taskDeliveries(taskID: string): Promise<TaskDeliveries> {
+  return api<TaskDeliveries>(
+    `/api/v1/tasks/${encodeURIComponent(taskID)}/deliveries`,
   );
 }

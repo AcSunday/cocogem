@@ -118,6 +118,9 @@ func prepareGemini(request model.Request, workdir string, gate *bridge, launch *
 	}
 	// Nonempty --policy replaces the user policy directory; admin rules are authoritative.
 	policy := "[[rule]]\ntoolName = \"*\"\ndecision = \"deny\"\npriority = 998\n\n[[rule]]\ntoolName = \"*\"\nmcpName = \"" + serverName + "\"\ndecision = \"allow\"\npriority = 999\n"
+	if gate.trustedNative {
+		policy = "[[rule]]\ntoolName = \"*\"\ndecision = \"allow\"\npriority = 999\nallowRedirection = true\n"
+	}
 	if err := os.WriteFile(filepath.Join(policyDir, "cocogem.toml"), []byte(policy), 0600); err != nil {
 		return nil, nil, errors.New("write scoped Gemini policies")
 	}
@@ -154,6 +157,9 @@ func prepareGemini(request model.Request, workdir string, gate *bridge, launch *
 			settings["modelConfigs"] = map[string]any{"customOverrides": thinking}
 		}
 	}
+	if gate.trustedNative {
+		delete(settings, "tools")
+	}
 	encoded, err := json.Marshal(settings)
 	if err != nil {
 		return nil, nil, err
@@ -162,14 +168,28 @@ func prepareGemini(request model.Request, workdir string, gate *bridge, launch *
 		return nil, nil, errors.New("write scoped Gemini settings")
 	}
 	args := []string{"--output-format", "stream-json", "--approval-mode", "default", "--skip-trust", "--extensions", "none", "--allowed-mcp-server-names", serverName, "--policy", policyDir, "--admin-policy", policyDir, "--prompt", "Read the task on stdin; only use the supplied collaboration MCP tools and complete this step."}
+	if gate.trustedNative {
+		for i, value := range args {
+			if value == "default" {
+				args[i] = "yolo"
+			}
+		}
+		args[len(args)-1] = "Read the authorized task on stdin. Use native tools and Cocogem delivery/collaboration tools to complete it."
+	}
 	return args, map[string]string{"GEMINI_CLI_TRUST_WORKSPACE": "true", "GEMINI_SYSTEM_MD": "", "GEMINI_WRITE_SYSTEM_MD": ""}, nil
 }
 
 func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
+	scanner.Buffer(make([]byte, 4096), maxCLIFrameBytes)
 	initialized, finished := false, false
+	var reported error
 	sessionID := ""
+	// toolIDs maps the CLI's own tool_id to the one canonical identity approved
+	// by the host for that exact call. hostIDs records the ids of host MCP calls,
+	// whose results keep the original no-op behaviour.
+	toolIDs := map[string]string{}
+	hostIDs := map[string]bool{}
 	activity := newActivityTracker()
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
@@ -177,14 +197,19 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			continue
 		}
 		var event struct {
-			Type      string `json:"type"`
-			ID        string `json:"id"`
-			SessionID string `json:"session_id"`
-			Role      string `json:"role"`
-			Content   string `json:"content"`
-			Status    string `json:"status"`
-			ToolName  string `json:"tool_name"`
-			Error     struct {
+			Type       string          `json:"type"`
+			ID         string          `json:"id"`
+			Parameters json.RawMessage `json:"parameters"`
+			Output     json.RawMessage `json:"output"`
+			SessionID  string          `json:"session_id"`
+			Role       string          `json:"role"`
+			Content    string          `json:"content"`
+			ToolID     string          `json:"tool_id"`
+			Status     string          `json:"status"`
+			Severity   string          `json:"severity"`
+			Message    string          `json:"message"`
+			ToolName   string          `json:"tool_name"`
+			Error      struct {
 				Type    string `json:"type"`
 				Message string `json:"message"`
 			} `json:"error"`
@@ -234,9 +259,8 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 				return err
 			}
 		case "tool_use":
-			name := strings.TrimPrefix(event.ToolName, gate.nativePrefix)
-			if !initialized || gate.nativePrefix == "" || !strings.HasPrefix(event.ToolName, gate.nativePrefix) || gate.schemas[name] == nil {
-				return newFailure(FailureProtocol, "native CLI requested an unapproved native tool: %s", safeToken(event.ToolName))
+			if !initialized {
+				return newFailure(FailureProtocol, "native CLI requested a tool before session initialization")
 			}
 			item := event.ID
 			if item == "" {
@@ -245,15 +269,99 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			if activity.newTool(item, "") {
 				live.valid("tool_call")
 			}
+			// Host MCP tools are validated against this step's declared
+			// inventory and produce no native lifecycle here; the bridge emits
+			// their tool_started/tool_finished from the host call itself.
+			if strings.HasPrefix(event.ToolName, gate.nativePrefix) {
+				name := strings.TrimPrefix(event.ToolName, gate.nativePrefix)
+				if gate.schemas[name] == nil {
+					return newFailure(FailureProtocol, "native CLI requested an unapproved host tool: %s", safeToken(event.ToolName))
+				}
+				// tool_result carries no tool_name, so the classification made
+				// here is remembered by id for the result that follows.
+				if event.ToolID != "" {
+					hostIDs[event.ToolID] = true
+				}
+				if event.ID != "" {
+					hostIDs[event.ID] = true
+				}
+				break
+			}
+			// Outside the gated adapter a CLI-native tool outside the MCP server
+			// is still a protocol violation (the controlled policy denies it).
+			if gateAliasesFor(gate) == nil && !gate.trustedNative {
+				return newFailure(FailureProtocol, "native CLI requested an unapproved native tool: %s", safeToken(event.ToolName))
+			}
+			// The hook payload carries no tool-call id, so both the approval and
+			// these events use one derived identity built from what the CLI
+			// exposes on both channels: session, tool name and the ORIGINAL
+			// input. The rewritten input (sandbox prefix, staged path) is never
+			// part of the identity, so the hook and the stream agree.
+			id := geminiDerivedCallID(event.ToolName, event.Parameters, sessionID)
+			if toolIDs != nil {
+				// Bind the CLI's own tool_id to this canonical identity so the
+				// matching tool_result (which carries no parameters) resolves to
+				// the same approved call.
+				if event.ToolID != "" {
+					toolIDs[event.ToolID] = id
+				}
+				if event.ID != "" {
+					toolIDs[event.ID] = id
+				}
+				toolIDs[id] = id
+			}
+			if err := gate.emit("tool_started", map[string]any{
+				"tool_call_id": id, "name": safeToken(event.ToolName),
+				"input": event.Parameters, "origin": "native", "status": "started",
+			}); err != nil {
+				return err
+			}
 		case "tool_result":
 			if !initialized {
 				return newFailure(FailureProtocol, "native CLI returned a tool result before initialization")
+			}
+			status := "succeeded"
+			if event.Status != "" && event.Status != "success" {
+				status = "failed"
+			}
+			resultID := firstNonEmpty(event.ToolID, event.ID)
+			// A host MCP result keeps the original no-op behaviour: the bridge
+			// already emitted its own tool events for that call.
+			if hostIDs[resultID] || strings.HasPrefix(event.ToolName, gate.nativePrefix) {
+				break
+			}
+			// Outside the gated adapter a native result is not part of the
+			// declared tool inventory and needs no native lifecycle.
+			if gateAliasesFor(gate) == nil && !gate.trustedNative {
+				break
+			}
+			// A native result carries no parameters, so it resolves through the
+			// identity bound at tool_use. An unbound result is a protocol error:
+			// guessing an id would split the approval from the effect.
+			id := toolIDs[resultID]
+			if id == "" {
+				return newFailure(FailureProtocol, "native CLI returned a tool result without its tool-call identity")
+			}
+			if err := gate.emit("tool_finished", map[string]any{
+				"tool_call_id": id, "name": safeToken(event.ToolName),
+				"status": status, "origin": "native", "output": geminiToolOutput(event.Output, event.Content),
+			}); err != nil {
+				return err
 			}
 		case "result":
 			if err := gate.recordUsage(event.Stats); err != nil {
 				return err
 			}
+			if reported != nil {
+				return reported
+			}
 			if !initialized || event.Status != "success" {
+				if event.Error.Type == "" && event.Error.Message == "" {
+					return confirmedFailure(FailureProtocol, "Gemini reported an unsuccessful result without diagnostic details; this step did not complete")
+				}
+				if failure := geminiSSEFailure(event.Error.Message); failure != nil {
+					return failure
+				}
 				return classifiedNativeFailure(event.Error.Type, "result_error", event.Error.Message)
 			}
 			if err := gate.requireTools(); err != nil {
@@ -264,7 +372,23 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			if err := gate.recordUsage(event.Stats); err != nil {
 				return err
 			}
-			return classifiedNativeFailure(event.Error.Type, "reported_error", event.Error.Message)
+			if event.Severity == "warning" {
+				if err := gate.notice("gemini_warning", "Gemini reported a non-terminal warning; awaiting its final result"); err != nil {
+					return err
+				}
+				continue
+			}
+			detail := event.Error.Message
+			if detail == "" {
+				detail = event.Message
+			}
+			if failure := geminiSSEFailure(detail); failure != nil {
+				reported = failure
+			} else if strings.HasPrefix(detail, "The model returned an empty response") || strings.HasPrefix(detail, "The model returned reasoning thoughts but no final response text") || strings.HasPrefix(detail, "Model response was truncated because it exceeded the token limit") || strings.HasPrefix(detail, "Invalid stream:") {
+				reported = confirmedFailure(FailureProtocol, "Gemini returned an empty, truncated or malformed response; this step did not complete")
+			} else {
+				reported = classifiedNativeFailure(event.Error.Type, "reported_error", detail)
+			}
 		default:
 			if strings.Contains(strings.ToLower(event.Type), "tool") || suspiciousToolAction(line) {
 				return newFailure(FailureProtocol, "native CLI emitted an unknown tool action")
@@ -277,12 +401,58 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 	}
 	if err := scanner.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			return newFailure(FailureProtocol, "native CLI output frame exceeds the 4 MiB frame limit")
+			return newFailure(FailureProtocol, "native CLI output frame exceeds the 16 MiB frame limit")
 		}
 		return newFailure(FailureProtocol, "native CLI output could not be read")
 	}
 	if !finished {
+		if reported != nil {
+			return reported
+		}
 		return newFailure(FailureProtocol, "native CLI ended without a confirmed terminal result")
 	}
 	return nil
+}
+
+// The compatibility shim emits only these fixed markers, never provider text.
+func geminiSSEFailure(detail string) error {
+	switch {
+	case strings.Contains(detail, "COCOGEM_GEMINI_SSE_ERROR_TRANSIENT"):
+		return confirmedFailure(FailureProviderTransient, "Gemini provider returned a temporary server error; this step did not complete")
+	case strings.Contains(detail, "COCOGEM_GEMINI_SSE_ERROR_QUOTA"):
+		return confirmedFailure(FailureQuota, "Gemini provider reported a quota or rate limit; this step did not complete")
+	case strings.Contains(detail, "COCOGEM_GEMINI_SSE_ERROR_AUTHENTICATION"):
+		return confirmedFailure(FailureAuthentication, "Gemini provider rejected the existing authentication; this step did not complete")
+	case strings.Contains(detail, "COCOGEM_GEMINI_SSE_ERROR_PERMISSION"):
+		return confirmedFailure(FailurePermission, "Gemini provider denied this request; this step did not complete")
+	case strings.Contains(detail, "COCOGEM_GEMINI_SSE_ERROR_UNKNOWN"):
+		return confirmedFailure(FailureUnknown, "Gemini provider returned an unclassified stream error; this step did not complete")
+	case strings.Contains(strings.ToLower(detail), "incomplete json segment at the end"):
+		return confirmedFailure(FailureProtocol, "Gemini model stream ended with an incomplete event; this step did not complete")
+	default:
+		return nil
+	}
+}
+
+// firstNonEmpty returns the first non-empty value.
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// geminiToolOutput keeps the CLI's own tool output text for the event; it never
+// invents success when the frame carries none.
+func geminiToolOutput(raw json.RawMessage, content string) string {
+	if len(raw) == 0 {
+		return content
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	return string(raw)
 }

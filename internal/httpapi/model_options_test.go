@@ -3,10 +3,16 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/testutil"
 	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
@@ -39,7 +45,7 @@ func TestMemberExecutionOptionsCRUD(t *testing.T) {
 	if agent.ContextSize != 2500 || agent.ThinkingLevel != "ultra" {
 		t.Fatalf("execution options were not persisted: %+v", agent)
 	}
-	create(w.Agent{DisplayName: "low", Handle: "low", Executor: "claude", Model: "default", ContextSize: w.MinContextSize - 1, Tools: []string{}}, 400)
+	create(w.Agent{DisplayName: "low", Handle: "low", Executor: "claude", Model: "default", ContextSize: w.MinContextTokens - 1, Tools: []string{}}, 400)
 	create(w.Agent{DisplayName: "bad", Handle: "bad", Executor: "claude", Model: "default", ThinkingLevel: "ultra", Tools: []string{}}, 400)
 	create(w.Agent{DisplayName: "gemini", Handle: "gemini", Executor: "gemini", Model: "default", ThinkingLevel: "high", Tools: []string{}}, 400)
 	create(w.Agent{DisplayName: "pi", Handle: "pi-agent", Executor: "pi", Model: "default", ThinkingLevel: "high", Tools: []string{}}, 200)
@@ -116,5 +122,54 @@ func TestVerifyForwardsExecutionOptionsAndKeysVerification(t *testing.T) {
 	verify(VerifyInput{Executor: "claude", Model: "default", ContextSize: 512}, 400)
 	if len(capture.requests) != calls {
 		t.Fatal("invalid execution options still reached the provider")
+	}
+}
+
+type modelOptionsFixture struct {
+	testutil.Model
+	calls int
+}
+
+func (m *modelOptionsFixture) ModelOptions(_ context.Context, executor, selected string) (agent.ModelOptions, error) {
+	m.calls++
+	return agent.ModelOptions{ResolvedModel: "fixture/model", ThinkingLevels: []string{"low", "high", "custom"}}, nil
+}
+func TestModelOptionsAreAuthenticatedAndReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	fixture := &modelOptionsFixture{}
+	app, err := New(Config{Host: "local.test", AuthFile: filepath.Join(dir, "auth.json"), WebDir: dir, Model: fixture}, db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/system/model-options?executor=opencode&model=fixture%2Fmodel"
+	if rw := apiCall(app, "GET", path, nil, nil, "", nil); rw.Code != 401 || fixture.calls != 0 {
+		t.Fatal("model catalog leaked before local authentication")
+	}
+	setup := apiCall(app, "POST", "/auth/setup", PasswordInput{Password: "local-options-password"}, nil, "", nil)
+	cookie := setup.Result().Cookies()[0]
+	rw := apiCall(app, "GET", path, nil, cookie, "", nil)
+	if rw.Code != http.StatusOK || fixture.calls != 1 {
+		t.Fatalf("status=%d calls=%d body=%s", rw.Code, fixture.calls, rw.Body)
+	}
+	validateResponse(t, "/api/v1/system/model-options", "get", 200, rw.Body.Bytes())
+	var options ModelOptions
+	if json.Unmarshal(rw.Body.Bytes(), &options) != nil || options.ResolvedModel != "fixture/model" || len(options.ThinkingLevels) != 3 {
+		t.Fatal("model capabilities lost")
+	}
+	for _, path := range []string{"/api/v1/system/model-options?executor=other", "/api/v1/system/model-options?executor=opencode&model=-bad"} {
+		if rw := apiCall(app, "GET", path, nil, cookie, "", nil); rw.Code != 400 {
+			t.Fatalf("bad catalog request accepted: %s", rw.Body)
+		}
+	}
+	if fixture.calls != 1 {
+		t.Fatal("invalid requests reached the CLI")
 	}
 }

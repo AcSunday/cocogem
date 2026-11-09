@@ -65,6 +65,29 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 	for _, id := range historyIDs {
 		selectedHistory[id] = true
 	}
+	retryAncestors := map[string]bool{}
+	if run.RetryOfStepID != "" {
+		for id := run.Input.RetryOfRunID; id != "" && !retryAncestors[id]; {
+			prior, err := tx.Run(id)
+			if err != nil || prior.ThreadID != run.ThreadID {
+				return nil, errors.New("member retry history is unavailable")
+			}
+			retryAncestors[id] = true
+			id = prior.Input.RetryOfRunID
+		}
+		family, err := tx.Runs(run.ThreadID)
+		if err != nil {
+			return nil, err
+		}
+		for changed := true; changed; {
+			changed = false
+			for _, related := range family {
+				if related.ID != run.ID && !retryAncestors[related.ID] && retryAncestors[related.Input.RetryOfRunID] {
+					retryAncestors[related.ID], changed = true, true
+				}
+			}
+		}
+	}
 	explicitMessage := map[string]bool{}
 	explicitArtifact := map[string]map[int]bool{}
 	for _, ref := range step.ContextRefs {
@@ -98,7 +121,10 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		if message.ThreadID != run.ThreadID || message.Status != "completed" || message.StepID == step.ID {
 			continue
 		}
-		allowed := message.StepID != planningRoot && (dependencies[message.StepID] || explicitMessage[message.ID] || selectedHistory[message.ID])
+		allowed := message.StepID != planningRoot && message.StepID != run.TaskPromotionStepID && (dependencies[message.StepID] || explicitMessage[message.ID] || selectedHistory[message.ID])
+		if retryAncestors[message.RunID] && !explicitMessage[message.ID] {
+			allowed = false
+		}
 		if !allowed {
 			continue
 		}
@@ -328,6 +354,10 @@ func messageDigest(tx *store.Tx, id string) (string, int, string, error) {
 // readContext implements the workflow-owned bounded retrieval tool. Every
 // call revalidates membership and the workspace root before reading.
 func (e *Engine) readContext(ctx context.Context, run w.Run, step w.Step, scope *readScope, raw json.RawMessage) (string, error) {
+	return e.readContextForAttempt(ctx, run, step, scope, raw, "")
+}
+
+func (e *Engine) readContextForAttempt(ctx context.Context, run w.Run, step w.Step, scope *readScope, raw json.RawMessage, attemptID string) (string, error) {
 	var in struct {
 		Kind     string `json:"kind"`
 		ID       string `json:"id"`
@@ -436,6 +466,9 @@ func (e *Engine) readContext(ctx context.Context, run w.Run, step w.Step, scope 
 		if message.ThreadID != run.ThreadID || message.Status != "completed" {
 			return "", errors.New("message is no longer committed in this conversation")
 		}
+		if err := e.recordAttemptExposure(ctx, attemptID, "message:"+message.ID+":"+entry.digest); err != nil {
+			return "", err
+		}
 		result := map[string]any{"kind": "message", "id": message.ID, "content": content, "offset": absolute, "total_bytes": total, "has_more": hasMore, "next_cursor": nextCursor, "committed": true, "content_format": message.Format(), "agent_id": message.AgentID, "step_id": message.StepID}
 		return encodeWire(result)
 	case "artifact":
@@ -482,10 +515,16 @@ func (e *Engine) readContext(ctx context.Context, run w.Run, step w.Step, scope 
 			if err != nil {
 				return "", err
 			}
+			if err := e.recordAttemptExposure(ctx, attemptID, fmt.Sprintf("artifact:%s@%d:%s", artifact.ID, artifact.Version, digest)); err != nil {
+				return "", err
+			}
 			return encodeWire(map[string]any{"kind": "artifact", "id": artifact.ID, "version": artifact.Version, "field": "artifact_json", "content_format": "json", "content": page.Content, "offset": page.Offset, "total_bytes": page.TotalBytes, "has_more": page.HasMore, "next_cursor": page.NextCursor, "committed": true, "content_sha256": digest})
 		}
 		page, err := w.PageText(w.TextRef{Kind: "artifact", ID: artifact.ID, Version: artifact.Version}, artifact.Body, in.Cursor, maxBytes)
 		if err != nil {
+			return "", err
+		}
+		if err := e.recordAttemptExposure(ctx, attemptID, fmt.Sprintf("artifact:%s@%d:%s", artifact.ID, artifact.Version, digest)); err != nil {
 			return "", err
 		}
 		result := map[string]any{"kind": "artifact", "id": artifact.ID, "version": artifact.Version, "field": "body", "type": artifact.Type, "title": artifact.Title, "content": page.Content, "offset": page.Offset, "total_bytes": page.TotalBytes, "has_more": page.HasMore, "next_cursor": page.NextCursor, "committed": true, "content_sha256": digest, "source_ids": artifact.SourceIDs, "limitations": artifact.Limitations, "findings": artifact.Findings}
@@ -562,7 +601,9 @@ type sourceListCursor struct {
 // CLI-processed observation, not raw page text; native search is only a lead.
 func evidenceStrength(kind string) string {
 	switch kind {
-	case "file", "web", "native_file", "diff", "test":
+	case "file", "web", "html", "native_file", "diff", "test",
+		"csv", "tsv", "pdf", "docx", "xlsx", "pptx",
+		"doc", "rtf", "odt", "wordml", "webarchive":
 		return "original"
 	case "native_web":
 		return "observation"
@@ -601,7 +642,18 @@ func (e *Engine) listSources(ctx context.Context, run w.Run, sources []w.Source,
 	visible := make([]w.Source, 0, len(sources))
 	for _, source := range sources {
 		if source.ThreadID != "" && source.ThreadID != run.ThreadID {
-			continue
+			if e.Store == nil {
+				continue
+			}
+			visibleSource := false
+			err := e.Store.Read(ctx, func(tx *store.Tx) error {
+				var err error
+				visibleSource, err = sourceVisibleToRun(tx, run, source)
+				return err
+			})
+			if err != nil || !visibleSource {
+				continue
+			}
 		}
 		visible = append(visible, source)
 	}
@@ -699,6 +751,10 @@ func (e *Engine) listSources(ctx context.Context, run w.Run, sources []w.Source,
 // readSource pages the exact captured version, never the current file or web
 // page, and keeps capture metadata next to a legal JSON payload.
 func (e *Engine) readSource(ctx context.Context, run w.Run, sources []w.Source, raw json.RawMessage) (string, error) {
+	return e.readSourceForAttempt(ctx, run, sources, raw, "")
+}
+
+func (e *Engine) readSourceForAttempt(ctx context.Context, run w.Run, sources []w.Source, raw json.RawMessage, attemptID string) (string, error) {
 	var in struct {
 		SourceID string `json:"source_id"`
 		Cursor   string `json:"cursor"`
@@ -724,21 +780,33 @@ func (e *Engine) readSource(ctx context.Context, run w.Run, sources []w.Source, 
 		return "", fmt.Errorf("read_source max_bytes must be between 1 and %d", w.MaxTextPageBytes)
 	}
 	var source w.Source
+	visible := false
 	if err := e.Store.Read(ctx, func(tx *store.Tx) error {
 		var err error
 		source, err = tx.Source(in.SourceID)
+		if err != nil {
+			return err
+		}
+		visible, err = sourceVisibleToRun(tx, run, source)
 		return err
 	}); err != nil {
 		return "", err
 	}
-	if source.ThreadID != run.ThreadID {
-		return "", errors.New("captured source belongs to another conversation")
+	if !visible {
+		return "", errors.New("captured source belongs to another conversation or task chain")
 	}
-	page, err := w.PageText(w.TextRef{Kind: "source", ID: source.ID}, source.Content, in.Cursor, maxBytes)
+	page, err := e.readSourcePage(ctx, run, source, in.Cursor, maxBytes)
 	if err != nil {
 		return "", err
 	}
-	result := map[string]any{"id": source.ID, "source_id": source.ID, "kind": source.Kind, "title": source.Title, "url": source.URL, "path": source.Path, "start_line": source.StartLine, "end_line": source.EndLine, "sha256": source.SHA256, "captured_at": source.CapturedAt, "source_truncated": source.Truncated, "content": page.Content, "offset": page.Offset, "total_bytes": page.TotalBytes, "preview_truncated": page.HasMore, "has_more": page.HasMore, "next_cursor": page.NextCursor}
+	digest := source.ContentDigest
+	if digest == "" {
+		digest = contentDigest(source.Content)
+	}
+	if err := e.recordAttemptExposure(ctx, attemptID, "source_id:"+source.ID+":"+digest); err != nil {
+		return "", err
+	}
+	result := map[string]any{"id": source.ID, "source_id": source.ID, "kind": source.Kind, "title": source.Title, "url": source.URL, "path": source.Path, "start_line": source.StartLine, "end_line": source.EndLine, "sha256": source.SHA256, "captured_at": source.CapturedAt, "source_truncated": source.Truncated, "content": page.Content, "offset": page.Offset, "total_bytes": page.TotalBytes, "preview_truncated": page.HasMore, "has_more": page.HasMore, "next_cursor": page.NextCursor, "media_type": source.MediaType, "parse_status": source.ParseStatus, "parse_error": source.ParseError, "parse_quality": source.ParseQuality, "parser_version": source.ParserVersion, "source_locator": source.SourceLocator}
 	return encodeWire(result)
 }
 
@@ -747,40 +815,50 @@ func (e *Engine) readSource(ctx context.Context, run w.Run, sources []w.Source, 
 // Attempt/session/time/cursor/timeout policy never enter it.
 func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, connection agent.ConnectionInfo, adapter agent.AdapterInfo, scope *readScope, toolNames []string, sources []w.Source) (string, error) {
 	type plan struct {
-		AgentID           string   `json:"agent_id"`
-		AgentName         string   `json:"agent_name"`
-		Handle            string   `json:"handle"`
-		Role              string   `json:"role"`
-		RoleProfile       string   `json:"role_profile"`
-		Capabilities      []string `json:"capabilities"`
-		Instruction       string   `json:"instruction"`
-		OriginalTask      string   `json:"original_task"`
-		Workflow          string   `json:"workflow"`
-		EngineeringAction string   `json:"engineering_action,omitempty"`
-		ResearchScope     string   `json:"research_scope"`
-		SourceURLs        []string `json:"source_urls"`
-		Executor          string   `json:"executor"`
-		Model             string   `json:"model"`
-		ContextSize       int      `json:"context_size,omitempty"`
-		ThinkingLevel     string   `json:"thinking_level,omitempty"`
-		ResolvedModel     string   `json:"resolved_model"`
-		Connection        string   `json:"connection"`
-		CLIIdentity       string   `json:"cli_identity"`
-		CLIProgram        string   `json:"cli_program"`
-		Adapter           string   `json:"adapter"`
-		Tools             []string `json:"tools"`
-		NativeTools       []string `json:"native_tools"`
-		Skills            []string `json:"skills"`
-		Roster            []string `json:"roster"`
-		System            string   `json:"system_identity"`
-		Refs              []string `json:"refs"`
+		AgentID             string   `json:"agent_id"`
+		AgentName           string   `json:"agent_name"`
+		Handle              string   `json:"handle"`
+		Role                string   `json:"role"`
+		RoleProfile         string   `json:"role_profile"`
+		Capabilities        []string `json:"capabilities"`
+		Instruction         string   `json:"instruction"`
+		OriginalTask        string   `json:"original_task"`
+		Workflow            string   `json:"workflow"`
+		EngineeringReadOnly bool     `json:"engineering_read_only,omitempty"`
+		ResearchScope       string   `json:"research_scope"`
+		SourceURLs          []string `json:"source_urls"`
+		Executor            string   `json:"executor"`
+		Model               string   `json:"model"`
+		ContextSize         int      `json:"context_size,omitempty"`
+		ThinkingLevel       string   `json:"thinking_level,omitempty"`
+		ResolvedModel       string   `json:"resolved_model"`
+		Connection          string   `json:"connection"`
+		CLIIdentity         string   `json:"cli_identity"`
+		CLIProgram          string   `json:"cli_program"`
+		Adapter             string   `json:"adapter"`
+		Tools               []string `json:"tools"`
+		NativeTools         []string `json:"native_tools"`
+		Skills              []string `json:"skills"`
+		Roster              []string `json:"roster"`
+		System              string   `json:"system_identity"`
+		Refs                []string `json:"refs"`
 	}
 	member := w.Agent{ID: step.AgentID}
 	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
 		member = run.Agents[index]
 	}
 	in := effectiveInput(run)
-	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, EngineeringAction: in.EngineeringAction, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
+	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, EngineeringReadOnly: in.EngineeringReadOnly, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
+	if run.ContextRef != "" {
+		manifest, err := tx.ContextManifest(run.ContextRef)
+		if err != nil {
+			return "", err
+		}
+		if manifest.TaskID != run.TaskID || manifest.TaskRevision != run.TaskRevision {
+			return "", w.ErrConflict
+		}
+		value.Refs = append(value.Refs, "task:"+run.TaskID+":"+fmt.Sprint(run.TaskRevision)+":"+run.InputDigest, "context:"+manifest.ID+":"+manifest.ScopeDigest+":"+manifest.RenderedDigest)
+	}
 	for _, id := range enabledSkills(run) {
 		value.Skills = append(value.Skills, id+"@"+run.SkillVersions[id])
 	}
@@ -791,11 +869,9 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 		enabled := err == nil && !current.Disabled
 		effective := []string{}
 		if enabled {
-			for _, name := range a.Tools {
-				if slices.Contains(current.Tools, name) {
-					effective = append(effective, name)
-				}
-			}
+			// The roster advertises the runtime standard catalog; the legacy
+			// member array is history and never narrows a new execution.
+			effective = w.StandardToolCatalog()
 		}
 		slices.Sort(effective)
 		value.Roster = append(value.Roster, fmt.Sprintf("%s:%s:%s:%t:%s", a.ID, a.Executor, a.Model, enabled, strings.Join(effective, ",")))
@@ -831,16 +907,21 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 // persisted inputs and verified runtime identity. Timeouts, attempts, session
 // IDs and clocks are deliberately absent.
 func (e *Engine) planDigestFor(tx *store.Tx, run w.Run, step w.Step, adapter agent.AdapterInfo, connection agent.ConnectionInfo, sourceIDs []string) (string, error) {
-	previews, err := tx.MessagePreviews(run.ThreadID, 6000)
+	member := w.Agent{ID: step.AgentID}
+	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
+		member = run.Agents[index]
+	}
+	previews, err := tx.MessagePreviews(run.ThreadID, e.historyPreviewBytes(run))
 	if err != nil {
 		return "", err
 	}
-	selected := recentHistory(previews, run.ID, 12, 16000)
+	limits := e.historyLimitsFor(member)
+	selected := recentHistory(previews, run.ID, limits.Messages, limits.Tokens)
 	historyIDs := make([]string, 0, len(selected))
 	for _, message := range selected {
 		historyIDs = append(historyIDs, message.ID)
 	}
-	sources, err := sourcesByIDs(tx, run.ThreadID, sourceIDs)
+	sources, err := sourcesByIDs(tx, run, sourceIDs)
 	if err != nil {
 		return "", err
 	}
@@ -848,20 +929,118 @@ func (e *Engine) planDigestFor(tx *store.Tx, run w.Run, step w.Step, adapter age
 	if err != nil {
 		return "", err
 	}
-	member := w.Agent{ID: step.AgentID}
-	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
-		member = run.Agents[index]
-	}
 	return inputPlanDigest(tx, step, run, member.Model, connection, adapter, scope, e.allowedTools(run, member, step), sources)
+}
+
+func sourceVisibleToRun(tx *store.Tx, run w.Run, source w.Source) (bool, error) {
+	if source.ThreadID == run.ThreadID {
+		return true, nil
+	}
+	if run.TaskID == "" || source.WorkspaceID != run.WorkspaceID {
+		return false, nil
+	}
+	task, err := tx.Task(run.TaskID)
+	if err != nil {
+		return false, err
+	}
+	if task.CollaborationScopeID == "" {
+		return false, nil
+	}
+	sourceRun, err := tx.Run(source.RunID)
+	if err != nil {
+		return false, err
+	}
+	if sourceRun.WorkspaceID != run.WorkspaceID || sourceRun.TaskID == "" {
+		return false, nil
+	}
+	sourceTask, err := tx.Task(sourceRun.TaskID)
+	if err != nil {
+		return false, err
+	}
+	if task.Kind == "consultation" && run.ContextRef != "" {
+		manifest, err := tx.ContextManifest(run.ContextRef)
+		if err != nil {
+			return false, err
+		}
+		for _, item := range manifest.Items {
+			if item.Kind != "source" || item.Ref != source.ID {
+				continue
+			}
+			requester, err := tx.Task(task.ParentID)
+			if err != nil {
+				return false, err
+			}
+			switch item.Visibility {
+			case "project", "project-visible":
+				return true, nil
+			case "role":
+				return requester.OwnerMemberID != "" && requester.OwnerMemberID == task.OwnerMemberID && task.OwnerMemberID == sourceTask.OwnerMemberID, nil
+			default:
+				return false, nil
+			}
+		}
+	}
+	if sourceTask.WorkspaceID != run.WorkspaceID || sourceTask.CollaborationScopeID != task.CollaborationScopeID || sourceTask.ThreadID != source.ThreadID {
+		return false, nil
+	}
+	if sourceRun.TaskID == run.TaskID {
+		return true, nil
+	}
+	thread, err := tx.ThreadAny(source.ThreadID)
+	if err != nil {
+		return false, err
+	}
+	return thread.Internal, nil
+}
+
+func taskChainSources(tx *store.Tx, run w.Run) ([]w.Source, error) {
+	sources, err := tx.SourceMetadata(run.ThreadID)
+	if err != nil || run.TaskID == "" {
+		return sources, err
+	}
+	task, err := tx.Task(run.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := tx.Tasks(run.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	for _, related := range tasks {
+		if related.ThreadID == run.ThreadID || related.CollaborationScopeID == "" || related.CollaborationScopeID != task.CollaborationScopeID {
+			continue
+		}
+		thread, err := tx.ThreadAny(related.ThreadID)
+		if err != nil {
+			return nil, err
+		}
+		if related.ID != task.ID && !thread.Internal {
+			continue
+		}
+		relatedSources, err := tx.SourceMetadata(related.ThreadID)
+		if err != nil {
+			return nil, err
+		}
+		for _, source := range relatedSources {
+			visible, err := sourceVisibleToRun(tx, run, source)
+			if err != nil {
+				return nil, err
+			}
+			if visible {
+				sources = append(sources, source)
+			}
+		}
+	}
+	return sources, nil
 }
 
 // sourcesByIDs reconstructs exactly the capture metadata an attempt was
 // dispatched with. Missing IDs fail closed rather than shrinking the plan.
-func sourcesByIDs(tx *store.Tx, threadID string, ids []string) ([]w.Source, error) {
+func sourcesByIDs(tx *store.Tx, run w.Run, ids []string) ([]w.Source, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	available, err := tx.SourceMetadata(threadID)
+	available, err := taskChainSources(tx, run)
 	if err != nil {
 		return nil, err
 	}

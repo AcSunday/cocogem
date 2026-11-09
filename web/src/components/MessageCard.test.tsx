@@ -1,5 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { MessageCard, rememberCursor } from "./MessageCard";
 import type { Message, MessageContentPage } from "../api/client";
@@ -384,4 +383,24 @@ it("renders known @ mentions with the real profile and leaves unknown text alone
   expect(mention).toHaveTextContent("@ragdoll");
   expect(screen.getByText(/@nobody/)).toBeVisible();
   expect(container.querySelectorAll('span[tabindex="0"]')).toHaveLength(1);
+});
+
+it("shows a member step's tool activity above its reply but never on the user message", () => {
+  const activity = <div data-testid="activity">读取 1 个文件</div>;
+  const { rerender } = render(
+    <MessageCard message={message()} activity={activity} />,
+  );
+  const slot = screen.getByTestId("activity");
+  expect(slot).toBeVisible();
+  // The activity sits before the reply body, inside the member message.
+  expect(slot.nextElementSibling).toHaveTextContent("消息预览");
+
+  rerender(
+    <MessageCard
+      message={message({ role: "user", agent_name: "你" })}
+      activity={activity}
+    />,
+  );
+  expect(screen.queryByTestId("activity")).not.toBeInTheDocument();
+  expect(screen.getByText("消息预览")).toBeVisible();
 });

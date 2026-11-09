@@ -35,17 +35,6 @@ const attempt = (extra: Partial<Attempt>): Attempt => ({
   ...extra,
 });
 
-const toolEvent = (seq: number, type: string, data: unknown): Event => ({
-  schema_version: 1,
-  run_id: "run",
-  seq,
-  type,
-  step_id: "step",
-  agent_id: "agent",
-  occurred_at: "",
-  data,
-});
-
 it("shows the process while running and keeps a manual collapse after success", async () => {
   const step = {
     id: "step",
@@ -59,7 +48,6 @@ it("shows the process while running and keeps a manual collapse after success", 
     latest: true,
     busy: false,
     onSnapshot: () => {},
-    onRetry: () => {},
     onResume: () => {},
   };
   const { rerender } = render(
@@ -102,7 +90,6 @@ it("folds a delivered success once and lets the reader expand it again", async (
     latest: true,
     busy: false,
     onSnapshot: () => {},
-    onRetry: () => {},
     onResume: () => {},
   };
   const { rerender } = render(
@@ -143,7 +130,6 @@ it("shows a selected workflow and its reason instead of the free label", () => {
       latest
       busy={false}
       onSnapshot={() => {}}
-      onRetry={() => {}}
       onResume={() => {}}
     />,
   );
@@ -152,196 +138,20 @@ it("shows a selected workflow and its reason instead of the free label", () => {
   expect(screen.queryByText("自由协作")).not.toBeInTheDocument();
 });
 
-it("shows the latest tool activity and its error while a run is active", () => {
-  const events = [
-    toolEvent(1, "tool_started", {
-      tool_call_id: "native-1",
-      name: "web_search",
-      input: { query: "DeBank" },
-    }),
-    toolEvent(2, "tool_finished", {
-      tool_call_id: "native-1",
-      name: "web_search",
-      status: "ok",
-      output: "{}",
-      duration_ms: 650,
-    }),
-    toolEvent(3, "tool_started", {
-      tool_call_id: "native-2",
-      name: "fetch_url",
-      input: { url: "https://debank.com/" },
-    }),
-    toolEvent(4, "tool_finished", {
-      tool_call_id: "native-2",
-      name: "fetch_url",
-      status: "error",
-      output:
-        "Tool error: source returned no readable text (the page may require JavaScript or block automated access); try a different URL",
-      duration_ms: 120,
-    }),
-  ];
-  const props = {
-    index: 1,
-    events,
-    latest: true,
-    busy: false,
-    onSnapshot: () => {},
-    onRetry: () => {},
-    onResume: () => {},
-  };
-  const { rerender } = render(
-    <RunDivider run={{ ...run, status: "running" }} {...props} />,
+it("leaves per-member tool activity to the reply instead of one global latest line", () => {
+  render(
+    <RunDivider
+      run={{ ...run, status: "running" }}
+      index={1}
+      steps={[{ id: "step", agent_name: "研究成员", status: "running" } as Step]}
+      latest
+      busy={false}
+      onSnapshot={() => {}}
+      onResume={() => {}}
+    />,
   );
-  expect(
-    screen.getByText(
-      /最近工具：读取网页（https:\/\/debank.com\/） · 失败 · Tool error: source returned no readable text/,
-    ),
-  ).toBeVisible();
-  rerender(<RunDivider run={{ ...run, status: "canceled" }} {...props} />);
   expect(screen.queryByTestId("latest-tool")).not.toBeInTheDocument();
-});
-
-it("pairs a reused native call id with the start from the same step", () => {
-  const events = [
-    {
-      ...toolEvent(1, "tool_started", {
-        tool_call_id: "native-1",
-        name: "web_search",
-        input: { query: "DeBank 风险" },
-      }),
-      step_id: "a",
-      agent_id: "a",
-    },
-    {
-      ...toolEvent(2, "tool_started", {
-        tool_call_id: "native-1",
-        name: "fetch_url",
-        input: { url: "https://b.example/" },
-      }),
-      step_id: "b",
-      agent_id: "b",
-    },
-    {
-      ...toolEvent(3, "tool_finished", {
-        tool_call_id: "native-1",
-        name: "web_search",
-        status: "ok",
-        output: "{}",
-        duration_ms: 5,
-      }),
-      step_id: "a",
-      agent_id: "a",
-    },
-  ];
-  render(
-    <RunDivider
-      run={{ ...run, status: "running" }}
-      index={1}
-      events={events}
-      latest
-      busy={false}
-      onSnapshot={() => {}}
-      onRetry={() => {}}
-      onResume={() => {}}
-    />,
-  );
-  expect(screen.getByTestId("latest-tool")).toHaveTextContent(
-    "最近工具：在线搜索（DeBank 风险） · 完成",
-  );
-  expect(screen.queryByText(/b\.example/)).not.toBeInTheDocument();
-});
-
-it("omits the target when the restored attempt's start is not on the page", () => {
-  const events = [
-    toolEvent(1, "attempt_started", {
-      id: "attempt-a",
-      number: 1,
-      status: "running",
-    }),
-    toolEvent(2, "tool_started", {
-      tool_call_id: "native-1",
-      name: "web_search",
-      input: { query: "旧尝试" },
-    }),
-    toolEvent(3, "tool_finished", {
-      tool_call_id: "native-1",
-      name: "web_search",
-      status: "ok",
-      output: "{}",
-      duration_ms: 5,
-    }),
-    toolEvent(4, "attempt_finished", {
-      id: "attempt-a",
-      number: 1,
-      status: "interrupted",
-    }),
-    toolEvent(5, "attempt_started", {
-      id: "attempt-b",
-      number: 2,
-      status: "running",
-    }),
-    toolEvent(6, "tool_finished", {
-      tool_call_id: "native-1",
-      name: "web_search",
-      status: "ok",
-      output: "{}",
-      duration_ms: 5,
-    }),
-  ];
-  render(
-    <RunDivider
-      run={{ ...run, status: "running" }}
-      index={1}
-      events={events}
-      latest
-      busy={false}
-      onSnapshot={() => {}}
-      onRetry={() => {}}
-      onResume={() => {}}
-    />,
-  );
-  expect(screen.getByTestId("latest-tool")).toHaveTextContent(
-    "最近工具：在线搜索 · 完成",
-  );
-  expect(screen.queryByText(/旧尝试/)).not.toBeInTheDocument();
-});
-
-it("does not pair a finish across an attempt end without a new start", () => {
-  const events = [
-    toolEvent(1, "tool_started", {
-      tool_call_id: "native-1",
-      name: "web_search",
-      input: { query: "旧尝试" },
-    }),
-    toolEvent(2, "attempt_finished", {
-      id: "attempt-a",
-      number: 1,
-      status: "interrupted",
-    }),
-    toolEvent(3, "tool_finished", {
-      tool_call_id: "native-1",
-      name: "web_search",
-      status: "ok",
-      output: "{}",
-      duration_ms: 5,
-    }),
-  ];
-  render(
-    <RunDivider
-      run={{ ...run, status: "running" }}
-      index={1}
-      events={events}
-      latest
-      busy={false}
-      onSnapshot={() => {}}
-      onRetry={() => {}}
-      onResume={() => {}}
-    />,
-  );
-  expect(screen.getByTestId("latest-tool")).toHaveTextContent(
-    "最近工具：在线搜索 · 完成",
-  );
-  expect(screen.queryByText(/旧尝试/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/最近工具/)).not.toBeInTheDocument();
 });
 
 it("shows persisted attempt usage even when no live usage event remains", () => {
@@ -356,7 +166,6 @@ it("shows persisted attempt usage even when no live usage event remains", () => 
       latest
       busy={false}
       onSnapshot={() => {}}
-      onRetry={() => {}}
       onResume={() => {}}
     />,
   );
@@ -374,7 +183,6 @@ it("keeps explicit zero usage distinguishable from unknown usage", () => {
       latest
       busy={false}
       onSnapshot={() => {}}
-      onRetry={() => {}}
       onResume={() => {}}
     />,
   );
@@ -387,7 +195,6 @@ it("keeps explicit zero usage distinguishable from unknown usage", () => {
       latest
       busy={false}
       onSnapshot={() => {}}
-      onRetry={() => {}}
       onResume={() => {}}
     />,
   );
@@ -440,7 +247,6 @@ it("keeps each running step's warning and counts partial known usage", () => {
       latest
       busy={false}
       onSnapshot={() => {}}
-      onRetry={() => {}}
       onResume={() => {}}
     />,
   );
@@ -456,7 +262,6 @@ it("keeps each running step's warning and counts partial known usage", () => {
       latest
       busy={false}
       onSnapshot={() => {}}
-      onRetry={() => {}}
       onResume={() => {}}
     />,
   );
@@ -464,4 +269,45 @@ it("keeps each running step's warning and counts partial known usage", () => {
     screen.queryByText("长时间无进展 · 已 900 秒"),
   ).not.toBeInTheDocument();
   expect(screen.getByText("等待工具 · 已 5 秒")).toBeVisible();
+});
+
+it("does not place a member retry beside the collaboration process", () => {
+  render(
+    <RunDivider
+      run={{
+        ...run,
+        status: "failed",
+        error: "provider returned an invalid result",
+      }}
+      index={2}
+      latest={false}
+      busy={false}
+      steps={[
+        { id: "failed", agent_id: "member", agent_name: "橘猫", status: "failed" } as Step,
+        { id: "succeeded", agent_id: "peer", agent_name: "布偶猫", status: "succeeded" } as Step,
+      ]}
+      onSnapshot={() => {}}
+      onResume={() => {}}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "重试此轮" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "重试 橘猫" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "重试 布偶猫" })).not.toBeInTheDocument();
+});
+
+it("does not offer a new run for interrupted checkpoints", () => {
+  render(
+    <RunDivider
+      run={{ ...run, status: "interrupted", error: "service restarted" }}
+      index={1}
+      latest
+      busy={false}
+      onSnapshot={() => {}}
+      onResume={() => {}}
+    />,
+  );
+  expect(
+    screen.queryByRole("button", { name: "重新运行" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "继续执行" })).toBeVisible();
 });

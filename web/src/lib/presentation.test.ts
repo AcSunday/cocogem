@@ -7,6 +7,7 @@ import {
   executionPolicyRows,
   failureKindLabel,
   formatMessageTime,
+  formatRelativeTime,
   latestSources,
   limitLabel,
   livenessFromAttempts,
@@ -98,6 +99,18 @@ it("shortens titles, dates older messages and keeps one capture per source", () 
     formatMessageTime(new Date(2026, 9, 18, 9, 5).toISOString(), now),
   ).toBe("10月18日 09:05");
   expect(
+    formatRelativeTime(new Date(2026, 9, 20, 17, 58).toISOString(), now),
+  ).toBe("2 分钟前");
+  expect(
+    formatRelativeTime(new Date(2026, 9, 20, 9, 5).toISOString(), now),
+  ).toBe("8 小时前");
+  expect(
+    formatRelativeTime(new Date(2026, 9, 19, 12, 0).toISOString(), now),
+  ).toBe("昨天");
+  expect(
+    formatRelativeTime(new Date(2026, 9, 12, 12, 0).toISOString(), now),
+  ).toBe("2026-10-12");
+  expect(
     runDuration({
       created_at: "2026-10-20T01:00:00Z",
       finished_at: "2026-10-20T01:01:05Z",
@@ -164,6 +177,7 @@ it("describes disabled limits and hides the removed tool-call counter", () => {
   expect(limitLabel("tool_calls", 30)).toBe("");
   expect(limitLabel("handoffs", 12)).toContain("12 个任务");
   expect(limitLabel("queued_runs", 20)).toContain("20 次协作");
+  expect(limitLabel("parallel_runs", 4)).toContain("4 个会话");
   expect(limitLabel("handoff_depth", 4)).toContain("4 层");
 });
 
@@ -173,7 +187,7 @@ it("explains host input, context overflow and interrupted kinds without retry pr
     expect(text).not.toContain(kind);
     expect(text).toContain("不会自动重试");
   }
-  expect(runErrorText("host_input_limit: 100000 bytes")).toContain(
+  expect(runErrorText("host_input_limit: 100000 tokens")).toContain(
     "输入上限不足以容纳本次初始输入",
   );
   expect(runErrorText("context_overflow: maximum context")).toContain(
@@ -694,29 +708,29 @@ it("labels the persisted run method and readable selection reason", () => {
   // how the persisted method reads, and no member ID enters the label.
   expect(runMethod(run({ selected_workflow: selection }))).toEqual({
     method: "code_analysis",
-    label: "工程分析（旧）",
+    label: "代码分析（旧）",
     reason: "需要只读核对源码",
   });
   expect(
     runMethod(
       run({
-        input: { workflow: "engineering", engineering_action: "develop" },
+        input: { workflow: "engineering" },
       }),
     ),
-  ).toEqual({ method: "engineering", label: "工程开发", reason: "" });
+  ).toEqual({ method: "engineering", label: "工程协作", reason: "" });
   expect(
     runMethod(
       run({
-        input: { workflow: "engineering", engineering_action: "analyze" },
+        input: { workflow: "engineering" },
       }),
     ),
-  ).toEqual({ method: "engineering", label: "工程分析", reason: "" });
-  // A selected workflow can only be read-only engineering analysis.
+  ).toEqual({ method: "engineering", label: "工程协作", reason: "" });
+  // A selected workflow can only be read-only engineering collaboration.
   expect(
     runMethod(
       run({ selected_workflow: { ...selection, workflow: "engineering" } }),
     ),
-  ).toMatchObject({ method: "engineering", label: "工程分析" });
+  ).toMatchObject({ method: "engineering", label: "工程协作" });
 });
 
 it("renders method events as readable text without raw payload details", () => {
@@ -734,7 +748,7 @@ it("renders method events as readable text without raw payload details", () => {
         selection: { workflow: "engineering", reason: "只读核对" },
       }),
     ),
-  ).toBe("协调者选择方法：工程分析（只读） · 只读核对");
+  ).toBe("协调者选择方法：工程协作（只读） · 只读核对");
   const selected = methodEventLabel(
     event("workflow_selected", {
       selection: {
@@ -765,4 +779,21 @@ it("keeps unknown labels as readable keys instead of prototype objects", () => {
   expect(methodLabel("future_method")).toBe("future_method");
   expect(roleLabel("constructor")).toBe("constructor");
   expect(methodLabel("__proto__")).toBe("__proto__");
+});
+
+it("explains Gemini failures without guessing credentials and labels member retries", () => {
+  for (const reason of [
+    "unknown: native CLI did not confirm success (result=result_error, category=execution); check the CLI locally",
+    "protocol: Gemini reported an unsuccessful result without diagnostic details; this step did not complete",
+  ]) {
+    expect(runErrorText(reason)).toBe("Gemini 未确认回复成功，CLI 没有提供具体失败原因；可以重试该成员。");
+  }
+  expect(runErrorText("protocol: Gemini returned an empty, truncated or malformed response; this step did not complete")).toContain("本次回复未完成");
+  expect(runErrorText("protocol: Gemini model stream ended with an incomplete event; this step did not complete")).toContain("响应流不完整");
+  expect(runErrorText("provider_transient: Gemini provider returned a temporary server error; this step did not complete")).toContain("上游服务暂时出错");
+  expect(runErrorText("unknown: Gemini provider returned an unclassified stream error; this step did not complete")).toContain("上游服务返回了错误");
+  expect(runErrorText("quota: Gemini provider reported a quota or rate limit; this step did not complete")).toContain("额度或速率限制");
+  expect(runErrorText("authentication: Gemini provider rejected the existing authentication; this step did not complete")).toContain("未接受现有认证");
+  expect(runErrorText("permissions: Gemini provider denied this request; this step did not complete")).toContain("拒绝了这次请求");
+  expect(runMethod({ input: { workflow: "research" } as Run["input"], retry_of_step_id: "failed-step" }).label).toBe("成员重试");
 });

@@ -11,16 +11,6 @@ import (
 // the native CLI bridge, the execution prompt and the product contract.
 const MaxToolCalls = 60
 
-// InputBudget returns the member's explicit host input byte budget. Zero means
-// the request follows the CLI's own configured context window, so the host does
-// not impose a ceiling.
-func InputBudget(contextSize int) int {
-	if contextSize <= 0 {
-		return 0
-	}
-	return contextSize
-}
-
 // Block is visible text, a structured tool request or its associated result.
 type Block struct {
 	Type      string          `json:"type"`
@@ -61,17 +51,82 @@ type Request struct {
 	FirstResponseTimeout time.Duration `json:"-"`
 	StallTimeout         time.Duration `json:"-"`
 	StallAction          string        `json:"-"`
-	// ContextSize is the optional host-enforced input budget in bytes; 0 follows
-	// the CLI's configured context window. ThinkingLevel is an explicit CLI
-	// effort option; empty keeps the CLI's own configured default.
+	// ContextSize is the optional host-enforced input budget in estimated
+	// tokens; 0 follows the CLI's configured context window. ThinkingLevel is
+	// an explicit CLI effort option; empty keeps the CLI's own configured
+	// default.
 	ContextSize   int    `json:"-"`
 	ThinkingLevel string `json:"-"`
 	// NativeTools are the CLI-owned capabilities derived from the member's
 	// effective grants. WorkspaceRoot bounds native file tools; NativeProxy is
 	// the already-resolved public-web proxy for native web processes.
-	NativeTools   []string `json:"-"`
-	WorkspaceRoot string   `json:"-"`
-	NativeProxy   string   `json:"-"`
+	NativeTools      []string `json:"-"`
+	WorkspaceRoot    string   `json:"-"`
+	WorkingDirectory string   `json:"-"`
+	TrustedExecution bool     `json:"-"`
+	NativeProxy      string   `json:"-"`
+	// Managed native sessions live only under SessionStorageRoot. SessionID is
+	// populated solely after an earlier runner acknowledged the exact session.
+	ExecutionMode       string `json:"-"`
+	SessionMode         string `json:"-"`
+	SessionID           string `json:"-"`
+	SessionStorageRoot  string `json:"-"`
+	SessionContextEpoch int    `json:"-"`
+	// AuthorizeNative is the host's pre-effect admission for a CLI-owned tool
+	// call. A nil callback means no host approval is available: native
+	// adapters must fail closed for every operation that is not already
+	// enforced by a proven OS boundary.
+	AuthorizeNative func(context.Context, NativePermissionRequest) (NativePermissionDecision, error) `json:"-"`
+}
+
+// NativePermissionRequest is one native tool call that has not produced its
+// effect yet and must be admitted by the host. Input is the exact native tool
+// input; Resource is the adapter's best-effort primary target and is never an
+// authorization by itself.
+type NativePermissionRequest struct {
+	CallID   string          `json:"call_id"`
+	Name     string          `json:"name"`
+	Input    json.RawMessage `json:"input,omitempty"`
+	Resource string          `json:"resource,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
+	Origin   string          `json:"origin"`
+	Adapter  string          `json:"adapter"`
+	Action   string          `json:"action"`
+	// Risk is a non-empty grading fact the adapter proved about the target
+	// (currently "hardlink"). It is not an authorization. The host must not
+	// auto-allow such a call; a user decision must set AcknowledgedRisk.
+	Risk string `json:"risk,omitempty"`
+}
+
+// Native permission decision kinds. They describe the user's decision, never a
+// CLI-native "always" rule.
+const (
+	NativeScopeOnce         = "once"
+	NativeScopeConversation = "conversation"
+	NativeScopeDeny         = "deny"
+)
+
+// NativePermissionDecision is the host's answer for exactly one request.
+//
+// Scope is the decision kind (once/conversation/deny). ResourceScope is the
+// host-normalized resource the user actually approved; it may narrow the
+// adapter's execution but must never be widened from the raw native input.
+// Adapters always answer the CLI with a single-call allow, never a CLI
+// session-wide bypass.
+type NativePermissionDecision struct {
+	Allow         bool   `json:"allow"`
+	Scope         string `json:"scope"`
+	ResourceScope string `json:"resource_scope,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	// AcknowledgedRisk is true only when a human decision explicitly accepted a
+	// request whose Risk was non-empty. An automatic in-project admission must
+	// leave it false; native then refuses the effect.
+	AcknowledgedRisk bool `json:"acknowledged_risk,omitempty"`
+}
+
+// Authorized reports whether this decision permits the one pending native call.
+func (d NativePermissionDecision) Authorized() bool {
+	return d.Allow && (d.Scope == NativeScopeOnce || d.Scope == NativeScopeConversation || d.Scope == "")
 }
 
 // Connection records the resolved model and non-secret upstream identity selected

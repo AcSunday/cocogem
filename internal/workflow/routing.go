@@ -46,11 +46,10 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 		if len(input.Targets) > 0 && !sameIDs(explicit, input.Targets) {
 			return r, errors.New("explicit mentions conflict with selected recipients")
 		}
-		if input.Workflow != "" && input.Workflow != "free" {
-			return Routing{Decision: "clarify", Clarification: "明确收件人与已选流程冲突，请选择自由协作或移除明确收件人。"}, nil
-		}
 		r.Targets = explicit
 		r.Workflow = "free"
+		r.Assignments = nil
+		r.Explanation = "按用户明确指定的成员执行"
 		return r, nil
 	}
 	if len(input.Targets) > 0 {
@@ -152,7 +151,7 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 	}
 	planInput := w.RunInput{Workflow: r.Workflow, Targets: r.Targets, Assignments: r.Assignments}
 	if r.Workflow == "engineering" {
-		planInput.EngineeringAction = input.EngineeringAction
+		planInput.EngineeringReadOnly = input.Workflow != "engineering" || input.EngineeringReadOnly
 	}
 	if _, err := Plan("preview", planInput, agents); err != nil {
 		return Routing{}, err
@@ -200,26 +199,6 @@ func reconcileRouting(r Routing, input w.RunInput, thread w.Thread, candidates [
 		}
 		r.Targets, r.Workflow, r.Assignments = targets, "free", nil
 		return r
-	}
-	if r.Decision != "assign" || !chosenWorkflow {
-		return r
-	}
-	if r.Workflow != input.Workflow {
-		return clarify("正文明确指派与已选流程冲突，请调整流程或成员分工。")
-	}
-	for _, role := range roles[input.Workflow] {
-		if r.Assignments[role] != input.Assignments[role] {
-			return clarify("正文明确指派与已选角色分工冲突，请选择实际分工。")
-		}
-	}
-	if input.Workflow == "discussion" {
-		targets := input.Targets
-		if len(targets) == 0 {
-			targets = thread.AgentIDs
-		}
-		if !sameIDs(r.Targets, targets) {
-			return clarify("正文明确指派与已选讨论成员冲突，请选择实际成员。")
-		}
 	}
 	return r
 }

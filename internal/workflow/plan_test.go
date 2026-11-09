@@ -101,7 +101,6 @@ func TestReadOnlyAnalysisUsesCriticThenFinalReviewerPublisher(t *testing.T) {
 	agents := []w.Agent{{ID: "a", DisplayName: "分析", Tools: []string{"read_file", "publish_artifact"}}, {ID: "b", DisplayName: "复核", Tools: []string{"read_file", "publish_artifact"}}}
 	for _, in := range []w.RunInput{
 		{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}},
-		{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze, Assignments: map[string]string{"analyst": "a", "reviewer": "b"}},
 	} {
 		steps, err := Plan("run", in, agents)
 		if err != nil {
@@ -140,8 +139,11 @@ func TestLegacyTwoStepReviewerStillPublishes(t *testing.T) {
 	if got := RequiredArtifact(legacy, w.RunInput{Workflow: "code_analysis"}); got != "code_analysis" {
 		t.Fatalf("legacy code_analysis reviewer artifact = %q", got)
 	}
-	if got := RequiredArtifact(legacy, w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}); got != "code_analysis" {
-		t.Fatalf("legacy engineering analyst reviewer artifact = %q", got)
+	if got := RequiredArtifact(w.Step{Role: "final_reviewer", Status: "pending"}, w.RunInput{Workflow: "engineering", EngineeringReadOnly: true}); got != "engineering_report" {
+		t.Fatalf("engineering final reviewer artifact = %q", got)
+	}
+	if got := RequiredArtifact(w.Step{Role: "final_reviewer", Status: "pending"}, w.RunInput{Workflow: "engineering", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}}); got != "code_analysis" {
+		t.Fatalf("legacy engineering final reviewer artifact = %q", got)
 	}
 	if got := RequiredArtifact(w.Step{Role: "critic", Status: "pending"}, w.RunInput{Workflow: "code_analysis"}); got != "" {
 		t.Fatalf("intermediate critic artifact = %q", got)
@@ -193,11 +195,28 @@ func TestSupportedFindingRequiresReadOriginal(t *testing.T) {
 	}
 }
 
-func TestRequiredPublicationCannotGrantRevokedPermission(t *testing.T) {
-	agents := []w.Agent{{ID: "a", Tools: []string{"read_file"}}, {ID: "b", Tools: []string{"read_file"}}}
-	_, err := Plan("run", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}}, agents)
-	if err == nil {
-		t.Fatal("workflow silently granted publication")
+// TestLegacyToolArraysDoNotGatePublication keeps the retirement contract: the
+// publish capability comes from the runtime catalog, so a legacy array that omits
+// publish_artifact cannot exclude a member, and a legacy array that lists extra
+// write tools cannot grant them either (the role/task checks still apply).
+func TestLegacyToolArraysDoNotGatePublication(t *testing.T) {
+	agents := []w.Agent{
+		{ID: "a", Tools: []string{"read_file"}},
+		{ID: "b", Tools: []string{"read_file", "write_file", "run_command"}},
+	}
+	plan, err := Plan("run", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}}, agents)
+	if err != nil {
+		t.Fatalf("legacy tool arrays gated a valid plan: %v", err)
+	}
+	if RequiredArtifact(plan[len(plan)-1], w.RunInput{Workflow: "code_analysis"}) == "" {
+		t.Fatalf("final reviewer has no publication obligation: %+v", plan)
+	}
+	e := Engine{}
+	readOnly := w.Run{Workspace: w.Workspace{Root: t.TempDir()}, Input: w.RunInput{Workflow: "code_analysis"}}
+	for _, tool := range e.allowedTools(readOnly, agents[1], w.Step{Role: "analyst"}) {
+		if tool == "write_file" || tool == "patch_file" || tool == "run_test" || tool == "run_command" {
+			t.Fatalf("a legacy write grant leaked into a read-only role: %s", tool)
+		}
 	}
 }
 
@@ -219,79 +238,58 @@ func engineeringAgents() []w.Agent {
 	}
 }
 
-func TestEngineeringPlansSeparateAnalysisAndDevelopment(t *testing.T) {
+func TestEngineeringPlanUsesEngineerAndReviewer(t *testing.T) {
 	agents := engineeringAgents()
-	analyze, err := Plan("run", w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze, Assignments: map[string]string{"analyst": "dev", "reviewer": "review"}}, agents)
+	in := w.RunInput{Workflow: "engineering", Assignments: map[string]string{"engineer": "dev", "reviewer": "review"}}
+	steps, err := Plan("run", in, agents)
 	if err != nil {
 		t.Fatal(err)
 	}
 	roles := []string{}
-	for _, step := range analyze {
+	for _, step := range steps {
 		roles = append(roles, step.Role)
 	}
-	if len(analyze) != 4 || !slices.Equal(roles, []string{"analyst", "critic", "analyst", "final_reviewer"}) {
-		t.Fatalf("analysis plan = %+v", analyze)
+	if len(steps) != 4 || !slices.Equal(roles, []string{"engineer", "reviewer", "engineer", "final_reviewer"}) {
+		t.Fatalf("engineering plan roles = %v", roles)
 	}
-	if !slices.Contains(analyze[3].DependsOn, analyze[0].ID) || !slices.Contains(analyze[3].DependsOn, analyze[1].ID) || !slices.Contains(analyze[3].DependsOn, analyze[2].ID) {
-		t.Fatal("final analysis review does not receive the initial analysis, review and response results")
+	if len(steps[2].DependsOn) != 2 || steps[2].DependsOn[0] != steps[0].ID || steps[2].DependsOn[1] != steps[1].ID {
+		t.Fatal("engineering response does not consume the initial work and review")
 	}
-	if RequiredArtifact(analyze[1], w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}) != "" {
-		t.Fatal("intermediate analysis critic received a publication obligation")
+	if !slices.Contains(steps[3].DependsOn, steps[0].ID) || !slices.Contains(steps[3].DependsOn, steps[1].ID) || !slices.Contains(steps[3].DependsOn, steps[2].ID) {
+		t.Fatal("final review does not receive the initial work, review and response")
 	}
-	if got := RequiredArtifact(analyze[3], w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}); got != "code_analysis" {
-		t.Fatalf("analysis artifact = %q", got)
+	if RequiredArtifact(steps[1], in) != "" || RequiredArtifact(steps[3], in) != "engineering_report" || RequiredArtifact(steps[0], in) != "" {
+		t.Fatal("engineering artifact roles are wrong")
 	}
-	develop, err := Plan("run", w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: map[string]string{"developer": "dev", "reviewer": "review"}}, agents)
+	_, err = Plan("run", w.RunInput{Workflow: "engineering", Assignments: map[string]string{"engineer": "dev", "reviewer": "dev"}}, agents)
+	if err == nil {
+		t.Fatal("engineer and reviewer may not be the same member")
+	}
+	// The engineer uses the member's granted tools, so a read-only member can
+	// still serve and simply reports without writing or running tests.
+	limited := []w.Agent{{ID: "dev", DisplayName: "执行", Tools: []string{"read_file", "publish_artifact"}}, agents[1]}
+	if _, err := Plan("run", w.RunInput{Workflow: "engineering", Assignments: map[string]string{"engineer": "dev", "reviewer": "review"}}, limited); err != nil {
+		t.Fatalf("read-only engineer was rejected: %v", err)
+	}
+	// A coordinator-selected engineering method is explicitly read-only.
+	readOnly := in
+	readOnly.EngineeringReadOnly = true
+	readOnlySteps, err := Plan("run", readOnly, agents)
 	if err != nil {
 		t.Fatal(err)
 	}
-	developRoles := []string{}
-	for _, step := range develop {
-		developRoles = append(developRoles, step.Role)
-	}
-	if len(develop) != 4 || !slices.Equal(developRoles, []string{"developer", "reviewer", "developer", "final_reviewer"}) {
-		t.Fatalf("development plan roles = %v", developRoles)
-	}
-	if len(develop[2].DependsOn) != 1 || develop[2].DependsOn[0] != develop[1].ID {
-		t.Fatal("development repair loop is not scheduled")
-	}
-	if !slices.Contains(develop[3].DependsOn, develop[1].ID) || !slices.Contains(develop[3].DependsOn, develop[2].ID) {
-		t.Fatal("final review does not receive review and repair results")
-	}
-	in := w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop}
-	if RequiredArtifact(develop[1], in) != "" || RequiredArtifact(develop[3], in) != "engineering_report" || RequiredArtifact(develop[0], in) != "" {
-		t.Fatal("development artifact roles are wrong")
-	}
-	_, err = Plan("run", w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: map[string]string{"developer": "dev", "reviewer": "dev"}}, agents)
-	if err == nil {
-		t.Fatal("developer and reviewer may not be the same member")
-	}
-	limited := []w.Agent{{ID: "dev", DisplayName: "开发", Tools: []string{"read_file", "publish_artifact"}}, agents[1]}
-	if _, err := Plan("run", w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: map[string]string{"developer": "dev", "reviewer": "review"}}, limited); err == nil {
-		t.Fatal("development without write/test grants was accepted")
-	}
-	// patch_file is an additional grant: write_file plus run_test still gate the
-	// plan, and patch-only does not silently replace write_file.
-	withoutPatch := []w.Agent{{ID: "dev", DisplayName: "开发", Tools: []string{"read_file", "write_file", "run_test", "publish_artifact"}}, agents[1]}
-	if _, err := Plan("run", w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: map[string]string{"developer": "dev", "reviewer": "review"}}, withoutPatch); err != nil {
-		t.Fatalf("patch_file became mandatory: %v", err)
-	}
-	patchOnly := []w.Agent{{ID: "dev", DisplayName: "开发", Tools: []string{"read_file", "patch_file", "run_test", "publish_artifact"}}, agents[1]}
-	if _, err := Plan("run", w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: map[string]string{"developer": "dev", "reviewer": "review"}}, patchOnly); err == nil {
-		t.Fatal("patch_file replaced the write_file grant requirement")
-	}
-	if _, err := Plan("run", w.RunInput{Workflow: "engineering", EngineeringAction: "publish", Assignments: map[string]string{"analyst": "dev", "reviewer": "review"}}, agents); err == nil {
-		t.Fatal("unknown engineering action was accepted")
+	if !strings.Contains(readOnlySteps[0].Instruction, "read-only") || !strings.Contains(readOnlySteps[2].Instruction, "read-only") {
+		t.Fatal("read-only engineering instructions were not applied")
 	}
 }
 
-func TestEngineeringToolGatingIntersectsActionAndRole(t *testing.T) {
+func TestEngineeringToolGatingIntersectsRole(t *testing.T) {
 	e := Engine{}
 	a := w.Agent{ID: "dev", Tools: []string{"read_file", "write_file", "patch_file", "run_test"}}
-	develop := w.Run{Workspace: w.Workspace{Root: t.TempDir()}, Input: w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop}}
-	developer := e.allowedTools(develop, a, w.Step{Role: "developer"})
-	if !slices.Contains(developer, "write_file") || !slices.Contains(developer, "patch_file") || !slices.Contains(developer, "run_test") {
-		t.Fatalf("developer tools = %v", developer)
+	develop := w.Run{Workspace: w.Workspace{Root: t.TempDir()}, Input: w.RunInput{Workflow: "engineering"}}
+	engineer := e.allowedTools(develop, a, w.Step{Role: "engineer"})
+	if !slices.Contains(engineer, "write_file") || !slices.Contains(engineer, "patch_file") || !slices.Contains(engineer, "run_test") {
+		t.Fatalf("engineer tools = %v", engineer)
 	}
 	reviewer := e.allowedTools(develop, a, w.Step{Role: "reviewer"})
 	if slices.Contains(reviewer, "write_file") || slices.Contains(reviewer, "patch_file") || !slices.Contains(reviewer, "run_test") || !slices.Contains(reviewer, "read_file") {
@@ -301,61 +299,44 @@ func TestEngineeringToolGatingIntersectsActionAndRole(t *testing.T) {
 	if slices.Contains(final, "write_file") || slices.Contains(final, "patch_file") {
 		t.Fatalf("final reviewer can write: %v", final)
 	}
-	analyze := w.Run{Workspace: develop.Workspace, Input: w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}}
-	for _, role := range []string{"analyst", "critic", "final_reviewer"} {
-		gated := e.allowedTools(analyze, a, w.Step{Role: role})
+	readOnly := w.Run{Workspace: develop.Workspace, Input: w.RunInput{Workflow: "engineering", EngineeringReadOnly: true}}
+	for _, role := range []string{"engineer", "reviewer", "final_reviewer"} {
+		gated := e.allowedTools(readOnly, a, w.Step{Role: role})
 		if slices.Contains(gated, "write_file") || slices.Contains(gated, "patch_file") || slices.Contains(gated, "run_test") {
-			t.Fatalf("analysis role %s received engineering tools: %v", role, gated)
+			t.Fatalf("read-only role %s received engineering tools: %v", role, gated)
 		}
-	}
-	gated := e.allowedTools(analyze, a, w.Step{Role: "developer"})
-	if slices.Contains(gated, "write_file") || slices.Contains(gated, "patch_file") || slices.Contains(gated, "run_test") {
-		t.Fatalf("analysis received engineering tools: %v", gated)
 	}
 	legacy := w.Run{Workspace: develop.Workspace, Input: w.RunInput{Workflow: "code_analysis"}}
 	for _, role := range []string{"analyst", "critic", "final_reviewer"} {
-		gated = e.allowedTools(legacy, a, w.Step{Role: role})
+		gated := e.allowedTools(legacy, a, w.Step{Role: role})
 		if slices.Contains(gated, "write_file") || slices.Contains(gated, "patch_file") || slices.Contains(gated, "run_test") {
 			t.Fatalf("legacy code analysis role %s received engineering tools: %v", role, gated)
 		}
 	}
-	// A developer grant without patch_file keeps only write_file.
+	// A legacy array without patch_file no longer narrows the runtime catalog; the
+	// engineer role keeps the catalog's write/test tools.
 	noPatch := w.Agent{ID: "dev", Tools: []string{"read_file", "write_file", "run_test"}}
-	developer = e.allowedTools(develop, noPatch, w.Step{Role: "developer"})
-	if slices.Contains(developer, "patch_file") || !slices.Contains(developer, "write_file") {
-		t.Fatalf("patch_file leaked from another grant: %v", developer)
+	engineer = e.allowedTools(develop, noPatch, w.Step{Role: "engineer"})
+	if !slices.Contains(engineer, "write_file") || !slices.Contains(engineer, "patch_file") || !slices.Contains(engineer, "run_test") {
+		t.Fatalf("legacy array narrowed the engineer catalog: %v", engineer)
 	}
 }
 
-func TestEngineeringDevelopReviewerRequiresRunTest(t *testing.T) {
-	developer := w.Agent{ID: "dev", DisplayName: "开发", Tools: []string{"read_file", "write_file", "run_test"}}
+func TestEngineeringReviewerCanPublishWithoutRunTest(t *testing.T) {
+	engineer := w.Agent{ID: "dev", DisplayName: "执行", Tools: []string{"read_file", "write_file", "run_test"}}
 	publisher := w.Agent{ID: "publisher", DisplayName: "仅发布", Tools: []string{"read_file", "publish_artifact"}}
-	runner := w.Agent{ID: "runner", DisplayName: "复核", Tools: []string{"read_file", "run_test", "publish_artifact"}}
-	agents := []w.Agent{developer, publisher, runner}
-	develop := func(reviewer string) w.RunInput {
-		return w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop, Assignments: map[string]string{"developer": developer.ID, "reviewer": reviewer}}
-	}
-	// The develop reviewer must independently rerun tests, not only publish.
-	_, err := Plan("run", develop(publisher.ID), agents)
-	if err == nil || !strings.Contains(err.Error(), "run_test") {
-		t.Fatalf("develop reviewer without run_test err = %v", err)
-	}
-	steps, err := Plan("run", develop(runner.ID), agents)
+	agents := []w.Agent{engineer, publisher}
+	steps, err := Plan("run", w.RunInput{Workflow: "engineering", Assignments: map[string]string{"engineer": engineer.ID, "reviewer": publisher.ID}}, agents)
 	if err != nil {
 		t.Fatal(err)
 	}
 	final := steps[len(steps)-1]
-	if final.Role != "final_reviewer" || final.AgentID != runner.ID {
-		t.Fatalf("develop final reviewer = %+v", final)
+	if final.Role != "final_reviewer" || final.AgentID != publisher.ID {
+		t.Fatalf("engineering final reviewer = %+v", final)
 	}
-	// Analysis and the legacy workflow stay read-only and do not require run_test.
-	for _, in := range []w.RunInput{
-		{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze, Assignments: map[string]string{"analyst": developer.ID, "reviewer": publisher.ID}},
-		{Workflow: "code_analysis", Assignments: map[string]string{"analyst": developer.ID, "reviewer": publisher.ID}},
-	} {
-		if _, err := Plan("run", in, agents); err != nil {
-			t.Fatalf("%s reviewer without run_test was refused: %v", in.Workflow, err)
-		}
+	// The legacy read-only workflow still accepts a publisher without run_test.
+	if _, err := Plan("run", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": engineer.ID, "reviewer": publisher.ID}}, agents); err != nil {
+		t.Fatalf("code_analysis reviewer without run_test was refused: %v", err)
 	}
 }
 
@@ -367,7 +348,7 @@ func TestEngineeringReportRequiresCurrentDiffAndPassingTest(t *testing.T) {
 	}
 	sum := sha256.Sum256([]byte(content))
 	digest := hex.EncodeToString(sum[:])
-	run := w.Run{ID: "run", Workspace: w.Workspace{Root: root}, Input: w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop}}
+	run := w.Run{ID: "run", Workspace: w.Workspace{Root: root}, Input: w.RunInput{Workflow: "engineering"}}
 	workspace, err := tools.WorkspaceDigest(root)
 	if err != nil {
 		t.Fatal(err)
@@ -420,7 +401,7 @@ func TestEngineeringReportRequiresCurrentDiffAndPassingTest(t *testing.T) {
 }
 
 func TestEngineeringReportMayRecordEvidenceGapButNotConfirm(t *testing.T) {
-	run := w.Run{ID: "run", Workspace: w.Workspace{Root: t.TempDir()}, Input: w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop}}
+	run := w.Run{ID: "run", Workspace: w.Workspace{Root: t.TempDir()}, Input: w.RunInput{Workflow: "engineering"}}
 	gap := w.Artifact{Type: "engineering_report", Title: "未能验证", Body: "测试沙箱不可用", Findings: []w.Finding{{Title: "测试未运行", Detail: "run_test 返回 sandbox_unavailable", Status: "insufficient_evidence", Severity: "high"}}}
 	if err := ValidateArtifact(gap, "engineering_report", nil); err != nil {
 		t.Fatalf("evidence-gap finding was rejected: %v", err)

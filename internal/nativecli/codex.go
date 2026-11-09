@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -38,6 +39,12 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 		"support_verbosity": false, "apply_patch_tool_type": nil, "truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "experimental_supported_tools": []string{}, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false,
 		"tool_mode": nil, "multi_agent_version": nil, "node_repl_disabled": true, "use_responses_lite": false, "input_modalities": []string{"text"}, "model_messages": map[string]any{"instructions_template": "You are a collaboration agent. Use only the tools supplied for this step. Follow the supplied task and finish this turn."},
 	}
+	if gate.trustedNative {
+		entry["shell_type"] = "shell_command"
+		entry["apply_patch_tool_type"] = "freeform"
+		entry["input_modalities"] = []string{"text", "image"}
+		entry["node_repl_disabled"] = false
+	}
 	encoded, err := json.Marshal(map[string]any{"models": []any{entry}})
 	if err != nil {
 		return nil, nil, err
@@ -53,6 +60,13 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 		webSearch = "live"
 	}
 	args := []string{"exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "read-only", "--color", "never"}
+	if gate.trustedNative {
+		for i, value := range args {
+			if value == "read-only" {
+				args[i] = "danger-full-access"
+			}
+		}
+	}
 	args = append(args, connectionArgs...)
 	if nativeWeb && slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "model_providers.cocogem_connection.") }) {
 		// The scoped provider must declare the Responses web tool; the real
@@ -64,7 +78,8 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 		args = append(args, "-c", config)
 	}
 	for _, feature := range []string{"shell_tool", "view_image", "multi_agent", "multi_agent_v2", "hooks", "plugins", "apps", "code_mode", "code_mode_host", "code_mode_only", "sleep_tool", "token_budget", "request_permissions_tool", "standalone_web_search", "goals"} {
-		args = append(args, "-c", "features."+feature+"=false")
+		enabled := gate.trustedNative && (feature == "shell_tool" || feature == "view_image")
+		args = append(args, "-c", fmt.Sprintf("features.%s=%t", feature, enabled))
 	}
 	for _, tool := range request.Tools {
 		args = append(args, "-c", "mcp_servers.cocogem.tools."+tool.Name+".approval_mode=\"approve\"")
@@ -227,7 +242,7 @@ func (call codexResourceCall) unavailable(status string, result, failure json.Ra
 
 func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
+	scanner.Buffer(make([]byte, 4096), maxCLIFrameBytes)
 	initialized, started, finished := false, false, false
 	sessionID := ""
 	activity := newActivityTracker()
@@ -409,7 +424,13 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 					return err
 				}
 			case "command_execution", "file_change", "local_shell_call", "function_call", "patch_apply", "view_image", "sleep":
-				return newFailure(FailureProtocol, "native CLI exposed a native tool action outside the scoped host tools")
+				if !gate.trustedNative {
+					return newFailure(FailureProtocol, "native CLI exposed a native tool action outside the scoped host tools")
+				}
+				observed, _ := json.Marshal(event.Item)
+				if err := gate.emit("native_action", map[string]any{"tool_call_id": event.Item.ID, "name": event.Item.Type, "event": event.Type, "receipt": string(observed), "observation": "runner_reported; native_effect_audit=partial"}); err != nil {
+					return err
+				}
 			default:
 				return newFailure(FailureProtocol, "native CLI emitted an unsupported item type; tool isolation cannot be confirmed")
 			}
@@ -456,7 +477,7 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 	}
 	if err := scanner.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			return newFailure(FailureProtocol, "native CLI output frame exceeds the 4 MiB frame limit")
+			return newFailure(FailureProtocol, "native CLI output frame exceeds the 16 MiB frame limit")
 		}
 		return newFailure(FailureProtocol, "native CLI output could not be read")
 	}

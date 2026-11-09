@@ -48,13 +48,13 @@ func (l Loop) Run(ctx context.Context, request model.Request, execute Execute, o
 		}
 		// An explicit member limit avoids silently dropping required upstream
 		// input; zero follows the CLI's configured context window.
-		if budget := model.InputBudget(request.ContextSize); budget > 0 {
+		if budget := model.InputTokenBudget(request.ContextSize); budget > 0 {
 			encoded, err := json.Marshal(request)
 			if err != nil {
 				return err
 			}
-			if len(encoded) > budget {
-				return fmt.Errorf("required context exceeds the %d-byte host input budget", budget)
+			if model.EstimateTokens(string(encoded)) > budget {
+				return fmt.Errorf("required context exceeds the %d-token host input budget", budget)
 			}
 		}
 		response, err := l.Model.Complete(ctx, request, func(text string) error { return observe("text", map[string]any{"text": text}) })
@@ -95,7 +95,7 @@ func (l Loop) Run(ctx context.Context, request model.Request, execute Execute, o
 			if !slices.ContainsFunc(request.Tools, func(t model.Tool) bool { return t.Name == block.Name }) {
 				callErr = errors.New("tool is not allowed for this member")
 			} else {
-				output, callErr = execute(ctx, block.Name, block.Input)
+				output, callErr = execute(WithToolCall(ctx, block.ID), block.Name, block.Input)
 			}
 			status := "ok"
 			if callErr != nil {

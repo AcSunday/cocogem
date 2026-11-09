@@ -212,7 +212,8 @@ it("does not pair a finish with an earlier attempt that reused the same call id"
     .map((label) => label.closest("details")!);
   expect(records).toHaveLength(2);
   expect(records[0]).not.toHaveTextContent("第二次结果");
-  expect(records[0]).toHaveTextContent("完成记录不在当前页");
+  expect(records[0]).toHaveTextContent("未收到完成记录 · 尝试已结束");
+  expect(records[0]).toHaveTextContent("结果未知");
   expect(records[1]).toHaveTextContent("第二次结果");
   expect(screen.getAllByText("完成")).toHaveLength(1);
 });
@@ -331,7 +332,7 @@ it("keeps member groups for degradation notices and failures", () => {
   expect(screen.getByText("失败")).toBeVisible();
 });
 
-it("does not fake a running tool once the live window has evicted its finish", async () => {
+it("keeps a retained start running while the live window is full", () => {
   const onHistory = vi.fn();
   const events = [
     event(1, "tool_started", {
@@ -350,12 +351,32 @@ it("does not fake a running tool once the live window has evicted its finish", a
       onHistory={onHistory}
     />,
   );
-  expect(screen.queryByText("执行中")).not.toBeInTheDocument();
-  expect(screen.getByText("完成记录不在当前页")).toBeVisible();
-  await userEvent.click(
-    screen.getByRole("button", { name: "查看这次工具调用的历史记录" }),
+  // The FIFO window drops a start before its later finish, so a retained start
+  // during an active run is running; a full window alone proves nothing.
+  expect(screen.getByText("执行中")).toBeVisible();
+  expect(screen.queryByText("完成记录不在当前页")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "查看这次工具调用的历史记录" }),
+  ).not.toBeInTheDocument();
+});
+
+it("marks a retained start unknown once its run ended", () => {
+  render(
+    <ToolTimeline
+      agents={[member]}
+      events={[
+        event(1, "tool_started", {
+          tool_call_id: "call",
+          name: "read_file",
+          input: {},
+        }),
+      ]}
+      runStatus="canceled"
+    />,
   );
-  expect(onHistory).toHaveBeenCalledWith(0);
+  expect(screen.queryByText("执行中")).not.toBeInTheDocument();
+  expect(screen.getByText("结果未知")).toBeVisible();
+  expect(screen.getByText("未收到完成记录 · 运行已结束")).toBeVisible();
 });
 
 it("shows the persisted method selection and settled method as readable text", () => {

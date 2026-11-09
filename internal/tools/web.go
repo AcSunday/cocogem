@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -226,8 +227,13 @@ func (wb *Web) Fetch(ctx context.Context, raw string) (w.Source, error) {
 		return w.Source{}, fmt.Errorf("source returned HTTP %d", resp.StatusCode)
 	}
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
-	if !strings.HasPrefix(ct, "text/plain") && !strings.HasPrefix(ct, "text/html") && !strings.HasPrefix(ct, "application/xhtml+xml") {
-		return w.Source{}, errors.New("source is not a supported text page")
+	supportedText := strings.HasPrefix(ct, "text/plain") || strings.HasPrefix(ct, "text/html") || strings.HasPrefix(ct, "application/xhtml+xml")
+	pathLower := strings.ToLower(resp.Request.URL.Path)
+	supportedDocument := strings.HasPrefix(ct, "application/pdf") || strings.HasPrefix(ct, "text/csv") || strings.HasPrefix(ct, "application/csv") ||
+		strings.Contains(ct, "wordprocessingml") || strings.Contains(ct, "spreadsheetml") || strings.Contains(ct, "presentationml") ||
+		strings.HasSuffix(pathLower, ".docx") || strings.HasSuffix(pathLower, ".xlsx") || strings.HasSuffix(pathLower, ".pptx")
+	if !supportedText && !supportedDocument {
+		return w.Source{}, errors.New("source is not a supported text page or document")
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024+1))
 	if err != nil {
@@ -235,6 +241,27 @@ func (wb *Web) Fetch(ctx context.Context, raw string) (w.Source, error) {
 	}
 	if len(b) > 2*1024*1024 {
 		return w.Source{}, errors.New("page exceeds 2 MiB capture budget")
+	}
+	documentPath := resp.Request.URL.Path
+	switch {
+	case strings.HasPrefix(ct, "application/pdf"):
+		documentPath = "document.pdf"
+	case strings.HasPrefix(ct, "text/csv") || strings.HasPrefix(ct, "application/csv"):
+		documentPath = "document.csv"
+	case strings.Contains(ct, "wordprocessingml"):
+		documentPath = "document.docx"
+	case strings.Contains(ct, "spreadsheetml"):
+		documentPath = "document.xlsx"
+	case strings.Contains(ct, "presentationml"):
+		documentPath = "document.pptx"
+	}
+	if source, ok, err := AdaptDocument(ctx, documentPath, b); ok {
+		if err != nil {
+			return w.Source{}, err
+		}
+		source.URL = resp.Request.URL.String()
+		source.Title = boundedText(u.Hostname(), 300)
+		return source, nil
 	}
 	title := u.Hostname()
 	text := string(b)
@@ -258,7 +285,12 @@ func (wb *Web) Fetch(ctx context.Context, raw string) (w.Source, error) {
 	if searchResultPage(resp.Request.URL) {
 		kind = "search_results"
 	}
-	return w.Source{Kind: kind, Title: boundedText(title, 300), URL: resp.Request.URL.String(), Content: text, CapturedAt: w.Now(), Truncated: truncated}, nil
+	source := w.Source{Kind: kind, Title: boundedText(title, 300), URL: resp.Request.URL.String(), Content: text, CapturedAt: w.Now(), Truncated: truncated, ParseStatus: "parsed", ParserVersion: "html-text-v1", Visibility: "task_chain", MediaType: ct}
+	if !strings.HasPrefix(ct, "text/plain") {
+		source.OriginalContent = base64.StdEncoding.EncodeToString(b)
+		source.OriginalDigest = sha256Hex(b)
+	}
+	return source, nil
 }
 
 func extractHTML(input string) (string, string, error) {

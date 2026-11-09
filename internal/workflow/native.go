@@ -147,9 +147,9 @@ func nativeSource(run w.Run, data map[string]any) (w.Source, bool) {
 	switch name {
 	case "Read":
 		source.Kind = "native_file"
-		source.Path = nativePath(run.Workspace.Root, input.FilePath)
+		source.Path = nativePath(run.ProjectRoot(), input.FilePath)
 		if source.Path == "" && fileMeta.FilePath != "" {
-			source.Path = nativePath(run.Workspace.Root, fileMeta.FilePath)
+			source.Path = nativePath(run.ProjectRoot(), fileMeta.FilePath)
 		}
 		source.Title = source.Path
 		if source.Title == "" {
@@ -172,11 +172,11 @@ func nativeSource(run w.Run, data map[string]any) (w.Source, bool) {
 		source.Title = "WebSearch: " + label
 	case "Grep":
 		source.Kind = "native_search"
-		source.Path = nativePath(run.Workspace.Root, input.Path)
+		source.Path = nativePath(run.ProjectRoot(), input.Path)
 		source.Title = "Grep: " + input.Pattern
 	case "Glob":
 		source.Kind = "native_search"
-		source.Path = nativePath(run.Workspace.Root, input.Path)
+		source.Path = nativePath(run.ProjectRoot(), input.Path)
 		source.Title = "Glob: " + input.Pattern
 	default:
 		return w.Source{}, false

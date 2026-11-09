@@ -107,6 +107,10 @@ func preparePi(request model.Request, workdir string, gate *bridge, probeURL str
 	// --no-extensions would also disable the built-in MCP extension, so user
 	// extensions are excluded through the scoped agent directory instead.
 	args := []string{"--mode", "json", "--print", "--no-session", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-builtin-tools"}
+	if gate.trustedNative {
+		args = args[:len(args)-1]
+		names = append(names, "read", "bash", "edit", "write", "grep", "find", "ls")
+	}
 	if plan.piModel != "" {
 		args = append(args, "--model", plan.piModel, "--thinking", plan.piThinking)
 	}
@@ -177,7 +181,7 @@ func (u *piUsageTotals) record(gate *bridge, usage piUsage) error {
 // fully failed retry loop, so the exit status alone proves nothing.
 func parsePi(reader io.Reader, gate *bridge, live *liveness) error {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
+	scanner.Buffer(make([]byte, 4096), maxCLIFrameBytes)
 	initialized, finished := false, false
 	sessionID := ""
 	messageSeq := 0
@@ -335,8 +339,18 @@ func parsePi(reader io.Reader, gate *bridge, live *liveness) error {
 		case "tool_execution_start":
 			if event.ToolName != "" {
 				live.valid("tool_call")
+				if gate.trustedNative && !strings.HasPrefix(event.ToolName, "mcp__") {
+					if err := gate.emit("native_action", map[string]any{"name": event.ToolName, "event": event.Type, "observation": "runner_reported; native_effect_audit=partial"}); err != nil {
+						return err
+					}
+				}
 			}
 		case "tool_execution_end":
+		case "tool_execution_update":
+			if !gate.trustedNative {
+				return newFailure(FailureProtocol, "native CLI emitted native tool progress outside the authorized tools")
+			}
+			live.valid("tool_result")
 		case "auto_retry_start":
 			live.notice("auto_retry")
 			if err := gate.notice("auto_retry_start", "the CLI is retrying a transient failure"); err != nil {
@@ -376,7 +390,7 @@ func parsePi(reader io.Reader, gate *bridge, live *liveness) error {
 			}
 		default:
 			if strings.Contains(strings.ToLower(event.Type), "tool") || suspiciousToolAction(line) {
-				return newFailure(FailureProtocol, "native CLI emitted an unknown tool action")
+				return newFailure(FailureProtocol, "native CLI emitted an unknown tool action: %s", safeToken(event.Type))
 			}
 			live.notice(event.Type)
 			if err := gate.notice(event.Type, "ignored unknown non-terminal notification"); err != nil {
@@ -386,7 +400,7 @@ func parsePi(reader io.Reader, gate *bridge, live *liveness) error {
 	}
 	if err := scanner.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
-			return newFailure(FailureProtocol, "native CLI output frame exceeds the 4 MiB frame limit")
+			return newFailure(FailureProtocol, "native CLI output frame exceeds the 16 MiB frame limit")
 		}
 		return newFailure(FailureProtocol, "native CLI output could not be read")
 	}

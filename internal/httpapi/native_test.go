@@ -587,7 +587,9 @@ func TestRevokingMemberPermissionsStopsRunningNativeStep(t *testing.T) {
 		stops  bool
 		revoke func(t *testing.T, call func(string, string, any, map[string]string) *httptest.ResponseRecorder, ws w.Workspace, agent w.Agent)
 	}{
-		{"member tools", true, func(t *testing.T, call func(string, string, any, map[string]string) *httptest.ResponseRecorder, ws w.Workspace, agent w.Agent) {
+		// The legacy workspace tool array is retired history: clearing it is not a
+		// revocation and must not stop execution.
+		{"legacy member tools cleared", false, func(t *testing.T, call func(string, string, any, map[string]string) *httptest.ResponseRecorder, ws w.Workspace, agent w.Agent) {
 			rw := call("PATCH", "/api/v1/workspaces/"+ws.ID+"/members/"+agent.ID, w.WorkspaceMember{Enabled: true, Tools: []string{}}, map[string]string{"If-Match": "1"})
 			if rw.Code != 200 {
 				t.Fatalf("member update failed: %s", rw.Body.String())

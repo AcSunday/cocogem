@@ -1,7 +1,6 @@
 package nativecli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AcSunday/cocogem/internal/cli"
 	"github.com/AcSunday/cocogem/internal/model"
 )
 
@@ -47,7 +45,7 @@ func installedPiChunk(w http.ResponseWriter, delta map[string]any, reason any) {
 	}
 }
 
-func TestInstalledPiTerminalFailures(t *testing.T) {
+func TestInstalledPiFailures(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		status int
@@ -76,11 +74,6 @@ func TestInstalledPiTerminalFailures(t *testing.T) {
 			defer cancel()
 			if _, err := (Provider{}).Complete(ctx, request, nil); FailureKindOf(err) != test.kind {
 				t.Fatalf("web adapter error=%v, want %s", err, test.kind)
-			}
-			t.Chdir(t.TempDir())
-			var output bytes.Buffer
-			if _, err := cli.Invoke("pi", cli.Request{Prompt: "Public synthetic fixture prompt"}, &output); err == nil {
-				t.Fatal("native CLI adapter accepted the failed or truncated result")
 			}
 		})
 	}

@@ -18,12 +18,26 @@ descendants. The authenticated directory browser obeys the same scope and only
 lists accessible folder names and paths, skipping hidden, known sensitive and
 symlink entries. It never returns file contents or changes a workspace binding.
 Paths are canonicalized before storage; known sensitive directories
-and symlink escapes are rejected. File tools are scoped to the workspace binding
-and remain read-only outside explicitly selected engineering development runs.
-Development additionally requires global and workspace write/test grants;
-reviewers receive no host write tools. Project tests can still change allowed
-files, so verified delivery requires matching project-tree evidence. Test
-execution uses the macOS OS sandbox; Linux test execution is currently blocked.
+and symlink escapes are rejected. Execution permission is one global policy,
+synchronized between the Composer and Settings. Legacy member tool arrays and
+workspace Grants do not form hidden permission settings for new execution.
+The current task, step role, enablement and exact operation scope still apply;
+independent reviewers cannot use direct write or patch tools, but an authorized
+test can change files in its allowed paths. Project-autonomous operations use a
+verified adapter/OS boundary, and extra scopes require a
+pre-effect decision. Codex project-autonomous execution uses a restricted named
+filesystem profile with an explicit root deny. Native approvals that cannot
+represent a one-call outside scope stay denied; scoped host tools handle those
+operations. A permission overlay for an entire native turn is not a once grant.
+Once approvals bind the exact invocation and arguments;
+conversation grants are shared by eligible members of that thread within the
+approved tool/action/resource scope. Revocation and deletion invalidate authority.
+Verified engineering delivery still requires matching project-tree evidence.
+An independent candidate directory is not created for every writable run: a
+submission path still bases that decision on legacy member tool arrays, and a
+run without a candidate can write to its bound source directory. macOS execution
+boundaries have separate behavioral tests; unsupported platforms fail closed
+rather than silently trusting native execution.
 Active runs block changes to the directory binding. See the
 [product document](docs/product.md#工具与执行边界) for the full tool boundaries.
 
@@ -35,7 +49,18 @@ Do not post keys, captured files or personal data in public issues.
 Security fixes must include regression tests. Provider integration tests must
 use synthetic, public fixtures and must be explicitly enabled.
 
-Web execution reuses local CLI authentication and allowlisted model connection configuration. A step exposes only the native read-only subset derived from the member's effective grants and the tools required by its exact scope, plus its scoped host MCP endpoint; raw shell, edit/write, built-in task/agent/skill tools and unrelated hooks/extensions/MCP servers stay disabled. Native tool names are enforced by the CLI and rechecked by the stream parser; actual call/result pairing is required before any source is saved. Claude settings live in a separate private directory; native file steps run from the workspace root so cwd-relative deny rules are effective, with project-memory discovery disabled, while web-only steps keep an empty cwd. Sensitive paths are denied, and a root that would expose the settings directory falls back to MCP file tools. Native web traffic is governed by the CLI/provider network policy, not the host URL/DNS/SSRF checks; if a public-web proxy is configured it is passed only to native-web children with loopback MCP and existing `NO_PROXY` entries preserved. It must fail closed if the CLI lacks these controls. The standalone terminal prototype inherits the native CLI's own permissions and is not the web execution boundary. Do not point web sessions at an arbitrary shell wrapper or resume user-owned interactive sessions.
+Web execution reuses local CLI authentication and the frozen model connection configuration. Each step exposes its task/role catalog and scoped host MCP endpoint. Controlled mode can request additional concrete operations; project-autonomous mode enables native tools through the adapter's execution gate and verified OS boundary. Full access retains trusted local native execution and does not promise sandbox isolation or complete effect auditing. The host revalidates live authority and records single-use consumption. A trusted invocation is not automatically retried after a transient failure within that invocation, but restart recovery may requeue an unfinished step after its process has exited or been stopped even when the result was not committed. It therefore cannot guarantee that an unrecorded native effect will not recur. Waiting for a decision holds no database write transaction and is separate from tool execution timeouts.
+
+When `COCOGEM_EXTERNAL_EGRESS_HOSTS` enables the host's external HTTP write
+handler, the initial URL must use HTTPS and match a configured host. The
+default HTTP client can follow redirects without checking subsequent targets
+against that list. Do not treat the initial host check as an enforced boundary
+for the entire redirect chain. Full-access native network operations do not use
+this host handler.
+
+Private Claude control hooks, Codex app-server approvals, OpenCode execution hooks and Gemini/Pi tool gates are part of the adapter; unrelated user hooks, extensions and MCP servers are not copied into the step. Native call/result identities must match before observations are recorded. Local model configuration is forwarded without granting the model arbitrary access to all user configuration or history. File/path checks, command execution profiles and mutating-request approvals have separate behavioral evidence. Public retrieval, dependency downloads and an approved external write are distinct operations. Installation, protocol fixtures, OS checks and real-provider journeys are recorded separately in the [acceptance record](docs/2026-11-08-permissions-and-ui-acceptance.md); an unknown adapter/OS combination is not a verified boundary.
+
+The Web service is the only supported product surface. Do not point it at an arbitrary shell wrapper or resume user-owned interactive sessions. Persisted session reuse requires the exact managed session identity and unchanged model, connection, role, context and global permission epoch.
 
 A CLI being installed or reporting a logged-in account does not establish that
 its token is current. Live verification must check an actual invocation and

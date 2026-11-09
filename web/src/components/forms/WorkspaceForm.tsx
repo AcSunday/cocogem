@@ -52,6 +52,7 @@ export function WorkspaceForm({
   return (
     <Modal title={current ? "编辑工作空间" : "创建工作空间"} close={close}>
       <form
+        id="workspace-form"
         onSubmit={(event) => {
           event.preventDefault();
           if (saving || browsing) return;
@@ -185,17 +186,21 @@ export function WorkspaceForm({
             ))}
           </fieldset>
         )}
-        {error && (
-          <p className={cx("error")} role="alert">
-            {error}
-          </p>
-        )}
-        <div className={cx("form-actions")}>
-          <button className={cx("primary")} disabled={saving || browsing}>
-            {saving ? "保存中…" : "保存工作空间"}
-          </button>
-        </div>
       </form>
+      {error && (
+        <p className={cx("error")} role="alert">
+          {error}
+        </p>
+      )}
+      <div className={cx("form-actions workspace-save-actions")}>
+        <button
+          form="workspace-form"
+          className={cx("primary")}
+          disabled={saving || browsing}
+        >
+          {saving ? "保存中…" : "保存工作空间"}
+        </button>
+      </div>
       {onDelete && (
         <section className={cx("danger-zone")}>
           <p className={cx("muted")}>

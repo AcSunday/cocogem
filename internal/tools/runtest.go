@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -248,17 +249,65 @@ func resolveToolchain(ctx context.Context, toolchain, temp string) (toolchainSpe
 		if err != nil {
 			return toolchainSpec{}, errors.New("node is unavailable; only go test and npm test are supported")
 		}
-		nodePath = resolveExecutable(nodePath)
+		nodePath = resolveNodeBinary(nodePath)
+		if nodePath == "" {
+			return toolchainSpec{}, errors.New("a native node executable could not be resolved safely")
+		}
 		npmResolved := resolveExecutable(npmPath)
+		command, npmRoot, err := resolveNPMCommand(ctx, npmPath, npmResolved, nodePath, temp)
+		if err != nil {
+			return toolchainSpec{}, err
+		}
 		env = append(env,
 			"PATH="+strings.Join([]string{filepath.Dir(nodePath), filepath.Dir(npmPath), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, ":"),
 			"npm_config_cache="+filepath.Join(temp, "npm-cache"),
 			"npm_config_offline=true", "npm_config_audit=false", "npm_config_fund=false",
 			"npm_config_update_notifier=false", "npm_config_progress=false",
 		)
-		return toolchainSpec{Command: []string{npmPath, "test", "--silent"}, Display: "npm test --silent", NodePath: nodePath, NPMRoot: npmPackageRoot(npmResolved), Env: env}, nil
+		return toolchainSpec{Command: command, Display: "npm test --silent", NodePath: nodePath, NPMRoot: npmRoot, Env: env}, nil
 	}
 	return toolchainSpec{}, errors.New("unsupported toolchain")
+}
+
+// resolveNPMCommand avoids executing an arbitrary PATH shim inside the sandbox.
+// The host resolves npm's own package entry point, then Node executes that exact
+// script with the same credential-free environment as the rest of the test.
+func resolveNPMCommand(ctx context.Context, npmPath, npmResolved, nodePath, temp string) ([]string, string, error) {
+	roots := []string{npmPackageRoot(npmResolved)}
+	// Agent launchers and version managers often put a shell shim before the
+	// actual installation. Inspect other configured PATH entries on the host,
+	// but never execute those shims inside the sandbox.
+	for _, directory := range filepath.SplitList(os.Getenv("PATH")) {
+		candidate := filepath.Join(directory, "npm")
+		if candidate == npmPath {
+			continue
+		}
+		resolved := resolveExecutable(candidate)
+		if resolved == npmResolved {
+			continue
+		}
+		roots = append(roots, npmPackageRoot(resolved))
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(queryCtx, npmPath, "root", "-g")
+	cmd.Dir = temp
+	cmd.Env = append(commonTestEnv(temp), "PATH="+strings.Join([]string{filepath.Dir(nodePath), filepath.Dir(npmPath), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin"}, ":"))
+	if output, err := cmd.Output(); err == nil {
+		roots = append([]string{filepath.Join(strings.TrimSpace(string(output)), "npm")}, roots...)
+	}
+	for _, root := range roots {
+		if root == "" || root == "." || root == string(filepath.Separator) {
+			continue
+		}
+		entry := filepath.Join(root, "bin", "npm-cli.js")
+		info, err := os.Stat(entry)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		return []string{nodePath, entry, "test", "--silent"}, root, nil
+	}
+	return nil, "", errors.New("npm CLI package could not be resolved safely")
 }
 
 func commonTestEnv(temp string) []string {
@@ -315,6 +364,32 @@ func resolveExecutable(path string) string {
 		return absolute
 	}
 	return path
+}
+
+func resolveNodeBinary(preferred string) string {
+	candidates := []string{preferred}
+	for _, directory := range filepath.SplitList(os.Getenv("PATH")) {
+		candidates = append(candidates, filepath.Join(directory, "node"))
+	}
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		resolved := resolveExecutable(candidate)
+		if seen[resolved] || !isExecutableFile(resolved) {
+			continue
+		}
+		seen[resolved] = true
+		file, err := os.Open(resolved)
+		if err != nil {
+			continue
+		}
+		prefix := make([]byte, 2)
+		n, readErr := io.ReadFull(file, prefix)
+		closeErr := file.Close()
+		if readErr == nil && closeErr == nil && n == 2 && string(prefix) != "#!" {
+			return resolved
+		}
+	}
+	return ""
 }
 
 func npmPackageRoot(resolved string) string {
@@ -436,6 +511,9 @@ type sandboxSpec struct {
 	Root      string
 	Temp      string
 	Toolchain toolchainSpec
+	// ExtraWrites are exact approved outside roots a project-autonomous command
+	// may write. Test execution never sets them.
+	ExtraWrites []string
 }
 
 type sandboxPlan struct {

@@ -219,6 +219,20 @@
   padding: 0;
   list-style: none;
 }
+.trash-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 2px 0;
+}
+.trash-count {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.trash-bulk-actions {
+  margin-left: auto;
+}
 .trash-item {
   display: grid;
   gap: 8px;
@@ -226,6 +240,19 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--surface-2) 45%, var(--surface));
+}
+.trash-item.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
+}
+.trash-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 10px;
+  align-items: start;
+}
+.trash-check {
+  margin-top: 3px;
 }
 .trash-main {
   display: grid;
@@ -312,5 +339,96 @@
   }
   .settings-inline-form > button {
     justify-self: stretch;
+  }
+}
+
+.workspace-permissions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-appearance-select {
+  display: grid;
+  gap: 8px;
+  max-width: 360px;
+  margin-top: 16px;
+}
+
+.workspace-save-actions {
+  margin-top: 18px;
+  padding-top: 4px;
+}
+
+/* Settings → 权限: the global mode choice lives on its own page. Same visual
+   language as the workspace mode card it replaces, but scoped to settings so a
+   retired workspace panel can never style it again. */
+.permission-modes {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.permission-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.permission-mode[data-selected] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.permission-mode:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.permission-mode input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.permission-mode span {
+  display: grid;
+  gap: 3px;
+}
+
+.permission-mode strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.permission-mode small {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mode-readout {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.mode-readout strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mode-readout small {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .permission-modes {
+    grid-template-columns: 1fr;
   }
 }

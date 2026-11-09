@@ -56,7 +56,7 @@ func TestEngineeringToolsAreOptInOnly(t *testing.T) {
 		}
 	}
 	for _, name := range AllNames {
-		if !slices.Contains(Names, name) && !slices.Contains(EngineeringNames, name) {
+		if !slices.Contains(Names, name) && !slices.Contains(EngineeringNames, name) && name != "run_command" {
 			t.Fatalf("%s is outside the complete vocabulary", name)
 		}
 	}

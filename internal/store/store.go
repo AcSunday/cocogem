@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -37,7 +38,7 @@ type Tx struct {
 	tx  *sql.Tx
 }
 
-// Open creates or migrates a private SQLite database.
+// Open initializes a private SQLite database with the current schema.
 func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
@@ -64,11 +65,15 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	if _, err = db.Exec(schema); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
+		return nil, fmt.Errorf("initialize schema: %w", err)
 	}
-	if err = migrateAgents(db); err != nil {
+	if err = migrateExecutionPolicy(db); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("migrate members: %w", err)
+		return nil, fmt.Errorf("migrate global execution policy: %w", err)
+	}
+	if err = migrateTaskThreads(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate task conversations: %w", err)
 	}
 	return &Store{db: db, changed: make(chan struct{})}, nil
 }
@@ -155,18 +160,31 @@ func body(v any) string {
 	return string(b)
 }
 
-// Workspaces lists workspaces in creation order.
+// Workspaces lists workspaces in creation order. Missing modes are legacy controlled projects.
 func (t *Tx) Workspaces() ([]w.Workspace, error) {
-	return list[w.Workspace](t, "SELECT body FROM workspaces ORDER BY rowid")
+	values, err := list[w.Workspace](t, "SELECT body FROM workspaces ORDER BY rowid")
+	for i := range values {
+		if values[i].ExecutionMode == "" {
+			values[i].ExecutionMode = w.ExecutionControlled
+		}
+	}
+	return values, err
 }
 
 // Workspace reads one workspace.
 func (t *Tx) Workspace(id string) (w.Workspace, error) {
-	return get[w.Workspace](t, "SELECT body FROM workspaces WHERE id=?", id)
+	value, err := get[w.Workspace](t, "SELECT body FROM workspaces WHERE id=?", id)
+	if value.ExecutionMode == "" {
+		value.ExecutionMode = w.ExecutionControlled
+	}
+	return value, err
 }
 
 // SaveWorkspace creates or replaces a workspace in the current transaction.
 func (t *Tx) SaveWorkspace(v w.Workspace) error {
+	if v.ExecutionMode == "" {
+		v.ExecutionMode = w.ExecutionControlled
+	}
 	return t.exec("INSERT INTO workspaces(id,revision,body) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body", v.ID, v.Revision, body(v))
 }
 
@@ -204,7 +222,7 @@ func (t *Tx) threads(workspaceID string, includeDeleted bool) ([]w.Thread, error
 		if err := json.Unmarshal([]byte(body), &value); err != nil {
 			return nil, err
 		}
-		if value.DeletedAt != "" && !includeDeleted {
+		if (value.DeletedAt != "" || value.Internal) && !includeDeleted {
 			continue
 		}
 		value.LastRunID, value.LastRunStatus = lastID, lastStatus
@@ -265,6 +283,11 @@ func (t *Tx) Runs(threadID string) ([]w.Run, error) {
 	return list[w.Run](t, "SELECT body FROM runs WHERE thread_id=? ORDER BY created_at,id", threadID)
 }
 
+// WorkspaceRuns lists all execution history used for process reconciliation.
+func (t *Tx) WorkspaceRuns(workspaceID string) ([]w.Run, error) {
+	return list[w.Run](t, "SELECT body FROM runs WHERE workspace_id=? ORDER BY created_at,id", workspaceID)
+}
+
 // Active returns queued or executing runs in FIFO order.
 func (t *Tx) Active() ([]w.Run, error) {
 	return list[w.Run](t, "SELECT body FROM runs WHERE status IN ('queued','running','canceling') ORDER BY created_at,id")
@@ -287,7 +310,7 @@ func (t *Tx) Idempotent(threadID, key string) (w.Run, string, error) {
 
 // InsertRun relies on unique constraints for idempotency and active-run exclusion.
 func (t *Tx) InsertRun(v w.Run, key, hash string) error {
-	return t.exec("INSERT INTO runs(id,workspace_id,thread_id,status,idempotency_key,request_hash,created_at,body) VALUES(?,?,?,?,?,?,?,?)", v.ID, v.WorkspaceID, v.ThreadID, v.Status, key, hash, v.CreatedAt, body(v))
+	return t.exec("INSERT INTO runs(id,workspace_id,thread_id,task_id,status,idempotency_key,request_hash,created_at,body) VALUES(?,?,?,?,?,?,?,?,?)", v.ID, v.WorkspaceID, v.ThreadID, v.TaskID, v.Status, key, hash, v.CreatedAt, body(v))
 }
 
 // SaveRun refuses to rewrite a previously committed terminal state.
@@ -299,7 +322,13 @@ func (t *Tx) SaveRun(v w.Run) error {
 	if w.Terminal(old.Status) {
 		return w.ErrConflict
 	}
-	return t.exec("UPDATE runs SET status=?,body=? WHERE id=?", v.Status, body(v), v.ID)
+	if err := t.exec("UPDATE runs SET task_id=?,status=?,body=? WHERE id=?", v.TaskID, v.Status, body(v), v.ID); err != nil {
+		return err
+	}
+	if w.Terminal(v.Status) {
+		return t.TaskRunFinished(v)
+	}
+	return nil
 }
 
 // Steps reads a run's deterministic plan.
@@ -345,7 +374,7 @@ func (t *Tx) SaveAttempt(v w.Attempt) error {
 }
 
 func attemptTerminal(status string) bool {
-	return status == "succeeded" || status == "failed" || status == "canceled" || status == "interrupted" || status == "uncertain" || status == "blocked"
+	return status == "succeeded" || status == "failed" || status == "canceled" || status == "interrupted" || status == "yielded" || status == "uncertain" || status == "blocked"
 }
 
 // RunClaim reads the current dispatch lease.
@@ -455,7 +484,10 @@ func (t *Tx) Cursor(runID string) (int64, error) {
 
 // SaveSource creates an immutable evidence capture.
 func (t *Tx) SaveSource(v w.Source) error {
-	return t.exec("INSERT INTO sources(id,workspace_id,thread_id,run_id,body) VALUES(?,?,?,?,?)", v.ID, v.WorkspaceID, v.ThreadID, v.RunID, body(v))
+	if err := t.exec("INSERT INTO sources(id,workspace_id,thread_id,run_id,body) VALUES(?,?,?,?,?)", v.ID, v.WorkspaceID, v.ThreadID, v.RunID, body(v)); err != nil {
+		return err
+	}
+	return t.appendSourceContext(v)
 }
 
 // Source reads captured evidence, never the current file or web page.
@@ -498,8 +530,49 @@ func (t *Tx) SaveArtifact(v w.Artifact) error {
 }
 
 // DeleteThread removes a conversation and everything recorded under it, children first.
+// Active work and unresolved effects retain their thread until explicitly reconciled.
 func (t *Tx) DeleteThread(id string) error {
+	var active int
+	if err := t.tx.QueryRowContext(t.ctx, "SELECT COUNT(*) FROM tasks WHERE thread_id=? AND status='active'", id).Scan(&active); err != nil {
+		return err
+	}
+	if active != 0 {
+		return w.ErrConflict
+	}
+	var pending int
+	if err := t.tx.QueryRowContext(t.ctx, "SELECT COUNT(*) FROM effect_records WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?) AND status IN ('executing','partial','uncertain')", id).Scan(&pending); err != nil {
+		return err
+	}
+	if pending != 0 {
+		return w.ErrConflict
+	}
 	for _, q := range []string{
+		// Execution authorization rows reference the thread and its runs, so they
+		// must be removed before the runs and the thread itself. Admissions first
+		// (they reference requests), then requests and conversation grants.
+		"DELETE FROM tool_invocation_admissions WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
+		"DELETE FROM tool_permission_requests WHERE thread_id=?",
+		"DELETE FROM conversation_grants WHERE thread_id=?",
+		"DELETE FROM delivery_receipts WHERE target_task_id IN (SELECT id FROM tasks WHERE thread_id=?) OR message_id IN (SELECT id FROM collaboration_messages WHERE sender_task_id IN (SELECT id FROM tasks WHERE thread_id=?))",
+		"DELETE FROM collaboration_messages WHERE sender_task_id IN (SELECT id FROM tasks WHERE thread_id=?) OR target_task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM wakeups WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM inbox_items WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM task_action_receipts WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM task_creation_receipts WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM questions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM effect_records WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM execution_sessions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM workspace_executions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM completion_records WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM task_dependencies WHERE producer_task_id IN (SELECT id FROM tasks WHERE thread_id=?) OR consumer_task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM read_receipts WHERE manifest_id IN (SELECT id FROM context_manifests WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?))",
+		"DELETE FROM context_scope_entries WHERE manifest_id IN (SELECT id FROM context_manifests WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?))",
+		"DELETE FROM context_manifests WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM claims WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM dataset_manifests WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM task_revisions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM budget_accounts WHERE root_task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM tasks WHERE thread_id=?",
 		"DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
 		"DELETE FROM attempts WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
 		"DELETE FROM run_claims WHERE run_id IN (SELECT id FROM runs WHERE thread_id=?)",
@@ -507,11 +580,17 @@ func (t *Tx) DeleteThread(id string) error {
 		"DELETE FROM message_chunks WHERE message_id IN (SELECT id FROM messages WHERE thread_id=?)",
 		"DELETE FROM messages WHERE thread_id=?",
 		"DELETE FROM sources WHERE thread_id=?",
+		"DELETE FROM source_imports WHERE thread_id=?",
 		"DELETE FROM artifacts WHERE thread_id=?",
 		"DELETE FROM runs WHERE thread_id=?",
+		"DELETE FROM bootstrap_receipts WHERE thread_id=?",
 		"DELETE FROM threads WHERE id=?",
 	} {
-		if err := t.exec(q, id); err != nil {
+		args := []any{id}
+		for range strings.Count(q, "?") - 1 {
+			args = append(args, id)
+		}
+		if err := t.exec(q, args...); err != nil {
 			return err
 		}
 	}
@@ -529,8 +608,21 @@ func (t *Tx) DeleteWorkspace(id string) error {
 			return err
 		}
 	}
-	if err := t.exec("DELETE FROM workspace_members WHERE workspace_id=?", id); err != nil {
-		return err
+	for _, q := range []string{
+		"DELETE FROM bootstrap_receipts WHERE workspace_id=?",
+		"DELETE FROM task_creation_receipts WHERE workspace_id=?",
+		"DELETE FROM task_dependencies WHERE consumer_task_id IN (SELECT id FROM tasks WHERE workspace_id=?)",
+		"DELETE FROM task_revisions WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id=?)",
+		"DELETE FROM budget_accounts WHERE root_task_id IN (SELECT id FROM tasks WHERE workspace_id=?)",
+		"DELETE FROM tasks WHERE workspace_id=?",
+		"DELETE FROM grants WHERE workspace_id=?",
+		"DELETE FROM memory_records WHERE workspace_id=?",
+		"DELETE FROM project_records WHERE workspace_id=?",
+		"DELETE FROM workspace_members WHERE workspace_id=?",
+	} {
+		if err := t.exec(q, id); err != nil {
+			return err
+		}
 	}
 	return t.exec("DELETE FROM workspaces WHERE id=?", id)
 }

@@ -27,7 +27,7 @@ import (
 // through the real native CLI and OS test sandbox. It uses only a synthetic
 // temporary project and the user's existing CLI connection; it never reads a
 // user project, credential file or real database.
-func TestLiveEngineeringDevelopAcceptance(t *testing.T) {
+func TestLiveEngineeringWriteAcceptance(t *testing.T) {
 	if os.Getenv("COCOGEM_CHECK_LIVE_ENGINEERING") != "1" {
 		t.Skip("set COCOGEM_CHECK_LIVE_ENGINEERING=1 to run the real native engineering acceptance")
 	}
@@ -189,18 +189,17 @@ func seedLiveEngineeringRun(t *testing.T, s *store.Store, root string) (w.Run, [
 	agents := []w.Agent{developer, reviewer}
 	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Title: "live engineering acceptance", AgentIDs: []string{developer.ID, reviewer.ID}, CoordinatorID: reviewer.ID, Workflow: "engineering", Revision: 1, UpdatedAt: w.Now()}
 	input := w.RunInput{
-		Message:           liveEngineeringTask,
-		Workflow:          "engineering",
-		EngineeringAction: w.EngineeringDevelop,
-		Assignments:       map[string]string{"developer": developer.ID, "reviewer": reviewer.ID},
-		ResearchScope:     "given_sources",
+		Message:       liveEngineeringTask,
+		Workflow:      "engineering",
+		Assignments:   map[string]string{"engineer": developer.ID, "reviewer": reviewer.ID},
+		ResearchScope: "given_sources",
 	}
 	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, CoordinatorID: thread.CoordinatorID, Input: input}
 	steps, err := Plan(run.ID, input, agents)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantRoles := []string{"developer", "reviewer", "developer", "final_reviewer"}
+	wantRoles := []string{"engineer", "reviewer", "engineer", "final_reviewer"}
 	if len(steps) != len(wantRoles) {
 		t.Fatalf("engineering plan has %d steps, want %d", len(steps), len(wantRoles))
 	}
@@ -373,7 +372,7 @@ func verifyLiveEngineeringEvidence(t *testing.T, root string, run w.Run, planned
 		t.Fatalf("captured diff no longer matches the delivered calc.go: source=%q current=%q err=%v", latestDiff.SHA256, current, err)
 	}
 	if latestDiff.CaptureStepID != planned[0].ID && latestDiff.CaptureStepID != planned[2].ID {
-		t.Fatalf("a non-developer step captured the write diff: %s", roles[latestDiff.CaptureStepID])
+		t.Fatalf("a non-engineer step captured the write diff: %s", roles[latestDiff.CaptureStepID])
 	}
 	for _, step := range planned[:3] {
 		if len(passingByStep[step.ID]) == 0 {

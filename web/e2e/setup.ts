@@ -1,12 +1,26 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 
+/** The exact bytes the permission journey expects to read after approval. */
+export const PERMISSION_OUTSIDE_CONTENT = "PERMISSION_E2E_OUTSIDE_CONTENT";
+
 export default async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "cocogem-e2e-"));
   const binary = join(dir, "httpapi.test");
+  // A real file OUTSIDE the bound fixture root (`<dir>/fixtures`). The server
+  // seeds its own copy with the same bytes; writing it here keeps the expectation
+  // explicit and guarantees the file exists even if a spec runs alone. Every
+  // `setup()` call makes a fresh temp dir, so specs stay independent.
+  const permissionFile = join(dir, "permission-outside.txt");
+  try {
+    await writeFile(permissionFile, PERMISSION_OUTSIDE_CONTENT, { mode: 0o600 });
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
   try {
     execFileSync("go", ["test", "-c", "-o", binary, "./internal/httpapi"], {
       cwd: join(process.cwd(), ".."),
@@ -33,6 +47,7 @@ export default async function setup() {
         COCOGEM_DATA_DIR: dir,
         COCOGEM_E2E_LISTEN: `127.0.0.1:${port}`,
         COCOGEM_E2E_WEB_DIR: join(process.cwd(), "dist"),
+        COCOGEM_E2E_PERMISSION_FILE: permissionFile,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },

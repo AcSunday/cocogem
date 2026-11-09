@@ -213,13 +213,17 @@ test("persisted task handoffs, skill settings and whole-run cancellation", async
   );
 
   for (const mode of ["light", "dark"]) {
-    await page.getByLabel("外观模式", { exact: true }).click();
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    const settings = page.getByRole("dialog", { name: "设置" });
+    await settings.getByRole("tab", { name: "外观", exact: true }).click();
+    await settings.getByLabel("外观模式", { exact: true }).click();
     await page
       .getByRole("option", {
         name: mode === "light" ? "浅色" : "深色",
         exact: true,
       })
       .click();
+    await settings.getByRole("button", { name: "关闭窗口" }).click();
     for (const width of [1125, 390]) {
       await page.setViewportSize({ width, height: 844 });
       await expect(review).toHaveAttribute("open", "");

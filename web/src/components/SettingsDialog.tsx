@@ -35,15 +35,28 @@ import {
   workflows,
 } from "../lib/presentation";
 import { MembersSettings } from "./forms/MembersSettings";
+import {
+  CollaborationBudget,
+  PermissionSettings,
+} from "./PermissionSettings";
+import type { ExecutionMode } from "../app/useGlobalSettings";
+import { AppearanceSelect, type Appearance } from "./AppearanceSelect";
 import { Icon, type IconName } from "./Icon";
 import { Modal } from "./Modal";
 import { Select } from "./Select";
 
 const cx = scoped(base, controls, layout, conversation, panels, settings);
 
-type SettingsTab = "members" | "collaboration" | "service" | "trash";
+type SettingsTab =
+  | "appearance"
+  | "members"
+  | "collaboration"
+  | "permission"
+  | "service"
+  | "trash";
 type TrashItem = { thread: Thread; workspace_name: string };
 
+/** Only collaboration defaults; the permission is patched from its own page. */
 const editable = (settings: Settings): SettingsInput => ({
   default_coordinator_id: settings.default_coordinator_id ?? "",
   assignments: Object.fromEntries(
@@ -52,6 +65,14 @@ const editable = (settings: Settings): SettingsInput => ({
       { ...(roles ?? {}) },
     ]),
   ),
+  collaboration_budget: {
+    auto_continuations: settings.collaboration_budget?.auto_continuations ?? 20,
+    parallel_branches: settings.collaboration_budget?.parallel_branches ?? 4,
+    writer_branches: settings.collaboration_budget?.writer_branches ?? 2,
+    fix_rounds: settings.collaboration_budget?.fix_rounds ?? 3,
+    no_progress_failures:
+      settings.collaboration_budget?.no_progress_failures ?? 2,
+  },
 });
 
 export function SettingsDialog({
@@ -63,8 +84,16 @@ export function SettingsDialog({
   saveSettings,
   agents = [],
   saveAgent,
-  onRestoreThread,
+  deleteAgent,
   onTrashChanged,
+  appearance,
+  onAppearance,
+  executionMode,
+  onExecutionModeChange,
+  permissionLoading,
+  permissionError,
+  permissionThreadID,
+  permissionThreadTitle,
 }: {
   system: System;
   setSystem: (value: System) => void;
@@ -74,12 +103,25 @@ export function SettingsDialog({
   saveSettings?: (value: SettingsInput) => Promise<Settings>;
   agents?: Agent[];
   saveAgent?: (value: Agent) => Promise<Agent>;
-  onRestoreThread?: (thread: Thread) => Promise<void> | void;
+  deleteAgent?: (value: Agent) => Promise<void>;
   onTrashChanged?: () => Promise<void> | void;
+  appearance?: Appearance;
+  onAppearance?: (value: Appearance) => void;
+  /** The global choice; omitted hides the permission category. */
+  executionMode?: ExecutionMode;
+  onExecutionModeChange?: (mode: ExecutionMode) => Promise<unknown>;
+  permissionLoading?: boolean;
+  permissionError?: string;
+  permissionThreadID?: string;
+  permissionThreadTitle?: string;
 }) {
   const tabs: [SettingsTab, string, IconName][] = [];
   if (saveAgent) tabs.push(["members", "成员", "users"]);
+  if (executionMode && onExecutionModeChange)
+    tabs.push(["permission", "权限", "tools"]);
   if (settings && saveSettings) tabs.push(["collaboration", "协作", "layers"]);
+  if (appearance && onAppearance)
+    tabs.push(["appearance", "外观", "appearance"]);
   tabs.push(["service", "服务", "settings"]);
   tabs.push(["trash", "回收站", "trash"]);
   const [tab, setTab] = useState<SettingsTab>(tabs[0][0]);
@@ -167,8 +209,31 @@ export function SettingsDialog({
                   refresh={async () => {}}
                   close={close}
                   save={saveAgent}
+                  remove={deleteAgent}
                 />
               )}
+              {tab === key &&
+                key === "appearance" &&
+                appearance &&
+                onAppearance && (
+                  <AppearanceSettings
+                    appearance={appearance}
+                    onChange={onAppearance}
+                  />
+                )}
+              {tab === key &&
+                key === "permission" &&
+                executionMode &&
+                onExecutionModeChange && (
+                  <PermissionSettings
+                    settings={settings}
+                    onExecutionMode={onExecutionModeChange}
+                    loading={permissionLoading}
+                    error={permissionError}
+                    threadID={permissionThreadID}
+                    threadTitle={permissionThreadTitle}
+                  />
+                )}
               {tab === key &&
                 key === "collaboration" &&
                 settings &&
@@ -190,7 +255,6 @@ export function SettingsDialog({
                 <TrashSettings
                   settings={settings}
                   saveSettings={saveSettings}
-                  onRestoreThread={onRestoreThread}
                   onTrashChanged={onTrashChanged}
                 />
               )}
@@ -199,6 +263,28 @@ export function SettingsDialog({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Appearance is a local preference and never changes model permissions. */
+function AppearanceSettings({
+  appearance,
+  onChange,
+}: {
+  appearance: Appearance;
+  onChange: (value: Appearance) => void;
+}) {
+  return (
+    <section aria-labelledby="settings-appearance">
+      <h2 id="settings-appearance">外观</h2>
+      <p className={cx("muted")}>
+        只影响当前浏览器。浅色、深色、暖色和跟随系统都保留相同的语义与焦点样式。
+      </p>
+      <label className={cx("settings-appearance-select")}>
+        外观模式
+        <AppearanceSelect value={appearance} onChange={onChange} />
+      </label>
+    </section>
   );
 }
 
@@ -243,6 +329,7 @@ function CollaborationSettings({
           ),
         ]),
       ),
+      collaboration_budget: current.collaboration_budget,
     };
   };
   const memberOptions = (current: string) => [
@@ -263,78 +350,90 @@ function CollaborationSettings({
       : []),
   ];
   return (
-    <form
-      className={cx("settings-form")}
-      onSubmit={(event) => {
-        event.preventDefault();
-        setSaving(true);
-        setError("");
-        setSaved(false);
-        void save(clearUnavailable(value))
-          .then((next) => {
-            setValue(editable(next));
-            setSaved(true);
-          })
-          .catch((error) => setError(errorText(error)))
-          .finally(() => setSaving(false));
-      }}
-    >
-      <section className={cx("settings-section")}>
-        <h3>默认分工</h3>
-        <p>
-          默认协调者和模式分工在创建会话与解析分工时使用。显式选择优先；成员未加入当前空间、已停用或缺少该角色所需工具时，回退到本会话可用成员，不会自动加入空间或授予权限。
-        </p>
-        <label>
-          默认协调者
-          <Select
-            value={value.default_coordinator_id ?? ""}
-            onChange={(selected) => {
-              setSaved(false);
-              setValue({ ...value, default_coordinator_id: selected });
-            }}
-          >
-            {memberOptions(value.default_coordinator_id ?? "")}
-          </Select>
-        </label>
-      </section>
-      <section className={cx("settings-section")}>
-        <h3>模式角色</h3>
-        <div className={cx("settings-fieldsets")}>
-          {Object.entries(workflowRoles)
-            .filter(([workflow]) => workflow !== "code_analysis")
-            .map(([workflow, roles]) => (
-              <fieldset key={workflow}>
-                <legend>{workflows[workflow as keyof typeof workflows]}</legend>
-                {roles.map((name) => (
-                  <label key={name}>
-                    {roleLabel(name)}
-                    <Select
-                      value={role(workflow, name)}
-                      onChange={(selected) => {
-                        setSaved(false);
-                        choose(workflow, name, selected);
-                      }}
-                    >
-                      {memberOptions(role(workflow, name))}
-                    </Select>
-                  </label>
-                ))}
-              </fieldset>
-            ))}
-        </div>
-        {error && (
-          <p role="alert" className={cx("error")}>
-            {error}
+    <>
+      <form
+        className={cx("settings-form")}
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSaving(true);
+          setError("");
+          setSaved(false);
+          void save(clearUnavailable(value))
+            .then((next) => {
+              setValue(editable(next));
+              setSaved(true);
+            })
+            .catch((error) => setError(errorText(error)))
+            .finally(() => setSaving(false));
+        }}
+      >
+        <section className={cx("settings-section")}>
+          <h3>默认分工</h3>
+          <p>
+            默认协调者和模式分工在创建会话与解析分工时使用。显式选择优先；成员未加入当前空间、已停用或不具备该角色所需能力时，回退到本会话可用成员，不会自动加入空间或授予权限。
           </p>
-        )}
-        {saved && <p role="status">协作默认已保存，新会话会使用这些选择。</p>}
-        <div className={cx("form-actions")}>
-          <button className={cx("primary")} disabled={saving}>
-            {saving ? "保存中…" : "保存协作默认"}
-          </button>
-        </div>
-      </section>
-    </form>
+          <label>
+            默认协调者
+            <Select
+              value={value.default_coordinator_id ?? ""}
+              onChange={(selected) => {
+                setSaved(false);
+                setValue({ ...value, default_coordinator_id: selected });
+              }}
+            >
+              {memberOptions(value.default_coordinator_id ?? "")}
+            </Select>
+          </label>
+        </section>
+        <section className={cx("settings-section")}>
+          <h3>模式角色</h3>
+          <div className={cx("settings-fieldsets")}>
+            {Object.entries(workflowRoles)
+              .filter(([workflow]) => workflow !== "code_analysis")
+              .map(([workflow, roles]) => (
+                <fieldset key={workflow}>
+                  <legend>
+                    {workflows[workflow as keyof typeof workflows]}
+                  </legend>
+                  {roles.map((name) => (
+                    <label key={name}>
+                      {roleLabel(name)}
+                      <Select
+                        value={role(workflow, name)}
+                        onChange={(selected) => {
+                          setSaved(false);
+                          choose(workflow, name, selected);
+                        }}
+                      >
+                        {memberOptions(role(workflow, name))}
+                      </Select>
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+          </div>
+          {error && (
+            <p role="alert" className={cx("error")}>
+              {error}
+            </p>
+          )}
+          {saved && <p role="status">协作默认已保存，新会话会使用这些选择。</p>}
+          <div className={cx("form-actions")}>
+            <button className={cx("primary")} disabled={saving}>
+              {saving ? "保存中…" : "保存协作默认"}
+            </button>
+          </div>
+        </section>
+      </form>
+      <CollaborationBudget
+        settings={settings}
+        save={(policy) =>
+          // Field merge: only the budget is sent, so the permission, roles and
+          // retention are never rewritten by saving the collaboration defaults.
+          save({ collaboration_budget: policy })
+        }
+      />
+    </>
   );
 }
 
@@ -502,7 +601,7 @@ function ServiceSettings({
               >
                 {(system.executors?.length
                   ? system.executors.map((item) => item.id)
-                  : ["claude", "codex", "gemini", "pi"]
+                  : ["claude", "codex", "gemini", "pi", "opencode"]
                 ).map((id) => (
                   <option key={id} value={id}>
                     {id}
@@ -563,32 +662,46 @@ function ServiceSettings({
 function TrashSettings({
   settings,
   saveSettings,
-  onRestoreThread,
   onTrashChanged,
 }: {
   settings?: Settings;
   saveSettings?: (value: SettingsInput) => Promise<Settings>;
-  onRestoreThread?: (thread: Thread) => Promise<void> | void;
   onTrashChanged?: () => Promise<void> | void;
 }) {
   const [items, setItems] = useState<TrashItem[]>();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [confirm, setConfirm] = useState<{
-    kind: "restore" | "permanent";
-    item: TrashItem;
-  }>();
+  const [confirm, setConfirm] = useState<string[]>();
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [days, setDays] = useState(String(settings?.retention_days ?? 7));
   const [savingDays, setSavingDays] = useState(false);
   const [savedDays, setSavedDays] = useState(false);
+  const selectAll = useRef<HTMLInputElement>(null);
+  const running = useRef(false);
+  const selectedItems = (items ?? []).filter((item) =>
+    selected.has(item.thread.id),
+  );
+  const selectedCount = selectedItems.length;
+  const allSelected = !!items?.length && selectedCount === items.length;
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
       const result = await api<{ items: TrashItem[] | null }>("/api/v1/trash");
-      setItems(result.items ?? []);
+      const next = result.items ?? [];
+      setItems(next);
+      setSelected(
+        (current) =>
+          new Set(
+            [...current].filter((id) =>
+              next.some((item) => item.thread.id === id),
+            ),
+          ),
+      );
+      setConfirm(undefined);
     } catch (error) {
       setLoadError(errorText(error));
     } finally {
@@ -601,184 +714,104 @@ function TrashSettings({
   useEffect(() => {
     setDays(String(settings?.retention_days ?? 7));
   }, [settings?.revision, settings?.retention_days]);
+  useEffect(() => {
+    if (selectAll.current)
+      selectAll.current.indeterminate = selectedCount > 0 && !allSelected;
+  }, [selectedCount, allSelected]);
 
-  const restore = async (item: TrashItem) => {
-    setBusy(item.thread.id);
+  const toggleAll = (checked: boolean) => {
+    setConfirm(undefined);
+    setNotice("");
+    setSelected(
+      checked
+        ? new Set((items ?? []).map((item) => item.thread.id))
+        : new Set(),
+    );
+  };
+  const toggleItem = (id: string, checked: boolean) => {
+    setConfirm(undefined);
+    setNotice("");
+    setSelected((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  // Each item keeps its own If-Match check, so a batch never bypasses the
+  // optimistic concurrency rule of a single restore or purge.
+  const process = async (
+    kind: "restore" | "permanent",
+    targets: TrashItem[],
+  ) => {
+    if (!targets.length || running.current)
+      return { completed: [] as TrashItem[], failures: 0 };
+    running.current = true;
+    setBusy(kind);
     setError("");
+    setNotice("");
+    const completed: TrashItem[] = [];
+    const failures: string[] = [];
     try {
-      await api(
-        `/api/v1/threads/${item.thread.id}/restore`,
-        "POST",
-        {},
-        { "If-Match": String(item.thread.revision) },
-      );
-      setItems((current) =>
-        (current ?? []).filter(
-          (candidate) => candidate.thread.id !== item.thread.id,
-        ),
-      );
+      for (const item of targets) {
+        try {
+          await api(
+            kind === "restore"
+              ? `/api/v1/threads/${item.thread.id}/restore`
+              : `/api/v1/threads/${item.thread.id}/permanent`,
+            kind === "restore" ? "POST" : "DELETE",
+            kind === "restore" ? {} : undefined,
+            { "If-Match": String(item.thread.revision) },
+          );
+          completed.push(item);
+        } catch (failure) {
+          failures.push(`${item.thread.title}：${errorText(failure)}`);
+        }
+      }
+      if (completed.length) {
+        const done = new Set(completed.map((item) => item.thread.id));
+        setItems((current) =>
+          (current ?? []).filter((item) => !done.has(item.thread.id)),
+        );
+        setSelected(
+          (current) => new Set([...current].filter((id) => !done.has(id))),
+        );
+      }
       setConfirm(undefined);
-      await onRestoreThread?.(item.thread);
-    } catch (failure) {
-      setError(errorText(failure));
+      if (failures.length) setError(failures.join("；"));
+      return { completed, failures: failures.length };
     } finally {
+      running.current = false;
       setBusy("");
     }
   };
-  const remove = async (item: TrashItem) => {
-    setBusy(item.thread.id);
-    setError("");
+  const restoreSelected = async () => {
+    const result = await process("restore", selectedItems);
+    if (!result.completed.length) return;
     try {
-      await api(
-        `/api/v1/threads/${item.thread.id}/permanent`,
-        "DELETE",
-        undefined,
-        { "If-Match": String(item.thread.revision) },
-      );
-      setItems((current) =>
-        (current ?? []).filter(
-          (candidate) => candidate.thread.id !== item.thread.id,
-        ),
-      );
-      setConfirm(undefined);
       await onTrashChanged?.();
+      setNotice(`已恢复 ${result.completed.length} 个会话。`);
     } catch (failure) {
       setError(errorText(failure));
-    } finally {
-      setBusy("");
+    }
+  };
+  const purgeSelected = async () => {
+    const ids = confirm ?? [];
+    const targets = (items ?? []).filter((item) =>
+      ids.includes(item.thread.id),
+    );
+    const result = await process("permanent", targets);
+    if (!result.completed.length) return;
+    try {
+      await onTrashChanged?.();
+      setNotice(`已永久删除 ${result.completed.length} 个会话。`);
+    } catch (failure) {
+      setError(errorText(failure));
     }
   };
 
   return (
     <>
-      <section className={cx("settings-section")}>
-        <h3>回收站</h3>
-        <p>
-          删除的会话会在这里保留 {settings?.retention_days ?? 7}{" "}
-          天。恢复后回到原工作空间；永久删除会立即移除消息、协作记录、来源和产物，无法恢复。
-        </p>
-        {loading && (
-          <p role="status" className={cx("muted")}>
-            正在读取回收站…
-          </p>
-        )}
-        {loadError && (
-          <p role="alert" className={cx("error")}>
-            {loadError}
-            <button
-              type="button"
-              className={cx("ghost small")}
-              onClick={() => void load()}
-            >
-              重试
-            </button>
-          </p>
-        )}
-        {items && !loading && !loadError && !items.length && (
-          <p className={cx("muted")}>回收站为空。</p>
-        )}
-        {!!items?.length && (
-          <ul className={cx("trash-list")} aria-label="回收站会话">
-            {items.map((item) => {
-              const active = confirm?.item.thread.id === item.thread.id;
-              return (
-                <li key={item.thread.id} className={cx("trash-item")}>
-                  <div className={cx("trash-main")}>
-                    <strong>{item.thread.title}</strong>
-                    <span className={cx("trash-meta")}>
-                      <span>{item.workspace_name}</span>
-                      <span>
-                        删除于{" "}
-                        {formatDateTime(item.thread.deleted_at) || "未知时间"}
-                      </span>
-                      <span>
-                        计划于{" "}
-                        {formatDateTime(item.thread.purge_at) || "未知时间"}{" "}
-                        自动清理
-                      </span>
-                    </span>
-                  </div>
-                  <div className={cx("trash-actions")}>
-                    <button
-                      type="button"
-                      className={cx("ghost small")}
-                      aria-label={`恢复会话：${item.thread.title}`}
-                      disabled={!!busy}
-                      onClick={() => {
-                        setError("");
-                        setConfirm({ kind: "restore", item });
-                      }}
-                    >
-                      恢复
-                    </button>
-                    <button
-                      type="button"
-                      className={cx("danger small")}
-                      aria-label={`永久删除会话：${item.thread.title}`}
-                      disabled={!!busy}
-                      onClick={() => {
-                        setError("");
-                        setConfirm({ kind: "permanent", item });
-                      }}
-                    >
-                      永久删除
-                    </button>
-                  </div>
-                  {active && (
-                    <div
-                      className={cx("confirm-inline")}
-                      role="alertdialog"
-                      aria-label={
-                        confirm.kind === "restore"
-                          ? `确认恢复 ${item.thread.title}`
-                          : `确认永久删除 ${item.thread.title}`
-                      }
-                    >
-                      <p>
-                        {confirm.kind === "restore"
-                          ? `恢复“${item.thread.title}”？它会回到“${item.workspace_name}”并打开。`
-                          : `永久删除“${item.thread.title}”？消息、协作记录、来源和产物会立即移除，无法恢复。`}
-                      </p>
-                      <div className={cx("form-actions")}>
-                        <button
-                          type="button"
-                          disabled={busy === item.thread.id}
-                          onClick={() => setConfirm(undefined)}
-                        >
-                          取消
-                        </button>
-                        <button
-                          type="button"
-                          className={cx(
-                            confirm.kind === "permanent" ? "danger" : "primary",
-                          )}
-                          disabled={busy === item.thread.id}
-                          onClick={() =>
-                            void (confirm.kind === "restore"
-                              ? restore(item)
-                              : remove(item))
-                          }
-                        >
-                          {busy === item.thread.id
-                            ? "正在处理…"
-                            : confirm.kind === "restore"
-                              ? "确认恢复"
-                              : "确认永久删除"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {error && (
-          <p role="alert" className={cx("error")}>
-            {error}
-          </p>
-        )}
-      </section>
       {settings && saveSettings && (
         <section className={cx("settings-section")}>
           <h3>保留周期</h3>
@@ -839,6 +872,149 @@ function TrashSettings({
           </form>
         </section>
       )}
+      <section className={cx("settings-section")}>
+        <h3>回收站</h3>
+        <p>
+          删除的会话会在这里保留 {settings?.retention_days ?? 7}{" "}
+          天。可多选或全选后批量恢复、永久删除；恢复后回到原工作空间。永久删除会立即移除消息、协作记录、来源和产物，无法恢复。
+        </p>
+        {loading && (
+          <p role="status" className={cx("muted")}>
+            正在读取回收站…
+          </p>
+        )}
+        {loadError && (
+          <p role="alert" className={cx("error")}>
+            {loadError}
+            <button
+              type="button"
+              className={cx("ghost small")}
+              onClick={() => void load()}
+            >
+              重试
+            </button>
+          </p>
+        )}
+        {items && !loading && !loadError && !items.length && (
+          <p className={cx("muted")}>回收站为空。</p>
+        )}
+        {!!items?.length && (
+          <>
+            <div className={cx("trash-toolbar")}>
+              <label className={cx("check-label")}>
+                <input
+                  ref={selectAll}
+                  type="checkbox"
+                  checked={allSelected}
+                  disabled={!!busy || loading}
+                  onChange={(event) => toggleAll(event.target.checked)}
+                />
+                全选
+              </label>
+              <span className={cx("trash-count")}>已选 {selectedCount} 项</span>
+              <div className={cx("trash-actions trash-bulk-actions")}>
+                <button
+                  type="button"
+                  className={cx("ghost small")}
+                  disabled={!selectedCount || !!busy || loading}
+                  onClick={() => void restoreSelected()}
+                >
+                  {busy === "restore" ? "正在恢复…" : "恢复所选"}
+                </button>
+                <button
+                  type="button"
+                  className={cx("danger small")}
+                  disabled={!selectedCount || !!busy || loading}
+                  onClick={() => {
+                    setError("");
+                    setNotice("");
+                    setConfirm(selectedItems.map((item) => item.thread.id));
+                  }}
+                >
+                  永久删除所选
+                </button>
+              </div>
+            </div>
+            {confirm && (
+              <div
+                className={cx("confirm-inline")}
+                role="alertdialog"
+                aria-label={`确认永久删除 ${confirm.length} 个会话`}
+              >
+                <p>
+                  永久删除已选的 {confirm.length}
+                  个会话？消息、协作记录、来源和产物会立即移除，无法恢复。
+                </p>
+                <div className={cx("form-actions")}>
+                  <button
+                    type="button"
+                    disabled={!!busy}
+                    onClick={() => setConfirm(undefined)}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className={cx("danger")}
+                    disabled={!!busy}
+                    onClick={() => void purgeSelected()}
+                  >
+                    {busy === "permanent" ? "正在处理…" : "确认永久删除"}
+                  </button>
+                </div>
+              </div>
+            )}
+            <ul className={cx("trash-list")} aria-label="回收站会话">
+              {items.map((item) => (
+                <li
+                  key={item.thread.id}
+                  className={cx(
+                    `trash-item ${selected.has(item.thread.id) ? "selected" : ""}`,
+                  )}
+                >
+                  <div className={cx("trash-row")}>
+                    <input
+                      type="checkbox"
+                      className={cx("trash-check")}
+                      aria-label={`选择会话：${item.thread.title}`}
+                      checked={selected.has(item.thread.id)}
+                      disabled={!!busy || loading}
+                      onChange={(event) =>
+                        toggleItem(item.thread.id, event.target.checked)
+                      }
+                    />
+                    <div className={cx("trash-main")}>
+                      <strong>{item.thread.title}</strong>
+                      <span className={cx("trash-meta")}>
+                        <span>{item.workspace_name}</span>
+                        <span>
+                          删除于{" "}
+                          {formatDateTime(item.thread.deleted_at) || "未知时间"}
+                        </span>
+                        <span>
+                          计划于{" "}
+                          {formatDateTime(item.thread.purge_at) || "未知时间"}{" "}
+                          自动清理
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {notice && (
+          <p role="status" className={cx("muted")}>
+            {notice}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className={cx("error")}>
+            {error}
+          </p>
+        )}
+      </section>
     </>
   );
 }

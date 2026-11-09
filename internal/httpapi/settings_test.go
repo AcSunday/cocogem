@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,14 @@ import (
 	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
+
+// ptr returns a pointer to a value for optional field-merge settings input.
+func ptr[T any](value T) *T { return &value }
+
+// assignments wraps a role map for the optional settings field.
+func assignments(value map[string]map[string]string) *map[string]map[string]string {
+	return &value
+}
 
 func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	dir := t.TempDir()
@@ -97,26 +106,26 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	}
 
 	bad := []SettingsInput{
-		{DefaultCoordinatorID: "not-a-uuid"},
-		{DefaultCoordinatorID: "00000000-0000-4000-8000-000000000000"},
-		{Assignments: map[string]map[string]string{"writing": {"coordinator": one[0].ID}}},
-		{Assignments: map[string]map[string]string{"research": {"writer": one[0].ID}}},
-		{Assignments: map[string]map[string]string{"research": {"researcher": one[0].ID, "critic": one[0].ID}}},
-		{Assignments: map[string]map[string]string{"code_analysis": {"analyst": one[0].ID, "reviewer": one[0].ID}}},
-		{Assignments: map[string]map[string]string{"engineering": {"developer": one[0].ID, "reviewer": one[0].ID}}},
-		{Assignments: map[string]map[string]string{"engineering": {"writer": one[0].ID}}},
+		{DefaultCoordinatorID: ptr("not-a-uuid")},
+		{DefaultCoordinatorID: ptr("00000000-0000-4000-8000-000000000000")},
+		{Assignments: assignments(map[string]map[string]string{"writing": {"coordinator": one[0].ID}})},
+		{Assignments: assignments(map[string]map[string]string{"research": {"writer": one[0].ID}})},
+		{Assignments: assignments(map[string]map[string]string{"research": {"researcher": one[0].ID, "critic": one[0].ID}})},
+		{Assignments: assignments(map[string]map[string]string{"code_analysis": {"analyst": one[0].ID, "reviewer": one[0].ID}})},
+		{Assignments: assignments(map[string]map[string]string{"engineering": {"developer": one[0].ID, "reviewer": one[0].ID}})},
+		{Assignments: assignments(map[string]map[string]string{"engineering": {"writer": one[0].ID}})},
 	}
 	for _, input := range bad {
 		call("PATCH", "/api/v1/settings", input, nil, 1, 400)
 	}
 	call("PATCH", "/api/v1/settings", SettingsInput{
-		DefaultCoordinatorID: one[2].ID,
-		Assignments: map[string]map[string]string{
+		DefaultCoordinatorID: ptr(one[2].ID),
+		Assignments: assignments(map[string]map[string]string{
 			"discussion":    {"coordinator": one[1].ID},
 			"research":      {"researcher": one[0].ID, "critic": one[1].ID, "coordinator": one[2].ID},
 			"code_analysis": {"analyst": one[0].ID, "reviewer": one[1].ID},
 			"engineering":   {"analyst": one[0].ID, "developer": one[1].ID, "reviewer": one[2].ID},
-		},
+		}),
 	}, &settings, 1, 200)
 	if settings.Revision != 2 || settings.DefaultCoordinatorID != one[2].ID || settings.Assignments["research"]["critic"] != one[1].ID {
 		t.Fatalf("settings were not saved: %+v", settings)
@@ -177,7 +186,7 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	}
 
 	// Changing the defaults later must not rewrite committed thread or run snapshots.
-	call("PATCH", "/api/v1/settings", SettingsInput{DefaultCoordinatorID: one[0].ID}, &settings, 2, 200)
+	call("PATCH", "/api/v1/settings", SettingsInput{DefaultCoordinatorID: ptr(one[0].ID)}, &settings, 2, 200)
 	call("GET", "/api/v1/runs/"+run.ID, nil, &view, 0, 200)
 	if view.Run.Routing.Assignments["coordinator"] != one[2].ID || view.Run.CoordinatorID != one[2].ID {
 		t.Fatalf("settings changed a historical run: %+v", view.Run)
@@ -191,8 +200,8 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	var outsider w.Agent
 	call("POST", "/api/v1/agents", w.Agent{DisplayName: "空间外成员", Handle: "outsider", Aliases: []string{}, Model: "default", Executor: "claude", Tools: []string{"read_file", "publish_artifact"}}, &outsider, 0, 200)
 	call("PATCH", "/api/v1/settings", SettingsInput{
-		DefaultCoordinatorID: outsider.ID,
-		Assignments:          map[string]map[string]string{"research": {"coordinator": outsider.ID}},
+		DefaultCoordinatorID: ptr(outsider.ID),
+		Assignments:          assignments(map[string]map[string]string{"research": {"coordinator": outsider.ID}}),
 	}, &settings, 3, 200)
 	var fallback w.Thread
 	call("POST", "/api/v1/workspaces/"+second.ID+"/threads", map[string]string{"title": "空间外回退"}, &fallback, 0, 200)
@@ -224,30 +233,42 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 		t.Fatalf("preview did not fall back to a workspace member: %+v", preview)
 	}
 
-	// Permission intersection: a default cannot supply a role it is not granted.
+	// Legacy tool arrays no longer intersect: editing only the workspace grant
+	// cannot silently strip a profile capability, and the global default may be
+	// used for the role it is qualified for.
 	call("PATCH", "/api/v1/workspaces/"+second.ID+"/members/"+two[1].ID, w.WorkspaceMember{Enabled: true, Tools: []string{"read_file"}}, nil, 1, 200)
 	call("PATCH", "/api/v1/settings", SettingsInput{
-		Assignments: map[string]map[string]string{
+		Assignments: assignments(map[string]map[string]string{
 			"research":   {"coordinator": two[1].ID},
 			"discussion": {"coordinator": two[1].ID},
-		},
+		}),
 	}, &settings, 4, 200)
 	input = w.RunInput{Message: "研究权限交集", Workflow: "research", Assignments: map[string]string{"researcher": two[0].ID, "critic": one[1].ID}}
 	call("POST", "/api/v1/threads/"+fallback.ID+"/routing-preview", input, &preview, 0, 200)
-	if preview.ProposalID == "" || preview.Routing.Assignments["coordinator"] == two[1].ID {
-		t.Fatalf("default ignored publish_artifact intersection: %+v", preview)
+	if preview.ProposalID == "" || preview.Routing.Assignments["coordinator"] != two[1].ID {
+		t.Fatalf("legacy workspace tool array still narrowed a profile capability: %+v", preview)
 	}
-	// A discussion coordinator that lost the grant falls back to a publisher in
-	// the same conversation instead of producing an impossible plan.
+	// A disabled member can never be staffed, whatever its tool array says.
+	call("PATCH", "/api/v1/workspaces/"+second.ID+"/members/"+two[1].ID, w.WorkspaceMember{Enabled: false, Tools: []string{"read_file"}}, nil, 2, 200)
+	input = w.RunInput{Message: "研究停用回退", Workflow: "research", Assignments: map[string]string{"researcher": two[0].ID, "critic": two[2].ID}}
+	call("POST", "/api/v1/threads/"+fallback.ID+"/routing-preview", input, &preview, 0, 200)
+	if preview.ProposalID == "" || preview.Routing.Assignments["coordinator"] == two[1].ID {
+		t.Fatalf("disabled member was staffed by a default: %+v", preview)
+	}
+	call("PATCH", "/api/v1/workspaces/"+second.ID+"/members/"+two[1].ID, w.WorkspaceMember{Enabled: true, Tools: []string{"read_file"}}, nil, 3, 200)
+	// A discussion coordinator that is no longer enabled falls back to a
+	// publisher in the same conversation instead of producing an impossible plan.
 	input = w.RunInput{Message: "讨论发布权限回退", Workflow: "discussion", Targets: []string{two[0].ID, two[1].ID}}
 	call("POST", "/api/v1/threads/"+fallback.ID+"/routing-preview", input, &preview, 0, 200)
-	if preview.ProposalID == "" || preview.Routing.Assignments["coordinator"] == two[1].ID || preview.Routing.Assignments["coordinator"] == "" {
-		t.Fatalf("discussion coordinator did not fall back to a publisher: %+v", preview)
+	if preview.ProposalID == "" || preview.Routing.Assignments["coordinator"] == "" {
+		t.Fatalf("discussion coordinator was not filled: %+v", preview)
 	}
 
 	// An explicit override is authoritative; an unusable pick is an error, not
-	// a silent reassignment.
-	input = w.RunInput{Message: "显式无效协调者", Workflow: "research", Assignments: map[string]string{"researcher": two[0].ID, "critic": two[1].ID, "coordinator": two[1].ID}}
+	// a silent reassignment. Legacy tool arrays no longer make an otherwise
+	// enabled member unusable, so the invalid case is a member that is not in
+	// this conversation/workspace at all.
+	input = w.RunInput{Message: "显式无效协调者", Workflow: "research", Assignments: map[string]string{"researcher": two[0].ID, "critic": two[1].ID, "coordinator": "missing-member"}}
 	call("POST", "/api/v1/threads/"+fallback.ID+"/routing-preview", input, nil, 0, 400)
 
 	// No assignments at all: every role is filled from the conversation and the
@@ -291,16 +312,26 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 		t.Fatalf("code_analysis plan = %d steps, want 4", len(view.Steps))
 	}
 
-	// Two members with only one publisher can still analyze: the publisher
-	// reviews and the other member analyzes.
+	// Two members are enough for code analysis: the analyst and reviewer must be
+	// distinct, and a member whose legacy tool array omits publish_artifact is
+	// still eligible because the runtime catalog provides it.
 	pair := members(rooted.ID)
-	call("PATCH", "/api/v1/workspaces/"+rooted.ID+"/members/"+pair[1].ID, w.WorkspaceMember{Enabled: true, Tools: []string{"read_file"}}, nil, 1, 200)
+	authorProfile, err := loadAgent(call, pair[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorProfile.Tools = []string{"read_file", "write_file", "run_test"}
+	call("PATCH", "/api/v1/agents/"+authorProfile.ID, authorProfile, nil, authorProfile.Revision, 200)
 	var paired w.Thread
 	call("POST", "/api/v1/workspaces/"+rooted.ID+"/threads", w.Thread{Title: "双成员代码分析", AgentIDs: []string{pair[0].ID, pair[1].ID}}, &paired, 0, 200)
 	input = w.RunInput{Message: "双成员代码分析默认", Workflow: "code_analysis"}
 	call("POST", "/api/v1/threads/"+paired.ID+"/routing-preview", input, &preview, 0, 200)
-	if preview.Routing.Assignments["analyst"] != pair[1].ID || preview.Routing.Assignments["reviewer"] != pair[0].ID {
-		t.Fatalf("two-member defaults = %+v, want analyst %s and reviewer %s", preview.Routing.Assignments, pair[1].ID, pair[0].ID)
+	analyst, reviewer := preview.Routing.Assignments["analyst"], preview.Routing.Assignments["reviewer"]
+	if analyst == "" || reviewer == "" || analyst == reviewer {
+		t.Fatalf("two-member defaults = %+v", preview.Routing.Assignments)
+	}
+	if analyst != pair[0].ID && analyst != pair[1].ID || reviewer != pair[0].ID && reviewer != pair[1].ID {
+		t.Fatalf("two-member defaults used a member outside the conversation: %+v", preview.Routing.Assignments)
 	}
 	input.ProposalID = preview.ProposalID
 	var pairedRun w.Run
@@ -309,18 +340,18 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	if len(view.Steps) != 4 {
 		t.Fatalf("two-member code_analysis plan = %d steps, want 4", len(view.Steps))
 	}
-	// An explicit analyst that is the only publisher is not silently changed.
-	input = w.RunInput{Message: "显式唯一发布者分析", Workflow: "code_analysis", Assignments: map[string]string{"analyst": pair[0].ID}}
+	// An explicit analyst still needs a different reviewer in the same roster.
+	input = w.RunInput{Message: "显式唯一发布者分析", Workflow: "code_analysis", Assignments: map[string]string{"analyst": pair[0].ID, "reviewer": pair[0].ID}}
 	call("POST", "/api/v1/threads/"+paired.ID+"/routing-preview", input, nil, 0, 400)
 
 	// A configured critic/reviewer keeps the preference but never doubles as
 	// the other exclusive role.
 	call("PATCH", "/api/v1/settings", SettingsInput{
-		DefaultCoordinatorID: two[2].ID,
-		Assignments: map[string]map[string]string{
+		DefaultCoordinatorID: ptr(two[2].ID),
+		Assignments: assignments(map[string]map[string]string{
 			"research":      {"critic": two[0].ID},
 			"code_analysis": {"reviewer": two[0].ID},
-		},
+		}),
 	}, &settings, 5, 200)
 	input = w.RunInput{Message: "仅质疑默认", Workflow: "research"}
 	call("POST", "/api/v1/threads/"+fallback.ID+"/routing-preview", input, &preview, 0, 200)
@@ -372,98 +403,88 @@ func TestSettingsDriveNewThreadsAndRunsWithoutGrantingAccess(t *testing.T) {
 	}
 }
 
-// TestCodeAnalysisDefaultsKeepTheOnlyPublisherForTheReviewer covers a feasible
-// two-member assignment: the member without publish_artifact analyzes and the
-// only publisher reviews, instead of rejecting the run.
-func TestEngineeringRoleDefaultsFollowTheSelectedAction(t *testing.T) {
-	builder := w.Agent{ID: "builder", DisplayName: "开发", Tools: []string{"read_file", "write_file", "run_test", "publish_artifact"}}
+// TestEngineeringRoleDefaultsUseEngineerAndReviewer covers role staffing under
+// the retired member tool configuration: the runtime catalog supplies publish and
+// write, so staffing is decided by roster and role exclusivity.
+func TestEngineeringRoleDefaultsUseEngineerAndReviewer(t *testing.T) {
+	builder := w.Agent{ID: "builder", DisplayName: "执行", Tools: []string{"read_file", "write_file", "run_test", "publish_artifact"}}
 	writer := w.Agent{ID: "writer", DisplayName: "写手", Tools: []string{"read_file", "write_file", "run_test"}}
 	reviewer := w.Agent{ID: "reviewer", DisplayName: "复核", Tools: []string{"read_file", "run_test", "publish_artifact"}}
 	reader := w.Agent{ID: "reader", DisplayName: "只读", Tools: []string{"read_file"}}
 	agents := []w.Agent{builder, writer, reviewer, reader}
 	thread := w.Thread{AgentIDs: []string{builder.ID, writer.ID, reviewer.ID, reader.ID}, CoordinatorID: reviewer.ID}
-	develop := func(in w.RunInput, settings w.Settings) (w.RunInput, error) {
+	prepare := func(in w.RunInput, settings w.Settings) (w.RunInput, error) {
 		in.Workflow = "engineering"
-		in.EngineeringAction = w.EngineeringDevelop
 		return applySettingsDefaults(in, thread, agents, settings)
 	}
 
-	// Omitted roles use only the action's subset and never self-review.
-	got, err := develop(w.RunInput{}, w.Settings{})
+	// The conversation coordinator is reserved for coordination, never consumed
+	// as the engineer when another eligible member exists.
+	got, err := prepare(w.RunInput{}, w.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Assignments["developer"] != builder.ID || got.Assignments["reviewer"] != reviewer.ID {
-		t.Fatalf("develop defaults = %+v", got.Assignments)
+	// Every member carries the runtime catalog, so staffing is by roster order and
+	// role exclusivity; a legacy array without publish_artifact no longer excludes
+	// the writer from the reviewer candidate list.
+	if got.Assignments["engineer"] != builder.ID || got.Assignments["reviewer"] != writer.ID {
+		t.Fatalf("engineering defaults = %+v", got.Assignments)
+	}
+	if got.Assignments["engineer"] == got.Assignments["reviewer"] {
+		t.Fatalf("engineering reused one member for both roles: %+v", got.Assignments)
 	}
 	if _, ok := got.Assignments["analyst"]; ok {
-		t.Fatalf("develop defaults included the analysis role: %+v", got.Assignments)
+		t.Fatalf("engineering defaults included a legacy role: %+v", got.Assignments)
 	}
-	// A configured role UUID is consumed when it is actually eligible.
-	got, err = develop(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
-		"engineering": {"developer": writer.ID, "reviewer": reviewer.ID},
+	// A configured engineer and reviewer are consumed when eligible.
+	got, err = prepare(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
+		"engineering": {"engineer": writer.ID, "reviewer": reviewer.ID},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Assignments["developer"] != writer.ID || got.Assignments["reviewer"] != reviewer.ID {
+	if got.Assignments["engineer"] != writer.ID || got.Assignments["reviewer"] != reviewer.ID {
 		t.Fatalf("configured engineering roles = %+v", got.Assignments)
 	}
-	// A configured default that cannot perform the role is not used and does
-	// not expand the conversation roster.
-	got, err = develop(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
-		"engineering": {"developer": reader.ID},
+	// A read-only member may engineer; only the reviewer needs publication.
+	got, err = prepare(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
+		"engineering": {"engineer": reader.ID, "reviewer": reviewer.ID},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Assignments["developer"] != builder.ID || got.Assignments["reviewer"] != reviewer.ID {
-		t.Fatalf("unavailable developer default = %+v", got.Assignments)
+	if got.Assignments["engineer"] != reader.ID || got.Assignments["reviewer"] != reviewer.ID {
+		t.Fatalf("read-only engineer default = %+v", got.Assignments)
 	}
-	// An explicit role outside the action or outside the roster is an error.
-	if _, err := develop(w.RunInput{Assignments: map[string]string{"analyst": reader.ID}}, w.Settings{}); err == nil || !strings.Contains(err.Error(), "不支持角色") {
-		t.Fatalf("explicit analyst on develop err = %v", err)
+	// A legacy role or a member outside the conversation is rejected.
+	if _, err := prepare(w.RunInput{Assignments: map[string]string{"analyst": reader.ID}}, w.Settings{}); err == nil || !strings.Contains(err.Error(), "不支持角色") {
+		t.Fatalf("explicit analyst err = %v", err)
 	}
-	if _, err := develop(w.RunInput{Assignments: map[string]string{"developer": "outside"}}, w.Settings{}); err == nil || !strings.Contains(err.Error(), "不可用") {
-		t.Fatalf("explicit outside developer err = %v", err)
+	if _, err := prepare(w.RunInput{Assignments: map[string]string{"engineer": "outside"}}, w.Settings{}); err == nil || !strings.Contains(err.Error(), "不可用") {
+		t.Fatalf("explicit outside engineer err = %v", err)
 	}
-	// The same member may not develop and review its own work.
-	self, err := develop(w.RunInput{Assignments: map[string]string{"developer": builder.ID, "reviewer": builder.ID}}, w.Settings{})
+	// The same member may not engineer and review its own work.
+	self, err := prepare(w.RunInput{Assignments: map[string]string{"engineer": builder.ID, "reviewer": builder.ID}}, w.Settings{})
 	if err == nil {
 		_, err = workflow.Plan("preview", self, agents)
 	}
 	if err == nil {
-		t.Fatal("developer and reviewer shared a member")
+		t.Fatal("engineer and reviewer shared a member")
 	}
 
-	// Analysis ignores the inapplicable developer default and keeps the
-	// publisher for the reviewer.
-	analyze, err := applySettingsDefaults(w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze}, thread, agents, w.Settings{Assignments: map[string]map[string]string{
-		"engineering": {"developer": writer.ID},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if analyze.Assignments["analyst"] != builder.ID || analyze.Assignments["reviewer"] != reviewer.ID {
-		t.Fatalf("analysis defaults = %+v", analyze.Assignments)
-	}
-	if _, ok := analyze.Assignments["developer"]; ok {
-		t.Fatalf("analysis used the developer role: %+v", analyze.Assignments)
-	}
-
-	// The only publisher is reserved for the reviewer even when it is also the
-	// first eligible developer; the other writer takes development.
-	publisher := w.Agent{ID: "publisher", DisplayName: "唯一发布者", Tools: []string{"read_file", "write_file", "run_test", "publish_artifact"}}
+	// An explicit engineer is honored and the reviewer is a different eligible
+	// member; no legacy tool array decides either.
+	publisher := w.Agent{ID: "publisher", DisplayName: "发布者", Tools: []string{"publish_artifact"}}
 	pairAgents := []w.Agent{publisher, writer, reader}
 	pair := w.Thread{AgentIDs: []string{publisher.ID, writer.ID, reader.ID}, CoordinatorID: publisher.ID}
-	reserved, err := applySettingsDefaults(w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringDevelop}, pair, pairAgents, w.Settings{Assignments: map[string]map[string]string{
-		"engineering": {"developer": publisher.ID},
+	reserved, err := applySettingsDefaults(w.RunInput{Workflow: "engineering"}, pair, pairAgents, w.Settings{Assignments: map[string]map[string]string{
+		"engineering": {"engineer": publisher.ID},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reserved.Assignments["developer"] != writer.ID || reserved.Assignments["reviewer"] != publisher.ID {
-		t.Fatalf("publisher reservation = %+v", reserved.Assignments)
+	if reserved.Assignments["engineer"] != publisher.ID || reserved.Assignments["reviewer"] == publisher.ID || reserved.Assignments["reviewer"] == "" {
+		t.Fatalf("explicit engineer reservation = %+v", reserved.Assignments)
 	}
 	// A journal entry for an unsupported engineering role is rejected.
 	if err := w.ValidateSettings(w.Settings{Assignments: map[string]map[string]string{"engineering": {"writer": publisher.ID}}}, agents); err == nil {
@@ -471,89 +492,76 @@ func TestEngineeringRoleDefaultsFollowTheSelectedAction(t *testing.T) {
 	}
 }
 
-// TestEngineeringDevelopReviewerDefaultsRequireRunTest proves the production
-// default resolver applies the develop action's full reviewer grant set: a
-// publisher without run_test cannot review development, while analysis keeps
-// its read-only reviewer requirement.
-func TestEngineeringDevelopReviewerDefaultsRequireRunTest(t *testing.T) {
-	developer := w.Agent{ID: "dev", DisplayName: "开发", Tools: []string{"read_file", "write_file", "run_test"}}
+// TestEngineeringReviewerDefaultsDoNotRequireRunTest proves the single
+// engineering workflow only requires the reviewer to publish. A read-only
+// reviewer without run_test remains valid; write/test capability belongs to the
+// engineer's existing grants.
+func TestEngineeringReviewerDefaultsDoNotRequireRunTest(t *testing.T) {
+	engineer := w.Agent{ID: "dev", DisplayName: "执行", Tools: []string{"read_file", "write_file", "run_test"}}
 	publisher := w.Agent{ID: "publisher", DisplayName: "仅发布", Tools: []string{"read_file", "publish_artifact"}}
 	reviewer := w.Agent{ID: "reviewer", DisplayName: "复核", Tools: []string{"read_file", "run_test", "publish_artifact"}}
-	agents := []w.Agent{developer, publisher, reviewer}
-	thread := w.Thread{AgentIDs: []string{developer.ID, publisher.ID, reviewer.ID}, CoordinatorID: publisher.ID}
-	develop := func(in w.RunInput, settings w.Settings) (w.RunInput, error) {
+	agents := []w.Agent{engineer, publisher, reviewer}
+	thread := w.Thread{AgentIDs: []string{engineer.ID, publisher.ID, reviewer.ID}, CoordinatorID: publisher.ID}
+	prepare := func(in w.RunInput, settings w.Settings) (w.RunInput, error) {
 		in.Workflow = "engineering"
-		in.EngineeringAction = w.EngineeringDevelop
 		return applySettingsDefaults(in, thread, agents, settings)
 	}
 
-	// A global reviewer preference without run_test is unusable and falls back
-	// to an eligible reviewer inside the same roster.
-	got, err := develop(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
+	got, err := prepare(w.RunInput{}, w.Settings{Assignments: map[string]map[string]string{
 		"engineering": {"reviewer": publisher.ID},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Assignments["reviewer"] != reviewer.ID || got.Assignments["developer"] != developer.ID {
-		t.Fatalf("develop defaults accepted an undergranted reviewer: %+v", got.Assignments)
+	if got.Assignments["reviewer"] != publisher.ID || got.Assignments["engineer"] != engineer.ID {
+		t.Fatalf("engineering defaults = %+v", got.Assignments)
 	}
-	// An explicit undergranted reviewer is authoritative and refused.
-	_, err = develop(w.RunInput{Assignments: map[string]string{"reviewer": publisher.ID}}, w.Settings{})
-	if err == nil || !strings.Contains(err.Error(), "run_test") {
-		t.Fatalf("explicit develop reviewer without run_test err = %v", err)
-	}
-	// An explicit valid reviewer stays unchanged.
-	got, err = develop(w.RunInput{Assignments: map[string]string{"developer": developer.ID, "reviewer": reviewer.ID}}, w.Settings{})
+	got, err = prepare(w.RunInput{Assignments: map[string]string{"engineer": engineer.ID, "reviewer": publisher.ID}}, w.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Assignments["developer"] != developer.ID || got.Assignments["reviewer"] != reviewer.ID {
-		t.Fatalf("explicit develop assignments changed: %+v", got.Assignments)
-	}
-	// Analysis keeps the publish-only reviewer requirement: no run_test needed.
-	analyze, err := applySettingsDefaults(w.RunInput{Workflow: "engineering", EngineeringAction: w.EngineeringAnalyze, Assignments: map[string]string{"analyst": developer.ID, "reviewer": publisher.ID}}, thread, agents, w.Settings{})
-	if err != nil {
-		t.Fatalf("analysis reviewer without run_test was refused: %v", err)
-	}
-	if analyze.Assignments["reviewer"] != publisher.ID {
-		t.Fatalf("analysis assignments = %+v", analyze.Assignments)
+	if got.Assignments["engineer"] != engineer.ID || got.Assignments["reviewer"] != publisher.ID {
+		t.Fatalf("explicit engineering assignments changed: %+v", got.Assignments)
 	}
 }
 
-func TestCodeAnalysisDefaultsKeepTheOnlyPublisherForTheReviewer(t *testing.T) {
+// TestCodeAnalysisDefaultsKeepRolesDistinct proves analyst and reviewer are two
+// different enabled members from the runtime catalog, and an explicit analyst is
+// authoritative even when its legacy tool array lists nothing.
+func TestCodeAnalysisDefaultsKeepRolesDistinct(t *testing.T) {
 	publisher := w.Agent{ID: "publisher", DisplayName: "发布者", Tools: []string{"publish_artifact"}}
 	reader := w.Agent{ID: "reader", DisplayName: "读者"}
 	agents := []w.Agent{publisher, reader}
 	thread := w.Thread{AgentIDs: []string{publisher.ID, reader.ID}, CoordinatorID: reader.ID}
-	check := func(name string, in w.RunInput, settings w.Settings, wantAnalyst, wantReviewer string) {
+	checkDistinct := func(name string, in w.RunInput, settings w.Settings) {
 		t.Helper()
 		got, err := applySettingsDefaults(in, thread, agents, settings)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if got.Assignments["analyst"] != wantAnalyst || got.Assignments["reviewer"] != wantReviewer {
-			t.Fatalf("%s: assignments = %+v, want analyst %s reviewer %s", name, got.Assignments, wantAnalyst, wantReviewer)
+		analyst, reviewer := got.Assignments["analyst"], got.Assignments["reviewer"]
+		if analyst == "" || reviewer == "" || analyst == reviewer {
+			t.Fatalf("%s: assignments = %+v", name, got.Assignments)
 		}
 	}
-	check("no defaults", w.RunInput{Workflow: "code_analysis"}, w.Settings{}, reader.ID, publisher.ID)
-	// A global analyst is soft: it yields the only publisher to the reviewer
-	// role instead of blocking the plan.
-	check("global analyst", w.RunInput{Workflow: "code_analysis"}, w.Settings{
+	checkDistinct("no defaults", w.RunInput{Workflow: "code_analysis"}, w.Settings{})
+	checkDistinct("global analyst", w.RunInput{Workflow: "code_analysis"}, w.Settings{
 		Assignments: map[string]map[string]string{"code_analysis": {"analyst": publisher.ID}},
-	}, reader.ID, publisher.ID)
-	// An explicit analyst is authoritative. Occupying the only publisher leaves
-	// no other reviewer; report that instead of silently reassigning the user.
-	_, err := applySettingsDefaults(w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": publisher.ID}}, thread, agents, w.Settings{})
-	if err == nil || !strings.Contains(err.Error(), "另一位") {
-		t.Fatalf("explicit unique publisher analyst error = %v, want a missing reviewer error", err)
+	})
+	// An explicit analyst is authoritative; the reviewer role moves to the other
+	// member because one member cannot hold both exclusive roles.
+	got, err := applySettingsDefaults(w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": publisher.ID}}, thread, agents, w.Settings{})
+	if err != nil {
+		t.Fatalf("explicit analyst was not honored: %v", err)
 	}
-	// An explicit non-publisher analyst stays unchanged.
-	check("explicit analyst", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": reader.ID}}, w.Settings{}, reader.ID, publisher.ID)
+	if got.Assignments["analyst"] != publisher.ID || got.Assignments["reviewer"] != reader.ID {
+		t.Fatalf("explicit analyst assignments = %+v", got.Assignments)
+	}
+	checkDistinct("explicit analyst", w.RunInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": reader.ID}}, w.Settings{})
 
 	// A configured exclusive partner keeps its member and the other role moves.
 	research := w.Thread{AgentIDs: []string{publisher.ID, reader.ID}, CoordinatorID: publisher.ID}
-	got, err := applySettingsDefaults(w.RunInput{Workflow: "research"}, research, agents, w.Settings{
+	got, err = applySettingsDefaults(w.RunInput{Workflow: "research"}, research, agents, w.Settings{
 		Assignments: map[string]map[string]string{"research": {"critic": reader.ID}},
 	})
 	if err != nil {
@@ -645,4 +653,46 @@ func TestRoutingProposalCatalogIsAvatarFreeButPermissionSensitive(t *testing.T) 
 	fox.Disabled = true
 	api.call("PATCH", "/api/v1/agents/"+fox.ID, fox, map[string]string{"If-Match": strconv.Itoa(fox.Revision)}, 200, &fox)
 	stale(disabledThread.ID, disabledInput, "avatar-disabled-member")
+}
+
+// TestWorkerRolesPreferNonCoordinatorMembers keeps the conversation
+// coordinator available for the coordinating role instead of consuming it as
+// the first researcher or analyst when other eligible members exist. A
+// two-member roster still fills every role by backtracking.
+func TestWorkerRolesPreferNonCoordinatorMembers(t *testing.T) {
+	coordinator := w.Agent{ID: "coord", DisplayName: "协调者", Tools: []string{"read_file", "publish_artifact"}}
+	researcher := w.Agent{ID: "researcher", DisplayName: "研究成员", Tools: []string{"read_file", "publish_artifact"}}
+	critic := w.Agent{ID: "critic", DisplayName: "质疑成员", Tools: []string{"read_file", "publish_artifact"}}
+	agents := []w.Agent{coordinator, researcher, critic}
+	thread := w.Thread{AgentIDs: []string{"coord", "researcher", "critic"}, CoordinatorID: "coord"}
+	got, err := applySettingsDefaults(w.RunInput{Workflow: "research"}, thread, agents, w.Settings{
+		Assignments: map[string]map[string]string{"research": {"coordinator": "coord"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assignments["researcher"] != "researcher" || got.Assignments["critic"] != "critic" || got.Assignments["coordinator"] != "coord" {
+		t.Fatalf("worker roles consumed the coordinator: %+v", got.Assignments)
+	}
+
+	pair := w.Thread{AgentIDs: []string{"coord", "researcher"}, CoordinatorID: "coord"}
+	got, err = applySettingsDefaults(w.RunInput{Workflow: "research"}, pair, []w.Agent{coordinator, researcher}, w.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assignments["researcher"] != "researcher" || got.Assignments["critic"] != "coord" {
+		t.Fatalf("two-member fallback did not use the coordinator as the worker of last resort: %+v", got.Assignments)
+	}
+}
+
+// loadAgent reads one global profile so a test can change its audit tool array.
+func loadAgent(call func(method, path string, in, out any, revision, want int), id string) (w.Agent, error) {
+	var list struct{ Items []w.Agent }
+	call("GET", "/api/v1/agents", nil, &list, 0, 200)
+	for _, agent := range list.Items {
+		if agent.ID == id {
+			return agent, nil
+		}
+	}
+	return w.Agent{}, fmt.Errorf("agent %s not found", id)
 }

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/skills"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/workflow"
@@ -74,6 +75,13 @@ type RunView struct {
 	Cursor   int64       `json:"cursor"`
 }
 
+// ContextView separates startup input, managed captures and host-delivered pages.
+type ContextView struct {
+	Manifest w.ContextManifest `json:"manifest"`
+	Appended []w.ContextItem   `json:"appended"`
+	Receipts []w.ReadReceipt   `json:"receipts"`
+}
+
 // RoutingPreview describes dispatch intent without starting execution.
 type RoutingPreview struct {
 	ProposalID string           `json:"proposal_id,omitempty"`
@@ -89,13 +97,39 @@ type WorkspaceInput struct {
 	SkillIDs    []string `json:"skill_ids"`
 }
 
-// SettingsInput replaces the device-wide collaboration defaults.
+// SettingsInput is the field-merge body of PATCH /api/v1/settings. An omitted
+// field keeps its stored value, so the permission page never clears the
+// collaboration defaults and saving collaboration never resets the permission.
+// The path and If-Match remain authoritative for the revision.
 type SettingsInput struct {
-	DefaultCoordinatorID string                       `json:"default_coordinator_id"`
-	Assignments          map[string]map[string]string `json:"assignments"`
-	// RetentionDays is optional on existing clients; nil keeps the current
-	// value. An explicit out-of-range value is rejected.
+	DefaultCoordinatorID *string                       `json:"default_coordinator_id,omitempty"`
+	Assignments          *map[string]map[string]string `json:"assignments,omitempty"`
+	// RetentionDays is optional; nil keeps the current value. An explicit
+	// out-of-range value is rejected.
 	RetentionDays *int `json:"retention_days,omitempty"`
+	// CollaborationBudget is optional; nil preserves the current global default
+	// and never mutates existing task accounts.
+	CollaborationBudget *w.BudgetPolicy `json:"collaboration_budget,omitempty"`
+	// ExecutionMode is the single global permission choice. Omitted keeps the
+	// stored value; a real change advances the server-owned permission epoch.
+	ExecutionMode *string `json:"execution_mode,omitempty"`
+	// PermissionEpoch is server-owned. It is accepted only to reject a client
+	// that tries to set it, never to overwrite the stored epoch.
+	PermissionEpoch *int `json:"permission_epoch,omitempty"`
+}
+
+// patch converts the wire body into the service-level field merge.
+func (in SettingsInput) patch() project.SettingsPatch {
+	if in.PermissionEpoch != nil {
+		return project.SettingsPatch{RejectEpoch: true}
+	}
+	return project.SettingsPatch{
+		DefaultCoordinatorID: in.DefaultCoordinatorID,
+		Assignments:          in.Assignments,
+		RetentionDays:        in.RetentionDays,
+		CollaborationBudget:  in.CollaborationBudget,
+		ExecutionMode:        in.ExecutionMode,
+	}
 }
 
 // ThreadUpdate edits the supplied fields; omitted settings keep their stored values.

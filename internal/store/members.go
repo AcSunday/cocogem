@@ -1,8 +1,6 @@
 package store
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -10,45 +8,6 @@ import (
 
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
-
-// migrateAgents preserves every old identity; names are never used to merge records.
-func migrateAgents(db *sql.DB) error {
-	ctx := context.Background()
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var exists int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_profiles'").Scan(&exists); err != nil {
-		return err
-	}
-	t := &Tx{ctx: ctx, tx: tx}
-	if exists > 0 {
-		agents, err := list[w.Agent](t, "SELECT body FROM agent_profiles ORDER BY rowid")
-		if err != nil {
-			return err
-		}
-		for _, agent := range agents {
-			workspaceID := agent.WorkspaceID
-			agent.WorkspaceID, agent.Membership = "", nil
-			if err := t.exec("INSERT INTO global_agents(id,revision,body) VALUES(?,?,?)", agent.ID, agent.Revision, body(agent)); err != nil {
-				return fmt.Errorf("preserve member %s: %w", agent.ID, err)
-			}
-			member := w.WorkspaceMember{WorkspaceID: workspaceID, AgentID: agent.ID, Enabled: true, Tools: agent.Tools, Revision: 1}
-			if err := t.exec("INSERT INTO workspace_members(workspace_id,agent_id,revision,body) VALUES(?,?,?,?)", workspaceID, agent.ID, member.Revision, body(member)); err != nil {
-				return err
-			}
-		}
-		if err := t.exec("DROP TABLE agent_profiles"); err != nil {
-			return err
-		}
-	}
-	if err := t.exec("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(2,strftime('%Y-%m-%dT%H:%M:%fZ','now'))"); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
 
 // GlobalAgents lists reusable profiles without workspace grants.
 func (t *Tx) GlobalAgents() ([]w.Agent, error) {
@@ -90,16 +49,13 @@ func (t *Tx) WorkspaceAgent(workspaceID, agentID string) (w.Agent, error) {
 	return effectiveAgent(agent, member), nil
 }
 
+// effectiveAgent applies current membership and enablement. Legacy tool arrays
+// are audit data: they no longer intersect with the profile, because the global
+// execution mode, task/role constraints and conversation grants now decide what
+// may run. Membership and disability checks still apply.
 func effectiveAgent(agent w.Agent, member w.WorkspaceMember) w.Agent {
 	agent.WorkspaceID, agent.Membership = member.WorkspaceID, &member
 	agent.Disabled = agent.Disabled || !member.Enabled
-	allowed := []string{}
-	for _, tool := range agent.Tools {
-		if slices.Contains(member.Tools, tool) {
-			allowed = append(allowed, tool)
-		}
-	}
-	agent.Tools = allowed
 	return agent
 }
 
@@ -121,7 +77,8 @@ func (t *Tx) SaveAgent(agent w.Agent) error {
 	}
 	if workspaceID != "" {
 		if _, err := t.Member(workspaceID, agent.ID); errors.Is(err, ErrNotFound) {
-			return t.SaveMember(w.WorkspaceMember{WorkspaceID: workspaceID, AgentID: agent.ID, Enabled: true, Tools: agent.Tools, Revision: 1})
+			// New links carry no tool grant; the runtime catalog is authoritative.
+			return t.SaveMember(w.WorkspaceMember{WorkspaceID: workspaceID, AgentID: agent.ID, Enabled: true, Revision: 1})
 		} else if err != nil {
 			return err
 		}
@@ -181,4 +138,64 @@ func (t *Tx) DeleteMember(workspaceID, agentID string) error {
 		return err
 	}
 	return t.exec("DELETE FROM workspace_members WHERE workspace_id=? AND agent_id=?", workspaceID, agentID)
+}
+
+// DeleteAgentProfile removes a reusable member and every workspace link. Run,
+// message and task snapshots already carry their own member copies, so history
+// stays readable while current rosters and defaults stop referencing the ID.
+func (t *Tx) DeleteAgentProfile(agentID string) error {
+	if _, err := t.Agent(agentID); err != nil {
+		return err
+	}
+	if err := t.exec("DELETE FROM workspace_members WHERE agent_id=?", agentID); err != nil {
+		return err
+	}
+	threads, err := list[w.Thread](t, "SELECT body FROM threads")
+	if err != nil {
+		return err
+	}
+	for _, thread := range threads {
+		next := slices.DeleteFunc(slices.Clone(thread.AgentIDs), func(id string) bool { return id == agentID })
+		coordinator := thread.CoordinatorID
+		if coordinator == agentID {
+			coordinator = ""
+			if len(next) > 0 {
+				coordinator = next[0]
+			}
+		}
+		if len(next) == len(thread.AgentIDs) && coordinator == thread.CoordinatorID {
+			continue
+		}
+		thread.AgentIDs, thread.CoordinatorID = next, coordinator
+		thread.Revision++
+		if err := t.SaveThread(thread); err != nil {
+			return err
+		}
+	}
+	settings, err := t.Settings()
+	if err != nil {
+		return err
+	}
+	changed := false
+	if settings.DefaultCoordinatorID == agentID {
+		settings.DefaultCoordinatorID, changed = "", true
+	}
+	for workflow, roles := range settings.Assignments {
+		for role, id := range roles {
+			if id == agentID {
+				delete(roles, role)
+				changed = true
+			}
+		}
+		if len(roles) == 0 {
+			delete(settings.Assignments, workflow)
+		}
+	}
+	if changed {
+		settings.Revision++
+		if err := t.SaveSettings(settings); err != nil {
+			return err
+		}
+	}
+	return t.exec("DELETE FROM global_agents WHERE id=?", agentID)
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,37 +23,51 @@ import (
 )
 
 type bridge struct {
-	ctx           context.Context
-	server        *http.Server
-	addr          string
-	token         string
-	tools         []model.Tool
-	schemas       map[string]*jsonschema.Schema
-	execute       agent.Execute
-	observe       agent.Observe
-	mu            sync.Mutex
-	calls         int
-	err           error
-	observeFailed bool
-	stop          context.CancelFunc
-	closed        bool
-	nativePrefix  string
-	usageKnown    bool
-	inputTokens   int
-	outputTokens  int
-	inputKnown    bool
-	outputKnown   bool
-	required      []string
-	listed        map[string]bool
-	listSeen      bool
-	native        map[string]bool
-	live          *liveness
-	notices       int
-	lastInputKey  string
-	inputRepeats  int
-	repeatNotice  bool
-	activityAt    time.Time
-	now           func() time.Time
+	ctx              context.Context
+	server           *http.Server
+	addr             string
+	token            string
+	tools            []model.Tool
+	schemas          map[string]*jsonschema.Schema
+	execute          agent.Execute
+	observe          agent.Observe
+	mu               sync.Mutex
+	execMu           sync.Mutex
+	calls            int
+	err              error
+	observeFailed    bool
+	stop             context.CancelFunc
+	closed           bool
+	nativePrefix     string
+	usageKnown       bool
+	inputTokens      int
+	outputTokens     int
+	inputKnown       bool
+	outputKnown      bool
+	required         []string
+	listed           map[string]bool
+	listSeen         bool
+	native           map[string]bool
+	trustedNative    bool
+	sessionMode      string
+	sessionID        string
+	live             *liveness
+	approver         *nativeApprover
+	sandbox          *nativeSandbox
+	nativeBoundary   bool
+	modelGateway     *modelGateway
+	cwd              string
+	nativeFullAccess bool
+	pluginToken      string
+	pluginTokenFile  string
+	pluginDecisions  map[string]*pluginDecision
+	notices          int
+	toolLimit        time.Duration
+	lastInputKey     string
+	inputRepeats     int
+	repeatNotice     bool
+	activityAt       time.Time
+	now              func() time.Time
 }
 
 // activityInterval bounds metadata-only activity signals; the first one in an
@@ -62,12 +77,13 @@ const activityInterval = time.Second
 // These are the complete native_activity kinds. The signal never carries
 // reasoning or text content.
 const (
-	activityReasoning = "reasoning"
-	activityTextDelta = "text_delta"
+	activityReasoning      = "reasoning"
+	activityTextDelta      = "text_delta"
+	activityPermissionWait = "permission_wait"
 )
 
 func newBridge(ctx context.Context, tools []model.Tool, execute agent.Execute, observe agent.Observe) (*bridge, error) {
-	b := &bridge{ctx: ctx, tools: tools, execute: execute, observe: observe, schemas: map[string]*jsonschema.Schema{}, listed: map[string]bool{}, native: map[string]bool{}}
+	b := &bridge{ctx: ctx, tools: tools, execute: execute, observe: observe, schemas: map[string]*jsonschema.Schema{}, listed: map[string]bool{}, native: map[string]bool{}, pluginDecisions: map[string]*pluginDecision{}}
 	for _, tool := range tools {
 		if tool.Name == "" || b.schemas[tool.Name] != nil {
 			return nil, errors.New("duplicate or empty native tool name")
@@ -96,6 +112,11 @@ func newBridge(ctx context.Context, tools []model.Tool, execute agent.Execute, o
 		return nil, err
 	}
 	b.token = hex.EncodeToString(secret[:])
+	var pluginSecret [24]byte
+	if _, err := rand.Read(pluginSecret[:]); err != nil {
+		return nil, err
+	}
+	b.pluginToken = hex.EncodeToString(pluginSecret[:])
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, errors.New("open scoped MCP listener")
@@ -107,6 +128,8 @@ func newBridge(ctx context.Context, tools []model.Tool, execute agent.Execute, o
 }
 
 func (b *bridge) url() string { return "http://" + b.addr + "/mcp" }
+
+func (b *bridge) pluginURL() string { return "http://" + b.addr + "/plugin" }
 
 func (b *bridge) close() {
 	b.mu.Lock()
@@ -143,6 +166,9 @@ func (b *bridge) allowedToolName(name string) bool {
 	const prefix = "mcp__cocogem__"
 	if strings.HasPrefix(name, prefix) {
 		return b.schemas[strings.TrimPrefix(name, prefix)] != nil
+	}
+	if b.trustedNative && !strings.HasPrefix(name, "mcp_") {
+		return true
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -234,7 +260,7 @@ func (b *bridge) emitLocked(kind string, data map[string]any) error {
 // window starts only after a successful write, and a failed observation stops
 // the attempt instead of being swallowed.
 func (b *bridge) activity(kind string) error {
-	if kind != activityReasoning && kind != activityTextDelta {
+	if kind != activityReasoning && kind != activityTextDelta && kind != activityPermissionWait {
 		return errors.New("unsupported native activity kind")
 	}
 	b.mu.Lock()
@@ -319,11 +345,23 @@ func (b *bridge) emitUsage() error {
 }
 
 func (b *bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Host != b.addr || r.Header.Get("Origin") != "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+b.token)) != 1 {
+	if r.Host != b.addr {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if r.URL.Path != "/mcp" || r.Method != http.MethodPost {
+	if strings.HasPrefix(r.URL.Path, "/plugin/") {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		b.servePlugin(w, r)
+		return
+	}
+	if r.Header.Get("Origin") != "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+b.token)) != 1 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost || r.URL.Path != "/mcp" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -398,17 +436,15 @@ func toolResult(output string, failed bool) any {
 // maxObservationBytes is the protocol boundary for one tool observation.
 const maxObservationBytes = 65536
 
+// Image tool results carry up to 8 MiB of pixels as base64 in CLI protocol frames.
+const maxCLIFrameBytes = 16 << 20
+
 // controlTools carry receipts or task state that the model must receive
 // intact. An oversized value is an implementation or protocol error, never a
 // body that may be paged or truncated.
-var controlTools = map[string]bool{"publish_artifact": true, "handoff_task": true, "read_skill": true, "get_task": true}
+var controlTools = map[string]bool{"publish_artifact": true, "handoff_task": true, "promote_to_task": true, "read_skill": true, "get_task": true}
 
 func (b *bridge) call(raw json.RawMessage) any {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.closed || b.err != nil || b.ctx.Err() != nil {
-		return toolResult("This step is stopped.", true)
-	}
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -429,22 +465,42 @@ func (b *bridge) call(raw json.RawMessage) any {
 	}
 	// The call number only gives each execution a stable identity; it is not
 	// a task budget and never refuses or stops legitimate work.
+	b.mu.Lock()
+	if b.closed || b.err != nil || b.ctx.Err() != nil {
+		b.mu.Unlock()
+		return toolResult("This step is stopped.", true)
+	}
 	b.calls++
 	id := fmt.Sprintf("native-%d", b.calls)
 	if err := b.recordRepeatLocked(params.Name, params.Arguments); err != nil {
+		b.mu.Unlock()
 		return toolResult("Could not persist native notice.", true)
 	}
 	if err := b.emitLocked("tool_started", map[string]any{"tool_call_id": id, "name": params.Name, "input": params.Arguments}); err != nil {
+		b.mu.Unlock()
 		return toolResult("Could not persist tool start.", true)
 	}
+	b.mu.Unlock()
 	started := time.Now()
 	limit := toolDeadline(params.Name)
+	if b.toolLimit > 0 {
+		limit = b.toolLimit
+	}
 	if b.live != nil {
 		b.live.toolStarted(limit)
 	}
-	callCtx, cancel := context.WithTimeout(b.ctx, limit)
-	output, callErr := b.execute(callCtx, params.Name, params.Arguments)
-	cancel()
+	// The execution timeout is pausable: a human permission decision is not
+	// execution time, and must not consume the ordinary tool window. The
+	// bridge mutex is never held across execute or the human wait.
+	// The deadline is pausable so a human permission decision never consumes
+	// the ordinary tool window; ctx.Deadline() still reports the current window
+	// to host tools.
+	deadline := newPausableDeadline(b.ctx, limit)
+	callCtx := context.WithValue(deadline, pausableDeadlineKey{}, deadline)
+	b.execMu.Lock()
+	output, callErr := b.execute(agent.WithToolCall(callCtx, id), params.Name, params.Arguments)
+	b.execMu.Unlock()
+	deadline.stop()
 	if b.live != nil {
 		b.live.toolFinished()
 	}
@@ -452,20 +508,42 @@ func (b *bridge) call(raw json.RawMessage) any {
 	if callErr != nil {
 		status, output = "error", "Tool error: "+callErr.Error()
 	}
+	if params.Name == "view_image" && callErr == nil {
+		var picture struct {
+			SourceID  string `json:"source_id"`
+			MediaType string `json:"image_media_type"`
+			Data      string `json:"image_data"`
+			Width     int    `json:"width"`
+			Height    int    `json:"height"`
+		}
+		if json.Unmarshal([]byte(output), &picture) != nil || picture.MediaType != "image/png" || len(picture.Data) > 12<<20 {
+			return toolResult("Invalid host image response.", true)
+		}
+		if data, err := base64.StdEncoding.DecodeString(picture.Data); err != nil || len(data) == 0 {
+			return toolResult("Invalid image bytes.", true)
+		}
+		metadata := fmt.Sprintf("Image source_id=%s, %dx%d pixels", picture.SourceID, picture.Width, picture.Height)
+		if err := b.emit("tool_finished", map[string]any{"tool_call_id": id, "name": params.Name, "status": "ok", "output": metadata, "duration_ms": time.Since(started).Milliseconds()}); err != nil {
+			return toolResult("Could not persist image delivery.", true)
+		}
+		return map[string]any{"content": []any{map[string]any{"type": "text", "text": metadata}, map[string]any{"type": "image", "mimeType": picture.MediaType, "data": picture.Data}}, "isError": false}
+	}
 	if len(output) > maxObservationBytes {
 		if controlTools[params.Name] {
 			// The receipt already exists externally; accepting a damaged or
 			// paged copy would let the step look successful with incomplete
 			// control data. Stop the attempt with a typed protocol failure.
 			message := fmt.Sprintf("tool_receipt_too_large: tool %s returned %d bytes, exceeding the %d-byte host observation boundary; control receipts must be complete, so the step is stopped", params.Name, len(output), maxObservationBytes)
-			if err := b.emitLocked("tool_finished", map[string]any{"tool_call_id": id, "name": params.Name, "status": "error", "output": message, "duration_ms": time.Since(started).Milliseconds()}); err != nil {
+			if err := b.emit("tool_finished", map[string]any{"tool_call_id": id, "name": params.Name, "status": "error", "output": message, "duration_ms": time.Since(started).Milliseconds()}); err != nil {
 				return toolResult("Could not persist tool result.", true)
 			}
-			if b.err == nil {
+			b.mu.Lock()
+			if b.ctx.Err() == nil && b.err == nil {
 				b.err = newFailure(FailureProtocol, "%s", message)
-				if b.stop != nil {
-					b.stop()
-				}
+			}
+			b.mu.Unlock()
+			if b.stop != nil {
+				b.stop()
 			}
 			return toolResult(message, true)
 		}
@@ -474,12 +552,12 @@ func (b *bridge) call(raw json.RawMessage) any {
 		// for a protocol failure.
 		status = "error"
 		output = fmt.Sprintf("tool_observation_too_large: tool %s returned more than the %d-byte host observation limit; retrieve the captured content in bounded pages with read_source or read_context", params.Name, maxObservationBytes)
-		if err := b.emitLocked("tool_finished", map[string]any{"tool_call_id": id, "name": params.Name, "status": status, "output": output, "duration_ms": time.Since(started).Milliseconds()}); err != nil {
+		if err := b.emit("tool_finished", map[string]any{"tool_call_id": id, "name": params.Name, "status": status, "output": output, "duration_ms": time.Since(started).Milliseconds()}); err != nil {
 			return toolResult("Could not persist tool result.", true)
 		}
 		return toolResult(output, true)
 	}
-	if err := b.emitLocked("tool_finished", map[string]any{"tool_call_id": id, "name": params.Name, "status": status, "output": output, "duration_ms": time.Since(started).Milliseconds()}); err != nil {
+	if err := b.emit("tool_finished", map[string]any{"tool_call_id": id, "name": params.Name, "status": status, "output": output, "duration_ms": time.Since(started).Milliseconds()}); err != nil {
 		return toolResult("Could not persist tool result.", true)
 	}
 	return toolResult(output, callErr != nil)

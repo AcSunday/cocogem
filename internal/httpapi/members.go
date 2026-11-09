@@ -1,9 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
-	"slices"
 
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
@@ -26,7 +26,7 @@ func (s *Server) initializeMembers(tx *store.Tx, workspaceID string) error {
 		for i, name := range []string{"布偶猫", "缅因猫", "橘猫"} {
 			handles := []string{"ragdoll", "maine", "orange"}
 			roles := []string{"研究资料，整理证据与不确定性。", "独立质疑结论，核对依据与遗漏。", "组织讨论，汇总观点并保留分歧。"}
-			agent := w.Agent{ID: w.NewID(), DisplayName: name, Handle: handles[i], Aliases: []string{}, RoleDescription: roles[i], Model: "default", Tools: tools.Names, Revision: 1}
+			agent := w.Agent{ID: w.NewID(), DisplayName: name, Handle: handles[i], Aliases: []string{}, RoleDescription: roles[i], Model: "default", Revision: 1}
 			if len(s.config.Models) > 0 {
 				agent.Model = s.config.Models[0]
 			}
@@ -47,10 +47,10 @@ func (s *Server) initializeMembers(tx *store.Tx, workspaceID string) error {
 			continue
 		}
 		// Existing workspaces may contain different identities with the same handle.
-		if err := w.ValidateAgent(agent, selected, []string{agent.Model}, agent.Tools); err != nil {
+		if err := w.ValidateAgent(agent, selected, []string{agent.Model}, nil); err != nil {
 			continue
 		}
-		member := w.WorkspaceMember{WorkspaceID: workspaceID, AgentID: agent.ID, Enabled: true, Tools: agent.Tools, Revision: 1}
+		member := w.WorkspaceMember{WorkspaceID: workspaceID, AgentID: agent.ID, Enabled: true, Revision: 1}
 		if err := tx.SaveMember(member); err != nil {
 			return err
 		}
@@ -95,6 +95,8 @@ func (s *Server) createMemberProfile(rw http.ResponseWriter, r *http.Request, wo
 	if !decodeLimit(rw, r, &agent, 1<<20) {
 		return
 	}
+	// Member tool configuration is retired input: drop it and store no grant.
+	agent.Tools = nil
 	agent.ID, agent.WorkspaceID, agent.Membership, agent.Revision = w.NewID(), workspaceID, nil, 1
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
 		if err := w.ValidateNewAvatar(agent.Avatar); err != nil {
@@ -120,10 +122,9 @@ func (s *Server) createMemberProfile(rw http.ResponseWriter, r *http.Request, wo
 	respond(rw, r, agent, err)
 }
 
-// revokedTools reports whether any previously granted tool disappeared.
-func revokedTools(previous, next []string) bool {
-	return slices.ContainsFunc(previous, func(tool string) bool { return !slices.Contains(next, tool) })
-}
+// revokedTools is intentionally gone: removing a member tool array entry is not a
+// revocation. The legacy arrays are history, so only disabling a profile or
+// unlinking membership stops execution.
 
 func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 	var agent w.Agent
@@ -146,6 +147,9 @@ func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		// Keep the historical array untouched; a save cannot reintroduce a
+		// member-level tool grant.
+		agent.Tools = old.Tools
 		agent.ID, agent.WorkspaceID, agent.Membership, agent.Revision = old.ID, "", nil, old.Revision+1
 		if err := s.validateExecutor(agent.Executor); err != nil {
 			return err
@@ -153,7 +157,7 @@ func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 		if err := w.ValidateAgent(agent, nil, s.config.Models, tools.AllNames); err != nil {
 			return err
 		}
-		revoked = agent.Disabled && !old.Disabled || revokedTools(old.Tools, agent.Tools)
+		revoked = agent.Disabled && !old.Disabled
 		return tx.SaveAgent(agent)
 	})
 	if err == nil && revoked && s.engine != nil {
@@ -163,14 +167,28 @@ func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 	respond(rw, r, agent, err)
 }
 
-func validateMemberTools(member w.WorkspaceMember) error {
-	for _, tool := range member.Tools {
-		if !slices.Contains(tools.AllNames, tool) {
-			return errors.New("工作空间工具权限无效")
+func (s *Server) deleteAgent(rw http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("id")
+	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
+		agent, err := tx.Agent(agentID)
+		if err != nil {
+			return err
 		}
+		if err := revision(r, agent.Revision); err != nil {
+			return err
+		}
+		return tx.DeleteAgentProfile(agentID)
+	})
+	if err == nil && s.engine != nil {
+		// Stop a running native process owned by the deleted member. The
+		// profile write is already committed and must not depend on the client.
+		err = s.engine.CancelMember(context.WithoutCancel(r.Context()), "", agentID)
 	}
-	return nil
+	respond(rw, r, DeleteReply{ID: agentID}, err)
 }
+
+// validateMemberTools is retired: membership no longer carries tool grants.
+func validateMemberTools(w.WorkspaceMember) error { return nil }
 
 func (s *Server) linkMember(rw http.ResponseWriter, r *http.Request) {
 	s.saveMember(rw, r, false)
@@ -198,7 +216,10 @@ func (s *Server) saveMember(rw http.ResponseWriter, r *http.Request, update bool
 				return err
 			}
 			member.Revision = old.Revision + 1
-			revoked = old.Enabled && !member.Enabled || revokedTools(old.Tools, member.Tools)
+			// The legacy tool array is no longer editable or authoritative; only
+			// enablement changes revoke execution.
+			member.Tools = old.Tools
+			revoked = old.Enabled && !member.Enabled
 		} else {
 			if err == nil {
 				return w.ErrConflict

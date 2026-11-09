@@ -40,6 +40,12 @@ func prepareSandbox(ctx context.Context, spec sandboxSpec) (sandboxPlan, error) 
 	return sandboxPlan{Prefix: []string{sandbox, "-f", profilePath}, Env: spec.Toolchain.Env}, nil
 }
 
+// prepareCommandSandbox builds the project-command profile. It converges on the
+// same deny-default builder as tests, plus the approved write roots.
+func prepareCommandSandbox(ctx context.Context, spec sandboxSpec) (sandboxPlan, error) {
+	return prepareSandbox(ctx, spec)
+}
+
 func darwinProfile(spec sandboxSpec) string {
 	readPaths := []string{"/usr", "/bin", "/sbin", "/System", "/dev", spec.Root, spec.Temp, spec.Toolchain.GoRoot, spec.Toolchain.GoModCache, spec.Toolchain.NPMRoot, spec.Toolchain.NodePath}
 	execPaths := []string{"/bin/sh", "/bin/bash", "/usr/bin/env", spec.Root, spec.Temp, spec.Toolchain.GoRoot, spec.Toolchain.NPMRoot, spec.Toolchain.NodePath}
@@ -59,7 +65,7 @@ func darwinProfile(spec sandboxSpec) string {
 	out.WriteString(")\n")
 	out.WriteString("(allow file-write*")
 	// Writing devices other than /dev/null is neither needed nor allowed.
-	for _, path := range []string{spec.Root, spec.Temp} {
+	for _, path := range append([]string{spec.Root, spec.Temp}, spec.ExtraWrites...) {
 		if path != "" {
 			out.WriteString(" (subpath " + sbplString(path) + ")")
 		}

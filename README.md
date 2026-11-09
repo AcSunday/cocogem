@@ -2,9 +2,9 @@
 
 # Cocogem
 
-**把问题交给一个团队。**
+**Give your task a team.**
 
-让本机的 Claude Code、Codex、Gemini 和 Pi 在同一个工作空间里讨论、研究、开发与复核。
+Let Claude Code, Codex, Gemini, Pi, and OpenCode discuss, research, develop, and review in one workspace.
 
 [![CI](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml/badge.svg)](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.26.10+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
@@ -12,34 +12,36 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[快速开始](#快速开始) · [功能](#能做什么) · [产品文档](docs/product.md) · [参与贡献](CONTRIBUTING.md)
+**English** | [简体中文](README.zh-CN.md)
+
+[Quick Start](#quick-start) · [Features](#what-it-does) · [Product Guide](docs/product.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
-## 为什么做 Cocogem？
+## Why Cocogem?
 
-你已经有几个常用的 AI CLI，却还要在终端之间搬运上下文、转述意见、催下一位成员复核。任务越复杂，这些协调工作越容易淹没问题本身。
+You already have a few AI CLIs you rely on, but you still move context between terminals, relay opinions, and ask the next agent to review the work. The more complex the task, the more time goes into coordination.
 
-Cocogem 把它们放进同一个本地工作空间：你描述目标，成员分工、交接并检查彼此的结果，最后留下可回看的对话、来源和交付物。成员可以使用不同的 CLI 和模型，复用你已有的 API Key、服务地址、供应商及模型设置，无需额外的 Cocogem 模型密钥或重新登录。
+Cocogem brings them into one local workspace. Describe your goal; members divide the work, hand off tasks, and check each other's results. Conversations, sources, and deliverables stay available for review. Each member can use a different CLI and model, reusing your existing API keys, endpoints, providers, and model settings without an extra Cocogem model key or a new login.
 
-## 看看界面
+## See It in Action
 
-![Cocogem 协作会话](docs/screenshots/conversation-light.png)
+![Cocogem collaboration workspace](docs/screenshots/conversation-light.png)
 
 <details>
-<summary>深色与移动端</summary>
+<summary>Dark mode and mobile</summary>
 
-![深色模式](docs/screenshots/conversation-dark.png)
+![Dark mode](docs/screenshots/conversation-dark.png)
 
-<img src="docs/screenshots/conversation-mobile.png" alt="移动端会话" width="320" />
+<img src="docs/screenshots/conversation-mobile.png" alt="Mobile conversation" width="320" />
 
 </details>
 
-界面示例使用合成资料，展示产品交互；不代表真实模型的研究或交付质量。
+These screenshots use synthetic data to demonstrate the interface. They do not establish the quality of real model research or deliverables.
 
-## 快速开始
+## Quick Start
 
-准备 Go 1.26.10+（1.26 系列）、Node.js 22.12+（建议 24 LTS）和 npm，以及至少一个已能正常使用的本机 CLI。
+You need Go 1.26.10+ within the 1.26 series, Node.js 22.12+ (24 LTS recommended), npm, and at least one working local agent CLI.
 
 ```sh
 git clone https://github.com/AcSunday/cocogem.git
@@ -48,94 +50,92 @@ make setup
 make dev
 ```
 
-打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)：
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173):
 
-1. 首次使用时设置 12–128 字符的本地访问密码。
-2. 在「设置 → 成员」创建成员，选择 CLI，模型留空或选择 `default` 即沿用 CLI 配置。
-3. 创建工作空间，加入成员；需要分析或修改工程时绑定本地目录。
-4. 新建会话，输入任务。用 `@` 指定成员，或用自然语言描述如何协作。
+1. Set a local access password of 12–128 characters on first use.
+2. Describe your goal directly. The first input creates an unnamed project, a conversation and editable default member profiles from your already-configured CLIs; no wizard is required.
+3. Research needs no project directory. Select a local directory for engineering work. Permission is global: new installations and the one-time migration default to project-autonomous mode; the Composer and Settings → Permissions stay synchronized.
+4. Use `@` or natural language to address members, or let the coordinator choose. Durable tasks, goal revisions, budgets and completion records continue across sessions and restarts.
 
-Enter 发送，Shift+Enter 换行；支持中文输入法确认和成员补全。本地访问密码只用于解锁网页，与 CLI 的模型凭据独立。
+Enter sends; Shift+Enter inserts a newline. Member completion and IME confirmation are supported. The local access password unlocks the web interface independently of the CLI's model credentials.
 
-### 构建后运行
+### Run a Build
 
 ```sh
 make build
 ./dist/cocogem-server
 ```
 
-打开 [http://127.0.0.1:8741](http://127.0.0.1:8741)。运行时保留 `dist/cocogem-server` 与同目录的 `dist/web/`；无需 Node.js，仍需本机 CLI。
+Open [http://127.0.0.1:8741](http://127.0.0.1:8741). Keep `dist/cocogem-server` alongside `dist/web/`. Node.js is not required at runtime; the local agent CLIs are still required.
 
-可用 `COCOGEM_DATA_DIR` 指定数据目录，用 `--allow-root /absolute/project` 限制可绑定的工程范围。代理、搜索、超时与备份配置见[产品文档](docs/product.md#配置与启动)。
+Use `COCOGEM_DATA_DIR` to choose the data directory and `--allow-root /absolute/project` to restrict workspace directories. Proxy, search, timeout, and backup settings are covered in the [product guide (Chinese)](docs/product.md#配置与启动).
 
-## 能做什么
+## What It Does
 
-| 能力 | 使用方式 |
+| Capability | How it works |
 | --- | --- |
-| 自由协作 | 用 `@` 或自然语言发起任务，协调者按需要直接回答、交接任务或选择内置方法 |
-| 协作讨论 | 成员先独立思考，再交叉质疑、检查汇总，保留真实分歧 |
-| Research | 检索和阅读资料，经过质疑、回应及复查后交付研究报告 |
-| 工程分析与开发 | 分析模式保持只读；显式选择开发并授权后，修改、测试、独立复核和修复形成闭环 |
-| 可复用的成员 | 全局成员可加入多个空间，分别配置职责、模型、执行选项、头像及工具授权 |
-| 来源与交付物 | 查看捕获来源、确切报告版本、人工反馈，并导出 Markdown 或 JSON |
-| 长任务与恢复 | 实时输出、停止、失败诊断和检查点恢复，保留已经完成的步骤与历史 |
-| 日常工作空间 | 会话搜索、重命名、回收站，浅色、深色、暖色及跟随系统的外观 |
+| Projects and durable tasks | The project home keeps the welcome scenarios plus a small summary; a far-left rail switches to a linked todo list of durable tasks. Goal revisions keep their history, and delivery is distinct from acceptance |
+| Free collaboration | Use `@` or natural language; the coordinator answers, hands off tasks, or selects a built-in workflow as needed. An automatically selected engineering workflow is read-only |
+| Team discussion | Members form independent views, challenge each other, and check the synthesis while preserving disagreements |
+| Research | Search and read sources, then challenge, respond, and recheck before delivering a research report |
+| Engineering collaboration | Explicitly select this workflow to allow authorized changes and tests, followed by independent review and delivery; task and role restrictions still apply. Other file tasks can use their authorized tools without selecting it |
+| Reusable members | Share global profiles across workspaces with roles, models, execution options and avatars; workspace membership manages links and enablement |
+| Global permissions | Choose controlled, project-autonomous or full-access mode; extra operations offer once, conversation-wide or deny, with exact tool and resource scope |
+| Sources and deliverables | Inspect captured sources, exact report versions, and human feedback; download Markdown reports and delivered files |
+| Long tasks and recovery | Stream output, run independent tasks in parallel, stop tasks, retry failed member steps, wait and wake durably, and resume from checkpoints while retaining completed steps and history |
+| Collaboration budget | Configure future root defaults (20/4/2/3/2) globally; each root keeps a separate ledger shared by its children and retries, with explicit waiting at exhaustion |
+| Everyday workspace tools | Search, rename, and restore conversations; choose light, dark, warm, or system appearance |
 
-工程开发的测试工具目前依赖 macOS 沙箱；Linux 会明确阻止未验证的测试执行。只读分析与其他流程的权限、平台边界见[产品文档](docs/product.md#工具与执行边界)。
+Project-autonomous command execution currently uses the macOS boundary. Other operating systems fail closed where no verified execution boundary exists. A separate candidate directory is not guaranteed for every write, and restart recovery can requeue a step whose process stopped without a committed result. See the [product guide (Chinese)](docs/product.md#工具与执行边界) and [acceptance record](docs/2026-11-08-permissions-and-ui-acceptance.md) for tested versions, paths and remaining limits.
 
-### CLI 接入
+### Supported CLIs
 
-| CLI | 终端调用 | Web 接入方式 |
+| CLI | Command | Web integration |
 | --- | --- | --- |
-| Claude Code | `claude` | stream-json、受限 MCP，按授权启用原生只读工具 |
-| Codex | `codex` | exec JSON、受限 MCP，满足授权时启用原生联网 |
-| Gemini CLI | `gemini` | stream-json、受限 MCP，文件与联网使用宿主工具 |
-| Pi | `pi` | JSON、受限 MCP，关闭原生读写和 shell 工具 |
+| Claude Code | `claude` | Bidirectional stream-json approvals, scoped MCP and native tools with per-operation execution boundaries |
+| Codex | `codex` | On verified macOS versions, app-server with a restricted project/task permission profile; outside operations use scoped host tools because native approvals cannot express a one-call outside scope |
+| Gemini CLI | `gemini` | stream-json with private tool hooks, scoped MCP and scoped native execution |
+| Pi | `pi` | RPC with a private tool extension, scoped MCP and execution-before-effect approvals |
+| OpenCode | `opencode` | Private v2 server with an execution-before-effect plugin; live text deltas, scoped MCP and model thinking variants |
 
-接入是否可用取决于安装版本的协议、隔离能力及实际模型连接；「已安装」不等于「连接已验证」。在「设置 → 服务」查看诊断和验证连接。
+Availability depends on the installed CLI's protocol, isolation capabilities, and actual model connection. An installed CLI does not imply a verified connection. Open Settings → Service (设置 → 服务) for diagnostics and connection verification.
 
-### 也可以只用终端
-
-```sh
-go run ./cmd/cocogem codex "记住这个项目叫 Cocogem"
-go run ./cmd/cocogem codex --resume latest "项目叫什么？"
-```
-
-将 `codex` 换成 `claude`、`gemini` 或 `pi`；省略 CLI 名默认使用 Claude。终端会话记录保存在当前目录的 `.cocogem/`，与网页协作的隔离会话分开。参数、输出与恢复约定见[产品文档](docs/product.md#原生命令行)。
-
-## 如何工作
+## How It Works
 
 ```text
-你的任务
+Your task
    ↓
-Web 工作空间 · 成员与路由 · 共享技能
+Web workspace · Members and routing · Shared skills
    ↓
-Go 服务 · 计划与权限 · 受限 MCP · 来源与检查点
+Go service · Plans and permissions · Scoped MCP · Sources and checkpoints
    ↓
-Claude Code / Codex / Gemini / Pi
+Claude Code / Codex / Gemini / Pi / OpenCode
    ↓
-共享对话 · 独立复核 · 版本化交付物
+Shared conversations · Independent review · Versioned deliverables
 ```
 
-服务使用 Go 标准库 HTTP 和 SQLite，前端使用 React、TypeScript 和 Vite。数据保存在本机，模型服务会收到执行任务所需的内容，搜索服务会收到查询；完整边界见 [SECURITY.md](SECURITY.md)。当前面向本地单用户，服务只允许监听回环地址。
+The backend uses Go's standard library HTTP server and SQLite; the frontend uses React, TypeScript, and Vite. Data is stored locally. Model services receive the content needed for a task, and search services receive queries. See [SECURITY.md](SECURITY.md) for the full boundaries. Cocogem currently serves a single local user and only listens on loopback addresses.
 
-## 参与开发
+## Contributing
 
-欢迎通过 [Issues](https://github.com/AcSunday/cocogem/issues) 反馈问题，或提交聚焦的 Pull Request。开始前请阅读[贡献指南](CONTRIBUTING.md)和[产品文档](docs/product.md)。
+Report problems through [Issues](https://github.com/AcSunday/cocogem/issues), or send a focused pull request. Read the [contribution guide](CONTRIBUTING.md) and [product guide (Chinese)](docs/product.md) before you start.
+
+GitHub Actions runs only `make test` on pushes and pull requests. Other local validation commands are listed below.
 
 ```sh
-make test             # Go、原生 CLI fixture、前端单元测试、Lint 与类型检查
-make check-contract   # OpenAPI 与前端生成类型一致性
-make e2e              # 构建、正式服务 smoke 与浏览器测试
-make security         # 凭证检查与依赖漏洞扫描
+make test             # Go, native CLI fixtures, frontend unit tests, lint, and type checks
+make check-contract   # Regenerate contracts and check for changes against HEAD
+make e2e              # Build, production service smoke, and browser tests
+make verify-redesign  # Real CLI: first question, task, global permissions and budget
+make security         # Credential checks and dependency vulnerability scans
 ```
 
-首次运行浏览器测试，在 `web/` 下执行 `npx playwright install chromium`；也可用 `PLAYWRIGHT_CHANNEL=chrome make e2e` 使用已有 Chrome。
+Before your first browser test, run `npx playwright install chromium` in `web/`, or use an installed Chrome with `PLAYWRIGHT_CHANNEL=chrome make e2e`.
 
-自动化默认使用临时进程与合成资料，不需要模型凭据。`make probe-cli` 和 `make probe-isolation` 可检查已安装 CLI 与本地假模型的协议及隔离行为；真实供应商调用需单独验证。
+By default, `make test` and `make e2e` use temporary processes and synthetic data without model credentials. `make probe-cli` and `make probe-isolation` check installed CLIs against a local fake model for protocol and isolation behavior. `make verify-redesign` uses an isolated data directory but calls a real configured CLI and may incur provider usage; its result applies only to that connection and journey. It uses installed Chrome by default; `PLAYWRIGHT_CHANNEL` can select another browser channel. `make check-contract` also fails when the generated files contain intended uncommitted changes against HEAD.
 
-## 致谢与许可
+## Acknowledgments and License
 
-感谢 [Clowder AI](https://github.com/zts212653/clowder-ai) 对多 Agent 协作、共享技能及项目介绍方式的启发，以及 [Cat Cafe Tutorials](https://github.com/zts212653/cat-cafe-tutorials) 的 CLI 入门示例。
+Thanks to [Clowder AI](https://github.com/zts212653/clowder-ai) for inspiration on multi-agent collaboration, shared skills, and project presentation, and to [Cat Cafe Tutorials](https://github.com/zts212653/cat-cafe-tutorials) for the introductory CLI examples.
 
-采用 [MIT License](LICENSE)。第三方依赖许可见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。
+Licensed under the [MIT License](LICENSE). Dependency licenses are listed in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).

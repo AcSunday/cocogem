@@ -65,6 +65,20 @@ func (a *authentication) session(r *http.Request) (localSession, bool) {
 	return session, true
 }
 
+// validMutationContentType accepts JSON everywhere, plus the one multipart
+// endpoint that uploads a source file. CSRF is still required for both.
+func validMutationContentType(r *http.Request) bool {
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		return true
+	}
+	if r.Method != http.MethodPost || !strings.HasPrefix(r.URL.Path, "/api/v1/threads/") || !strings.HasSuffix(r.URL.Path, "/sources") {
+		return false
+	}
+	rest := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/threads/"), "/sources")
+	return rest != "" && !strings.Contains(rest, "/") &&
+		strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data;")
+}
+
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		rw.Header().Set("X-Content-Type-Options", "nosniff")
@@ -79,7 +93,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/auth/") {
-			if r.Method != "GET" && r.Method != "HEAD" && r.Header.Get("Content-Type") != "application/json" {
+			if r.Method != "GET" && r.Method != "HEAD" && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				writeError(rw, r, 415, "invalid_content_type", "请使用 JSON 请求")
 				return
 			}
@@ -93,7 +107,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 				return
 			}
 			if r.Method != "GET" && r.Method != "HEAD" {
-				if r.Header.Get("Content-Type") != "application/json" || !sameSecret(session.csrf, r.Header.Get("X-CSRF-Token")) {
+				if !validMutationContentType(r) || !sameSecret(session.csrf, r.Header.Get("X-CSRF-Token")) {
 					writeError(rw, r, 403, "csrf_failed", "请求校验失败")
 					return
 				}

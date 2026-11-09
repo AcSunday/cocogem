@@ -13,6 +13,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/testutil"
 	"github.com/AcSunday/cocogem/internal/workflow"
@@ -28,11 +29,16 @@ type deliveryAPI struct {
 
 func newDeliveryAPI(t *testing.T, root string, db *store.Store, engine *workflow.Engine) *deliveryAPI {
 	t.Helper()
+	return newDeliveryAPIWithModel(t, root, db, engine, testutil.Model{})
+}
+
+func newDeliveryAPIWithModel(t *testing.T, root string, db *store.Store, engine *workflow.Engine, m model.Model) *deliveryAPI {
+	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewUnstartedServer(nil)
-	app, err := New(Config{Host: server.Listener.Addr().String(), AuthFile: filepath.Join(root, "auth.json"), WebDir: root, Models: []string{"default"}, Roots: []string{root}, ModelConfigured: true, Model: testutil.Model{}}, db, engine)
+	app, err := New(Config{Host: server.Listener.Addr().String(), AuthFile: filepath.Join(root, "auth.json"), WebDir: root, Models: []string{"default"}, Roots: []string{root}, ModelConfigured: true, Model: m}, db, engine)
 	if err != nil {
 		t.Fatal(err)
 	}

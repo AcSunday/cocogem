@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/testutil"
 	"github.com/AcSunday/cocogem/internal/workflow"
@@ -112,6 +113,10 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 		t.Fatal(rw.Body.String())
 	}
 	json.Unmarshal(rw.Body.Bytes(), &th)
+	rw = call("POST", "/api/v1/workspaces/"+ws.ID+"/tasks", project.CreateTaskInput{ThreadID: th.ID, OwnerMemberID: th.CoordinatorID, Goal: "比较协作方法", AcceptedBy: "user"}, nil)
+	if rw.Code != 200 {
+		t.Fatal(rw.Body.String())
+	}
 
 	in := w.RunInput{SourceURLs: testutil.Sources, Message: "比较协作方法", Workflow: "research", Assignments: map[string]string{"researcher": a[0].ID, "critic": a[1].ID, "coordinator": a[2].ID}}
 	rw = call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", in, nil)
@@ -155,6 +160,70 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 			t.Fatal("run did not settle")
 		case <-wake:
 		}
+	}
+	rw = call("GET", "/api/v1/runs/"+run.ID, nil, nil)
+	var runView RunView
+	if err := json.Unmarshal(rw.Body.Bytes(), &runView); err != nil {
+		t.Fatal(err)
+	}
+	if rw.Code != 200 || runView.Run.Status != "succeeded" {
+		t.Fatalf("HTTP run result = %d %+v", rw.Code, runView.Run)
+	}
+	rw = call("GET", "/api/v1/tasks/"+run.TaskID, nil, nil)
+	var taskView struct {
+		Task w.Task `json:"task"`
+	}
+	if err := json.Unmarshal(rw.Body.Bytes(), &taskView); err != nil {
+		t.Fatal(err)
+	}
+	if rw.Code != 200 || taskView.Task.Status != "ready" || taskView.Task.EvaluationStatus != "incomplete" || taskView.Task.CurrentRevision != 1 {
+		t.Fatalf("successful HTTP run changed task acceptance or replayed revision: %d %+v", rw.Code, taskView.Task)
+	}
+	if err := db.Read(ctx, func(tx *store.Tx) error {
+		runs, err := tx.Runs(th.ID)
+		if err != nil {
+			return err
+		}
+		if len(runs) != 1 {
+			t.Fatalf("idempotent replay created runs: %+v", runs)
+		}
+		account, err := tx.BudgetAccount(run.BudgetAccountID)
+		if err != nil {
+			return err
+		}
+		if account.UsedContinuations != 0 || account.ReservedRuns != 0 {
+			t.Fatalf("idempotent replay changed the budget: %+v", account)
+		}
+		attempts, err := tx.Attempts(run.ID)
+		if err != nil {
+			return err
+		}
+		if len(attempts) == 0 {
+			t.Fatal("host model run persisted no attempts")
+		}
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		members := make(map[string]string, len(steps))
+		for _, step := range steps {
+			members[step.ID] = step.AgentID
+		}
+		for _, attempt := range attempts {
+			if attempt.ExecutionSessionRef == "" {
+				t.Fatalf("host model attempt has no disclosure session: %+v", attempt)
+			}
+			session, err := tx.Session(attempt.ExecutionSessionRef)
+			if err != nil {
+				return err
+			}
+			if session.TaskID != run.TaskID || session.MemberID != members[attempt.StepID] || session.Status != "fresh_only" || session.Acknowledgement != "resume_unsupported" || session.NativeSessionID != "" {
+				t.Fatalf("host model session is not a fresh isolated attempt: %+v", session)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 	rw = call("GET", "/api/v1/runs/"+run.ID+"/events", nil, nil)
 	if !strings.Contains(rw.Body.String(), "run_finished") {

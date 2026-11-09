@@ -36,9 +36,9 @@ func effectiveInput(run w.Run) w.RunInput {
 	in.Targets = slices.Clone(run.SelectedWorkflow.Targets)
 	in.Assignments = maps.Clone(run.SelectedWorkflow.Assignments)
 	if in.Workflow == "engineering" {
-		// Method selection is never a develop authorization: the coordinator
-		// can only select the read-only analysis action.
-		in.EngineeringAction = w.EngineeringAnalyze
+		// A coordinator-selected method is never a write authorization: only
+		// the user's Composer engineering choice permits write/test tools.
+		in.EngineeringReadOnly = true
 	}
 	return in
 }
@@ -54,7 +54,7 @@ func selectionRoot(run w.Run, step w.Step) bool {
 	if run.Routing.Decision != "discuss" {
 		return false
 	}
-	return step.Kind == "" && step.ID != "" && step.AgentID == run.CoordinatorID
+	return (step.Kind == "" || step.Kind == "continuation" && step.FromStepID == run.TaskPromotionStepID) && step.ID != "" && step.AgentID == run.CoordinatorID
 }
 
 func canSelectWorkflow(run w.Run, step w.Step) bool {
@@ -84,15 +84,16 @@ func selectionTools(run w.Run, step w.Step) []model.Tool {
 				"researcher":  memberOrEmpty("research"),
 				"critic":      memberOrEmpty("research"),
 				"coordinator": memberOrEmpty("research, discussion or final delivery"),
-				"analyst":     memberOrEmpty("engineering analysis"),
-				"reviewer":    memberOrEmpty("engineering analysis"),
+				"engineer":    memberOrEmpty("engineering"),
+				"analyst":     memberOrEmpty("legacy code analysis"),
+				"reviewer":    memberOrEmpty("engineering or legacy code analysis"),
 			}, "description": "Method role to exact member UUID. Use only the roles of the chosen workflow; never put task instructions here."},
 			"reason": map[string]any{"type": "string", "maxLength": selectionReasonLimit},
 		},
 		"required":             []string{"workflow"},
 		"additionalProperties": false,
 	}
-	return []model.Tool{{Name: "choose_workflow", Description: "Select this free run's collaboration method once: discussion for independent views with cross-critique, research for evidence gathering, or engineering for read-only code analysis. Use it only when the task genuinely needs that method; a simple question needs no tool. When the user explicitly requests one of these methods, independent views with cross-critique, or names choose_workflow, selecting it is required; do not answer directly or replace the request with a single handoff. Selecting engineering (or legacy code_analysis) never authorizes development or file writes; development requires the user's explicit Composer choice. Fill roles with exact runtime roster IDs chosen by actual capabilities and permissions, never by display names or CLI/model brands. If the roster cannot staff the method, finish with a short explanation instead of inventing members. After acceptance, finish this planning step without answering the task; the platform runs the selected plan next.", Schema: schema}}
+	return []model.Tool{{Name: "choose_workflow", Description: "Select this free run's collaboration method once: discussion for independent views with cross-critique, research for evidence gathering, or engineering for read-only engineering collaboration. Use it only when the task genuinely needs that method; a simple question needs no tool. When the user explicitly requests one of these methods, independent views with cross-critique, or names choose_workflow, selecting it is required; do not answer directly or replace the request with a single handoff. Selecting engineering (or legacy code_analysis) never authorizes development or file writes; write and test tools require the user's explicit Composer engineering choice and the member's own grants. Fill roles with exact runtime roster IDs chosen by actual capabilities and permissions, never by display names or CLI/model brands. If the roster cannot staff the method, finish with a short explanation instead of inventing members. After acceptance, finish this planning step without answering the task; the platform runs the selected plan next.", Schema: schema}}
 }
 
 func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, raw json.RawMessage) (string, error) {
@@ -103,11 +104,6 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 	roles, ok := w.WorkflowRoles[in.Workflow]
 	if !ok {
 		return "", errors.New("workflow method must be discussion, research, engineering or code_analysis")
-	}
-	if in.Workflow == "engineering" {
-		// A method selection only ever means the read-only analysis action, so
-		// the developer role is not part of its selectable vocabulary.
-		roles = w.WorkflowActionRoles(in.Workflow, w.EngineeringAnalyze)
 	}
 	if utf8.RuneCountInString(in.Reason) > selectionReasonLimit || strings.TrimSpace(in.Reason) != in.Reason {
 		return "", errors.New("invalid method selection reason")
@@ -162,7 +158,9 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 		if (desired.Workflow == "code_analysis" || desired.Workflow == "engineering") && current.Workspace.Root == "" {
 			return errors.New("the selected engineering analysis method requires a bound source directory")
 		}
-		if slices.ContainsFunc(steps, func(s w.Step) bool { return s.Kind == "handoff" || s.Kind == "continuation" }) {
+		if slices.ContainsFunc(steps, func(s w.Step) bool {
+			return s.Kind == "handoff" || s.Kind == "continuation" && s.FromStepID != current.TaskPromotionStepID
+		}) {
 			return errors.New("work was already committed through delegation; finish its continuation instead of selecting a method")
 		}
 		if current.SelectedWorkflow != nil {
@@ -189,7 +187,7 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 		}
 		planInput := w.RunInput{Workflow: desired.Workflow, Targets: desired.Targets, Assignments: desired.Assignments}
 		if desired.Workflow == "engineering" {
-			planInput.EngineeringAction = w.EngineeringAnalyze
+			planInput.EngineeringReadOnly = true
 		}
 		plan, err := Plan(current.ID, planInput, current.Agents)
 		if err != nil {
@@ -234,7 +232,7 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 // result: selected plan steps may not read it.
 func planningRootStep(run w.Run) string {
 	if run.SelectedWorkflow == nil {
-		return ""
+		return run.TaskPromotionStepID
 	}
 	return run.SelectedWorkflow.StepID
 }
@@ -251,7 +249,7 @@ func fillSelectionDefaults(sel *w.WorkflowSelection, run w.Run, settings w.Setti
 		}
 	}
 	preferences := settings.Assignments[sel.Workflow]
-	for _, role := range w.WorkflowActionRoles(sel.Workflow, w.EngineeringAnalyze) {
+	for _, role := range w.WorkflowActionRoles(sel.Workflow, "") {
 		if sel.Assignments[role] != "" {
 			continue
 		}

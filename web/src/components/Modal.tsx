@@ -25,10 +25,37 @@ export function Modal({
   useEffect(() => {
     const dialog = ref.current;
     const previous = document.activeElement as HTMLElement | null;
+    // A text control loses its caret while the dialog holds focus; restore the
+    // exact offset so typing continues where the user left it (a Shift+Enter
+    // after closing a dialog must not jump the caret to the start).
+    const caret =
+      previous instanceof HTMLTextAreaElement ||
+      previous instanceof HTMLInputElement
+        ? { start: previous.selectionStart, end: previous.selectionEnd }
+        : undefined;
     dialog?.showModal();
     return () => {
       dialog?.close();
       previous?.focus();
+      if (
+        caret &&
+        (previous instanceof HTMLTextAreaElement ||
+          previous instanceof HTMLInputElement)
+      ) {
+        // `dialog.close()` restores focus asynchronously in Chromium and resets
+        // a text control's selection; reapply the caret on the next frame.
+        const target = previous;
+        const text = target.value;
+        queueMicrotask(() =>
+          requestAnimationFrame(() => {
+            // The user may have typed or selected in the same frame; only a
+            // control that still holds the same text gets the old caret back.
+            if (document.activeElement !== target) return;
+            if (target.value !== text) return;
+            target.setSelectionRange(caret.start, caret.end);
+          }),
+        );
+      }
     };
   }, []);
   return (

@@ -14,3 +14,8 @@ import (
 func prepareSandbox(context.Context, sandboxSpec) (sandboxPlan, error) {
 	return sandboxPlan{}, fmt.Errorf("%w: the Linux test sandbox is not verified on a real host; run_test is blocked rather than run with an unverified boundary", ErrSandboxUnavailable)
 }
+
+// prepareCommandSandbox fails closed for the same reason as prepareSandbox.
+func prepareCommandSandbox(ctx context.Context, spec sandboxSpec) (sandboxPlan, error) {
+	return prepareSandbox(ctx, spec)
+}

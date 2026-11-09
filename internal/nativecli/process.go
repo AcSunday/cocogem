@@ -1,13 +1,11 @@
 package nativecli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os/exec"
 	"regexp"
@@ -80,7 +78,20 @@ func watchCancel(ctx context.Context, stop func()) func() {
 // The verdict always comes from checking the group afterwards, not from it.
 const processGroupGrace = 250 * time.Millisecond
 
+// claudeStreamInput enables the bidirectional Claude control protocol. It is
+// nil for print-mode adapters and for full access.
+type claudeStreamInput struct {
+	prompt   string
+	approver *nativeApprover
+	sandbox  *nativeSandbox
+	cwd      string
+}
+
 func streamProcess(ctx context.Context, executor string, cmd *exec.Cmd, gate *bridge, live *liveness) error {
+	return streamProcessWithClaude(ctx, executor, cmd, gate, live, nil)
+}
+
+func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd, gate *bridge, live *liveness, claude *claudeStreamInput) error {
 	if err := configureProcess(cmd); err != nil {
 		return err
 	}
@@ -89,11 +100,28 @@ func streamProcess(ctx context.Context, executor string, cmd *exec.Cmd, gate *br
 	if err != nil {
 		return newFailure(FailureProcess, "open native CLI output")
 	}
+	var stdin io.WriteCloser
+	if claude != nil {
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			return newFailure(FailureProcess, "open native CLI input")
+		}
+	}
 	if err := cmd.Start(); err != nil {
 		return newFailure(FailureProcess, "start native CLI: executable unavailable")
 	}
 	if live != nil {
 		live.dispatched()
+	}
+	var control *claudeControl
+	if claude != nil {
+		control = newClaudeControl(stdin, gate, live, claude.approver, claude.sandbox, claude.cwd, claude.prompt)
+		if err := control.begin(); err != nil {
+			terminateProcess(cmd)
+			_ = cmd.Wait()
+			return err
+		}
+		defer control.close()
 	}
 	joinCancel := watchCancel(ctx, func() { terminateProcess(cmd) })
 	defer joinCancel()
@@ -127,7 +155,17 @@ func streamProcess(ctx context.Context, executor string, cmd *exec.Cmd, gate *br
 	case "pi":
 		streamErr = parsePi(stdout, gate, live)
 	default:
-		streamErr = parseClaude(stdout, gate, live)
+		streamErr = parseClaudeWithControl(stdout, gate, live, control)
+	}
+	if control != nil {
+		if controlErr := control.failure(); controlErr != nil && streamErr == nil {
+			streamErr = controlErr
+		}
+	}
+	if control != nil {
+		// A successful result still leaves the CLI waiting on stdin; close the
+		// control stream before waiting so a normal turn does not deadlock.
+		control.close()
 	}
 	if streamErr != nil {
 		terminateProcess(cmd)
@@ -395,453 +433,6 @@ func claudeToolDenial(text, name string) bool {
 	}
 	rest := strings.TrimSuffix(strings.TrimPrefix(text, claudeDenialPrefix+name), claudeDenialSuffix)
 	return rest == "" || rest == ". "+name+claudeDenialDisabled
-}
-
-func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 4*1024*1024)
-	initialized, finished := false, false
-	sessionID := ""
-	// apiErrorCode is the last provider error code reported by the CLI. It is
-	// only used to classify a terminal failure, never as progress.
-	apiErrorCode := ""
-	anonymous := 0
-	activity := newActivityTracker()
-	nativeCalls := map[string]*nativeCall{}
-	deniedCalls := map[string]*deniedCall{}
-	deniedCount := 0
-	// Partial-message deltas are emitted once; the later complete assistant
-	// frame is compared against a bounded length/digest window and only its
-	// unseen suffix is sent. The visible body is never retained here.
-	streamMessageID := ""
-	streams := newTextStreams()
-	streamKey := func(messageID string, index int) string {
-		return fmt.Sprintf("%s#%d", messageID, index)
-	}
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		var event struct {
-			Type           string          `json:"type"`
-			Subtype        string          `json:"subtype"`
-			SessionID      string          `json:"session_id"`
-			UUID           string          `json:"uuid"`
-			IsError        bool            `json:"is_error"`
-			Result         string          `json:"result"`
-			Errors         []string        `json:"errors"`
-			Tools          []string        `json:"tools"`
-			TerminalReason string          `json:"terminal_reason"`
-			Message        json.RawMessage `json:"message"`
-			Stream         json.RawMessage `json:"event"`
-			ToolUseResult  json.RawMessage `json:"tool_use_result"`
-			Usage          tokenUsage      `json:"usage"`
-			// The installed CLI reports error codes as plain strings (api_retry,
-			// assistant API errors) while fixtures and other versions use an
-			// object; the union is decoded per event type.
-			Error             json.RawMessage `json:"error"`
-			IsAPIErrorMessage bool            `json:"is_api_error_message"`
-		}
-		if err := json.Unmarshal(line, &event); err != nil || event.Type == "" {
-			return newFailure(FailureProtocol, "native CLI emitted a malformed event")
-		}
-		errorCode, errorMessage, errorValid := decodeClaudeError(event.Error)
-		if !errorValid {
-			return newFailure(FailureProtocol, "native CLI emitted a malformed error field")
-		}
-		if finished {
-			return newFailure(FailureProtocol, "native CLI emitted data after its terminal result")
-		}
-		if initialized && event.SessionID != "" && event.SessionID != sessionID {
-			return newFailure(FailureProtocol, "native CLI changed its session identity")
-		}
-		switch event.Type {
-		case "system":
-			if event.Subtype == "init" {
-				if initialized || !sessionPattern.MatchString(event.SessionID) {
-					return newFailure(FailureProtocol, "native CLI session initialization is invalid")
-				}
-				initialized = true
-				sessionID = event.SessionID
-				for _, name := range event.Tools {
-					if name == "DeferredToolPlaceholder" {
-						continue
-					}
-					if !gate.allowedToolName(name) {
-						return newFailure(FailureProtocol, "native CLI exposed a tool outside this step's permissions: %s", safeToken(name))
-					}
-				}
-				if err := gate.confirmTools(event.Tools, "mcp__cocogem__"); err != nil {
-					return err
-				}
-				if err := gate.requireTools(); err != nil {
-					return err
-				}
-				if err := gate.emit("native_session", map[string]any{"executor": "claude", "session_id": sessionID, "mode": "fresh", "cwd": "isolated"}); err != nil {
-					return err
-				}
-			} else {
-				if errorCode != "" {
-					apiErrorCode = errorCode
-				}
-				live.notice("system." + event.Subtype)
-				if err := gate.notice("system."+event.Subtype, "ignored non-terminal session notification"); err != nil {
-					return err
-				}
-			}
-		case "assistant":
-			if !initialized {
-				return newFailure(FailureProtocol, "native CLI replied before session initialization")
-			}
-			if event.IsAPIErrorMessage {
-				// The installed CLI emits a synthetic assistant frame carrying the
-				// provider error. It is not model output, must not be shown, and
-				// the CLI may still retry, so it never refreshes liveness.
-				if errorCode != "" {
-					apiErrorCode = errorCode
-				}
-				if err := gate.notice("assistant.api_error", "native CLI reported a provider error before a terminal result"); err != nil {
-					return err
-				}
-				continue
-			}
-			var message struct {
-				ID      string `json:"id"`
-				Content []struct {
-					Type  string          `json:"type"`
-					ID    string          `json:"id"`
-					Name  string          `json:"name"`
-					Text  string          `json:"text"`
-					Input json.RawMessage `json:"input"`
-				} `json:"content"`
-			}
-			if json.Unmarshal(event.Message, &message) != nil {
-				return newFailure(FailureProtocol, "native CLI returned an invalid assistant message")
-			}
-			item := message.ID
-			if item == "" {
-				item = event.UUID
-			}
-			anonymousFrame := item == ""
-			if anonymousFrame {
-				// Without a message identity an identical frame cannot be proven
-				// to be a replay, so each frame keeps its own state and legal
-				// duplicate text is never dropped.
-				anonymous++
-				item = fmt.Sprintf("anonymous-%d", anonymous)
-			} else if activity.duplicate(item, event.Message) {
-				continue
-			}
-			for index, block := range message.Content {
-				switch block.Type {
-				case "tool_use":
-					if !gate.allowedToolName(block.Name) {
-						// The CLI is the enforced boundary. A tool missing from its
-						// inventory is rejected by the CLI with a fixed result; hold a
-						// bounded pending denial instead of trusting the model or
-						// replaying the call. Input is never retained or emitted.
-						safeName := safeToken(block.Name)
-						callID := block.ID
-						if safeName == "unconfirmed" || callID == "" || len(callID) > 200 {
-							return newFailure(FailureProtocol, "native CLI requested an unapproved native tool without a safe identity (%s)", safeName)
-						}
-						if _, exists := nativeCalls[callID]; exists {
-							return newFailure(FailureProtocol, "native CLI reused a native tool-call identity")
-						}
-						if _, exists := deniedCalls[callID]; exists {
-							return newFailure(FailureProtocol, "native CLI reused a denied tool-call identity")
-						}
-						if deniedCount >= maxClaudeDeniedCalls {
-							return newFailure(FailureProtocol, "native CLI requested more than %d denied tools", maxClaudeDeniedCalls)
-						}
-						deniedCount++
-						deniedCalls[callID] = &deniedCall{name: block.Name}
-						continue
-					}
-					callID := block.ID
-					native := gate.nativeAllowed(block.Name)
-					if native && callID == "" {
-						return newFailure(FailureProtocol, "native CLI requested a native tool without a call identity")
-					}
-					if callID == "" {
-						callID = fmt.Sprintf("%s#%d", block.Name, index)
-					}
-					if _, exists := deniedCalls[callID]; exists {
-						return newFailure(FailureProtocol, "native CLI reused a denied tool-call identity")
-					}
-					if native {
-						if _, exists := nativeCalls[callID]; exists {
-							return newFailure(FailureProtocol, "native CLI reused a native tool-call identity")
-						}
-						input := append(json.RawMessage{}, block.Input...)
-						if len(input) == 0 {
-							input = json.RawMessage("{}")
-						}
-						nativeCalls[callID] = &nativeCall{name: block.Name, input: input}
-						if activity.newTool(item, callID) {
-							live.valid("tool_call")
-							if err := gate.emit("tool_started", map[string]any{"tool_call_id": "cli:" + callID, "name": block.Name, "input": input, "origin": "native"}); err != nil {
-								return err
-							}
-						}
-					} else if activity.newTool(item, callID) {
-						live.valid("tool_call")
-					}
-				case "text":
-					if block.Text == "" {
-						continue
-					}
-					key := streamKey(item, index)
-					suffix, streamed, err := streams.authoritative(key, block.Text)
-					if err != nil {
-						return newFailure(FailureProtocol, "native CLI complete assistant frame conflicted with streamed text: %v", err)
-					}
-					if streamed {
-						if suffix != "" {
-							if strings.TrimSpace(suffix) != "" {
-								live.valid("text")
-							}
-							if err := gate.emit("text", map[string]any{"text": suffix, "activity": strings.TrimSpace(suffix) != ""}); err != nil {
-								return err
-							}
-						}
-						continue
-					}
-					if !activity.newBlockText(item, index, block.Text) {
-						continue
-					}
-					if strings.TrimSpace(block.Text) == "" {
-						// Whitespace is formatting, not progress; keep it exactly
-						// so block separators are not lost.
-						if err := gate.emit("text", map[string]any{"text": block.Text, "activity": false}); err != nil {
-							return err
-						}
-						continue
-					}
-					live.valid("text")
-					if err := gate.emit("text", map[string]any{"text": block.Text + "\n", "activity": true}); err != nil {
-						return err
-					}
-				case "thinking", "redacted_thinking":
-					// Internal reasoning is never shown, recorded or counted
-					// without fixture evidence for this adapter.
-				default:
-					return newFailure(FailureProtocol, "native CLI emitted an unknown assistant content block")
-				}
-			}
-		case "result":
-			if err := gate.recordUsage(event.Usage); err != nil {
-				return err
-			}
-			terminalReason := event.TerminalReason
-			if terminalReason == "" && apiErrorCode != "" && (event.IsError || event.Subtype != "success") {
-				terminalReason = apiErrorCode
-			}
-			if kind := terminalFailureKind(terminalReason); kind != "" {
-				// A broad structured code such as invalid_request may be refined
-				// by an explicit overflow detail; specific codes stay authoritative.
-				if kind == FailureProtocol && explicitOverflowDetail(event.Result+" "+strings.Join(event.Errors, " ")) {
-					kind = FailureContextOverflow
-				}
-				return confirmedFailure(kind, "native CLI ended with terminal reason %s", safeToken(terminalReason))
-			}
-			if !initialized || event.IsError || event.Subtype != "success" {
-				detail := event.Result + " " + strings.Join(event.Errors, " ")
-				if errorMessage != "" {
-					detail += " " + errorMessage
-				}
-				return classifiedNativeFailure(terminalReason, event.Subtype, detail)
-			}
-			if err := gate.requireTools(); err != nil {
-				return err
-			}
-			for id, call := range nativeCalls {
-				if !call.resultSeen {
-					return newFailure(FailureProtocol, "native CLI ended with an unresolved native tool call %s", safeToken(id))
-				}
-			}
-			for id, call := range deniedCalls {
-				if !call.resolved {
-					return newFailure(FailureProtocol, "native CLI ended without the fixed denial result for tool %s (call %s)", safeToken(call.name), safeToken(id))
-				}
-			}
-			finished = true
-		case "error":
-			if err := gate.recordUsage(event.Usage); err != nil {
-				return err
-			}
-			detail := event.Result
-			if errorMessage != "" {
-				detail += " " + errorMessage
-			}
-			if len(event.Errors) != 0 {
-				detail += " " + strings.Join(event.Errors, " ")
-			}
-			return classifiedNativeFailure(errorCode, "reported_error", detail)
-		case "stream_event":
-			if !initialized {
-				return newFailure(FailureProtocol, "native CLI replied before session initialization")
-			}
-			streamEvent, ok := parseClaudeStream(event.Stream)
-			if !ok {
-				return newFailure(FailureProtocol, "native CLI emitted an invalid stream event")
-			}
-			switch streamEvent.kind {
-			case "message_start":
-				if streamEvent.messageID != "" {
-					streamMessageID = streamEvent.messageID
-				}
-				continue
-			case "message_stop":
-				streamMessageID = ""
-				continue
-			}
-			key := streamKey(streamMessageID, streamEvent.index)
-			switch streamEvent.kind {
-			case "block_start":
-				streams.setBlockType(key, streamEvent.blockType)
-				if streamEvent.blockType == "text" && streamEvent.text != "" {
-					if err := emitClaudeDelta(streamEvent.text, key, streams, live, gate); err != nil {
-						return err
-					}
-				}
-			case "text_delta":
-				if streams.blockType(key) == "thinking" {
-					continue
-				}
-				if activity.duplicateFrame(event.UUID, line) {
-					continue
-				}
-				if err := emitClaudeDelta(streamEvent.text, key, streams, live, gate); err != nil {
-					return err
-				}
-			case "thinking_delta":
-				if activity.duplicateFrame(event.UUID, line) || strings.TrimSpace(streamEvent.text) == "" {
-					continue
-				}
-				live.valid("reasoning")
-				if err := gate.activity(activityReasoning); err != nil {
-					return err
-				}
-			}
-		case "user":
-			if !initialized {
-				return newFailure(FailureProtocol, "native CLI returned a tool result before session initialization")
-			}
-			var message struct {
-				Content []struct {
-					Type      string          `json:"type"`
-					ToolUseID string          `json:"tool_use_id"`
-					Content   json.RawMessage `json:"content"`
-					IsError   bool            `json:"is_error"`
-					Text      string          `json:"text"`
-				} `json:"content"`
-			}
-			if json.Unmarshal(event.Message, &message) != nil {
-				return newFailure(FailureProtocol, "native CLI returned an invalid tool-result message")
-			}
-			// The CLI's own file range metadata is the only completeness fact
-			// the host may preserve; a single result makes attribution exact.
-			var fileMetadata json.RawMessage
-			if len(event.ToolUseResult) != 0 {
-				var result struct {
-					File json.RawMessage `json:"file"`
-				}
-				if json.Unmarshal(event.ToolUseResult, &result) == nil && len(result.File) != 0 && result.File[0] == '{' {
-					fileMetadata = append(json.RawMessage{}, result.File...)
-				}
-			}
-			nativeResults := 0
-			for _, block := range message.Content {
-				if _, ok := nativeCalls[block.ToolUseID]; ok && block.Type == "tool_result" {
-					nativeResults++
-				}
-			}
-			for _, block := range message.Content {
-				switch block.Type {
-				case "tool_result":
-					if call, denied := deniedCalls[block.ToolUseID]; denied {
-						if call.resolved {
-							return newFailure(FailureProtocol, "native CLI replayed a denied tool result")
-						}
-						if !block.IsError {
-							return newFailure(FailureProtocol, "native CLI reported success for a tool it never offered (%s)", safeToken(call.name))
-						}
-						text, unsupported := nativeResultText(block.Content)
-						if unsupported || !claudeToolDenial(text, call.name) {
-							return newFailure(FailureProtocol, "native CLI denied tool %s with an unrecognized result; the host cannot prove it did not execute", safeToken(call.name))
-						}
-						call.resolved = true
-						if err := gate.emit("tool_finished", map[string]any{
-							"tool_call_id": "cli:" + block.ToolUseID,
-							"name":         safeToken(call.name),
-							"status":       "error",
-							"output":       claudeDenialEventText + safeToken(call.name),
-							"denied":       true,
-							"origin":       "native",
-						}); err != nil {
-							return err
-						}
-						continue
-					}
-					call, ok := nativeCalls[block.ToolUseID]
-					if !ok {
-						// Host MCP results are owned and recorded by the bridge.
-						continue
-					}
-					text, unsupported := nativeResultText(block.Content)
-					status := "ok"
-					if block.IsError || unsupported {
-						status = "error"
-					}
-					if unsupported {
-						text = "native tool returned unsupported non-text content"
-					}
-					truncated := false
-					if len(text) > nativeObservationLimit {
-						text, truncated = trimUTF8(text, nativeObservationLimit)
-					}
-					digest := sha256.Sum256([]byte(status + "\x00" + text))
-					if call.resultSeen {
-						if call.resultDigest != digest {
-							return newFailure(FailureProtocol, "native CLI changed a completed native tool result")
-						}
-						continue
-					}
-					call.resultSeen, call.resultDigest = true, digest
-					data := map[string]any{"tool_call_id": "cli:" + block.ToolUseID, "name": call.name, "input": call.input, "status": status, "output": text, "truncated": truncated, "origin": "native"}
-					if fileMetadata != nil && nativeResults == 1 {
-						data["file"] = fileMetadata
-					}
-					if err := gate.emit("tool_finished", data); err != nil {
-						return err
-					}
-				case "text":
-					// Legacy text echoes carry no tool action.
-				default:
-					return newFailure(FailureProtocol, "native CLI emitted an unknown tool-result content block")
-				}
-			}
-		default:
-			if bytes.Contains(line, []byte(`"tool_use"`)) || bytes.Contains(line, []byte(`"tool_result"`)) || suspiciousToolAction(line) {
-				return newFailure(FailureProtocol, "native CLI emitted an unknown tool action")
-			}
-			if err := gate.notice(event.Type, "ignored unknown non-terminal notification"); err != nil {
-				return err
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		if errors.Is(err, bufio.ErrTooLong) {
-			return newFailure(FailureProtocol, "native CLI output frame exceeds the 4 MiB frame limit")
-		}
-		return newFailure(FailureProtocol, "native CLI output could not be read")
-	}
-	if !finished {
-		return newFailure(FailureProtocol, "native CLI ended without a confirmed terminal result")
-	}
-	return nil
 }
 
 // emitClaudeDelta records the visible prefix and emits exactly the new bytes.

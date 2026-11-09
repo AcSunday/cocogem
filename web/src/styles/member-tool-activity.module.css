@@ -1,0 +1,219 @@
+/*
+ * In-reply tool activity. Compact and mostly transparent: the collapsed row
+ * carries the summary, and only blocked or failed work raises its voice.
+ * Kept in its own module so the conversation layout rules stay untouched.
+ */
+.activity {
+  margin: 4px 0 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+}
+.toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 26px;
+  margin: 0;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.toggle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.chevron {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+.toggle[aria-expanded="true"] .chevron {
+  transform: none;
+}
+.summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.duration,
+.exit {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.list {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 2px 6px;
+  padding: 0 0 0 12px;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+.item {
+  min-width: 0;
+}
+.itemHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.itemName {
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.status {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+}
+.status-succeeded {
+  color: var(--text-3);
+}
+.status-running,
+.status-queued {
+  color: var(--accent-text);
+}
+.status-awaiting_permission {
+  color: var(--warn-text);
+}
+.status-failed,
+.status-denied {
+  color: var(--danger);
+}
+.status-canceled,
+.status-unknown {
+  color: var(--text-3);
+}
+
+.hint {
+  margin: 2px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.history {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.history:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.input,
+.output {
+  max-height: 220px;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font:
+    11.5px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.input {
+  color: var(--text-3);
+}
+.output:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* The pending layer is rendered outside every run/process disclosure. */
+.pendingLayer {
+  display: grid;
+  gap: 6px;
+  width: calc(100% - 46px);
+  margin: 4px 0 12px 46px;
+}
+
+/* The blocked operation stays visible while the rest is collapsed. */
+.permission {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 2px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn-text) 32%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--text);
+}
+.permission > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--warn-text);
+}
+.permissionBody {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.permissionTitle {
+  overflow-wrap: anywhere;
+}
+.permissionDetail {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.permissionHint {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.timeline {
+  display: grid;
+  gap: 2px;
+}
+.group {
+  min-width: 0;
+}
+.member {
+  display: block;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}

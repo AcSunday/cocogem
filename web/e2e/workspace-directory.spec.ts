@@ -24,14 +24,14 @@ test("sets and edits a local directory path with server validation and persisten
     .fill("directory-browser-password");
   await page.getByRole("button", { name: "设置密码并进入" }).click();
   await expect(
-    page.getByRole("button", { name: "创建第一个工作空间" }),
+    page.getByRole("button", { name: "高级：手动创建项目" }),
   ).toBeVisible();
   const system = await (
     await page.request.get(`${baseURL}/api/v1/system`)
   ).json();
   const root: string = system.roots[0];
   expect(root).toBeTruthy();
-  await page.getByRole("button", { name: "创建第一个工作空间" }).click();
+  await page.getByRole("button", { name: "高级：手动创建项目" }).click();
   await page.getByLabel("名称", { exact: true }).fill("目录设置验收");
   await page
     .getByRole("combobox", { name: "本地资料目录", exact: true })

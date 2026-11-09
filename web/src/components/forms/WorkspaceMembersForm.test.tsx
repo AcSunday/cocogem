@@ -67,12 +67,14 @@ it("keeps full member names accessible and supports keyboard selection", async (
   target.focus();
   await user.keyboard("{Enter}");
   expect(target).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByText(/当前实际生效：web_search。/)).toBeVisible();
+  // The selected member shows relationship state only, never a tool intersection.
+  expect(screen.getByText(/成员的工具与命令边界由设置中的全局权限决定。移出/)).toBeVisible();
+  expect(screen.queryByText(/当前实际生效/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "first (@first) · 可加入" }))
     .toHaveAttribute("aria-pressed", "false");
 });
 
-it("only shows workspace grants and the effective tool intersection", async () => {
+it("only shows workspace membership state without tool grants", async () => {
   const shared = profile({
     id: "shared",
     display_name: "共享成员",
@@ -111,28 +113,30 @@ it("only shows workspace grants and the effective tool intersection", async () =
   ).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "＋ 新成员" })).not.toBeInTheDocument();
   expect(screen.getByText(/全局档案请到设置/)).toBeVisible();
-  expect(screen.getByText(/当前实际生效：read_file。/)).toBeVisible();
-  const stale = screen.getByLabelText(/^web_search/);
-  expect(stale).toBeChecked();
-  expect(stale).toBeEnabled();
-  expect(screen.getByLabelText(/^publish_artifact/)).toBeDisabled();
+  // A5/D04: no workspace tool checkboxes and no effective tool intersection.
+  expect(screen.queryByText("本工作空间权限")).not.toBeInTheDocument();
+  expect(screen.queryByText(/当前实际生效/)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/^web_search/)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/^read_file/)).not.toBeInTheDocument();
+  expect(screen.queryByText("全局未允许")).not.toBeInTheDocument();
+  expect(screen.getByText(/成员的工具与命令边界由设置中的全局权限决定。移出/)).toBeVisible();
 
   const user = userEvent.setup();
-  await user.click(stale);
   await user.click(screen.getByLabelText("在本工作空间启用"));
-  expect(screen.getByText(/当前实际生效：无。/)).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "保存本空间权限" }));
+  await user.click(screen.getByRole("button", { name: "保存本空间设置" }));
   await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   expect(fetcher).toHaveBeenCalledWith(
     "/api/v1/workspaces/ws/members/shared",
     expect.objectContaining({
       method: "PATCH",
       headers: expect.objectContaining({ "If-Match": "2" }),
-      body: JSON.stringify({ enabled: false, tools: ["read_file"] }),
+      // The stored legacy array is untouched, and it is never freshly derived
+      // from the global profile.
+      body: JSON.stringify({ enabled: false }),
     }),
   );
   expect(screen.getByRole("status")).toHaveTextContent(
-    "本空间成员配置已保存。",
+    "本空间成员设置已保存。",
   );
 });
 
@@ -176,14 +180,11 @@ it("joins an existing global profile without a membership revision", async () =>
     expect.objectContaining({
       method: "PUT",
       headers: expect.not.objectContaining({ "If-Match": expect.anything() }),
-      body: JSON.stringify({
-        enabled: true,
-        tools: ["read_file", "web_search"],
-      }),
+      body: JSON.stringify({ enabled: true, tools: null }),
     }),
   );
   expect(screen.getByRole("status")).toHaveTextContent(
-    "本空间成员配置已保存。",
+    "本空间成员设置已保存。",
   );
 });
 
@@ -251,7 +252,7 @@ it("keeps the backend revision error visible without refreshing", async () => {
     />,
   );
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "保存本空间权限" }));
+  await user.click(screen.getByRole("button", { name: "保存本空间设置" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "配置已更新，请刷新后重新编辑",
   );

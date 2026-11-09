@@ -165,7 +165,7 @@ test("member profiles: name-colored initials, image avatars and stable identity"
     return { dialog, list };
   };
   const cards = (list: Locator) =>
-    list.getByRole("button").filter({ hasNotText: "新成员" });
+    list.getByRole("button").filter({ hasText: "@" });
 
   const { dialog, list } = await openMembers();
   await expect(cards(list)).toHaveCount(3);
@@ -182,10 +182,10 @@ test("member profiles: name-colored initials, image avatars and stable identity"
   );
 
   const model = dialog.getByLabel("模型（留空使用 CLI 默认）");
-  const context = dialog.getByLabel("上下文大小限制");
+  const context = dialog.getByLabel("上下文预算（tokens）");
   const thinking = dialog.getByLabel("思考等级（留空保持 CLI 默认）");
   const verifiedText = dialog.getByText(
-    "已验证当前执行 CLI、模型、上下文大小限制和思考等级。",
+    "已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。",
   );
   // Empty controls keep the CLI defaults: the request must omit both overrides.
   await expect(dialog.getByLabel("执行 CLI")).toHaveAttribute("value", "claude");
@@ -325,7 +325,7 @@ test("member profiles: name-colored initials, image avatars and stable identity"
     "public-model",
   );
   await expect(
-    dialog.getByLabel("上下文大小限制"),
+    dialog.getByLabel("上下文预算（tokens）"),
   ).toHaveValue("90000");
   await expect(thinking).toHaveAttribute("value", "high");
   const reopenedAvatar = dialog.locator('span[aria-hidden="true"] img').first();
@@ -591,10 +591,11 @@ test("default avatar colors remain readable in every appearance without storage"
       return sum + linear * [0.2126, 0.7152, 0.0722][index];
     }, 0);
   for (const appearance of ["light", "dark", "warm", "system"]) {
-    await page.getByLabel("外观模式").click();
-    await page.locator(`[role="option"][data-value="${appearance}"]`).click();
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "设置" });
+    await dialog.getByRole("tab", { name: "外观", exact: true }).click();
+    await dialog.getByLabel("外观模式", { exact: true }).click();
+    await page.locator(`[role="option"][data-value="${appearance}"]`).click();
     await dialog.getByRole("tab", { name: "成员", exact: true }).click();
     const backgrounds = new Set<string>();
     for (const index of names.keys()) {

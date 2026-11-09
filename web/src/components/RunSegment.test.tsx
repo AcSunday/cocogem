@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import type { Agent, Artifact, Message, Run, Step } from "../api/client";
+import type { Agent, Artifact, Event, Message, Run, Step } from "../api/client";
 import { RunSegment } from "./RunSegment";
 
 afterEach(() => {
@@ -287,6 +287,44 @@ it("keeps a reader's expand or collapse across rerenders and remounts", async ()
   cleanup();
   render(view());
   expect(screen.getByTestId("run-process")).not.toHaveAttribute("open");
+});
+
+it("opens the terminal run summary details by click and closes them on Escape or outside press", async () => {
+  const user = userEvent.setup();
+  const run = {
+    ...baseRun,
+    status: "succeeded",
+    finished_at: "2026-10-20T00:01:02Z",
+    routing: {
+      usage_known: true,
+      model_call: true,
+      input_tokens: 12,
+      output_tokens: 34,
+    },
+  } as Run;
+  render(<RunSegment {...props} run={run} messages={[]} />);
+  const badge = screen.getByRole("button", { name: "查看协作摘要详情" });
+  expect(badge).toHaveAttribute("aria-expanded", "false");
+  expect(badge.parentElement).not.toHaveAttribute("data-open");
+  expect(within(badge).getByText("1 分 2 秒")).toBeVisible();
+  expect(within(badge).getByText("12 / 34 tokens")).toBeVisible();
+  expect(within(badge).getByText("12 / 34 tokens")).toHaveAttribute(
+    "title",
+    "12 / 34 tokens",
+  );
+
+  await user.click(badge);
+  expect(badge).toHaveAttribute("aria-expanded", "true");
+  expect(badge.parentElement).toHaveAttribute("data-open", "true");
+
+  await user.keyboard("{Escape}");
+  expect(badge).toHaveAttribute("aria-expanded", "false");
+  expect(badge.parentElement).not.toHaveAttribute("data-open");
+
+  await user.click(badge);
+  expect(badge).toHaveAttribute("aria-expanded", "true");
+  await user.click(document.body);
+  expect(badge).toHaveAttribute("aria-expanded", "false");
 });
 
 it("reads a final message missing from the page by its exact id", async () => {
@@ -589,6 +627,101 @@ it("does not let a previous run's response reach the new run", async () => {
   expect(screen.queryByText("旧run正文")).toBeNull();
 });
 
+it("keeps the member retry beside its failed reply instead of the process", async () => {
+  const retry = vi.fn();
+  const failedStep = {
+    ...step,
+    id: "failed-step",
+    agent_name: "橘猫",
+    status: "failed",
+  } as Step;
+  const failedMessage = {
+    ...message("failed-message", "未完成的草稿"),
+    step_id: failedStep.id,
+    agent_name: "橘猫",
+    status: "failed",
+  };
+  render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "failed", error: "provider failed" }}
+      steps={[failedStep]}
+      messages={[failedMessage]}
+      retryableSteps={[{ runID: "run", step: failedStep }]}
+      onRetry={retry}
+    />,
+  );
+  const article = articles("未完成的草稿")[0];
+  const button = within(article).getByRole("button", { name: "重试 橘猫" });
+  await userEvent.click(button);
+  expect(retry).toHaveBeenCalledWith("run", "failed-step");
+  expect(
+    within(screen.getByTestId("run-process")).queryByRole("button", {
+      name: "重试 橘猫",
+    }),
+  ).toBeNull();
+});
+
+it("replaces the failed member reply with the retry in the original turn", () => {
+  const peerStep = {
+    ...step,
+    id: "peer-step",
+    agent_name: "布偶猫",
+    status: "succeeded",
+  } as Step;
+  const failedStep = {
+    ...step,
+    id: "failed-step",
+    agent_name: "橘猫",
+    status: "failed",
+  } as Step;
+  const retryStep = {
+    ...failedStep,
+    id: "retry-step",
+    status: "succeeded",
+    retry_of_step_id: failedStep.id,
+  } as Step;
+  const retryRun = {
+    ...baseRun,
+    id: "retry",
+    status: "succeeded",
+    input: { ...baseRun.input, retry_of_run_id: baseRun.id },
+    retry_of_step_id: failedStep.id,
+    delivery: { message_ids: ["retry-message"], artifact_refs: [] },
+  } as Run;
+  render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "failed", error: "provider failed" }}
+      retries={[{ run: retryRun, steps: [retryStep] }]}
+      steps={[peerStep, failedStep]}
+      messages={[
+        {
+          ...message("peer-message", "同伴回复"),
+          step_id: peerStep.id,
+        },
+        {
+          ...message("old-failed", "未完成的草稿"),
+          step_id: failedStep.id,
+          agent_name: "橘猫",
+          status: "failed",
+        },
+        {
+          ...message("retry-message", "重试后的完整回复"),
+          run_id: retryRun.id,
+          step_id: retryStep.id,
+          status: "completed",
+        },
+      ]}
+    />,
+  );
+  expect(screen.queryByText("未完成的草稿")).toBeNull();
+  expect(articles("同伴回复")).toHaveLength(1);
+  expect(articles("重试后的完整回复")).toHaveLength(1);
+  expect(screen.getAllByLabelText("第 1 次协作")).toHaveLength(1);
+  expect(screen.getByTestId("run-status")).toHaveTextContent("已完成");
+});
+
 it("keeps a delivery-only artifact target visible until the page catches up", async () => {
   const onRefresh = vi.fn();
   const view = (artifacts: Artifact[]) => (
@@ -645,4 +778,436 @@ it("uses the run member snapshot for mention names, aliases and roles", () => {
   expect(tooltip).toHaveTextContent("历史布偶猫");
   expect(tooltip).toHaveTextContent("@ragdoll");
   expect(tooltip).toHaveTextContent("当时的独立复核职责");
+});
+
+const toolEvent = (
+  seq: number,
+  type: string,
+  data: Record<string, unknown>,
+  extra: Partial<Event> = {},
+): Event => ({
+  schema_version: 1,
+  run_id: "run",
+  seq,
+  type,
+  occurred_at: "",
+  step_id: "step",
+  agent_id: "one",
+  data,
+  ...extra,
+});
+
+it("shows each parallel member's tool activity beside that member's reply", () => {
+  const peer = {
+    ...agent,
+    id: "two",
+    display_name: "橘猫",
+    handle: "orange",
+  };
+  const stepOne = { ...step, id: "step-one", agent_id: "one" } as Step;
+  const stepTwo = {
+    ...step,
+    id: "step-two",
+    agent_id: "two",
+    agent_name: "橘猫",
+  } as Step;
+  render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running", agents: [agent, peer] }}
+      steps={[stepOne, stepTwo]}
+      messages={[
+        { ...message("message-one", "甲成员的结论"), step_id: stepOne.id },
+        {
+          ...message("message-two", "乙成员的结论"),
+          step_id: stepTwo.id,
+          agent_id: "two",
+          agent_name: "橘猫",
+        },
+      ]}
+      events={[
+        toolEvent(
+          1,
+          "tool_started",
+          { tool_call_id: "a", name: "read_file", input: { path: "a.go" } },
+          { step_id: stepOne.id },
+        ),
+        toolEvent(
+          2,
+          "tool_finished",
+          { tool_call_id: "a", name: "read_file", status: "ok", output: "a" },
+          { step_id: stepOne.id },
+        ),
+        toolEvent(
+          3,
+          "tool_started",
+          { tool_call_id: "b", name: "web_search", input: { query: "文档" } },
+          { step_id: stepTwo.id, agent_id: "two" },
+        ),
+        toolEvent(
+          4,
+          "tool_finished",
+          {
+            tool_call_id: "b",
+            name: "web_search",
+            status: "error",
+            output: "blocked",
+          },
+          { step_id: stepTwo.id, agent_id: "two" },
+        ),
+      ]}
+    />,
+  );
+  const one = articles("甲成员的结论")[0];
+  const two = articles("乙成员的结论")[0];
+  expect(within(one).getByTestId("tool-activity")).toHaveTextContent(
+    "读取 1 个文件",
+  );
+  expect(within(one).queryByText(/联网搜索/)).toBeNull();
+  expect(within(two).getByTestId("tool-activity")).toHaveTextContent(
+    "联网搜索 1 次 · 1 个失败",
+  );
+  expect(within(two).queryByText(/读取 1 个文件/)).toBeNull();
+});
+
+it("ignores another run's tool events in the shared live window", () => {
+  render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running" }}
+      steps={[step]}
+      messages={[message("reply", "本轮回合")]}
+      events={[
+        toolEvent(
+          1,
+          "tool_started",
+          { tool_call_id: "a", name: "read_file", input: { path: "a.go" } },
+          { run_id: "other-run" },
+        ),
+        toolEvent(
+          2,
+          "tool_finished",
+          { tool_call_id: "a", name: "read_file", status: "ok" },
+          { run_id: "other-run" },
+        ),
+      ]}
+    />,
+  );
+  expect(screen.queryByTestId("tool-activity")).not.toBeInTheDocument();
+  expect(screen.queryByText(/读取 1 个文件/)).not.toBeInTheDocument();
+});
+
+it("does not pair a retried native-1 finish with the original attempt in the body", async () => {
+  const user = userEvent.setup();
+  render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running" }}
+      steps={[step]}
+      messages={[message("reply", "重试后的回复")]}
+      events={[
+        toolEvent(1, "attempt_started", { id: "attempt-a", number: 1 }),
+        toolEvent(2, "tool_started", {
+          tool_call_id: "native-1",
+          name: "Read",
+          origin: "native",
+          input: { file_path: "first.txt" },
+        }),
+        toolEvent(3, "attempt_finished", {
+          id: "attempt-a",
+          number: 1,
+          status: "interrupted",
+        }),
+        toolEvent(4, "attempt_started", { id: "attempt-b", number: 2 }),
+        toolEvent(5, "tool_started", {
+          tool_call_id: "native-1",
+          name: "Read",
+          origin: "native",
+          input: { file_path: "second.txt" },
+        }),
+        toolEvent(6, "tool_finished", {
+          tool_call_id: "native-1",
+          name: "Read",
+          origin: "native",
+          status: "ok",
+          output: "second attempt output",
+        }),
+      ]}
+    />,
+  );
+  const reply = articles("重试后的回复")[0];
+  const block = within(reply).getByTestId("tool-activity");
+  expect(block).toHaveTextContent("读取 2 个文件 · 1 个结果未知");
+  await user.click(within(block).getByRole("button", { name: /读取 2 个文件/ }));
+  const items = within(block).getAllByRole("listitem");
+  expect(items[0]).toHaveTextContent("first.txt");
+  expect(items[0]).toHaveTextContent("结果未知");
+  expect(items[0]).not.toHaveTextContent("second attempt output");
+  expect(items[1]).toHaveTextContent("second.txt");
+  expect(items[1]).toHaveTextContent("second attempt output");
+});
+
+it("shows awaiting authorization outside the run process disclosure", () => {
+  const slot = vi.fn(() => (
+    <button type="button">本会话持续允许</button>
+  ));
+  render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running" }}
+      steps={[step]}
+      messages={[message("reply", "等待授权的回复")]}
+      permissionSlot={slot}
+      events={[
+        toolEvent(1, "tool_started", {
+          tool_call_id: "native-1",
+          name: "Bash",
+          origin: "native",
+          status: "awaiting_permission",
+          permission_request_id: "request-1",
+          normalized_resource_scope: "command: npm publish",
+          input: { command: "npm publish" },
+        }),
+      ]}
+    />,
+  );
+  const layer = screen.getByLabelText("待处理授权");
+  expect(layer).toHaveTextContent("等待授权 · Bash（npm publish）");
+  expect(
+    within(layer).getByRole("button", { name: "本会话持续允许" }),
+  ).toBeVisible();
+  expect(slot).toHaveBeenCalledWith(
+    expect.objectContaining({ requestID: "request-1" }),
+  );
+  // The member block still marks the call as blocked, but the decision lives
+  // in the separate layer, outside the run process disclosure.
+  const reply = articles("等待授权的回复")[0];
+  expect(within(reply).getByTestId("tool-activity")).toHaveTextContent(
+    "等待授权",
+  );
+  expect(screen.getByTestId("run-process")).not.toContainElement(layer);
+});
+
+it("keeps pending authorization visible and operable after the process log is folded", async () => {
+  const decide = vi.fn();
+  const slot = vi.fn((prompt) => (
+    <button
+      type="button"
+      onClick={() => decide(prompt.requestID, "allow_once")}
+    >
+      仅本次允许
+    </button>
+  ));
+  const view = (events: Event[]) => (
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running" }}
+      steps={[{ ...step, status: "running" }]}
+      messages={[]}
+      events={events}
+      permissionSlot={slot}
+    />
+  );
+  const { rerender } = render(view([]));
+  const process = screen.getByTestId("run-process");
+  expect(process).toHaveAttribute("open");
+  await userEvent.click(process.querySelector("summary")!);
+  expect(process).not.toHaveAttribute("open");
+
+  // A pending authorization arrives only after the reader folded the log.
+  rerender(
+    view([
+      toolEvent(1, "tool_started", {
+        tool_call_id: "native-1",
+        name: "Bash",
+        origin: "native",
+        status: "awaiting_permission",
+        permission_request_id: "request-1",
+        normalized_resource_scope: "command: npm publish",
+        input: { command: "npm publish" },
+      }),
+    ]),
+  );
+  const folded = screen.getByTestId("run-process");
+  expect(folded).not.toHaveAttribute("open");
+  // The member log really is inside the folded region...
+  expect(folded).toContainElement(screen.getByTestId("tool-activity"));
+  // ...while the authorization layer and its action stay outside and usable.
+  const layer = screen.getByLabelText("待处理授权");
+  expect(folded).not.toContainElement(layer);
+  expect(within(layer).getByRole("status")).toHaveTextContent("等待授权");
+  const action = within(layer).getByRole("button", {
+    name: "仅本次允许",
+  });
+  expect(action).toBeVisible();
+  await userEvent.click(action);
+  expect(decide).toHaveBeenCalledWith("request-1", "allow_once");
+});
+
+it("shows one host invocation from pending through success", async () => {
+  const user = userEvent.setup();
+  const pendingEvents = [
+    toolEvent(1, "tool_started", {
+      tool_call_id: "call",
+      name: "run_command",
+      input: { command: "go test ./..." },
+    }),
+    toolEvent(2, "tool_finished", {
+      tool_call_id: "call",
+      name: "run_command",
+      status: "awaiting_permission",
+      permission_request_id: "request-1",
+    }),
+  ];
+  const view = (events: Event[]) => (
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running" }}
+      steps={[step]}
+      messages={[message("reply", "执行的回复")]}
+      events={events}
+      permissionSlot={() => <button type="button">允许</button>}
+    />
+  );
+  const { rerender } = render(view(pendingEvents));
+  const pendingLayer = screen.getByLabelText("待处理授权");
+  expect(within(pendingLayer).getAllByRole("status")).toHaveLength(1);
+  expect(pendingLayer).toHaveTextContent("等待授权");
+  expect(
+    within(articles("执行的回复")[0]).getByTestId("tool-activity"),
+  ).toHaveTextContent("等待授权");
+
+  rerender(
+    view([
+      ...pendingEvents,
+      toolEvent(3, "tool_finished", {
+        tool_call_id: "call",
+        name: "run_command",
+        status: "ok",
+        output: "ok  internal/workflow",
+        duration_ms: 5,
+      }),
+    ]),
+  );
+  expect(screen.queryByLabelText("待处理授权")).not.toBeInTheDocument();
+  const block = within(articles("执行的回复")[0]).getByTestId(
+    "tool-activity",
+  );
+  expect(block).toHaveTextContent("执行 1 条命令");
+  await user.click(
+    within(block).getByRole("button", { name: /执行 1 条命令/ }),
+  );
+  expect(within(block).getAllByRole("listitem")).toHaveLength(1);
+  expect(within(block).getByText(/ok\s+internal\/workflow/)).toBeVisible();
+});
+
+it("shows one native invocation when approval precedes the start", async () => {
+  const user = userEvent.setup();
+  const pendingEvents = [
+    toolEvent(1, "tool_finished", {
+      tool_call_id: "native-1",
+      name: "Bash",
+      origin: "native",
+      status: "awaiting_permission",
+      permission_request_id: "request-1",
+    }),
+    toolEvent(2, "tool_started", {
+      tool_call_id: "native-1",
+      name: "Bash",
+      origin: "native",
+      input: { command: "npm publish" },
+    }),
+  ];
+  const view = (events: Event[]) => (
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running" }}
+      steps={[step]}
+      messages={[message("reply", "原生执行的回复")]}
+      events={events}
+      permissionSlot={() => <button type="button">允许</button>}
+    />
+  );
+  const { rerender } = render(view(pendingEvents));
+  expect(
+    within(screen.getByLabelText("待处理授权")).getAllByRole("status"),
+  ).toHaveLength(1);
+  expect(
+    within(articles("原生执行的回复")[0]).getByTestId("tool-activity"),
+  ).toHaveTextContent("等待授权");
+
+  rerender(
+    view([
+      ...pendingEvents,
+      toolEvent(3, "tool_finished", {
+        tool_call_id: "native-1",
+        name: "Bash",
+        origin: "native",
+        status: "ok",
+        output: "published",
+      }),
+    ]),
+  );
+  expect(screen.queryByLabelText("待处理授权")).not.toBeInTheDocument();
+  const block = within(articles("原生执行的回复")[0]).getByTestId(
+    "tool-activity",
+  );
+  expect(block).toHaveTextContent("执行 1 条命令");
+  await user.click(
+    within(block).getByRole("button", { name: /执行 1 条命令/ }),
+  );
+  expect(within(block).getAllByRole("listitem")).toHaveLength(1);
+  expect(within(block).getByText("published")).toBeVisible();
+});
+
+it("loads the exact run history from a tool activity link", async () => {
+  const fetcher = vi.fn(async (path: string) => {
+    if (path.startsWith("/api/v1/runs/run/event-history"))
+      return Response.json({
+        items: [
+          toolEvent(600, "tool_finished", {
+            tool_call_id: "call",
+            name: "read_file",
+            status: "ok",
+            output: "历史回执",
+          }),
+        ],
+        next_cursor: "",
+      });
+    return Response.json({ items: [] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const events = [
+    toolEvent(1, "attempt_started", { id: "attempt-a", number: 1 }),
+    toolEvent(2, "tool_started", {
+      tool_call_id: "call",
+      name: "read_file",
+      input: { path: "a.go" },
+    }),
+    toolEvent(3, "attempt_finished", {
+      id: "attempt-a",
+      number: 1,
+      status: "interrupted",
+    }),
+  ];
+  render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running" }}
+      steps={[step]}
+      messages={[message("reply", "历史回执的回复")]}
+      events={events}
+    />,
+  );
+  const reply = articles("历史回执的回复")[0];
+  expect(within(reply).getByTestId("tool-activity")).toHaveTextContent(
+    "结果未知",
+  );
+  await userEvent.click(within(reply).getByRole("button", { name: "查看历史" }));
+  expect(await screen.findByText("读取文件")).toBeVisible();
+  expect(screen.getByRole("region", { name: "历史事件" })).toBeVisible();
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/v1/runs/run/event-history?limit=100&after=1",
+    expect.objectContaining({ method: "GET" }),
+  );
 });

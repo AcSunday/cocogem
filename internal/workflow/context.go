@@ -5,18 +5,138 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
+// Shared-history budgets are measured in estimated tokens over stored previews.
+// The defaults cover several full discussion rounds on modern CLI context
+// windows; a member with an explicit context_size scales the window, while the
+// server environment can raise the fallback for models with very large context.
+const (
+	defaultHistoryMessages = 128
+	defaultHistoryTokens   = 64000
+	// historyMessages and historyTokens remain the test-facing defaults.
+	historyMessages = defaultHistoryMessages
+	historyTokens   = defaultHistoryTokens
+)
+
+// HistoryLimits bounds how much committed conversation history is inlined
+// into one attempt. Tokens is a conservative estimate, not a provider-exact
+// tokenizer count.
+type HistoryLimits struct {
+	Messages int
+	Tokens   int
+}
+
+// DefaultHistoryLimits is used when the server does not override the fallback
+// and the member has no explicit context_size.
+func DefaultHistoryLimits() HistoryLimits {
+	return HistoryLimits{Messages: defaultHistoryMessages, Tokens: defaultHistoryTokens}
+}
+
+func (h HistoryLimits) normalized() HistoryLimits {
+	if h.Messages <= 0 {
+		h.Messages = defaultHistoryMessages
+	}
+	if h.Tokens <= 0 {
+		h.Tokens = defaultHistoryTokens
+	}
+	return h
+}
+
+// previewBytes chooses a per-message byte ceiling from the token budget so the
+// loader can retain enough text to estimate and trim by tokens. Four bytes per
+// token leaves room for ASCII and CJK UTF-8; long bodies remain pageable.
+func (h HistoryLimits) previewBytes() int {
+	previewTokens := h.normalized().Tokens / 16
+	if previewTokens < 2000 {
+		previewTokens = 2000
+	}
+	if previewTokens > 32000 {
+		previewTokens = 32000
+	}
+	previewBytes := previewTokens * 4
+	if previewBytes < 6000 {
+		previewBytes = 6000
+	}
+	if previewBytes > 131072 {
+		previewBytes = 131072
+	}
+	return previewBytes
+}
+
+// historyLimitsFor applies an explicit member input token budget. Three fifths
+// is reserved for conversation history; the rest stays available for the
+// current task, role instructions, upstream handoff, source pointers and tool
+// schemas. A member without context_size follows the server fallback.
+func (e *Engine) historyLimitsFor(member w.Agent) HistoryLimits {
+	limits := e.History.normalized()
+	if member.ContextSize > 0 {
+		limits.Tokens = member.ContextSize * 3 / 5
+		if limits.Tokens < 1 {
+			limits.Tokens = 1
+		}
+	}
+	return limits
+}
+
+// historyPreviewBytes loads enough of each message for the largest explicit
+// member window in this run. Selection later applies each member's own limits.
+func (e *Engine) historyPreviewBytes(run w.Run) int {
+	preview := e.History.normalized().previewBytes()
+	for _, member := range run.Agents {
+		if member.ContextSize <= 0 {
+			continue
+		}
+		if candidate := e.historyLimitsFor(member).previewBytes(); candidate > preview {
+			preview = candidate
+		}
+	}
+	return preview
+}
+
+func messageTokens(message w.Message) int {
+	return model.EstimateTokens(message.Content)
+}
+
+// trimToTokens keeps the largest UTF-8 prefix whose conservative estimate fits
+// the token budget. It is used only for the over-budget preview path.
+func trimToTokens(value string, maxTokens int) string {
+	if value == "" || maxTokens <= 0 {
+		return ""
+	}
+	if model.EstimateTokens(value) <= maxTokens {
+		return value
+	}
+	best := ""
+	low, high := 0, len(value)
+	for low <= high {
+		middle := (low + high) / 2
+		candidate := trimBytes(value, middle)
+		if candidate == "" {
+			low = middle + 1
+			continue
+		}
+		if model.EstimateTokens(candidate) <= maxTokens {
+			best = candidate
+			low = middle + 1
+			continue
+		}
+		high = middle - 1
+	}
+	return best
+}
+
 // recentHistory selects whole completed rounds, preferring the newest within
-// both budgets. The newest completed round stays discoverable even when its
-// full previews exceed a budget: it enters the window with real IDs, authors
-// and statuses, bounded bodies and truncation flags so read_context can page
-// the exact committed message. Older over-budget rounds are still dropped.
-func recentHistory(messages []w.Message, excludeRunID string, maxMessages, maxBytes int) []w.Message {
+// both budgets. The newest previous round may be incomplete because its run
+// failed or was interrupted: its committed messages still carry useful context,
+// while failed and in-flight bodies never enter the window. Older incomplete
+// rounds are skipped so repeated failures cannot crowd out a successful round.
+func recentHistory(messages []w.Message, excludeRunID string, maxMessages, maxTokens int) []w.Message {
 	selected := []w.Message{}
-	bytes := 0
+	tokens := 0
 	latest := true
 	for end := len(messages); end > 0; {
 		start := end - 1
@@ -28,34 +148,44 @@ func recentHistory(messages []w.Message, excludeRunID string, maxMessages, maxBy
 		if round[0].RunID == excludeRunID {
 			continue
 		}
-		complete, hasReply, roundBytes := true, false, 0
+		complete, hasReply := true, false
+		committed := make([]w.Message, 0, len(round))
+		roundTokens := 0
 		for _, message := range round {
-			complete = complete && message.Status == "completed"
+			if message.Status != "completed" {
+				complete = false
+				continue
+			}
+			committed = append(committed, message)
 			hasReply = hasReply || message.Role == "assistant"
-			roundBytes += len(message.Content)
+			roundTokens += messageTokens(message)
 		}
-		if !complete || !hasReply {
+		if !hasReply || (!complete && !latest) {
 			continue
 		}
-		if len(selected)+len(round) > maxMessages || bytes+roundBytes > maxBytes {
+		chosen := round
+		if !complete {
+			chosen = committed
+		}
+		if len(selected)+len(chosen) > maxMessages || tokens+roundTokens > maxTokens {
 			if latest {
-				selected = append(boundedRoundPreview(round, maxMessages, maxBytes), selected...)
+				selected = append(boundedRoundPreview(chosen, maxMessages, maxTokens), selected...)
 			}
 			break
 		}
 		latest = false
-		bytes += roundBytes
-		selected = append(slices.Clone(round), selected...)
+		tokens += roundTokens
+		selected = append(slices.Clone(chosen), selected...)
 	}
 	return selected
 }
 
 // boundedRoundPreview keeps the newest completed round usable under the same
 // history budgets. A count cut preserves the original task and final reply; a
-// byte cut gives every kept message a fair share, so the last reply is never
+// token cut gives every kept message a fair share, so the last reply is never
 // the only survivor of a truncated preview.
-func boundedRoundPreview(round []w.Message, maxMessages, maxBytes int) []w.Message {
-	if len(round) == 0 || maxMessages <= 0 || maxBytes < 0 {
+func boundedRoundPreview(round []w.Message, maxMessages, maxTokens int) []w.Message {
+	if len(round) == 0 || maxMessages <= 0 || maxTokens < 0 {
 		return nil
 	}
 	selected := slices.Clone(round)
@@ -66,18 +196,19 @@ func boundedRoundPreview(round []w.Message, maxMessages, maxBytes int) []w.Messa
 			selected = append(slices.Clone(round[:1]), slices.Clone(round[len(round)-maxMessages+1:])...)
 		}
 	}
-	remaining := maxBytes
+	remaining := maxTokens
 	for i := range selected {
 		original := len(selected[i].Content)
 		if selected[i].ContentBytes < original {
 			selected[i].ContentBytes = original
 		}
 		share := remaining / (len(selected) - i)
-		if original > share {
-			selected[i].Content = trimBytes(selected[i].Content, share)
+		current := messageTokens(selected[i])
+		if current > share {
+			selected[i].Content = trimToTokens(selected[i].Content, share)
 			selected[i].ContentTruncated = true
 		}
-		remaining -= len(selected[i].Content)
+		remaining -= messageTokens(selected[i])
 	}
 	return selected
 }

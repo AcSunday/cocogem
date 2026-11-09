@@ -1,0 +1,264 @@
+/* Pending tool authorization + conversation grants (settings → 权限).
+   Low-contrast, compact, no high-saturation blocks; only the blocked action
+   and a destructive revoke use a semantic colour. */
+
+.decision,
+.decisionCompact {
+  display: grid;
+  gap: 8px;
+  /* This card is rendered inside two hosts: the Composer queue (a grid) and the
+     member's pending-authorization slot (a flex row that also holds an icon and
+     a hint/summary). Claim a real share of that row and refuse to shrink below a
+     readable width, otherwise the panel collapses into a vertical letter column. */
+  flex: 1 1 22rem;
+  min-width: min(22rem, 100%);
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.decisionCompact {
+  padding: 8px 10px;
+}
+
+.details dd,
+.decisionHead strong {
+  overflow-wrap: anywhere;
+}
+
+.decisionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.decisionHead strong {
+  font-weight: 600;
+}
+
+.target {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-3);
+  word-break: break-all;
+}
+
+.details {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.details > div {
+  display: flex;
+  gap: 6px;
+}
+
+.details dt {
+  flex: 0 0 auto;
+  min-width: 2.5em;
+  color: var(--text-3);
+}
+
+.details dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.actions button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.actions button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.actions button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.actions .primary {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.actions .danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.decided {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.muted {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.grants {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.grantsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.link {
+  border: none;
+  background: transparent;
+  color: var(--accent-text);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.grantList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.grantRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.grantMain {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.grantMain strong {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.grantMain small {
+  font-size: 11px;
+  color: var(--text-3);
+  word-break: break-all;
+}
+
+.danger {
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.danger:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Composer-facing queue: a notice shape, never a modal. */
+.queue {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn-text) 30%, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--warn-bg);
+}
+
+.queueHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warn-text);
+}
+
+.queueBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.quiet {
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.quiet:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}

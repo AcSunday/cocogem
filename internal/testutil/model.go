@@ -190,6 +190,9 @@ func fixtureArtifact(system string, code bool, sourceIDs []string) map[string]an
 	}
 	if code {
 		kind, title = "code_analysis", "自动化测试样例：身份与职责分离复核"
+		if strings.Contains(system, "workflow=engineering") {
+			kind, title = "engineering_report", "自动化测试样例：工程交付报告"
+		}
 		body = "# 自动化测试样例：身份与职责分离复核\n\n## 范围\n示例仓库 README。\n\n## 方法\n分析成员读取全文，复核成员独立重读第 3–4 行。\n\n## 发现\n成员身份与当前任务职责分开保存，改名不影响历史记录。\n\n## 限制\n只读分析，未执行代码，运行时行为未验证。"
 		if len(sourceIDs) > 0 {
 			findings = append(findings, map[string]any{"title": "身份与职责分离", "detail": "README 说明稳定身份与显示名、模型设置相互独立。", "status": "confirmed", "severity": "low", "source_ids": sourceIDs[:1]})

@@ -93,7 +93,7 @@ func TestSharedHistoryAndCurrentRunInliningStayInsideFrozenScope(t *testing.T) {
 		if all, readErr = tx.MessagePreviews(run.ThreadID, 6000); readErr != nil {
 			return readErr
 		}
-		selected := recentHistory(all, run.ID, 12, 16000)
+		selected := recentHistory(all, run.ID, historyMessages, historyTokens)
 		ids := make([]string, 0, len(selected))
 		for _, message := range selected {
 			ids = append(ids, message.ID)
@@ -127,6 +127,80 @@ func TestSharedHistoryAndCurrentRunInliningStayInsideFrozenScope(t *testing.T) {
 	// frozen scope, not just display text.
 	if _, ok := scope.messages[historyReply.ID]; !ok {
 		t.Fatal("shared history message is not readable through read_context")
+	}
+}
+
+func TestSharedHistoryKeepsCommittedContentFromFailedRound(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/state.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	run := seedRun(t, s)
+	run.Input = w.RunInput{Workflow: "free", Message: "追问失败讨论的结论", Targets: []string{run.Agents[0].ID}}
+	var sender w.Step
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.SaveRun(run); err != nil {
+			return err
+		}
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		sender = steps[0]
+		sender.Kind, sender.Status = "continuation", "running"
+		return tx.SaveStep(sender)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prior := run
+	prior.ID, prior.Status, prior.Error = w.NewID(), "failed", "checker reply was invalid"
+	prior.CreatedAt, prior.FinishedAt, prior.Delivery = "2026-10-20T00:00:00Z", "2026-10-20T00:02:00Z", nil
+	priorStepID := w.NewID()
+	historyQuestion := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: prior.ID, StepID: priorStepID, AgentID: run.Agents[0].ID, AgentName: run.Agents[0].DisplayName, Role: "user", Content: "讨论项目协作规则", Status: "completed", CreatedAt: w.Now()}
+	committed := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: prior.ID, StepID: priorStepID, AgentID: run.Agents[0].ID, AgentName: run.Agents[0].DisplayName, Role: "assistant", Content: "已提交的独立观点：保留分歧，不伪造一致。", Status: "completed", CreatedAt: w.Now()}
+	failed := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: prior.ID, StepID: priorStepID, AgentID: run.Agents[1].ID, AgentName: run.Agents[1].DisplayName, Role: "assistant", Content: "未提交的失败草稿", Status: "failed", CreatedAt: w.Now()}
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.InsertRun(prior, w.NewID(), "failed-history"); err != nil {
+			return err
+		}
+		for _, message := range []w.Message{historyQuestion, committed, failed} {
+			if err := tx.SaveMessage(message); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var all []w.Message
+	var scope *readScope
+	if err := s.Read(t.Context(), func(tx *store.Tx) error {
+		var readErr error
+		if all, readErr = tx.MessagePreviews(run.ThreadID, 6000); readErr != nil {
+			return readErr
+		}
+		selected := recentHistory(all, run.ID, historyMessages, historyTokens)
+		ids := make([]string, 0, len(selected))
+		for _, message := range selected {
+			ids = append(ids, message.ID)
+		}
+		scope, readErr = buildReadScope(tx, run, sender, ids, nil)
+		return readErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := Engine{Store: s}
+	request, err := e.buildRequest(t.Context(), run, sender, run.Agents[0], nil, "", agent.ConnectionInfo{}, agent.AdapterInfo{}, w.Message{ID: w.NewID(), RunID: run.ID, StepID: sender.ID}, Handoff{}, scope, all, all, nil, nil, w.Attempt{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := request.Messages[0].Content[0].Text
+	if !strings.Contains(text, committed.Content) {
+		t.Fatal("committed message from the failed round was lost")
+	}
+	if strings.Contains(text, failed.Content) {
+		t.Fatal("failed message body entered the prompt")
 	}
 }
 
@@ -223,7 +297,7 @@ func TestDeliveredHistoryArtifactExactVersionIsReadableAndHandedOff(t *testing.T
 		if all, readErr = tx.MessagePreviews(run.ThreadID, 6000); readErr != nil {
 			return readErr
 		}
-		selected := recentHistory(all, run.ID, 12, 16000)
+		selected := recentHistory(all, run.ID, historyMessages, historyTokens)
 		ids := make([]string, 0, len(selected))
 		for _, message := range selected {
 			ids = append(ids, message.ID)
@@ -343,7 +417,7 @@ func TestDeliveredHistoryArtifactExactVersionIsReadableAndHandedOff(t *testing.T
 		if err != nil {
 			return err
 		}
-		selected := recentHistory(previews, run.ID, 12, 16000)
+		selected := recentHistory(previews, run.ID, historyMessages, historyTokens)
 		ids := make([]string, 0, len(selected))
 		for _, message := range selected {
 			ids = append(ids, message.ID)
@@ -416,18 +490,19 @@ func TestOverBudgetSharedHistoryStaysVisibleAndReadable(t *testing.T) {
 	sender := steps[0]
 	history := []w.Message{{ID: w.NewID(), Role: "user", Content: "research question"}}
 	finalReply := w.NewID()
-	for _, id := range []string{w.NewID(), w.NewID(), w.NewID(), w.NewID(), finalReply} {
+	for _, id := range []string{w.NewID(), w.NewID(), w.NewID(), w.NewID(), w.NewID(), w.NewID(), w.NewID(), w.NewID(), finalReply} {
 		history = append(history, w.Message{ID: id, Role: "assistant", AgentName: run.Agents[0].DisplayName, Content: strings.Repeat("e", 4000)})
 	}
 	priorCompletedRun(t, s, run, history)
 	var all []w.Message
 	var scope *readScope
+	limits := HistoryLimits{Messages: 16, Tokens: 6000}
 	if err := s.Read(t.Context(), func(tx *store.Tx) error {
 		var readErr error
 		if all, readErr = tx.MessagePreviews(run.ThreadID, 6000); readErr != nil {
 			return readErr
 		}
-		selected := recentHistory(all, run.ID, 12, 16000)
+		selected := recentHistory(all, run.ID, limits.Messages, limits.Tokens)
 		ids := make([]string, 0, len(selected))
 		for _, message := range selected {
 			ids = append(ids, message.ID)
@@ -437,7 +512,7 @@ func TestOverBudgetSharedHistoryStaysVisibleAndReadable(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	e := Engine{Store: s, AllowedModels: []string{"test"}}
+	e := Engine{Store: s, AllowedModels: []string{"test"}, History: limits}
 	request, err := e.buildRequest(t.Context(), run, sender, run.Agents[0], nil, "", agent.ConnectionInfo{}, agent.AdapterInfo{}, w.Message{ID: w.NewID(), RunID: run.ID, StepID: sender.ID}, Handoff{}, scope, all, all, nil, nil, w.Attempt{})
 	if err != nil {
 		t.Fatal(err)
@@ -480,14 +555,15 @@ func TestOverBudgetHistoryKeepsResumePlanDigestStable(t *testing.T) {
 	defer s.Close()
 	run := seedCustomRun(t, s, []customStepSpec{{Agent: 0, Role: "responder", Instruction: "answer"}})
 	history := []w.Message{{ID: w.NewID(), Role: "user", Content: "research question"}}
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 9; i++ {
 		history = append(history, w.Message{ID: w.NewID(), Role: "assistant", Content: strings.Repeat(string(rune('a'+i)), 4000)})
 	}
 	priorCompletedRun(t, s, run, history)
 	runner := &testRunner{run: func(context.Context, model.Request, int, agent.Execute, agent.Observe) error {
 		return &nativecli.Failure{Kind: nativecli.FailureContextOverflow, Reason: "context window exhausted"}
 	}}
-	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}}
+	limits := HistoryLimits{Messages: 16, Tokens: 6000}
+	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, History: limits}
 	cancel, wait := startEngine(t, &e)
 	if got := awaitRun(t, s, run.ID); got.Status != "interrupted" {
 		t.Fatalf("first overflow did not interrupt: %+v", got)
@@ -496,7 +572,7 @@ func TestOverBudgetHistoryKeepsResumePlanDigestStable(t *testing.T) {
 	wait()
 	// The first fresh attempt is allowed; the guard only blocks replaying a
 	// fresh attempt whose inputs did not change.
-	second := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}}
+	second := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, History: limits}
 	cancelSecond, waitSecond := startEngine(t, &second)
 	defer waitSecond()
 	if _, err := second.Resume(t.Context(), run.ID); err != nil {

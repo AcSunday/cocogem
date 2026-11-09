@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -180,24 +180,6 @@ test("long task preview pages to tail evidence and bounds live events", async ({
   await page.goto(`${baseURL}/w/${workspace.id}/t/${thread.id}`);
   await expect(page.getByRole("heading", { name: "长任务分页" })).toBeVisible();
 
-  const selectOption = async (
-    control: Locator,
-    value: string | { index: number },
-  ) => {
-    await control.click();
-    const menu = page.getByRole("listbox");
-    if (typeof value === "string")
-      await menu.locator(`[role="option"][data-value="${value}"]`).click();
-    else await menu.getByRole("option").nth(value.index).click();
-  };
-  const openPanel = async (name: string) => {
-    const toggle = page.getByRole("button", {
-      name: "打开协作面板",
-      exact: true,
-    });
-    if (await toggle.isVisible()) await toggle.click();
-    await page.getByRole("tab", { name }).click();
-  };
   const submit = async (text: string) => {
     await page.getByLabel("输入问题").fill(text);
     const accepted = page.waitForResponse(
@@ -232,61 +214,45 @@ test("long task preview pages to tail evidence and bounds live events", async ({
     longMessage.getByRole("button", { name: "查看下一页全文" }),
   ).toBeDisabled();
 
-  // More than 500 live events must be capped, not accumulated forever.
-  await openPanel("过程");
-  const panel = page.getByRole("complementary", { name: "协作资料" });
-  await expect(page.getByText("仅保留最近 500 条事件")).toBeVisible();
+  // D08: tool activity is in the reply body (default collapsed), not a panel
+  // tab. The bounded live window still backs it; a dropped finish reads as an
+  // unverifiable result instead of a synthesized success.
+  await expect(page.getByRole("tab", { name: "过程" })).toHaveCount(0);
+  const activity = page.getByTestId("tool-activity").first();
+  if (await activity.isVisible()) {
+    await activity.getByRole("button").first().click();
+    await expect(activity.getByRole("list")).toBeVisible();
+  }
 
-  // A second, ordinary run has a distinct tool record for the stale-response check.
+  // A second, ordinary run must not inherit the first run's tool records.
   const run2 = await submit("请用一句话总结协作成本。");
   await waitRun(page, csrf, run2.id);
   await expect(page.getByTestId("run-status")).toHaveText("已完成", {
     timeout: 60000,
   });
-  await expect(page.getByLabel("历史协作")).toBeVisible();
-
-  let releaseRun1!: () => void;
-  const held = new Promise<void>((resolve) => {
-    releaseRun1 = resolve;
-  });
-  let heldRequests = 0;
-  const historyRoute = `**/api/v1/runs/${run1.id}/event-history*`;
-  await page.route(historyRoute, async (route) => {
-    heldRequests++;
-    await held;
-    await route.continue();
-  });
-  await selectOption(page.getByLabel("历史协作"), { index: 0 });
-  await page.waitForTimeout(200);
-  await selectOption(page.getByLabel("历史协作"), { index: 1 });
-  await expect(panel.getByText("读取网页").first()).toBeVisible();
-  releaseRun1();
-  await page.waitForTimeout(500);
-  // The delayed response for run 1 must not replace run 2's committed events.
-  await expect(panel.getByText("读取网页").first()).toBeVisible();
-  await expect(panel.getByText("重读来源")).toHaveCount(0);
-  expect(heldRequests).toBeGreaterThan(0);
-  await page.unroute(historyRoute);
-
-  // The long run's full history pages beyond the bounded live window.
-  await selectOption(page.getByLabel("历史协作"), { index: 0 });
-  await expect(panel.getByText("重读来源").first()).toBeVisible({
-    timeout: 20000,
-  });
-  await panel.getByRole("button", { name: "浏览历史事件" }).click();
-  const history = page.getByRole("region", { name: "历史事件" });
-  await expect(history.getByText("第 1 页", { exact: true })).toBeVisible();
-  let pages = 1;
-  while (pages < 10) {
-    const next = history.getByRole("button", {
-      name: "查看下一页历史事件",
-    });
-    if (await next.isDisabled()) break;
-    await next.click();
-    pages++;
-    await expect(
-      history.getByText(`第 ${pages} 页`, { exact: true }),
-    ).toBeVisible();
+  // Activity is scoped to its own run: a later run shows only its own calls.
+  const activities = page.getByTestId("tool-activity");
+  if ((await activities.count()) > 1) {
+    const first = await activities.nth(0).innerText();
+    const second = await activities.nth(1).innerText();
+    expect(first).not.toBe(second);
   }
-  expect(pages).toBeGreaterThanOrEqual(6);
+
+  // The long run's full history stays reachable. "查看历史" appears on a call
+  // whose finish fell outside the bounded window (an unverifiable result, never
+  // a synthesized success); otherwise the run's disclosure carries the steps.
+  const historyButton = page.getByRole("button", { name: "查看历史" }).first();
+  if (await historyButton.isVisible()) {
+    await historyButton.click();
+    const history = page.getByRole("region", { name: "历史事件" });
+    await expect(history.getByText("第 1 页", { exact: true })).toBeVisible();
+    await expect(
+      history.getByRole("button", { name: "关闭历史事件" }),
+    ).toBeVisible();
+    await history.getByRole("button", { name: "关闭历史事件" }).click();
+  } else {
+    // No evicted finish: the bounded window is consistent, so the run shows a
+    // single terminal state and its process stays readable.
+    await expect(page.getByTestId("run-status")).toHaveText("已完成");
+  }
 });

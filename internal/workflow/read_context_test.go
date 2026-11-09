@@ -14,7 +14,6 @@ import (
 	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/testutil"
-	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -182,28 +181,28 @@ func TestReadContextFrozenScopePagingAndRevocation(t *testing.T) {
 			if _, err := execute(ctx, "read_context", json.RawMessage(fmt.Sprintf(`{"kind":"message","id":%q,"max_bytes":9000}`, researcherMessage))); err == nil {
 				return errors.New("oversized read_context max_bytes was accepted")
 			}
+			// Disabling the member is the remaining real revocation; the retired
+			// tool array no longer limits what a new call may read.
 			if err := s.Write(ctx, func(tx *store.Tx) error {
-				member, err := tx.WorkspaceAgent(run.WorkspaceID, run.Agents[1].ID)
+				member, err := tx.Member(run.WorkspaceID, run.Agents[1].ID)
 				if err != nil {
 					return err
 				}
-				member.Tools = []string{"publish_artifact"}
-				member.Revision++
-				return tx.SaveAgent(member)
+				member.Enabled, member.Revision = false, member.Revision+1
+				return tx.SaveMember(member)
 			}); err != nil {
 				return err
 			}
 			if _, err := execute(ctx, "read_context", json.RawMessage(fmt.Sprintf(`{"kind":"message","id":%q}`, researcherMessage))); err == nil {
-				return errors.New("revoked member could still read context")
+				return errors.New("disabled member could still read context")
 			}
 			if err := s.Write(ctx, func(tx *store.Tx) error {
-				member, err := tx.WorkspaceAgent(run.WorkspaceID, run.Agents[1].ID)
+				member, err := tx.Member(run.WorkspaceID, run.Agents[1].ID)
 				if err != nil {
 					return err
 				}
-				member.Tools = tools.Names
-				member.Revision++
-				return tx.SaveAgent(member)
+				member.Enabled, member.Revision = true, member.Revision+1
+				return tx.SaveMember(member)
 			}); err != nil {
 				return err
 			}

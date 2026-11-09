@@ -71,7 +71,7 @@ func TestList(t *testing.T) {
 			t.Fatalf("incomplete skill metadata: %+v", info)
 		}
 	}
-	want := []string{"independent-review", "synthesize-results", "task-handoff", "task-orchestration"}
+	want := []string{"file-delivery", "independent-review", "synthesize-results", "task-handoff", "task-orchestration"}
 	if !slices.Equal(ids, want) {
 		t.Fatalf("skill IDs = %v, want %v", ids, want)
 	}

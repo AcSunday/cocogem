@@ -11,7 +11,6 @@ import settings from "../../styles/settings.module.css";
 import { errorText, memberLabel } from "../../lib/presentation";
 import { Avatar } from "../Avatar";
 import { Modal } from "../Modal";
-import { allTools } from "./MembersForm";
 
 const cx = scoped(base, controls, conversation, panels, members, settings);
 
@@ -47,8 +46,7 @@ export function WorkspaceMembersForm({
   return (
     <Modal title="工作空间成员" close={close}>
       <p>
-        这里只管理本工作空间的成员关系、启用状态和工具授权。全局档案请到设置 →
-        成员编辑。
+        这里只管理本工作空间的成员关系与启用状态。成员的工具与命令边界由设置中的全局权限决定；全局档案请到设置 → 成员编辑。
       </p>
       <div className={cx("member-picker")}>
         {profiles.map(({ profile, member }) => (
@@ -98,15 +96,10 @@ function MemberGrant({
   workspaceID: string;
   refresh: () => Promise<void>;
 }) {
-  const globalTools = profile.tools ?? [];
   const [enabled, setEnabled] = useState(membership?.enabled ?? true);
-  const [tools, setTools] = useState(membership?.tools ?? globalTools);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  const effective = enabled && !profile.disabled
-    ? tools.filter((tool) => globalTools.includes(tool))
-    : [];
   const path = `/api/v1/workspaces/${workspaceID}/members/${profile.id}`;
   const submit = (action: () => Promise<void>) => {
     setBusy(true);
@@ -126,14 +119,16 @@ function MemberGrant({
           await api(
             path,
             membership ? "PATCH" : "PUT",
-            { enabled, tools },
+            // Field merge keeps the stored legacy tool array untouched; the
+            // executed boundary no longer depends on it.
+            { enabled, ...(membership ? {} : { tools: null }) },
             membership ? { "If-Match": String(membership.revision) } : {},
           );
         });
       }}
     >
       <fieldset disabled={busy}>
-        <legend>本工作空间权限</legend>
+        <legend>本工作空间成员</legend>
         <label className={cx("check-label")}>
           <input
             type="checkbox"
@@ -145,33 +140,11 @@ function MemberGrant({
           />
           在本工作空间启用
         </label>
-        {allTools.map((tool) => {
-          const allowed = globalTools.includes(tool);
-          const checked = tools.includes(tool);
-          return (
-            <label className={cx("check-label")} key={tool}>
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={!allowed && !checked}
-                onChange={(event) => {
-                  setSaved(false);
-                  setTools(
-                    event.target.checked
-                      ? [...tools, tool]
-                      : tools.filter((item) => item !== tool),
-                  );
-                }}
-              />
-              <span className={cx("tool-name")}>{tool}</span>
-              {!allowed && <span className={cx("check-note")}>全局未允许</span>}
-            </label>
-          );
-        })}
       </fieldset>
       <p>
-        实际权限取本空间与全局配置的交集。当前实际生效：
-        {effective.length ? effective.join("、") : "无"}。
+        {profile.disabled
+          ? "该成员已在全局停用，加入本空间也不会执行。"
+          : "成员的工具与命令边界由设置中的全局权限决定。"}
         移出仅撤销本空间访问，保留全局成员档案和历史记录。
       </p>
       {error && (
@@ -179,7 +152,7 @@ function MemberGrant({
           {error}
         </p>
       )}
-      {saved && <p role="status">本空间成员配置已保存。</p>}
+      {saved && <p role="status">本空间成员设置已保存。</p>}
       <div className={cx("form-actions")}>
         {membership && (
           <button
@@ -197,7 +170,7 @@ function MemberGrant({
           </button>
         )}
         <button className={cx("primary")} disabled={busy}>
-          {busy ? "保存中…" : membership ? "保存本空间权限" : "加入本工作空间"}
+          {busy ? "保存中…" : membership ? "保存本空间设置" : "加入本工作空间"}
         </button>
       </div>
     </form>

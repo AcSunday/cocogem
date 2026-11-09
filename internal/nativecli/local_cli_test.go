@@ -258,6 +258,7 @@ func TestInstalledGeminiToolRegistry(t *testing.T) {
 		}
 		requests <- names
 		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, ": PING\r\n\r\n")
 		chosen := ""
 		for _, name := range names {
 			if strings.HasSuffix(name, "_read_file") {
@@ -419,7 +420,7 @@ func TestInstalledIsolationProbes(t *testing.T) {
 	if os.Getenv("COCOGEM_CHECK_INSTALLED_ISOLATION") != "1" {
 		t.Skip("set COCOGEM_CHECK_INSTALLED_ISOLATION=1 for installed isolation probes")
 	}
-	for _, id := range []string{"claude", "codex", "gemini", "pi"} {
+	for _, id := range []string{"claude", "codex", "gemini", "pi", "opencode"} {
 		t.Run(id, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
