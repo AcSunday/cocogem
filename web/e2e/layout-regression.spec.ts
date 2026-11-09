@@ -113,7 +113,7 @@ test("composer hint button renders 24×24 with a transparent background", async 
   await expect(page.getByLabel("输入问题")).toHaveValue("");
 });
 
-test("board header controls stay inside a 360px viewport", async ({ page }) => {
+test("board controls stay inside a 360px viewport", async ({ page }) => {
   const headers = await signIn(page);
   const workspace = await seedTasks(page, headers);
   await page.setViewportSize({ width: 360, height: 780 });
@@ -121,17 +121,18 @@ test("board header controls stay inside a 360px viewport", async ({ page }) => {
   await page.getByRole("button", { name: "看板", exact: true }).click();
   await expect(page.getByRole("button", { name: "清单", exact: true })).toBeVisible();
 
-  // The header action group is the ancestor element that contains the view
-  // switch and the create button (class names are hashed by CSS modules).
   const switchGroup = page.getByRole("group", { name: "任务视图" });
-  const actions = switchGroup.locator("xpath=..");
-  for (const part of [actions, switchGroup]) {
-    const box = await part.boundingBox();
-    expect(box).not.toBeNull();
-    // The action group never spills past the viewport edge.
-    expect(box!.x).toBeGreaterThanOrEqual(-0.5);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(360 + 0.5);
-  }
+  const topbar = switchGroup.locator("xpath=ancestor::header");
+  const switchBox = await switchGroup.boundingBox();
+  const topbarBox = await topbar.boundingBox();
+  expect(switchBox).not.toBeNull();
+  expect(topbarBox).not.toBeNull();
+  expect(switchBox!.x).toBeGreaterThanOrEqual(0);
+  expect(switchBox!.x + switchBox!.width).toBeLessThanOrEqual(360);
+  expect(switchBox!.y).toBeGreaterThanOrEqual(topbarBox!.y);
+  expect(switchBox!.y + switchBox!.height).toBeLessThanOrEqual(
+    topbarBox!.y + topbarBox!.height,
+  );
 
   for (const name of ["清单", "看板", "新建任务"]) {
     const control = page.getByRole("button", { name, exact: true });
@@ -148,6 +149,57 @@ test("board header controls stay inside a 360px viewport", async ({ page }) => {
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(1);
+});
+
+test("the switch stays at the top right and the board is compact on wide screens", async ({ page }) => {
+  const headers = await signIn(page);
+  const workspace = await seedTasks(page, headers);
+  await page.setViewportSize({ width: 1920, height: 1200 });
+  await page.goto(`${baseURL}/w/${workspace.id}?view=tasks`);
+
+  const switchGroup = page.getByRole("group", { name: "任务视图" });
+  const topbar = switchGroup.locator("xpath=ancestor::header");
+  const switchBox = await switchGroup.boundingBox();
+  const topbarBox = await topbar.boundingBox();
+  expect(switchBox).not.toBeNull();
+  expect(topbarBox).not.toBeNull();
+  expect(switchBox!.x + switchBox!.width).toBeGreaterThan(1920 - 36);
+  expect(switchBox!.y).toBeGreaterThanOrEqual(topbarBox!.y);
+  expect(switchBox!.y + switchBox!.height).toBeLessThanOrEqual(
+    topbarBox!.y + topbarBox!.height,
+  );
+
+  await page.getByRole("button", { name: "看板", exact: true }).click();
+  const columns = page.getByRole("region", { name: "待办任务" }).locator("xpath=..");
+  const timeline = page.getByTestId("conversation-timeline");
+  const columnsBox = await columns.boundingBox();
+  const timelineBox = await timeline.boundingBox();
+  expect(columnsBox).not.toBeNull();
+  expect(timelineBox).not.toBeNull();
+  expect(columnsBox!.width).toBeLessThanOrEqual(1280);
+  expect(columnsBox!.height).toBeLessThanOrEqual(720);
+  expect(columnsBox!.x - timelineBox!.x).toBeCloseTo(
+    timelineBox!.x + timelineBox!.width - columnsBox!.x - columnsBox!.width,
+    0,
+  );
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "看板", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.setViewportSize({ width: 1247, height: 1219 });
+  const fit = await columns.evaluate((node) => ({
+    clientWidth: node.clientWidth,
+    scrollWidth: node.scrollWidth,
+  }));
+  expect(fit.scrollWidth - fit.clientWidth).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("region", { name: "已验收任务" })).toBeInViewport();
+
+  await page.getByRole("button", { name: "清单", exact: true }).click();
+  const listSwitchBox = await switchGroup.boundingBox();
+  expect(listSwitchBox!.y).toBeCloseTo(switchBox!.y, 0);
+  expect(listSwitchBox!.x + listSwitchBox!.width).toBeGreaterThan(1247 - 36);
 });
 
 test("a long board column scrolls internally and keeps card height", async ({

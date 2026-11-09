@@ -208,6 +208,8 @@ function WorkspaceApp({
   const [projectView, setProjectView] = useState<ProjectView>(
     pathSelection().view,
   );
+  const [taskViewSwitchTarget, setTaskViewSwitchTarget] =
+    useState<HTMLDivElement | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [globalAgents, setGlobalAgents] = useState<Agent[]>([]);
   // Settings are the single global source for the permission choice; the hook
@@ -1374,6 +1376,9 @@ function WorkspaceApp({
             )}
           </div>
           <div className={cx("top-actions")}>
+            {!taskID && !threadID && projectView === "tasks" && (
+              <div ref={setTaskViewSwitchTarget} />
+            )}
             {view?.thread.task_id && (
               <button
                 className={cx("ghost desktop-only")}
@@ -1473,6 +1478,7 @@ function WorkspaceApp({
                   !threadID &&
                   (projectView === "tasks" ? (
                     <TaskBoardPage
+                      viewSwitchTarget={taskViewSwitchTarget}
                       onOpenThread={(ws, id) => navigate(ws, id)}
                       onOpenTask={(workspaceID, taskID) =>
                         navigate(workspaceID, "", true, taskID)

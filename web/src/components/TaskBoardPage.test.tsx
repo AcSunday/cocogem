@@ -280,7 +280,7 @@ it("shows a completed task that needs revalidation as review work", async () => 
   ).not.toBeInTheDocument();
 });
 
-it("aligns 选择, the view switch and 新建任务 as one header control group", async () => {
+it("keeps the standalone task header controls aligned and switches views", async () => {
   request.mockResolvedValue({
     tasks: [task("看板任务", "orders", "active", "succeeded")],
     workspaces: { orders: "订单系统" },
@@ -305,6 +305,37 @@ it("aligns 选择, the view switch and 新建任务 as one header control group"
   expect(board).toHaveAttribute("aria-pressed", "true");
   expect(list).toHaveAttribute("aria-pressed", "false");
   expect(document.querySelector('[class*="task-board-surface"]')).not.toBeNull();
+});
+
+it("renders the view switch in the supplied header and restores it after selection", async () => {
+  request.mockResolvedValue({
+    tasks: [task("看板任务", "orders", "waiting")],
+    workspaces: { orders: "订单系统" },
+    needs_attention: [],
+  } satisfies TaskBoard);
+  const target = document.createElement("div");
+  document.body.append(target);
+  const user = userEvent.setup();
+  const page = render(
+    <TaskBoardPage onOpenTask={() => {}} viewSwitchTarget={target} />,
+  );
+  await screen.findByRole("heading", { name: "任务清单" });
+
+  const switchGroup = within(target).getByRole("group", { name: "任务视图" });
+  await user.click(within(switchGroup).getByRole("button", { name: "看板" }));
+  expect(within(switchGroup).getByRole("button", { name: "看板" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await user.click(within(switchGroup).getByRole("button", { name: "清单" }));
+  await user.click(screen.getByRole("button", { name: "选择" }));
+  expect(within(target).queryByRole("group", { name: "任务视图" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "退出选择" }));
+  expect(within(target).getByRole("group", { name: "任务视图" })).toBeVisible();
+
+  page.unmount();
+  expect(target).toBeEmptyDOMElement();
+  target.remove();
 });
 
 it("renders board cards with only title, status, owner and one action", async () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   api,
   type ProjectTaskView,
@@ -121,9 +122,11 @@ function FilterMenu({
 export function TaskBoardPage({
   onOpenTask,
   onOpenThread,
+  viewSwitchTarget,
 }: {
   onOpenTask: (workspaceID: string, taskID: string) => void;
   onOpenThread?: (workspaceID: string, threadID: string) => void;
+  viewSwitchTarget?: HTMLElement | null;
 }) {
   const [board, setBoard] = useState<TaskBoard>();
   const [error, setError] = useState("");
@@ -676,6 +679,33 @@ export function TaskBoardPage({
     );
   };
 
+  const viewSwitch = !selecting && (
+    <div
+      className={cx("task-view-switch")}
+      role="group"
+      aria-label="任务视图"
+    >
+      <button
+        type="button"
+        className={cx("task-view-option", "task-head-control")}
+        aria-pressed={filters.view === "list"}
+        onClick={() => update({ view: "list" })}
+      >
+        <Icon name="tasks" size={14} />
+        清单
+      </button>
+      <button
+        type="button"
+        className={cx("task-view-option", "task-head-control")}
+        aria-pressed={filters.view === "board"}
+        onClick={() => update({ view: "board" })}
+      >
+        <Icon name="layers" size={14} />
+        看板
+      </button>
+    </div>
+  );
+
   return (
     <div
       className={cx(
@@ -684,6 +714,7 @@ export function TaskBoardPage({
         filters.view === "board" && "task-board-surface",
       )}
     >
+      {viewSwitchTarget && createPortal(viewSwitch, viewSwitchTarget)}
       <header className={cx("task-focus-head")}>
         <div>
           <h1>任务清单</h1>
@@ -733,30 +764,7 @@ export function TaskBoardPage({
                   选择
                 </button>
               )}
-              <div
-                className={cx("task-view-switch")}
-                role="group"
-                aria-label="任务视图"
-              >
-                <button
-                  type="button"
-                  className={cx("task-view-option", "task-head-control")}
-                  aria-pressed={filters.view === "list"}
-                  onClick={() => update({ view: "list" })}
-                >
-                  <Icon name="tasks" size={14} />
-                  清单
-                </button>
-                <button
-                  type="button"
-                  className={cx("task-view-option", "task-head-control")}
-                  aria-pressed={filters.view === "board"}
-                  onClick={() => update({ view: "board" })}
-                >
-                  <Icon name="layers" size={14} />
-                  看板
-                </button>
-              </div>
+              {!viewSwitchTarget && viewSwitch}
               <button
                 type="button"
                 className={cx("primary", "task-head-control")}
