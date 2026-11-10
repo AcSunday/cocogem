@@ -725,7 +725,8 @@ it("labels the persisted run method and readable selection reason", () => {
       }),
     ),
   ).toEqual({ method: "engineering", label: "工程协作", reason: "" });
-  // A selected workflow can only be read-only engineering collaboration.
+  // A selected workflow records the method only; engineering is writable under
+  // the member's actual grants.
   expect(
     runMethod(
       run({ selected_workflow: { ...selection, workflow: "engineering" } }),
@@ -748,7 +749,7 @@ it("renders method events as readable text without raw payload details", () => {
         selection: { workflow: "engineering", reason: "只读核对" },
       }),
     ),
-  ).toBe("协调者选择方法：工程协作（只读） · 只读核对");
+  ).toBe("协调者选择方法：工程协作 · 只读核对");
   const selected = methodEventLabel(
     event("workflow_selected", {
       selection: {

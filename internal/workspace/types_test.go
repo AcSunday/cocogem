@@ -216,3 +216,12 @@ func TestNativeExecutorUsesItsOwnModelSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestEngineeringIsAlwaysWritable(t *testing.T) {
+	if WorkflowIsReadOnly(RunInput{Workflow: "engineering"}) {
+		t.Fatal("engineering must not be read-only")
+	}
+	if !WorkflowIsReadOnly(RunInput{Workflow: "code_analysis"}) {
+		t.Fatal("legacy code_analysis must stay read-only")
+	}
+}

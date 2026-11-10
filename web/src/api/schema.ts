@@ -1862,7 +1862,6 @@ export interface components {
           assignments: {
             [key: string]: string;
           } | null;
-          engineering_read_only?: boolean;
           message: string;
           proposal_id: string;
           research_scope: string;
@@ -2895,7 +2894,6 @@ export interface components {
         assignments: {
           [key: string]: string;
         } | null;
-        engineering_read_only?: boolean;
         message: string;
         proposal_id: string;
         /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -2997,7 +2995,6 @@ export interface components {
       assignments: {
         [key: string]: string;
       } | null;
-      engineering_read_only?: boolean;
       message: string;
       proposal_id: string;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -3018,7 +3015,6 @@ export interface components {
       assignments?: {
         [key: string]: string;
       } | null;
-      engineering_read_only?: boolean;
       message: string;
       proposal_id?: string;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
@@ -3186,7 +3182,6 @@ export interface components {
           assignments: {
             [key: string]: string;
           } | null;
-          engineering_read_only?: boolean;
           message: string;
           proposal_id: string;
           research_scope: string;
@@ -3831,7 +3826,6 @@ export interface components {
               assignments: {
                 [key: string]: string;
               } | null;
-              engineering_read_only?: boolean;
               message: string;
               proposal_id: string;
               research_scope: string;
@@ -4366,7 +4360,6 @@ export interface components {
           assignments: {
             [key: string]: string;
           } | null;
-          engineering_read_only?: boolean;
           message: string;
           proposal_id: string;
           research_scope: string;

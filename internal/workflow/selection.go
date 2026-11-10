@@ -35,11 +35,6 @@ func effectiveInput(run w.Run) w.RunInput {
 	in.Workflow = run.SelectedWorkflow.Workflow
 	in.Targets = slices.Clone(run.SelectedWorkflow.Targets)
 	in.Assignments = maps.Clone(run.SelectedWorkflow.Assignments)
-	if in.Workflow == "engineering" {
-		// A coordinator-selected method is never a write authorization: only
-		// the user's Composer engineering choice permits write/test tools.
-		in.EngineeringReadOnly = true
-	}
 	return in
 }
 
@@ -78,7 +73,7 @@ func selectionTools(run w.Run, step w.Step) []model.Tool {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"workflow": map[string]any{"type": "string", "enum": []string{"discussion", "research", "engineering", "code_analysis"}},
+			"workflow": map[string]any{"type": "string", "enum": []string{"discussion", "research", "engineering"}},
 			"targets":  map[string]any{"type": "array", "maxItems": 4, "uniqueItems": true, "items": member, "description": "Discussion participants (2–4 distinct members). Empty for other methods."},
 			"assignments": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
 				"researcher":  memberOrEmpty("research"),
@@ -93,7 +88,7 @@ func selectionTools(run w.Run, step w.Step) []model.Tool {
 		"required":             []string{"workflow"},
 		"additionalProperties": false,
 	}
-	return []model.Tool{{Name: "choose_workflow", Description: "Select this free run's collaboration method once: discussion for independent views with cross-critique, research for evidence gathering, or engineering for read-only engineering collaboration. Use it only when the task genuinely needs that method; a simple question needs no tool. When the user explicitly requests one of these methods, independent views with cross-critique, or names choose_workflow, selecting it is required; do not answer directly or replace the request with a single handoff. Selecting engineering (or legacy code_analysis) never authorizes development or file writes; write and test tools require the user's explicit Composer engineering choice and the member's own grants. Fill roles with exact runtime roster IDs chosen by actual capabilities and permissions, never by display names or CLI/model brands. If the roster cannot staff the method, finish with a short explanation instead of inventing members. After acceptance, finish this planning step without answering the task; the platform runs the selected plan next.", Schema: schema}}
+	return []model.Tool{{Name: "choose_workflow", Description: "Select this free run's collaboration method once: discussion for independent views with cross-critique, research for evidence gathering, or engineering for code and file work. Engineering is one workflow: the engineer first reads and reproduces, then uses the granted read, write and test tools to implement when the task requires changes. Do not ask the user to choose a separate analysis mode. Use it only when the task genuinely needs that method; a simple question needs no tool. When the user explicitly requests one of these methods, independent views with cross-critique, or names choose_workflow, selecting it is required; do not answer directly or replace the request with a single handoff. Fill roles with exact runtime roster IDs chosen by actual capabilities and permissions, never by display names or CLI/model brands. If the roster cannot staff the method, finish with a short explanation instead of inventing members. After acceptance, finish this planning step without answering the task; the platform runs the selected plan next.", Schema: schema}}
 }
 
 func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, raw json.RawMessage) (string, error) {
@@ -102,8 +97,8 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 		return "", err
 	}
 	roles, ok := w.WorkflowRoles[in.Workflow]
-	if !ok {
-		return "", errors.New("workflow method must be discussion, research, engineering or code_analysis")
+	if !ok || in.Workflow == "code_analysis" {
+		return "", errors.New("workflow method must be discussion, research or engineering")
 	}
 	if utf8.RuneCountInString(in.Reason) > selectionReasonLimit || strings.TrimSpace(in.Reason) != in.Reason {
 		return "", errors.New("invalid method selection reason")
@@ -155,8 +150,8 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 				return errors.New("selected participant is outside this run roster")
 			}
 		}
-		if (desired.Workflow == "code_analysis" || desired.Workflow == "engineering") && current.Workspace.Root == "" {
-			return errors.New("the selected engineering analysis method requires a bound source directory")
+		if desired.Workflow == "engineering" && current.Workspace.Root == "" {
+			return errors.New("the selected engineering method requires a bound source directory")
 		}
 		if slices.ContainsFunc(steps, func(s w.Step) bool {
 			return s.Kind == "handoff" || s.Kind == "continuation" && s.FromStepID != current.TaskPromotionStepID
@@ -186,9 +181,6 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 			return err
 		}
 		planInput := w.RunInput{Workflow: desired.Workflow, Targets: desired.Targets, Assignments: desired.Assignments}
-		if desired.Workflow == "engineering" {
-			planInput.EngineeringReadOnly = true
-		}
 		plan, err := Plan(current.ID, planInput, current.Agents)
 		if err != nil {
 			return fmt.Errorf("the selected method cannot run with the current roster: %w", err)

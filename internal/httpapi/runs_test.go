@@ -18,7 +18,6 @@ func TestRoutingPreviewAndSubmissionPrioritizeUserRecipients(t *testing.T) {
 		{name: "research with no available default roles", workflow: "research", solo: true},
 		{name: "natural language assignment", workflow: "research", solo: true, named: true},
 		{name: "discussion", workflow: "discussion"},
-		{name: "analysis without a source directory", workflow: "code_analysis"},
 		{name: "engineering", workflow: "engineering"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

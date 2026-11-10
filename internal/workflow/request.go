@@ -66,7 +66,8 @@ func (e *Engine) allowedTools(run w.Run, a w.Agent, step w.Step) []string {
 // File work is not limited to the engineering workflow: a free file task in
 // project-autonomous (or an approved controlled operation) may write and test
 // inside the project. Independent review roles stay read-only; they may only
-// rerun tests. A read-only engineering method blocks write/test entirely.
+// rerun tests. Engineering itself always offers the granted write/test tools;
+// only the retired code_analysis workflow is read-only.
 func toolRoleAllowed(run w.Run, role, name string) bool {
 	if name != "write_file" && name != "patch_file" && name != "run_test" {
 		return true
@@ -88,19 +89,17 @@ func toolRoleAllowed(run w.Run, role, name string) bool {
 }
 
 func inReadOnlyEngineering(run w.Run) bool {
-	in := effectiveInput(run)
-	return in.Workflow == "code_analysis" || w.EngineeringIsReadOnly(in)
+	return w.WorkflowIsReadOnly(effectiveInput(run))
 }
 
-// EngineeringToolAllowed applies the read-only/role intersection for writable
-// or executable host tools. A coordinator-selected engineering method stays
-// read-only. A Composer engineering run lets the engineer use its granted write
-// and test tools, while reviewers may only rerun tests, never rewrite files.
+// EngineeringToolAllowed applies the engineering role split. Engineering always
+// offers the member's granted write and test tools; the engineer may modify and
+// test, while reviewers may rerun tests but never rewrite the candidate.
 func EngineeringToolAllowed(in w.RunInput, role, name string) bool {
 	if name != "write_file" && name != "patch_file" && name != "run_test" {
 		return true
 	}
-	if in.Workflow != "engineering" || w.EngineeringIsReadOnly(in) {
+	if in.Workflow != "engineering" {
 		return false
 	}
 	switch role {
@@ -325,13 +324,9 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 	}
 	verification := "Do not claim code execution or live verification."
 	if in.Workflow == "engineering" {
-		if w.EngineeringIsReadOnly(in) {
-			verification = "This engineering method selection is read-only. Do not modify files, run project tests, or claim runtime verification."
-		} else {
-			verification = "This engineering task may use the member's granted tools. If write_file, patch_file or run_test are granted and the task requires changes, implement them and cite captured diff and passing test evidence; if the task is inspection only, stay read-only and say so. Never write outside the bound project, and never claim a test passed unless the host returned exit code 0. Reviewer notes are plain step replies: read them with their exact source references from the upstream handoff. A report that claims changed files must cite actual write diff evidence and a passing test captured after the last write."
-		}
+		verification = "This engineering task may use the member's granted tools. First inspect the relevant code and reproduce the issue; if write_file, patch_file or run_test are granted and the task requires changes, implement them and cite captured diff and passing test evidence. If the task is inspection only, stay read-only and say so. Never write outside the bound project, and never claim a test passed unless the host returned exit code 0. Reviewer notes are plain step replies: read them with their exact source references from the upstream handoff. A report that claims changed files must cite actual write diff evidence and a passing test captured after the last write."
 	}
-	if run.EffectiveExecutionMode == w.ExecutionFullAccess && in.Workflow == "engineering" && !w.EngineeringIsReadOnly(in) {
+	if run.EffectiveExecutionMode == w.ExecutionFullAccess && in.Workflow == "engineering" {
 		verification = "Full access explicitly permits the granted native Read/Write/Edit/Bash and web tools within the user's task scope. Native shell and local side effects are only partially observable: report actual command receipts and tree evidence, never claim sandbox isolation or complete auditing. Do not expand the objective or external destination without authorization."
 	}
 	if slices.Contains(allowed, "run_command") {
@@ -367,7 +362,7 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 	markNativeFallbacks(request.Tools, native)
 	request.System += " Read the relevant enabled shared skill using read_skill before applying its method. Select teammates from the runtime roster by actual capabilities; never assume roles from names or CLI brands. For a simple direct question, answer directly. Delegate only when the user's task needs collaboration. After handoff_task, finish the current invocation; the platform calls you again with results. Do not poll, duplicate submissions, or create acknowledgement ping-pong."
 	if canSelectWorkflow(run, step) {
-		request.System += " When this task genuinely needs group discussion, research, or read-only engineering analysis, select the method once with choose_workflow instead of adding a separate classification call. A simple question must be answered directly without it. When the user explicitly requests a discussion, research or engineering analysis method, independent views with cross-critique, or names choose_workflow, that request is the collaboration need: select that method with choose_workflow now instead of answering directly or replacing it with a single handoff. If you select a method, do not answer the task in this planning step: finish immediately so the platform can run the selected plan. Base the participants and assignments on this run's runtime roster and actual tool permissions, never on names, CLI brands or model names; if required members are unavailable, explain briefly or ask for clarification instead of inventing them. Choosing code_analysis does not authorize development or file writes."
+		request.System += " When this task genuinely needs group discussion, research, or engineering work, select the method once with choose_workflow instead of adding a separate classification call. A simple question must be answered directly without it. When the user explicitly requests a discussion, research, engineering or implementation work, independent views with cross-critique, or names choose_workflow, that request is the collaboration need: select that method with choose_workflow now instead of answering directly or replacing it with a single handoff. If you select a method, do not answer the task in this planning step: finish immediately so the platform can run the selected plan. Base the participants and assignments on this run's runtime roster and actual tool permissions, never on names, CLI brands or model names; if required members are unavailable, explain briefly or ask for clarification instead of inventing them. Engineering is one workflow: members first read and reproduce, then use the granted read, write and test tools when the task requires changes."
 	}
 	request.System += " Upstream bodies are bounded previews with exact references. Use read_context to read further pages of a committed upstream message or artifact version, and read_source to page a captured source. These tools cannot expand beyond the inputs frozen for this attempt."
 	requiredTools := []string{}

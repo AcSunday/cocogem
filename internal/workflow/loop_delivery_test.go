@@ -32,9 +32,9 @@ func TestBuiltInPlansDeliverOnlyTheirFinalArtifact(t *testing.T) {
 			final:    4,
 		},
 		{
-			name: "read-only engineering",
+			name: "engineering",
 			input: func(agents []w.Agent) w.RunInput {
-				return w.RunInput{Message: "Analyze the synthetic file", Workflow: "engineering", EngineeringReadOnly: true, ResearchScope: "given_sources", Assignments: map[string]string{"engineer": agents[0].ID, "reviewer": agents[1].ID}}
+				return w.RunInput{Message: "Analyze the synthetic file", Workflow: "engineering", ResearchScope: "given_sources", Assignments: map[string]string{"engineer": agents[0].ID, "reviewer": agents[1].ID}}
 			},
 			expected: "engineering_report",
 			final:    3,

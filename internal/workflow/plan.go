@@ -22,9 +22,12 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 	}
 	out := []w.Step{}
 	add := func(id, role, instruction string, deps []string) error {
+		if id == "" {
+			return fmt.Errorf("missing required %s member assignment", role)
+		}
 		a, ok := byID[id]
 		if !ok {
-			return errors.New("selected member is unavailable")
+			return fmt.Errorf("selected member %s is unavailable for role %s", id, role)
 		}
 		// Role capability comes from the runtime catalog, not from a retired
 		// member tool array.
@@ -132,6 +135,12 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		}
 	case "code_analysis":
 		a, r := in.Assignments["analyst"], in.Assignments["reviewer"]
+		if a == "" {
+			return nil, errors.New("missing required analyst member assignment")
+		}
+		if r == "" {
+			return nil, errors.New("missing required reviewer member assignment")
+		}
 		if a == r {
 			return nil, errors.New("analyst and reviewer must be different members")
 		}
@@ -153,13 +162,16 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		}
 	case "engineering":
 		engineer, reviewer := in.Assignments["engineer"], in.Assignments["reviewer"]
-		if engineer == "" || reviewer == "" || engineer == reviewer {
-			return nil, errors.New("engineering requires different engineer and reviewer members")
+		if engineer == "" {
+			return nil, errors.New("missing required engineer member assignment")
 		}
-		execute := "Read the relevant files and perform the user's requested engineering task using only your granted tools. If write and test tools are granted and the task requires changes, implement them and cite captured diff and passing test evidence. If the task is inspection only, stay read-only and say so. Never claim a test passed unless the host reports exit code 0, and never write outside the bound project."
-		if w.EngineeringIsReadOnly(in) {
-			execute = "Read the relevant files and perform the user's requested engineering analysis. This method selection is read-only: do not modify files, run project tests, or claim runtime verification. Report concrete findings with exact file evidence."
+		if reviewer == "" {
+			return nil, errors.New("missing required reviewer member assignment")
 		}
+		if engineer == reviewer {
+			return nil, errors.New("engineer and reviewer must be different members")
+		}
+		execute := "Read the relevant files, reproduce the issue with the granted tools, and perform the user's requested engineering task. If write and test tools are granted and the task requires changes, implement them and cite the captured diff and passing test evidence. If the task is inspection only, stay read-only and say so. Never claim a test passed unless the host reports exit code 0, and never write outside the bound project."
 		if err := add(engineer, "engineer", execute, nil); err != nil {
 			return nil, err
 		}
@@ -169,9 +181,6 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		}
 		review := out[len(out)-1].ID
 		respond := "Read the reviewer's exact step reply in the handoff and answer it point by point. If write or test tools are granted and defects remain, fix them and rerun the relevant test; otherwise concede unsupported claims and keep unresolved disagreement visible. Stay within the bound project and do not publish an artifact."
-		if w.EngineeringIsReadOnly(in) {
-			respond = "Read the reviewer's exact step reply in the handoff and answer it point by point with file evidence. This method selection is read-only: do not modify files, run tests, or claim runtime verification. Concede unsupported claims and keep unresolved disagreement visible. Reply as a plain step message and do not publish an artifact."
-		}
 		if err := add(engineer, "engineer", respond, []string{initial, review}); err != nil {
 			return nil, err
 		}
@@ -246,9 +255,6 @@ func RequiredArtifact(step w.Step, in w.RunInput) string {
 		// directly from the handoff. Legacy engineering snapshots used analyst
 		// or developer roles and published code_analysis.
 		if step.Role == "final_reviewer" {
-			if in.EngineeringReadOnly {
-				return "engineering_report"
-			}
 			if _, ok := in.Assignments["engineer"]; ok {
 				return "engineering_report"
 			}

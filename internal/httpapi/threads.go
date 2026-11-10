@@ -82,6 +82,9 @@ func (s *Server) createThread(rw http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		applyThreadDefaults(&th, agents, settings)
+		if th.Workflow == "code_analysis" {
+			return errors.New("code_analysis 仅用于历史兼容，请选择工程协作")
+		}
 		if err := validateThread(th, agents); err != nil {
 			return err
 		}

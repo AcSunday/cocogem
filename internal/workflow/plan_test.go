@@ -139,7 +139,7 @@ func TestLegacyTwoStepReviewerStillPublishes(t *testing.T) {
 	if got := RequiredArtifact(legacy, w.RunInput{Workflow: "code_analysis"}); got != "code_analysis" {
 		t.Fatalf("legacy code_analysis reviewer artifact = %q", got)
 	}
-	if got := RequiredArtifact(w.Step{Role: "final_reviewer", Status: "pending"}, w.RunInput{Workflow: "engineering", EngineeringReadOnly: true}); got != "engineering_report" {
+	if got := RequiredArtifact(w.Step{Role: "final_reviewer", Status: "pending"}, w.RunInput{Workflow: "engineering", Assignments: map[string]string{"engineer": "a", "reviewer": "b"}}); got != "engineering_report" {
 		t.Fatalf("engineering final reviewer artifact = %q", got)
 	}
 	if got := RequiredArtifact(w.Step{Role: "final_reviewer", Status: "pending"}, w.RunInput{Workflow: "engineering", Assignments: map[string]string{"analyst": "a", "reviewer": "b"}}); got != "code_analysis" {
@@ -265,21 +265,23 @@ func TestEngineeringPlanUsesEngineerAndReviewer(t *testing.T) {
 	if err == nil {
 		t.Fatal("engineer and reviewer may not be the same member")
 	}
+	if _, err := Plan("run", w.RunInput{Workflow: "engineering", Assignments: map[string]string{"engineer": "dev"}}, agents); err == nil || !strings.Contains(err.Error(), "missing required reviewer") {
+		t.Fatalf("missing reviewer err = %v", err)
+	}
 	// The engineer uses the member's granted tools, so a read-only member can
 	// still serve and simply reports without writing or running tests.
 	limited := []w.Agent{{ID: "dev", DisplayName: "执行", Tools: []string{"read_file", "publish_artifact"}}, agents[1]}
 	if _, err := Plan("run", w.RunInput{Workflow: "engineering", Assignments: map[string]string{"engineer": "dev", "reviewer": "review"}}, limited); err != nil {
 		t.Fatalf("read-only engineer was rejected: %v", err)
 	}
-	// A coordinator-selected engineering method is explicitly read-only.
-	readOnly := in
-	readOnly.EngineeringReadOnly = true
-	readOnlySteps, err := Plan("run", readOnly, agents)
+	// A coordinator-selected engineering method is writable under the member's
+	// granted tools; analysis is a behavior inside the same plan.
+	selectedSteps, err := Plan("run", in, agents)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(readOnlySteps[0].Instruction, "read-only") || !strings.Contains(readOnlySteps[2].Instruction, "read-only") {
-		t.Fatal("read-only engineering instructions were not applied")
+	if !strings.Contains(selectedSteps[0].Instruction, "reproduce") || !strings.Contains(selectedSteps[2].Instruction, "fix them") {
+		t.Fatal("engineering implementation instructions were not applied")
 	}
 }
 
@@ -298,13 +300,6 @@ func TestEngineeringToolGatingIntersectsRole(t *testing.T) {
 	final := e.allowedTools(develop, a, w.Step{Role: "final_reviewer"})
 	if slices.Contains(final, "write_file") || slices.Contains(final, "patch_file") {
 		t.Fatalf("final reviewer can write: %v", final)
-	}
-	readOnly := w.Run{Workspace: develop.Workspace, Input: w.RunInput{Workflow: "engineering", EngineeringReadOnly: true}}
-	for _, role := range []string{"engineer", "reviewer", "final_reviewer"} {
-		gated := e.allowedTools(readOnly, a, w.Step{Role: role})
-		if slices.Contains(gated, "write_file") || slices.Contains(gated, "patch_file") || slices.Contains(gated, "run_test") {
-			t.Fatalf("read-only role %s received engineering tools: %v", role, gated)
-		}
 	}
 	legacy := w.Run{Workspace: develop.Workspace, Input: w.RunInput{Workflow: "code_analysis"}}
 	for _, role := range []string{"analyst", "critic", "final_reviewer"} {

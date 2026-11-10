@@ -31,7 +31,7 @@ func (t *Tx) ReserveTaskRun(run *w.Run) error {
 	}
 	run.TaskRevision = task.CurrentRevision
 	run.BudgetAccountID = account.ID
-	run.WriteBranch = run.Input.Workflow == "engineering" && !w.EngineeringIsReadOnly(run.Input)
+	run.WriteBranch = run.Input.Workflow == "engineering"
 	if !run.AutomaticContinuation {
 		return nil
 	}

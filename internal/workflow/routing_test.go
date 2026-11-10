@@ -233,4 +233,33 @@ func TestRoutingToolSchemaRestrictsTargetsAndRoleValuesToCandidateIDs(t *testing
 			t.Fatal("role accepts values outside member IDs")
 		}
 	}
+	workflows := props["workflow"].(map[string]any)["enum"].([]string)
+	if !slices.Contains(workflows, "engineering") || slices.Contains(workflows, "code_analysis") {
+		t.Fatalf("routing workflows = %v", workflows)
+	}
+	roles := assignment["properties"].(map[string]any)
+	if _, ok := roles["engineer"]; !ok {
+		t.Fatal("engineering role is not routable")
+	}
+	if _, ok := roles["analyst"]; ok {
+		t.Fatal("legacy analyst role is still routable")
+	}
+}
+
+func TestRoutingAllowsPartialEngineeringRolesForHostFill(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
+	route := Routing{
+		Decision:    "assign",
+		Workflow:    "engineering",
+		Targets:     []string{"a"},
+		Assignments: map[string]string{"engineer": "a"},
+		Evidence:    []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫实现这个修复"}},
+	}
+	got, err := ResolveRouting(t.Context(), routingModel{route}, w.RunInput{Message: "布偶猫实现这个修复"}, w.Thread{CoordinatorID: "b", AgentIDs: []string{"a", "b"}}, agents)
+	if err != nil {
+		t.Fatalf("partial engineering route was rejected before host role fill: %v", err)
+	}
+	if got.Decision != "assign" || got.Workflow != "engineering" || got.Assignments["engineer"] != "a" {
+		t.Fatalf("routing = %+v", got)
+	}
 }

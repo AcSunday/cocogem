@@ -243,20 +243,11 @@ type Thread struct {
 	ActiveRunStatus string   `json:"active_run_status,omitempty"`
 }
 
-// EngineeringIsReadOnly reports whether an engineering run must stay read-only.
-// New runs carry the explicit internal flag. Legacy snapshots are classified by
-// their frozen role vocabulary: analyst-only runs were read-only, developer
-// runs were writable, and the single engineer role is writable.
-func EngineeringIsReadOnly(in RunInput) bool {
-	if in.Workflow != "engineering" {
-		return false
-	}
-	if in.EngineeringReadOnly {
-		return true
-	}
-	_, analyst := in.Assignments["analyst"]
-	_, engineer := in.Assignments["engineer"]
-	return analyst && !engineer
+// WorkflowIsReadOnly reports whether a workflow is read-only. Engineering is a
+// single writable workflow; only the retired code_analysis workflow remains
+// read-only so old plans can still be restored and inspected.
+func WorkflowIsReadOnly(in RunInput) bool {
+	return in.Workflow == "code_analysis"
 }
 
 // RunInput is a user's request, independent of a particular provider protocol.
@@ -269,13 +260,8 @@ type RunInput struct {
 	SourceIDs     []string          `json:"source_ids"`
 	ArtifactRefs  []ArtifactRef     `json:"artifact_refs"`
 	ResearchScope string            `json:"research_scope"`
-	// EngineeringReadOnly is an internal safety flag set when a free-run
-	// coordinator selects engineering as a method. Composer engineering leaves
-	// it false so members may use their granted write and test tools. It is not
-	// a user-facing analysis/development mode.
-	EngineeringReadOnly bool   `json:"engineering_read_only,omitempty"`
-	ProposalID          string `json:"proposal_id"`
-	RetryOfRunID        string `json:"retry_of_run_id"`
+	ProposalID    string            `json:"proposal_id"`
+	RetryOfRunID  string            `json:"retry_of_run_id"`
 }
 
 // ArtifactRef identifies an immutable version, not whichever version is newest.
