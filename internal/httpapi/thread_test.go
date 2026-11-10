@@ -157,3 +157,27 @@ func TestThreadRenameSurvivesDisabledMember(t *testing.T) {
 		t.Fatalf("unknown-field request wrote: %+v", view.Thread)
 	}
 }
+
+func TestNewThreadsRejectLegacyCodeAnalysisWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	api := newDeliveryAPI(t, dir, db, nil)
+	var ws w.Workspace
+	api.call("POST", "/api/v1/workspaces", WorkspaceInput{Name: "legacy workflow"}, nil, 200, &ws)
+	var members Page[w.Agent]
+	api.call("GET", "/api/v1/workspaces/"+ws.ID+"/agents", nil, nil, 200, &members)
+	if len(members.Items) < 2 {
+		t.Fatal("expected initialized members")
+	}
+	ids := []string{members.Items[0].ID, members.Items[1].ID}
+	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{
+		Title:         "legacy analysis",
+		AgentIDs:      ids,
+		CoordinatorID: ids[0],
+		Workflow:      "code_analysis",
+	}, nil, 400, nil)
+}

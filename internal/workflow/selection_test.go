@@ -244,65 +244,20 @@ func TestCoordinatorSelectionValidatesRosterAndRoles(t *testing.T) {
 	})
 	t.Run("code self review", func(t *testing.T) {
 		e, _, run, agents, root := seedMethodFixture(t, nil)
-		if _, err := runSelection(t, e, run, root, selectionInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": agents[1].ID, "reviewer": agents[1].ID}}); err == nil {
-			t.Fatal("analyst reviewed its own work")
+		if _, err := runSelection(t, e, run, root, selectionInput{Workflow: "engineering", Assignments: map[string]string{"engineer": agents[1].ID, "reviewer": agents[1].ID}}); err == nil {
+			t.Fatal("engineer reviewed its own work")
 		}
 	})
 	t.Run("engineering without source root", func(t *testing.T) {
 		e, _, run, agents, root := seedMethodFixture(t, nil)
-		if _, err := runSelection(t, e, run, root, selectionInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": agents[1].ID, "reviewer": agents[2].ID}}); err == nil || !strings.Contains(err.Error(), "source directory") {
-			t.Fatalf("unbound code analysis err = %v", err)
+		if _, err := runSelection(t, e, run, root, selectionInput{Workflow: "engineering", Assignments: map[string]string{"engineer": agents[1].ID, "reviewer": agents[2].ID}}); err == nil || !strings.Contains(err.Error(), "source directory") {
+			t.Fatalf("unbound engineering err = %v", err)
 		}
 	})
-	t.Run("engineering analysis read only", func(t *testing.T) {
-		e, s, run, agents, root := seedMethodFixture(t, nil)
-		dir, err := filepath.EvalSymlinks(t.TempDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		run.Workspace.Root = dir
-		if err := s.Write(context.Background(), func(tx *store.Tx) error {
-			if err := tx.SaveWorkspace(run.Workspace); err != nil {
-				return err
-			}
-			return tx.SaveRun(run)
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := runSelection(t, e, run, root, selectionInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": agents[1].ID, "reviewer": agents[2].ID}, Reason: "只读代码分析"}); err != nil {
-			t.Fatal(err)
-		}
-		steps := selectionSteps(t, s, run.ID)
-		if len(steps) != 5 {
-			t.Fatalf("code analysis steps = %d, want root + analysis + review + response + final review", len(steps))
-		}
-		if steps[1].Role != "analyst" || steps[1].AgentID != agents[1].ID || !slices.Equal(steps[1].DependsOn, []string{root.ID}) {
-			t.Fatalf("analyst step = %+v", steps[1])
-		}
-		if steps[2].Role != "critic" || steps[2].AgentID != agents[2].ID || !slices.Equal(steps[2].DependsOn, []string{steps[1].ID}) {
-			t.Fatalf("reviewer step = %+v", steps[2])
-		}
-		if steps[3].Role != "analyst" || steps[3].AgentID != agents[1].ID || !slices.Contains(steps[3].DependsOn, steps[1].ID) || !slices.Contains(steps[3].DependsOn, steps[2].ID) {
-			t.Fatalf("analyst response step = %+v", steps[3])
-		}
-		if steps[4].Role != "final_reviewer" || steps[4].AgentID != agents[2].ID || !slices.Contains(steps[4].DependsOn, steps[2].ID) || !slices.Contains(steps[4].DependsOn, steps[3].ID) {
-			t.Fatalf("final reviewer step = %+v", steps[4])
-		}
-		var current w.Run
-		if err := s.Read(context.Background(), func(tx *store.Tx) error {
-			var err error
-			current, err = tx.Run(run.ID)
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if RequiredArtifact(steps[2], effectiveInput(current)) != "" || RequiredArtifact(steps[4], effectiveInput(current)) != "code_analysis" {
-			t.Fatal("selected engineering analysis publication roles are wrong")
-		}
-		for i := range agents {
-			if !slices.Equal(current.Agents[i].Tools, agents[i].Tools) {
-				t.Fatalf("selection changed member grants: %+v", current.Agents[i])
-			}
+	t.Run("legacy code analysis is not selectable", func(t *testing.T) {
+		e, _, run, agents, root := seedMethodFixture(t, nil)
+		if _, err := runSelection(t, e, run, root, selectionInput{Workflow: "code_analysis", Assignments: map[string]string{"analyst": agents[1].ID, "reviewer": agents[2].ID}}); err == nil || !strings.Contains(err.Error(), "discussion, research or engineering") {
+			t.Fatalf("legacy code_analysis selection err = %v", err)
 		}
 	})
 	t.Run("unknown role", func(t *testing.T) {
@@ -481,18 +436,21 @@ func TestSelectionEngineeringIsAlwaysReadOnlyAnalysis(t *testing.T) {
 		t.Fatalf("engineering roles = %s, %s, %s, %s", steps[1].Role, steps[2].Role, steps[3].Role, steps[4].Role)
 	}
 	effective := effectiveInput(current)
-	if effective.Workflow != "engineering" || !effective.EngineeringReadOnly {
+	if effective.Workflow != "engineering" {
 		t.Fatalf("effective engineering input = %+v", effective)
 	}
-	for _, role := range []string{"engineer", "reviewer"} {
-		for _, name := range []string{"write_file", "patch_file"} {
-			if EngineeringToolAllowed(effective, role, name) {
-				t.Fatalf("selected engineering authorized %s for %s", name, role)
-			}
+	for _, name := range []string{"write_file", "patch_file", "run_test"} {
+		if !EngineeringToolAllowed(effective, "engineer", name) {
+			t.Fatalf("selected engineering did not authorize engineer %s", name)
 		}
 	}
-	if EngineeringToolAllowed(effective, "reviewer", "run_test") {
-		t.Fatal("selected engineering analysis authorized project tests")
+	for _, name := range []string{"write_file", "patch_file"} {
+		if EngineeringToolAllowed(effective, "reviewer", name) {
+			t.Fatalf("selected engineering authorized reviewer %s", name)
+		}
+	}
+	if !EngineeringToolAllowed(effective, "reviewer", "run_test") {
+		t.Fatal("selected engineering reviewer cannot run tests")
 	}
 	if RequiredArtifact(steps[2], effective) != "" || RequiredArtifact(steps[4], effective) != "engineering_report" {
 		t.Fatal("selected engineering publication roles are wrong")

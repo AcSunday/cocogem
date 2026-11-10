@@ -815,40 +815,39 @@ func (e *Engine) readSourceForAttempt(ctx context.Context, run w.Run, sources []
 // Attempt/session/time/cursor/timeout policy never enter it.
 func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, connection agent.ConnectionInfo, adapter agent.AdapterInfo, scope *readScope, toolNames []string, sources []w.Source) (string, error) {
 	type plan struct {
-		AgentID             string   `json:"agent_id"`
-		AgentName           string   `json:"agent_name"`
-		Handle              string   `json:"handle"`
-		Role                string   `json:"role"`
-		RoleProfile         string   `json:"role_profile"`
-		Capabilities        []string `json:"capabilities"`
-		Instruction         string   `json:"instruction"`
-		OriginalTask        string   `json:"original_task"`
-		Workflow            string   `json:"workflow"`
-		EngineeringReadOnly bool     `json:"engineering_read_only,omitempty"`
-		ResearchScope       string   `json:"research_scope"`
-		SourceURLs          []string `json:"source_urls"`
-		Executor            string   `json:"executor"`
-		Model               string   `json:"model"`
-		ContextSize         int      `json:"context_size,omitempty"`
-		ThinkingLevel       string   `json:"thinking_level,omitempty"`
-		ResolvedModel       string   `json:"resolved_model"`
-		Connection          string   `json:"connection"`
-		CLIIdentity         string   `json:"cli_identity"`
-		CLIProgram          string   `json:"cli_program"`
-		Adapter             string   `json:"adapter"`
-		Tools               []string `json:"tools"`
-		NativeTools         []string `json:"native_tools"`
-		Skills              []string `json:"skills"`
-		Roster              []string `json:"roster"`
-		System              string   `json:"system_identity"`
-		Refs                []string `json:"refs"`
+		AgentID       string   `json:"agent_id"`
+		AgentName     string   `json:"agent_name"`
+		Handle        string   `json:"handle"`
+		Role          string   `json:"role"`
+		RoleProfile   string   `json:"role_profile"`
+		Capabilities  []string `json:"capabilities"`
+		Instruction   string   `json:"instruction"`
+		OriginalTask  string   `json:"original_task"`
+		Workflow      string   `json:"workflow"`
+		ResearchScope string   `json:"research_scope"`
+		SourceURLs    []string `json:"source_urls"`
+		Executor      string   `json:"executor"`
+		Model         string   `json:"model"`
+		ContextSize   int      `json:"context_size,omitempty"`
+		ThinkingLevel string   `json:"thinking_level,omitempty"`
+		ResolvedModel string   `json:"resolved_model"`
+		Connection    string   `json:"connection"`
+		CLIIdentity   string   `json:"cli_identity"`
+		CLIProgram    string   `json:"cli_program"`
+		Adapter       string   `json:"adapter"`
+		Tools         []string `json:"tools"`
+		NativeTools   []string `json:"native_tools"`
+		Skills        []string `json:"skills"`
+		Roster        []string `json:"roster"`
+		System        string   `json:"system_identity"`
+		Refs          []string `json:"refs"`
 	}
 	member := w.Agent{ID: step.AgentID}
 	if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == step.AgentID }); index >= 0 {
 		member = run.Agents[index]
 	}
 	in := effectiveInput(run)
-	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, EngineeringReadOnly: in.EngineeringReadOnly, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
+	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
 	if run.ContextRef != "" {
 		manifest, err := tx.ContextManifest(run.ContextRef)
 		if err != nil {

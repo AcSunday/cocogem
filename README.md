@@ -75,10 +75,10 @@ Use `COCOGEM_DATA_DIR` to choose the data directory and `--allow-root /absolute/
 | Capability | How it works |
 | --- | --- |
 | Projects and durable tasks | The project home keeps the welcome scenarios plus a small summary; a far-left rail switches to a linked todo list of durable tasks. Goal revisions keep their history, and delivery is distinct from acceptance |
-| Free collaboration | Use `@` or natural language; the coordinator answers, hands off tasks, or selects a built-in workflow as needed. An automatically selected engineering workflow is read-only |
+| Free collaboration | Use `@` or natural language; the coordinator answers, hands off tasks, or selects a built-in workflow as needed. Engineering is one workflow; an authorized engineer reads and reproduces first, then uses the granted write and test tools when the task requires changes |
 | Team discussion | Members form independent views, challenge each other, and check the synthesis while preserving disagreements |
 | Research | Search and read sources, then challenge, respond, and recheck before delivering a research report |
-| Engineering collaboration | Explicitly select this workflow to allow authorized changes and tests, followed by independent review and delivery; task and role restrictions still apply. Other file tasks can use their authorized tools without selecting it |
+| Engineering collaboration | Select it or let the coordinator choose it; authorized members read, reproduce, modify and test, followed by independent review and delivery. Task and role restrictions still apply. Other file tasks can use their authorized tools without selecting it |
 | Reusable members | Share global profiles across workspaces with roles, models, execution options and avatars; workspace membership manages links and enablement |
 | Global permissions | Choose controlled, project-autonomous or full-access mode; extra operations offer once, conversation-wide or deny, with exact tool and resource scope |
 | Sources and deliverables | Inspect captured sources, exact report versions, and human feedback; download Markdown reports and delivered files |

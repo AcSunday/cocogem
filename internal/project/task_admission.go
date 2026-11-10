@@ -7,10 +7,10 @@ import (
 )
 
 // engineeringWrites reports whether this engineering request may use write and
-// test tools. A coordinator-selected method stays read-only; the user's
-// Composer engineering choice allows the member's granted tools.
+// test tools. Engineering always offers the member's granted tools; only the
+// retired code_analysis workflow is read-only.
 func engineeringWrites(in w.RunInput) bool {
-	return in.Workflow == "engineering" && !w.EngineeringIsReadOnly(in)
+	return in.Workflow == "engineering"
 }
 
 // TaskActions derives the objective ceiling from the global execution mode and

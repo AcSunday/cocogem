@@ -115,8 +115,8 @@ export function runMethod(
     (input && input !== "free" ? input : "") ||
     run.method ||
     "";
-  // Engineering is one user-facing method; the accepted input still records
-  // whether the host planned read-only analysis or development.
+  // Engineering is one user-facing method. Read-only analysis and development
+  // are task behaviors, not separate workflow labels.
   const label = method ? methodLabel(method) : workflows.free;
   return {
     method,
@@ -287,9 +287,7 @@ export function methodEventLabel(event: Event) {
     if (!workflow) return "";
     const reason =
       typeof selection.reason === "string" ? selection.reason.trim() : "";
-    // Selection can only mean read-only engineering collaboration.
-    const label =
-      workflow === "engineering" ? "工程协作（只读）" : methodLabel(workflow);
+    const label = methodLabel(workflow);
     return `协调者选择方法：${label}${reason ? ` · ${reason}` : ""}`;
   }
   if (event.type === "method_recorded") {

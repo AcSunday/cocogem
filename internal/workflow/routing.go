@@ -85,7 +85,7 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 		candidates[i].Avatar = ""
 	}
 	catalog, _ := json.Marshal(candidates)
-	schema := map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"assign", "discuss", "clarify"}}, "targets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workflow": map[string]any{"type": "string", "enum": []string{"free", "discussion", "research", "code_analysis"}}, "assignments": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "explanation": map[string]any{"type": "string"}, "clarification": map[string]any{"type": "string"}}, "required": []string{"decision", "targets", "workflow", "explanation"}, "additionalProperties": false}
+	schema := map[string]any{"type": "object", "properties": map[string]any{"decision": map[string]any{"type": "string", "enum": []string{"assign", "discuss", "clarify"}}, "targets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workflow": map[string]any{"type": "string", "enum": []string{"free", "discussion", "research", "engineering"}}, "assignments": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "explanation": map[string]any{"type": "string"}, "clarification": map[string]any{"type": "string"}}, "required": []string{"decision", "targets", "workflow", "explanation"}, "additionalProperties": false}
 	ids := []string{}
 	for _, candidate := range candidates {
 		ids = append(ids, candidate.ID)
@@ -94,12 +94,12 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 	props := schema["properties"].(map[string]any)
 	props["targets"] = map[string]any{"type": "array", "items": memberID, "maxItems": 4, "description": "Exact member UUIDs receiving work. For free collaboration, put all recipients here."}
 	roles := map[string]any{}
-	for _, role := range []string{"researcher", "critic", "coordinator", "analyst", "reviewer"} {
+	for _, role := range []string{"researcher", "critic", "coordinator", "engineer", "reviewer"} {
 		roles[role] = memberID
 	}
 	props["assignments"] = map[string]any{"type": "object", "properties": roles, "additionalProperties": false, "description": "Built-in workflow role to member UUID only. Use an empty object for free collaboration. Never put task instructions here."}
 	schema["properties"].(map[string]any)["evidence"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"agent_id": map[string]any{"type": "string"}, "quote": map[string]any{"type": "string"}}, "required": []string{"agent_id", "quote"}, "additionalProperties": false}}
-	request := model.Request{Model: candidates[0].Model, Executor: candidates[0].Executor, ContextSize: candidates[0].ContextSize, ThinkingLevel: candidates[0].ThinkingLevel, System: "Resolve only the current user's routing intent. Mentioning, quoting, negating, or hypothesizing about a member is not assigning work. Choose discuss for ordinary discussion, clarify for uncertainty. Never invent IDs or participants. An assignment may target only named candidates. Explicit research roles may map to researcher/critic/coordinator; code roles to analyst/reviewer; Use free for named independent opinions without a requested summary. Use discussion only for explicitly requested independent views followed by a named coordinator summary. Output exactly one routing_decision tool call; do not execute any task. Explanation and clarification must be Chinese.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Candidate members: " + string(catalog) + "\nCurrent user input:\n" + clean}}}}, MaxTokens: 1500, Tools: []model.Tool{{Name: "routing_decision", Description: "Propose routing only", Schema: schema}}}
+	request := model.Request{Model: candidates[0].Model, Executor: candidates[0].Executor, ContextSize: candidates[0].ContextSize, ThinkingLevel: candidates[0].ThinkingLevel, System: "Resolve only the current user's routing intent. Mentioning, quoting, negating, or hypothesizing about a member is not assigning work. Choose discuss for ordinary discussion, clarify for uncertainty. Never invent IDs or participants. An assignment may target only named candidates. Explicit research roles may map to researcher/critic/coordinator; code and file work maps to engineering roles engineer/reviewer. Analysis of code or files is an in-flow behavior of engineering, not a separate workflow. Use engineering whenever the user asks for code or file work; use free for named independent opinions without a requested summary. Use discussion only for explicitly requested independent views followed by a named coordinator summary. Output exactly one routing_decision tool call; do not execute any task. Explanation and clarification must be Chinese.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Candidate members: " + string(catalog) + "\nCurrent user input:\n" + clean}}}}, MaxTokens: 1500, Tools: []model.Tool{{Name: "routing_decision", Description: "Propose routing only", Schema: schema}}}
 	request.System += " Every assigned member requires evidence with its agent_id and an exact quote from the current input containing its name and task. Do not use paraphrases as quotes."
 	resp, err := m.Complete(ctx, request, func(string) error { return nil })
 	if err != nil {
@@ -149,13 +149,6 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 			return Routing{}, errors.New("routing assignment lacks an exact user instruction quote")
 		}
 	}
-	planInput := w.RunInput{Workflow: r.Workflow, Targets: r.Targets, Assignments: r.Assignments}
-	if r.Workflow == "engineering" {
-		planInput.EngineeringReadOnly = input.Workflow != "engineering" || input.EngineeringReadOnly
-	}
-	if _, err := Plan("preview", planInput, agents); err != nil {
-		return Routing{}, err
-	}
 	return reconcileRouting(r, input, thread, candidates, clean), nil
 }
 
@@ -173,7 +166,7 @@ func reconcileRouting(r Routing, input w.RunInput, thread w.Thread, candidates [
 			}
 		}
 	}
-	roles := map[string][]string{"research": {"researcher", "critic", "coordinator"}, "code_analysis": {"analyst", "reviewer"}, "discussion": {"coordinator"}}
+	roles := map[string][]string{"research": {"researcher", "critic", "coordinator"}, "engineering": {"engineer", "reviewer"}, "code_analysis": {"analyst", "reviewer"}, "discussion": {"coordinator"}}
 	if r.Decision == "discuss" {
 		targets := []string{thread.CoordinatorID}
 		if chosenWorkflow {

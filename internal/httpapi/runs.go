@@ -79,13 +79,6 @@ func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
 		// the coordinator's responsibility-based selection.
 		effective.Assignments = in.Assignments
 	}
-	if effective.Workflow == "engineering" {
-		if in.Workflow != "engineering" {
-			effective.EngineeringReadOnly = true
-		}
-	} else {
-		effective.EngineeringReadOnly = false
-	}
 	deterministic, err := applySettingsDefaults(effective, thread, agents, settings)
 	if err != nil {
 		respond(rw, r, nil, err)
@@ -229,20 +222,11 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 		if slices.ContainsFunc(active, func(r w.Run) bool { return r.ThreadID == th.ID }) {
 			return w.ErrConflict
 		}
-		if route.Workflow == "engineering" {
-			if in.Workflow != "engineering" {
-				// The user did not choose engineering in the Composer; a
-				// coordinator-selected method stays read-only.
-				in.EngineeringReadOnly = true
-			}
-		} else {
-			in.EngineeringReadOnly = false
-		}
 		in.Workflow = route.Workflow
 		in.Targets = route.Targets
 		// Global defaults were resolved and validated with the accepted routing.
 		in.Assignments = route.Assignments
-		writeBranch := in.Workflow == "engineering" && !w.EngineeringIsReadOnly(in) && slices.ContainsFunc(agents, func(a w.Agent) bool {
+		writeBranch := in.Workflow == "engineering" && slices.ContainsFunc(agents, func(a w.Agent) bool {
 			return !a.Disabled && slices.Contains(th.AgentIDs, a.ID) && slices.Contains(a.Tools, "write_file") && slices.Contains(a.Tools, "run_test")
 		})
 		var policy *w.ExecutionPolicy

@@ -3272,9 +3272,6 @@
                       "null"
                     ]
                   },
-                  "engineering_read_only": {
-                    "type": "boolean"
-                  },
                   "message": {
                     "type": "string"
                   },
@@ -7754,9 +7751,6 @@
                   "null"
                 ]
               },
-              "engineering_read_only": {
-                "type": "boolean"
-              },
               "message": {
                 "type": "string"
               },
@@ -8212,9 +8206,6 @@
               "null"
             ]
           },
-          "engineering_read_only": {
-            "type": "boolean"
-          },
           "message": {
             "type": "string"
           },
@@ -8306,9 +8297,6 @@
               "object",
               "null"
             ]
-          },
-          "engineering_read_only": {
-            "type": "boolean"
           },
           "message": {
             "type": "string"
@@ -9006,9 +8994,6 @@
                       "object",
                       "null"
                     ]
-                  },
-                  "engineering_read_only": {
-                    "type": "boolean"
                   },
                   "message": {
                     "type": "string"
@@ -11704,9 +11689,6 @@
                         "null"
                       ]
                     },
-                    "engineering_read_only": {
-                      "type": "boolean"
-                    },
                     "message": {
                       "type": "string"
                     },
@@ -14080,9 +14062,6 @@
                         "object",
                         "null"
                       ]
-                    },
-                    "engineering_read_only": {
-                      "type": "boolean"
                     },
                     "message": {
                       "type": "string"
