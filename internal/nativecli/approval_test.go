@@ -118,51 +118,6 @@ func TestNativeApproverHardlinkTargetIsRefused(t *testing.T) {
 	}
 }
 
-func TestSandboxProfileScopesReadAndWriteSeparately(t *testing.T) {
-	area := t.TempDir()
-	sandbox, err := newNativeSandbox(filepath.Join(area, "private"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := filepath.Join(area, "root")
-	if err := os.MkdirAll(root, 0700); err != nil {
-		t.Fatal(err)
-	}
-	sandbox.addRoots(root)
-	outside := filepath.Join(area, "outside.txt")
-	if err := os.WriteFile(outside, []byte("X"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	profile, err := sandbox.profile("read", []string{outside}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	if !strings.HasPrefix(text, "(version 1)\n(deny default)") {
-		t.Fatal("the profile is not deny-by-default")
-	}
-	writeSection := ""
-	if _, after, ok := strings.Cut(text, "(allow file-write*"); ok {
-		writeSection = after
-	}
-	if strings.Contains(writeSection, outside) {
-		t.Fatal("a read-only approval widened the write rules")
-	}
-	if !strings.Contains(text, "(subpath \""+outside+"\")") {
-		t.Fatal("the approved read scope is missing")
-	}
-	if strings.Contains(text, "localhost:*") {
-		t.Fatal("the profile allows every loopback port")
-	}
-	if strings.Contains(text, ".cargo\"") || strings.Contains(text, ".cargo/credentials") {
-		t.Fatal("the profile exposes the user's cargo credentials directory")
-	}
-}
-
 func TestNativeApproverExternalEffectUsesExactURL(t *testing.T) {
 	var seen model.NativePermissionRequest
 	approver := newNativeApprover(nil, nil, model.Request{

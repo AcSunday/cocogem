@@ -3,8 +3,10 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -464,10 +467,9 @@ func TestIntakeChatToolsStayReadOnlyWithoutApproval(t *testing.T) {
 	}
 }
 
-// TestControlledApprovedCommandReallyRuns proves A06 for commands: an in-project
-// command needs a decision in controlled mode, a denial produces no marker, and
-// one allow_once runs exactly that command once under the sandbox.
-func TestControlledApprovedCommandReallyRuns(t *testing.T) {
+// A06: controlled commands need a decision and a verified OS sandbox. A one-time
+// approval cannot be reused, including when the sandbox is unavailable.
+func TestControlledCommandApprovalHonorsSandboxAvailability(t *testing.T) {
 	j := newHostApprovalJourney(t)
 	j.startClicker(t)
 	mode := w.ExecutionControlled
@@ -515,22 +517,31 @@ func TestControlledApprovedCommandReallyRuns(t *testing.T) {
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("denied command produced its marker")
 	}
-	// Approval: exactly one real execution.
+	// Approval executes only when the platform has a verified sandbox.
 	j.queueDecision(w.DecisionAllowOnce)
-	if _, err := j.runtime.executeTool(agent.WithToolCall(t.Context(), "cmd-allow"), "run_command", command()); err != nil {
-		t.Fatalf("approved command failed: %v", err)
+	_, err := j.runtime.executeTool(agent.WithToolCall(t.Context(), "cmd-allow"), "run_command", command())
+	if runtime.GOOS == "darwin" {
+		if err != nil {
+			t.Fatalf("approved command failed: %v", err)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("approved command produced no marker: %v", err)
+		}
+		if err := os.Remove(marker); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if !errors.Is(err, tools.ErrSandboxUnavailable) {
+			t.Fatalf("approved command without a verified sandbox = %v", err)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Fatalf("command produced an effect without a verified sandbox: %v", err)
+		}
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("approved command produced no marker: %v", err)
-	}
-	// The one-time approval is spent: a second identical command asks again and is
-	// denied, leaving no duplicate effect.
-	if err := os.Remove(marker); err != nil {
-		t.Fatal(err)
-	}
+	// The one-time approval is spent, so the identical command asks again.
 	j.queueDecision(w.DecisionDeny)
-	if _, err := j.runtime.executeTool(agent.WithToolCall(t.Context(), "cmd-replay"), "run_command", command()); err == nil {
-		t.Fatal("a second command reused the one-time approval")
+	if _, err := j.runtime.executeTool(agent.WithToolCall(t.Context(), "cmd-replay"), "run_command", command()); err == nil || !strings.Contains(err.Error(), "permission_denied") {
+		t.Fatalf("a second command did not require a new decision: %v", err)
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("replayed command produced a second effect")

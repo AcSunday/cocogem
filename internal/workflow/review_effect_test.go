@@ -3,9 +3,11 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -210,9 +212,9 @@ func TestReviewWorkflowExternalReadExecutesAfterOneApproval(t *testing.T) {
 	}
 }
 
-// A02: controlled commands are requestable. The approval authorizes this exact
-// temporary effect, without changing the global mode or the Run to full_access.
-func TestReviewWorkflowControlledCommandExecutesAfterOneApproval(t *testing.T) {
+// A02: approval authorizes the exact command without changing the global mode,
+// but the command still requires a verified sandbox to execute.
+func TestReviewWorkflowControlledCommandRequiresApprovalAndSandbox(t *testing.T) {
 	f := newReviewEffectFixture(t, w.ExecutionControlled)
 	marker := filepath.Join(f.root, "approved-command-marker")
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
@@ -228,16 +230,33 @@ func TestReviewWorkflowControlledCommandExecutesAfterOneApproval(t *testing.T) {
 		t.Fatal("command effect happened before its approval")
 	}
 	reviewEffectApprove(t, f, request)
+	var outcome reviewEffectOutcome
 	select {
-	case outcome := <-done:
-		if outcome.err != nil {
-			t.Errorf("approved controlled command failed: %v", outcome.err)
-		}
+	case outcome = <-done:
 	case <-ctx.Done():
 		t.Fatal("approved controlled command did not finish")
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Errorf("approved command did not produce its actual temporary marker: %v", err)
+	admission := reviewEffectAdmission(t, f, request, "review-controlled-command")
+	if runtime.GOOS == "darwin" {
+		if outcome.err != nil {
+			t.Fatalf("approved controlled command failed: %v", outcome.err)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Errorf("approved command did not produce its actual temporary marker: %v", err)
+		}
+		if admission.Status != w.AdmissionCompleted {
+			t.Errorf("successful command was not audited as completed: %+v", admission)
+		}
+	} else {
+		if !errors.Is(outcome.err, tools.ErrSandboxUnavailable) {
+			t.Fatalf("approved command without a verified sandbox = %v", outcome.err)
+		}
+		if _, err := os.Stat(marker); !os.IsNotExist(err) {
+			t.Errorf("command produced an effect without a verified sandbox: %v", err)
+		}
+		if admission.Status != w.AdmissionFailed {
+			t.Errorf("blocked command was not audited as failed: %+v", admission)
+		}
 	}
 	var settings w.Settings
 	if err := f.db.Read(t.Context(), func(tx *store.Tx) error {
