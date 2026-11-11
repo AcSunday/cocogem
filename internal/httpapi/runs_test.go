@@ -6,8 +6,43 @@ import (
 	"testing"
 
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/testutil"
+	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
+
+func TestRoutingPreviewKeepsHistoricalFailureWithCoordinator(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	engine := &workflow.Engine{Store: db, Model: testutil.Model{}, Web: testutil.Web{}}
+	api := newDeliveryAPI(t, dir, db, engine)
+	var ws w.Workspace
+	api.call("POST", "/api/v1/workspaces", WorkspaceInput{Name: "历史故障"}, nil, 200, &ws)
+	var members Page[w.Agent]
+	api.call("GET", "/api/v1/workspaces/"+ws.ID+"/agents", nil, nil, 200, &members)
+	if len(members.Items) < 2 {
+		t.Fatal("expected two fixture members")
+	}
+	failed, coordinator := members.Items[0], members.Items[1]
+	var thread w.Thread
+	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "历史故障", AgentIDs: []string{failed.ID, coordinator.ID}, CoordinatorID: coordinator.ID, Workflow: "free"}, nil, 200, &thread)
+	input := w.RunInput{Message: "帮我检查上次失败。\n失败成员是" + failed.DisplayName + "，executor=fixture，model=fixture/model。\n不要修改其他目录。", Workflow: "free"}
+	var preview RoutingPreview
+	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
+	if preview.ProposalID == "" || preview.Routing.Decision != "discuss" || !slices.Equal(preview.Routing.Targets, []string{coordinator.ID}) {
+		t.Fatalf("historical failure blocked or reassigned the message: %+v", preview)
+	}
+	input.ProposalID = preview.ProposalID
+	var run w.Run
+	api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": "historical-failure-fixture"}, 202, &run)
+	if !slices.Equal(run.Input.Targets, []string{coordinator.ID}) || run.Input.Message != input.Message {
+		t.Fatal("accepted message lost its text or coordinator")
+	}
+}
 
 func TestRoutingPreviewAndSubmissionPrioritizeUserRecipients(t *testing.T) {
 	for _, tc := range []struct {
