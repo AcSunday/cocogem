@@ -159,6 +159,94 @@ func runPiGate(t *testing.T, request model.Request, provider Provider) (*piLifec
 	return lifecycle, err
 }
 
+func TestInstalledPiGateExposesAndExecutesHostTool(t *testing.T) {
+	var turns, calls, starts, finishes atomic.Int32
+	var foreignCalls atomic.Int32
+	var exposed atomic.Bool
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		foreignCalls.Add(1)
+		http.Error(w, "unexpected project server", http.StatusForbidden)
+	}))
+	defer foreign.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Tools []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tools"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error("invalid synthetic model request")
+		}
+		for _, tool := range body.Tools {
+			if tool.Function.Name == "mcp__cocogem__probe" {
+				exposed.Store(true)
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if turns.Add(1) == 1 && exposed.Load() {
+			installedPiChunk(w, map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"index": 0, "id": "call_host", "type": "function",
+				"function": map[string]any{"name": "mcp__cocogem__probe", "arguments": `{}`},
+			}}}, "tool_calls")
+		} else {
+			installedPiChunk(w, map[string]any{"role": "assistant", "content": "HOST_DONE"}, nil)
+			installedPiChunk(w, map[string]any{}, "stop")
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	projectDir := filepath.Join(root, ".pi")
+	if err := os.MkdirAll(filepath.Join(projectDir, "extensions"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "unexpected-extension")
+	extension := "import fs from 'node:fs'; fs.writeFileSync(" + jsonString(marker) + ", 'loaded'); export default function() {}\n"
+	if err := os.WriteFile(filepath.Join(projectDir, "extensions", "fixture.mjs"), []byte(extension), 0600); err != nil {
+		t.Fatal(err)
+	}
+	projectMCP, err := json.Marshal(map[string]any{"mcpServers": map[string]any{"foreign": map[string]any{"type": "http", "url": foreign.URL, "exposure": "direct"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "mcp.json"), projectMCP, 0600); err != nil {
+		t.Fatal(err)
+	}
+	request, provider := piGateRequest(t, root, server.URL, func(model.NativePermissionRequest) (model.NativePermissionDecision, error) {
+		return model.NativePermissionDecision{Scope: model.NativeScopeDeny}, nil
+	})
+	request.Tools = []model.Tool{{Name: "probe", Description: "Synthetic host tool", Schema: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}}}
+	request.RequiredTools = []string{"probe"}
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	defer cancel()
+	err = provider.Run(ctx, request, func(_ context.Context, name string, input json.RawMessage) (string, error) {
+		if name != "probe" || string(input) != "{}" {
+			return "", errors.New("unexpected synthetic host call")
+		}
+		calls.Add(1)
+		return `{"ok":true}`, nil
+	}, func(kind string, data map[string]any) error {
+		if data["name"] == "probe" && kind == "tool_started" {
+			starts.Add(1)
+		}
+		if data["name"] == "probe" && kind == "tool_finished" {
+			finishes.Add(1)
+		}
+		if data["name"] == "mcp__cocogem__probe" && (kind == "tool_started" || kind == "tool_finished") {
+			return errors.New("Pi duplicated the host tool lifecycle")
+		}
+		return nil
+	})
+	if err != nil || !exposed.Load() || calls.Load() != 1 || starts.Load() != 1 || finishes.Load() != 1 {
+		t.Fatalf("gated Pi host tool did not complete once: exposed=%v calls=%d starts=%d finishes=%d error=%v", exposed.Load(), calls.Load(), starts.Load(), finishes.Load(), err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) || foreignCalls.Load() != 0 {
+		t.Fatalf("project extension or MCP server escaped isolation: marker=%v foreign calls=%d", err, foreignCalls.Load())
+	}
+}
+
 // assertOneLifecycle proves the approval, the started event and the terminal
 // event all carry one identity, and that the terminal state matches the
 // decision. It never accepts a missing pair as success.

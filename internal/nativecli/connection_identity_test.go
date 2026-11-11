@@ -128,7 +128,7 @@ func TestGeminiSnapshotKeepsUnsetEnvironmentUnset(t *testing.T) {
 	t.Setenv("GEMINI_CLI_HOME", t.TempDir())
 	t.Setenv("GEMINI_MODEL", "synthetic-frozen-model")
 	t.Setenv("GEMINI_CLI_AUTH_OVERRIDE", "")
-	plan, err := geminiPlan("default")
+	plan, err := geminiPlan(t.Context(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestGeminiSnapshotKeepsUnsetEnvironmentUnset(t *testing.T) {
 		t.Fatal("an unset key was materialized as an empty override")
 	}
 	_ = os.Unsetenv("GEMINI_CLI_AUTH_OVERRIDE")
-	unsetPlan, err := geminiPlan("default")
+	unsetPlan, err := geminiPlan(t.Context(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}

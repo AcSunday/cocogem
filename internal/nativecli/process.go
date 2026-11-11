@@ -23,6 +23,13 @@ type boundedBuffer struct {
 	truncate bool
 }
 
+type byteCounter int64
+
+func (b *byteCounter) Write(p []byte) (int, error) {
+	*b += byteCounter(len(p))
+	return len(p), nil
+}
+
 func (b *boundedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -95,7 +102,8 @@ func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd
 	if err := configureProcess(cmd); err != nil {
 		return err
 	}
-	cmd.Stderr = &boundedBuffer{limit: 8192, truncate: true}
+	stderr := &boundedBuffer{limit: 8192, truncate: true}
+	cmd.Stderr = stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return newFailure(FailureProcess, "open native CLI output")
@@ -147,11 +155,12 @@ func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd
 		}
 	}
 	var streamErr error
+	var geminiOutput byteCounter
 	switch executor {
 	case "codex":
 		streamErr = parseCodex(stdout, gate, live)
 	case "gemini":
-		streamErr = parseGemini(stdout, gate, live)
+		streamErr = parseGemini(io.TeeReader(stdout, &geminiOutput), gate, live)
 	case "pi":
 		streamErr = parsePi(stdout, gate, live)
 	default:
@@ -173,7 +182,21 @@ func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd
 	waitErr := cmd.Wait()
 	joinCancel()
 	groupErr := convergeProcessGroup(cmd, identity, owned)
+	if executor == "gemini" {
+		streamErr = geminiStartupFailure(streamErr, stderr.String(), int64(geminiOutput))
+	}
 	return streamFailure(ctx.Err(), groupErr, streamErr, waitErr)
+}
+
+func geminiStartupFailure(streamErr error, stderr string, outputBytes int64) error {
+	var failure *Failure
+	if outputBytes != 0 || !errors.As(streamErr, &failure) || failure.Kind != FailureProtocol || failure.Reason != "native CLI ended without a confirmed terminal result" {
+		return streamErr
+	}
+	if strings.Contains(stderr, "Please set an Auth method in your ") || strings.Contains(stderr, "Invalid auth method selected.") {
+		return newFailure(FailureAuthentication, "Gemini could not use its existing authentication settings in the scoped execution environment")
+	}
+	return streamErr
 }
 
 // streamFailure joins the independent results of one stream process. A

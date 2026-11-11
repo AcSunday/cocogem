@@ -55,3 +55,37 @@ func TestLiveGeminiReadOnlyDocumentComparison(t *testing.T) {
 		t.Fatalf("comparison was not verified: old=%v new=%v reply_bytes=%d", read["old.txt"], read["new.txt"], reply.Len())
 	}
 }
+
+func TestLiveGeminiProjectAutonomousReadOnly(t *testing.T) {
+	if os.Getenv("COCOGEM_CHECK_LIVE_GEMINI") != "1" {
+		t.Skip("opt-in real Gemini connection check using a synthetic request")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	modelName := os.Getenv("COCOGEM_GEMINI_MODEL")
+	if modelName == "" {
+		modelName = "default"
+	}
+	request := model.Request{
+		Executor: "gemini", Model: modelName, ExecutionMode: "project_autonomous", WorkspaceRoot: t.TempDir(),
+		System:               "This is a synthetic connection check. Do not use tools.",
+		Messages:             []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Reply with exactly COCOGEM_CONNECTION_OK."}}}},
+		FirstResponseTimeout: 60 * time.Second, StallTimeout: 60 * time.Second, StallAction: "stop",
+		AuthorizeNative: func(context.Context, model.NativePermissionRequest) (model.NativePermissionDecision, error) {
+			return model.NativePermissionDecision{Scope: model.NativeScopeDeny}, nil
+		},
+	}
+	var reply strings.Builder
+	err := (Provider{}).Run(ctx, request, func(context.Context, string, json.RawMessage) (string, error) {
+		return "", errors.New("no host tools were requested")
+	}, func(kind string, data map[string]any) error {
+		if kind == "text" {
+			text, _ := data["text"].(string)
+			reply.WriteString(text)
+		}
+		return nil
+	})
+	if err != nil || strings.TrimSpace(reply.String()) != "COCOGEM_CONNECTION_OK" {
+		t.Fatalf("real Gemini connection did not complete: error=%v reply=%q", err, reply.String())
+	}
+}

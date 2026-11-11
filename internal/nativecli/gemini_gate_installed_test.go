@@ -98,13 +98,16 @@ func installedGeminiRequest(t *testing.T, root, endpoint string, decide func(mod
 	request.AuthorizeNative = func(_ context.Context, request model.NativePermissionRequest) (model.NativePermissionDecision, error) {
 		return decide(request)
 	}
+	for key, value := range map[string]string{
+		"GEMINI_API_KEY": "cocogem-installed-dummy", "GOOGLE_API_KEY": "cocogem-installed-dummy",
+		"GOOGLE_GEMINI_BASE_URL": endpoint, "GEMINI_CLI_AUTH_OVERRIDE": "gemini-api-key",
+		"GOOGLE_GENAI_USE_VERTEXAI": "false", "GOOGLE_GENAI_USE_GCA": "false",
+	} {
+		t.Setenv(key, value)
+	}
 	provider := Provider{command: func(id string, args ...string) *exec.Cmd {
 		cmd := exec.Command(id, args...)
-		cmd.Env = overrideEnv(os.Environ(), map[string]string{
-			"GEMINI_API_KEY": "cocogem-installed-dummy", "GOOGLE_API_KEY": "cocogem-installed-dummy",
-			"GOOGLE_GEMINI_BASE_URL": endpoint, "GEMINI_CLI_AUTH_OVERRIDE": "gemini-api-key",
-			"GOOGLE_GENAI_USE_VERTEXAI": "false", "GOOGLE_GENAI_USE_GCA": "false",
-		})
+		cmd.Env = os.Environ()
 		return cmd
 	}}
 	return request, provider
@@ -120,6 +123,75 @@ func requireInstalledGemini(t *testing.T) {
 	}
 	if err := sandboxExecutable(); err != nil {
 		t.Skip("macOS seatbelt unavailable")
+	}
+}
+
+func TestInstalledGeminiGateUsesUserConnectionAndTask(t *testing.T) {
+	requireInstalledGemini(t)
+	for _, key := range geminiConnectionEnv {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("GEMINI_CLI_AUTH_OVERRIDE", "")
+	if err := os.Unsetenv("GEMINI_CLI_AUTH_OVERRIDE"); err != nil {
+		t.Fatal(err)
+	}
+	requests := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		select {
+		case requests <- string(raw):
+		default:
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"FIXTURE_DONE\"}]},\"finishReason\":\"STOP\",\"index\":0}]}\n\n")
+	}))
+	defer server.Close()
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	dir := filepath.Join(home, ".gemini")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"security":{"auth":{"selectedType":"gemini-api-key"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("GEMINI_API_KEY=synthetic-key\nGOOGLE_GEMINI_BASE_URL="+server.URL+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	request := model.Request{
+		Executor: "gemini", Model: "gemini-3.8-flash", ExecutionMode: "project_autonomous", WorkspaceRoot: t.TempDir(),
+		System: "SYNTHETIC_SYSTEM_INSTRUCTION", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "SYNTHETIC_USER_TASK"}}}},
+		FirstResponseTimeout: 30 * time.Second, StallTimeout: 30 * time.Second, StallAction: "stop",
+		AuthorizeNative: func(context.Context, model.NativePermissionRequest) (model.NativePermissionDecision, error) {
+			return model.NativePermissionDecision{Scope: model.NativeScopeDeny}, nil
+		},
+	}
+	p := Provider{command: func(id string, args ...string) *exec.Cmd { return exec.Command(id, args...) }}
+	info, err := p.InspectExecutionConnection(t.Context(), "gemini", request.Model, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.ExpectedConnection = model.Connection{Identity: info.Identity, ResolvedModel: info.ResolvedModel}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("GEMINI_API_KEY=changed-key\nGOOGLE_GEMINI_BASE_URL=http://127.0.0.1:1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GEMINI_API_KEY", "late-key")
+	t.Setenv("GOOGLE_GEMINI_BASE_URL", "http://127.0.0.1:1")
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	defer cancel()
+	if err := p.RunGeminiNative(ctx, request, func(context.Context, string, json.RawMessage) (string, error) { return "{}", nil }, func(string, map[string]any) error { return nil }); err != nil {
+		t.Fatalf("gated Gemini did not complete with its existing connection: %v", err)
+	}
+	select {
+	case body := <-requests:
+		if !strings.Contains(body, "SYNTHETIC_SYSTEM_INSTRUCTION") || !strings.Contains(body, "SYNTHETIC_USER_TASK") {
+			t.Fatal("the model request did not include the actual system instruction and user task")
+		}
+	default:
+		t.Fatal("the configured endpoint was not called")
 	}
 }
 

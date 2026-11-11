@@ -24,6 +24,7 @@ type geminiNativeSession struct {
 	sandbox *nativeSandbox
 	proxy   *egressProxy
 	workdir string
+	launch  *connectionPlan
 }
 
 func prepareGeminiNativeSession(request model.Request, base, workdir string, gate *bridge, live *liveness, launch *connectionPlan, probeURL string) (*geminiNativeSession, error) {
@@ -35,7 +36,7 @@ func prepareGeminiNativeSession(request model.Request, base, workdir string, gat
 		return nil, err
 	}
 	sandbox.addRoots(request.WorkspaceRoot, request.WorkingDirectory)
-	session := &geminiNativeSession{request: request, gate: gate, sandbox: sandbox, workdir: workdir}
+	session := &geminiNativeSession{request: request, gate: gate, sandbox: sandbox, workdir: workdir, launch: launch}
 	if probeURL == "" {
 		// Real turns get the host egress proxy so dependency retrieval keeps
 		// working while arbitrary external writes stay refused by the proxy.
@@ -99,7 +100,7 @@ func (s *geminiNativeSession) close() {
 // nativeArgs builds the CLI invocation after the session exists (the gate hook
 // needs the broker endpoint).
 func (s *geminiNativeSession) nativeArgs() ([]string, map[string]string, error) {
-	return prepareGeminiNative(s.request, s.workdir, s.gate, s.broker)
+	return prepareGeminiNative(s.request, s.workdir, s.gate, s.broker, s.launch)
 }
 
 // streamGeminiNative runs the headless CLI whose private hook consults the host

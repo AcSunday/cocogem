@@ -138,7 +138,7 @@ func preparePiNative(request model.Request, workdir string, gate *bridge, launch
 	args := []string{
 		"--mode", "rpc", "--no-session", "--no-skills", "--no-prompt-templates",
 		"--no-themes", "--no-context-files", "--no-approve", "--no-extensions",
-		"-e", extension, "--tools", strings.Join(names, ","),
+		"-e", "builtin:mcp", "-e", extension, "--tools", strings.Join(names, ","),
 	}
 	if plan.piModel != "" {
 		args = append(args, "--model", plan.piModel, "--thinking", plan.piThinking)

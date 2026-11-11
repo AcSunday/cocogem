@@ -38,10 +38,11 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 		}
 	}
 	if len(explicit) > 0 {
-		for _, constraint := range []string{"不要", "别让", "如果", "假如", "假设", "是否让", "don't", "do not", "what if"} {
-			if strings.Contains(strings.ToLower(clean), constraint) {
-				return Routing{Decision: "clarify", Clarification: "正文包含否定或条件，同时存在明确提及。请直接选择实际收件人，或说明现在需要执行的任务。"}, nil
-			}
+		if hasNamedNegation(clean, agents) {
+			return Routing{Decision: "clarify", Clarification: "正文包含对成员的否定，同时存在明确提及。请说明本次实际收件人。"}, nil
+		}
+		if hasNamedCondition(clean, agents) {
+			return Routing{Decision: "clarify", Clarification: "正文包含针对成员的条件，同时存在明确提及。请直接选择实际收件人，或说明现在需要执行的任务。"}, nil
 		}
 		if len(input.Targets) > 0 && !sameIDs(explicit, input.Targets) {
 			return r, errors.New("explicit mentions conflict with selected recipients")
@@ -99,8 +100,8 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 	}
 	props["assignments"] = map[string]any{"type": "object", "properties": roles, "additionalProperties": false, "description": "Built-in workflow role to member UUID only. Use an empty object for free collaboration. Never put task instructions here."}
 	schema["properties"].(map[string]any)["evidence"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"agent_id": map[string]any{"type": "string"}, "quote": map[string]any{"type": "string"}}, "required": []string{"agent_id", "quote"}, "additionalProperties": false}}
-	request := model.Request{Model: candidates[0].Model, Executor: candidates[0].Executor, ContextSize: candidates[0].ContextSize, ThinkingLevel: candidates[0].ThinkingLevel, System: "Resolve only the current user's routing intent. Mentioning, quoting, negating, or hypothesizing about a member is not assigning work. Choose discuss for ordinary discussion, clarify for uncertainty. Never invent IDs or participants. An assignment may target only named candidates. Explicit research roles may map to researcher/critic/coordinator; code and file work maps to engineering roles engineer/reviewer. Analysis of code or files is an in-flow behavior of engineering, not a separate workflow. Use engineering whenever the user asks for code or file work; use free for named independent opinions without a requested summary. Use discussion only for explicitly requested independent views followed by a named coordinator summary. Output exactly one routing_decision tool call; do not execute any task. Explanation and clarification must be Chinese.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Candidate members: " + string(catalog) + "\nCurrent user input:\n" + clean}}}}, MaxTokens: 1500, Tools: []model.Tool{{Name: "routing_decision", Description: "Propose routing only", Schema: schema}}}
-	request.System += " Every assigned member requires evidence with its agent_id and an exact quote from the current input containing its name and task. Do not use paraphrases as quotes."
+	request := model.Request{Model: candidates[0].Model, Executor: candidates[0].Executor, ContextSize: candidates[0].ContextSize, ThinkingLevel: candidates[0].ThinkingLevel, System: "Resolve only the current user's routing intent. Mentioning, quoting, negating, or hypothesizing about a member is not assigning work. A member named only in a past-failure, status or diagnostic record (for example \"失败成员是…\" or an executor/model line) is background context: never assign them; choose discuss unless the current input directly asks that member to do work. Choose discuss for ordinary discussion, clarify for uncertainty. Never invent IDs or participants. An assignment may target only named candidates. Explicit research roles may map to researcher/critic/coordinator; code and file work maps to engineering roles engineer/reviewer. Analysis of code or files is an in-flow behavior of engineering, not a separate workflow. Use engineering whenever the user asks for code or file work; use free for named independent opinions without a requested summary. Use discussion only for explicitly requested independent views followed by a named coordinator summary. Output exactly one routing_decision tool call; do not execute any task. Explanation and clarification must be Chinese.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Candidate members: " + string(catalog) + "\nCurrent user input:\n" + clean}}}}, MaxTokens: 1500, Tools: []model.Tool{{Name: "routing_decision", Description: "Propose routing only", Schema: schema}}}
+	request.System += " Every assigned member requires evidence with its agent_id and an exact quote from the current input containing its name and task. Do not use paraphrases as quotes, and do not use a quote that only reports a past failure or status as an instruction."
 	resp, err := m.Complete(ctx, request, func(string) error { return nil })
 	if err != nil {
 		return Routing{}, err
@@ -129,27 +130,73 @@ func ResolveRouting(ctx context.Context, m model.Model, input w.RunInput, thread
 	for _, id := range r.Assignments {
 		ids = append(ids, id)
 	}
+	verified := map[string]bool{}
 	for _, id := range ids {
-		if !slices.ContainsFunc(candidates, func(a w.Agent) bool { return a.ID == id }) {
-			return Routing{}, errors.New("routing proposed an unnamed member")
+		if verified[id] {
+			continue
 		}
-		matched := false
-		for _, evidence := range r.Evidence {
-			if evidence.AgentID != id || evidence.Quote == "" || !strings.Contains(clean, evidence.Quote) {
-				continue
-			}
-			a := candidates[slices.IndexFunc(candidates, func(a w.Agent) bool { return a.ID == id })]
-			for _, name := range append([]string{a.DisplayName, a.Handle}, a.Aliases...) {
-				if strings.Contains(strings.ToLower(evidence.Quote), strings.ToLower(name)) {
-					matched = true
-				}
-			}
-		}
-		if !matched {
-			return Routing{}, errors.New("routing assignment lacks an exact user instruction quote")
+		verified[id] = hasVerifiableQuote(id, r.Evidence, clean, candidates)
+	}
+	targets := []string{}
+	for _, id := range r.Targets {
+		if verified[id] && !slices.Contains(targets, id) {
+			targets = append(targets, id)
 		}
 	}
+	assignments := map[string]string{}
+	for role, id := range r.Assignments {
+		if verified[id] {
+			assignments[role] = id
+		}
+	}
+	if len(targets)+len(assignments) == 0 {
+		// A proposed dispatch without a verifiable user instruction has no
+		// authority. Drop it and keep the message on its selected flow or the
+		// coordinator so a model misread can never block the send.
+		r.Decision, r.Workflow = "discuss", ""
+		r.Targets, r.Assignments, r.Evidence = nil, nil, nil
+		r = reconcileRouting(r, input, thread, candidates, clean)
+		if r.Decision != "clarify" {
+			if r.Explanation != "" {
+				r.Explanation += "；"
+			}
+			r.Explanation += "模型提议的成员指派缺少可核实的正文原句，已按本轮没有新指派处理"
+		}
+		return r, nil
+	}
+	filtered := make([]w.RoutingEvidence, 0, len(r.Evidence))
+	for _, evidence := range r.Evidence {
+		if verified[evidence.AgentID] {
+			filtered = append(filtered, evidence)
+		}
+	}
+	r.Targets, r.Assignments, r.Evidence = targets, assignments, filtered
+	if len(r.Assignments) == 0 {
+		r.Assignments = nil
+	}
 	return reconcileRouting(r, input, thread, candidates, clean), nil
+}
+
+// hasVerifiableQuote reports whether one member's proposal cites an exact,
+// present quote that actually contains that member's name or handle.
+func hasVerifiableQuote(id string, evidence []w.RoutingEvidence, text string, candidates []w.Agent) bool {
+	index := slices.IndexFunc(candidates, func(a w.Agent) bool { return a.ID == id })
+	if index < 0 {
+		return false
+	}
+	a := candidates[index]
+	names := append([]string{a.DisplayName, a.Handle}, a.Aliases...)
+	for _, entry := range evidence {
+		if entry.AgentID != id || entry.Quote == "" || !strings.Contains(text, entry.Quote) {
+			continue
+		}
+		for _, name := range names {
+			if name != "" && strings.Contains(strings.ToLower(entry.Quote), strings.ToLower(name)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func reconcileRouting(r Routing, input w.RunInput, thread w.Thread, candidates []w.Agent, text string) Routing {
@@ -160,10 +207,11 @@ func reconcileRouting(r Routing, input w.RunInput, thread w.Thread, candidates [
 	}
 	chosenWorkflow := input.Workflow != "" && input.Workflow != "free"
 	if r.Decision == "assign" {
-		for _, constraint := range []string{"不要", "别让", "如果", "假如", "假设", "是否让", "don't", "do not", "what if"} {
-			if strings.Contains(strings.ToLower(text), constraint) {
-				return clarify("正文含否定或条件，不能仅凭模型建议派发。请明确选择本次实际执行的成员。")
-			}
+		if hasNamedNegation(text, candidates) {
+			return clarify("正文否定了成员参与，不能仅凭模型建议派发。请明确选择本次实际执行的成员。")
+		}
+		if hasNamedCondition(text, candidates) {
+			return clarify("正文包含针对成员的条件，不能仅凭模型建议派发。请明确选择本次实际执行的成员。")
 		}
 	}
 	roles := map[string][]string{"research": {"researcher", "critic", "coordinator"}, "engineering": {"engineer", "reviewer"}, "code_analysis": {"analyst", "reviewer"}, "discussion": {"coordinator"}}
@@ -179,7 +227,8 @@ func reconcileRouting(r Routing, input w.RunInput, thread w.Thread, candidates [
 			}
 		}
 		// A negated named default recipient needs clarification, even if intent is ordinary discussion.
-		if hasNegation(text) && slices.ContainsFunc(candidates, func(a w.Agent) bool { return slices.Contains(targets, a.ID) }) {
+		targetMembers := slices.DeleteFunc(slices.Clone(candidates), func(a w.Agent) bool { return !slices.Contains(targets, a.ID) })
+		if hasNamedNegation(text, targetMembers) {
 			return clarify("正文否定了默认参与成员，请明确选择本次实际执行的成员。")
 		}
 		if chosenWorkflow {
@@ -196,10 +245,46 @@ func reconcileRouting(r Routing, input w.RunInput, thread w.Thread, candidates [
 	return r
 }
 
-func hasNegation(text string) bool {
-	for _, word := range []string{"不要", "别让", "不用", "不让", "不需要", "don't", "do not", "must not"} {
-		if strings.Contains(strings.ToLower(text), word) {
+// A negation or condition only guards routing when it shares a clause with the
+// member (or with a pronoun bound to a mentioned member). Unrelated constraints
+// elsewhere in the message are not about the member.
+func hasNamedNegation(text string, agents []w.Agent) bool {
+	return hasMemberConstraint(text, agents, []string{"不要", "别让", "不用", "不让", "不需要", "don't", "do not", "must not"})
+}
+
+func hasNamedCondition(text string, agents []w.Agent) bool {
+	return hasMemberConstraint(text, agents, []string{"如果", "假如", "假设", "是否让", "what if"})
+}
+
+func hasMemberConstraint(text string, agents []w.Agent, markers []string) bool {
+	mentioned, _ := namedCandidates(text, agents)
+	clauses := strings.FieldsFunc(text, func(r rune) bool {
+		return strings.ContainsRune("\n，。；,;.!?？！", r)
+	})
+	for _, clause := range clauses {
+		lower := strings.ToLower(clause)
+		marked := false
+		for _, marker := range markers {
+			if strings.Contains(lower, marker) {
+				marked = true
+				break
+			}
+		}
+		if !marked {
+			continue
+		}
+		if names, _ := namedCandidates(clause, agents); len(names) != 0 {
 			return true
+		}
+		if len(mentioned) == 0 {
+			continue
+		}
+		// 其他/其它 contain 他/它 but never refer to a member.
+		pronounced := strings.NewReplacer("其他", "", "其它", "").Replace(lower)
+		for _, reference := range []string{"他", "她", "让其", "由其", "其参与", "其继续", "该成员", "这个成员", "上述成员", " him", " her", " them", " their"} {
+			if strings.Contains(pronounced, reference) {
+				return true
+			}
 		}
 	}
 	return false

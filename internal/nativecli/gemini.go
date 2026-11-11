@@ -40,6 +40,11 @@ type geminiSettings struct {
 	Model struct {
 		Name string `json:"name"`
 	} `json:"model"`
+	Security struct {
+		Auth struct {
+			SelectedType string `json:"selectedType"`
+		} `json:"auth"`
+	} `json:"security"`
 	ModelConfigs struct {
 		CustomOverrides []geminiOverride `json:"customOverrides"`
 	} `json:"modelConfigs"`
@@ -189,6 +194,7 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 	// by the host for that exact call. hostIDs records the ids of host MCP calls,
 	// whose results keep the original no-op behaviour.
 	toolIDs := map[string]string{}
+	toolNames := map[string]string{}
 	hostIDs := map[string]bool{}
 	activity := newActivityTracker()
 	for scanner.Scan() {
@@ -298,6 +304,7 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			// input. The rewritten input (sandbox prefix, staged path) is never
 			// part of the identity, so the hook and the stream agree.
 			id := geminiDerivedCallID(event.ToolName, event.Parameters, sessionID)
+			toolNames[id] = safeToken(event.ToolName)
 			if toolIDs != nil {
 				// Bind the CLI's own tool_id to this canonical identity so the
 				// matching tool_result (which carries no parameters) resolves to
@@ -343,7 +350,7 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 				return newFailure(FailureProtocol, "native CLI returned a tool result without its tool-call identity")
 			}
 			if err := gate.emit("tool_finished", map[string]any{
-				"tool_call_id": id, "name": safeToken(event.ToolName),
+				"tool_call_id": id, "name": toolNames[id],
 				"status": status, "origin": "native", "output": geminiToolOutput(event.Output, event.Content),
 			}); err != nil {
 				return err

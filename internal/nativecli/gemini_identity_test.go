@@ -116,6 +116,9 @@ func TestParseGeminiGatedNativeLifecyclePairsOneIdentity(t *testing.T) {
 	if finished["status"] != "succeeded" || finished["output"] != "hi" {
 		t.Fatalf("terminal status/output lost the CLI's own result: %+v", finished)
 	}
+	if started["name"] != "run_shell_command" || finished["name"] != started["name"] {
+		t.Fatalf("tool name changed across the lifecycle: started=%v finished=%v", started["name"], finished["name"])
+	}
 }
 
 // A gated native result whose identity was never bound is a protocol failure,

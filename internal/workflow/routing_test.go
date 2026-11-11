@@ -152,7 +152,7 @@ func (m routingModel) Complete(context.Context, model.Request, func(string) erro
 	return model.Response{StopReason: "tool_use", Blocks: []model.Block{{Type: "tool_use", ID: "route", Name: "routing_decision", Input: b}}}, nil
 }
 
-func TestSemanticRoutingMustCiteActualUserInstruction(t *testing.T) {
+func TestSemanticRoutingDropsUnverifiableAssignments(t *testing.T) {
 	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
 	input := w.RunInput{Message: "布偶猫帮我研究模型"}
 	for _, tc := range []struct {
@@ -166,11 +166,87 @@ func TestSemanticRoutingMustCiteActualUserInstruction(t *testing.T) {
 		{"missing evidence", Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := ResolveRouting(context.Background(), routingModel{tc.route}, input, w.Thread{CoordinatorID: "b"}, agents)
-			if (err != nil) != tc.bad {
+			got, err := ResolveRouting(context.Background(), routingModel{tc.route}, input, w.Thread{CoordinatorID: "b"}, agents)
+			if err != nil {
 				t.Fatal(err)
 			}
+			if tc.bad && (got.Decision != "discuss" || !slices.Equal(got.Targets, []string{"b"}) || len(got.Assignments) != 0 || got.Clarification != "") {
+				t.Fatalf("unverifiable assignment was not dropped safely: %+v", got)
+			}
+			if !tc.bad && (got.Decision != "assign" || !slices.Equal(got.Targets, []string{"a"})) {
+				t.Fatalf("verified assignment was not accepted: %+v", got)
+			}
 		})
+	}
+}
+
+func TestFailureRecordMentionStillReachesTheRouter(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "三花猫", Handle: "sanhua", Model: "test"}, {ID: "b", DisplayName: "拿破仑", Handle: "napoleon", Model: "test"}}
+	message := "帮我修复项目里的错误。\n失败成员是三花猫，executor=opencode，model=example/model。\n请他继续修复。"
+	router := &recordingRouter{routing: Routing{Decision: "clarify", Clarification: "请明确指定成员"}}
+	got, err := ResolveRouting(t.Context(), router, w.RunInput{Message: message}, w.Thread{CoordinatorID: "b"}, agents)
+	if err != nil || got.Decision != "clarify" || router.calls != 1 {
+		t.Fatalf("a failure record was interpreted without the router: routing=%+v calls=%d err=%v", got, router.calls, err)
+	}
+	message = "帮我修复项目里的错误。\n失败成员是三花猫，executor=opencode，model=example/model。\n请三花猫检查修复。"
+	router = &recordingRouter{routing: Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "请三花猫检查修复"}}}}
+	got, err = ResolveRouting(t.Context(), router, w.RunInput{Message: message}, w.Thread{CoordinatorID: "b"}, agents)
+	if err != nil || got.Decision != "assign" || !slices.Equal(got.Targets, []string{"a"}) {
+		t.Fatalf("a later explicit assignment was lost: routing=%+v err=%v", got, err)
+	}
+}
+
+func TestUnrelatedConditionAndOtherPhrasesDoNotBlockAnAssignment(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
+	for _, tc := range []struct{ name, message string }{
+		{name: "unrelated condition", message: "布偶猫修复代码。如果当前分支包含无关提交，先说明。"},
+		{name: "other directory", message: "布偶猫修复代码，不要修改其他目录。"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			route := Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫修复代码"}}}
+			got, err := ResolveRouting(t.Context(), routingModel{route}, w.RunInput{Message: tc.message}, w.Thread{CoordinatorID: "b"}, agents)
+			if err != nil || got.Decision != "assign" || !slices.Equal(got.Targets, []string{"a"}) {
+				t.Fatalf("unrelated constraint blocked an assignment: routing=%+v err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestUnrelatedFileRestrictionsDoNotNegateARecipient(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
+	for _, tc := range []struct {
+		name, message string
+		route         Routing
+	}{
+		{name: "explicit mention", message: "@ragdoll 修复代码，不要修改用户配置"},
+		{name: "natural assignment", message: "布偶猫修复代码，不要修改用户配置", route: Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫修复代码"}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveRouting(t.Context(), routingModel{tc.route}, w.RunInput{Message: tc.message}, w.Thread{CoordinatorID: "b"}, agents)
+			if err != nil || got.Decision != "assign" || !slices.Equal(got.Targets, []string{"a"}) {
+				t.Fatalf("unrelated file restriction blocked an assignment: routing=%+v err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestNamedNegationStillBlocksOtherAssignments(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
+	for _, message := range []string{"@ragdoll 修复代码，不要让缅因猫参与", "布偶猫修复代码，不要让缅因猫参与"} {
+		route := Routing{Decision: "assign", Workflow: "free", Targets: []string{"a"}, Evidence: []w.RoutingEvidence{{AgentID: "a", Quote: "布偶猫修复代码"}}}
+		got, err := ResolveRouting(t.Context(), routingModel{route}, w.RunInput{Message: message}, w.Thread{CoordinatorID: "b"}, agents)
+		if err != nil || got.Decision != "clarify" || len(got.Targets) != 0 {
+			t.Fatalf("named exclusion was ignored: routing=%+v err=%v", got, err)
+		}
+	}
+}
+
+func TestNegatedPronounDoesNotFallBackToNamedCoordinator(t *testing.T) {
+	agents := []w.Agent{{ID: "a", DisplayName: "布偶猫", Handle: "ragdoll", Model: "test"}, {ID: "b", DisplayName: "缅因猫", Handle: "maine", Model: "test"}}
+	message := "失败成员是布偶猫，executor=fixture。不要让她继续参与。"
+	got, err := ResolveRouting(t.Context(), routingModel{Routing{Decision: "discuss"}}, w.RunInput{Message: message}, w.Thread{CoordinatorID: "a"}, agents)
+	if err != nil || got.Decision != "clarify" || len(got.Targets) != 0 {
+		t.Fatalf("a negated pronoun routed to its possible referent: routing=%+v err=%v", got, err)
 	}
 }
 
