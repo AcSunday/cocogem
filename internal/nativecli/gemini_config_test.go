@@ -1,7 +1,9 @@
 package nativecli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +62,7 @@ func scopedGeminiOverrides(t *testing.T, settings map[string]any) []any {
 
 func TestGeminiConfiguredThinkingDefaultsSurviveScopedSettings(t *testing.T) {
 	writeGeminiUserSettings(t)
-	plan, err := geminiPlan("default")
+	plan, err := geminiPlan(t.Context(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +100,7 @@ func TestGeminiConfiguredThinkingDefaultsSurviveScopedSettings(t *testing.T) {
 
 func TestGeminiMemberThinkingReplacesConfiguredDefaults(t *testing.T) {
 	writeGeminiUserSettings(t)
-	plan, err := geminiPlan("default")
+	plan, err := geminiPlan(t.Context(), "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,5 +114,67 @@ func TestGeminiMemberThinkingReplacesConfiguredDefaults(t *testing.T) {
 	thinking := override["modelConfig"].(map[string]any)["generateContentConfig"].(map[string]any)["thinkingConfig"].(map[string]any)
 	if thinking["thinkingLevel"] != "LOW" || strings.Contains(raw, "HIGH") {
 		t.Fatalf("explicit member thinking did not replace configured defaults: %s", raw)
+	}
+}
+
+func TestGeminiConnectionSnapshotsUserEnvFile(t *testing.T) {
+	for _, key := range geminiConnectionEnv {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	t.Setenv("GOOGLE_API_KEY", "")
+	t.Setenv("GEMINI_MODEL", "env-model")
+	dir := filepath.Join(home, ".gemini")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeEnv := func(endpoint string) {
+		t.Helper()
+		raw := "export GEMINI_API_KEY='synthetic-$TOKEN'\nGOOGLE_API_KEY=ignored\nGOOGLE_GEMINI_BASE_URL=\"" + endpoint + "\"\nGEMINI_MODEL=file-model\nNODE_OPTIONS=unsafe-value\n"
+		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeEnv("https://first.invalid")
+	plan, err := geminiPlan(t.Context(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.info.ResolvedModel != "env-model" || plan.geminiGatedEnv["GEMINI_API_KEY"] != "synthetic-$TOKEN" || plan.geminiGatedEnv["GOOGLE_GEMINI_BASE_URL"] != "https://first.invalid" || plan.geminiGatedEnv["GOOGLE_API_KEY"] != "" {
+		t.Fatal("Gemini connection did not preserve the user env file or process environment precedence")
+	}
+	if _, ok := plan.geminiGatedEnv["NODE_OPTIONS"]; ok {
+		t.Fatal("non-connection variable crossed the configuration boundary")
+	}
+	if _, ok := plan.geminiEnv["GEMINI_API_KEY"]; ok {
+		t.Fatal("user file values changed the non-gated environment")
+	}
+	writeEnv("https://second.invalid")
+	next, err := geminiPlan(t.Context(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.info.Identity == plan.info.Identity || plan.geminiGatedEnv["GOOGLE_GEMINI_BASE_URL"] != "https://first.invalid" {
+		t.Fatal("connection file changes were not reflected in identity while preserving the original snapshot")
+	}
+}
+
+func TestGeminiConnectionParsingHonorsCancellation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GEMINI_CLI_HOME", home)
+	if err := os.Mkdir(filepath.Join(home, ".gemini"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gemini", ".env"), []byte("GEMINI_API_KEY=synthetic\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := geminiPlan(ctx, "default"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled connection parsing returned %v", err)
 	}
 }

@@ -3,6 +3,7 @@ package nativecli
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -42,6 +43,41 @@ func TestStreamFailureTypesRealWaitWithoutLeakingText(t *testing.T) {
 	}
 	if err := streamFailure(nil, nil, nil, nil); err != nil {
 		t.Fatalf("empty stream failure: %v", err)
+	}
+}
+
+func TestGeminiStartupAuthFailureIsClassifiedWithoutLeakingStderr(t *testing.T) {
+	missing := newFailure(FailureProtocol, "native CLI ended without a confirmed terminal result")
+	for _, stderr := range []string{
+		"Please set an Auth method in your /private/secret/settings.json or specify GEMINI_API_KEY",
+		"Invalid auth method selected. secret-value",
+	} {
+		got := geminiStartupFailure(missing, stderr, 0)
+		if FailureKindOf(got) != FailureAuthentication || strings.Contains(got.Error(), "secret") || strings.Contains(got.Error(), "/private/") {
+			t.Fatalf("authentication failure was not safely classified: %v", got)
+		}
+		if confirmedStreamFailure(got) {
+			t.Fatal("stderr was treated as a confirmed terminal result")
+		}
+	}
+	other := newFailure(FailureProtocol, "native CLI emitted a malformed event")
+	if got := geminiStartupFailure(other, "Invalid auth method selected.", 0); got != other {
+		t.Fatal("a confirmed protocol failure was replaced by stderr")
+	}
+	if got := geminiStartupFailure(missing, "unrelated stderr", 0); got != missing {
+		t.Fatal("unrecognized stderr changed the failure")
+	}
+	if got := geminiStartupFailure(missing, "Invalid auth method selected.", 1); got != missing {
+		t.Fatal("stderr replaced the result of a process that emitted protocol output")
+	}
+}
+
+func TestGeminiProcessReportsMissingScopedAuth(t *testing.T) {
+	gate := newTestGate(t, nil, discardObserve)
+	cmd := exec.Command("/bin/sh", "-c", `printf '%s\n' 'Invalid auth method selected. synthetic-private' >&2; sleep 0.1; exit 1`)
+	err := streamProcess(t.Context(), "gemini", cmd, gate, nil)
+	if FailureKindOf(err) != FailureAuthentication || strings.Contains(err.Error(), "synthetic-private") || confirmedStreamFailure(err) {
+		t.Fatalf("startup failure was not safely reported: %v", err)
 	}
 }
 

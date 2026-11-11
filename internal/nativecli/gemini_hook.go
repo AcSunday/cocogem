@@ -47,7 +47,7 @@ printf '%s\n' "$reply"
 // prepareGeminiNative writes the scoped Gemini configuration with the private
 // gate hook and returns the headless invocation. Native tools stay available:
 // the hook, not a policy deny rule, decides each call.
-func prepareGeminiNative(request model.Request, workdir string, gate *bridge, broker *gateBroker) ([]string, map[string]string, error) {
+func prepareGeminiNative(request model.Request, workdir string, gate *bridge, broker *gateBroker, launch *connectionPlan) ([]string, map[string]string, error) {
 	if err := geminiPolicyBoundary(); err != nil {
 		return nil, nil, err
 	}
@@ -88,6 +88,9 @@ func prepareGeminiNative(request model.Request, workdir string, gate *bridge, br
 		// gate stays the only approval channel.
 		"security": map[string]any{"disableAlwaysAllow": true},
 	}
+	if launch != nil && launch.geminiAuthType != "" {
+		settings["security"].(map[string]any)["auth"] = map[string]any{"selectedType": launch.geminiAuthType}
+	}
 	if request.ThinkingLevel != "" && request.Model != "" && request.Model != "default" {
 		settings["modelConfigs"] = map[string]any{"customOverrides": []any{map[string]any{
 			"match": map[string]any{"model": request.Model},
@@ -95,6 +98,8 @@ func prepareGeminiNative(request model.Request, workdir string, gate *bridge, br
 				"thinkingConfig": map[string]any{"thinkingLevel": strings.ToUpper(request.ThinkingLevel)},
 			}},
 		}}}
+	} else if launch != nil && len(launch.geminiThinking) > 0 {
+		settings["modelConfigs"] = map[string]any{"customOverrides": launch.geminiThinking}
 	}
 	encoded, err := json.Marshal(settings)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
@@ -85,6 +86,20 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 		return newFailure(FailureHostInputLimit, "required context exceeds the %d-token host input budget", budget)
 	}
 	launch := resolveLaunchPlan(request)
+	if adapter == "gemini" && launch == nil {
+		info, err := p.InspectExecutionConnection(ctx, adapter, request.Model, request.ThinkingLevel)
+		if err != nil {
+			return err
+		}
+		if request.ExpectedConnection.Identity != "" && request.ExpectedConnection.Identity != info.Identity {
+			return errors.New("Gemini connection changed before the gated launch")
+		}
+		plan, ok := cachedPlan(adapter, info.Identity)
+		if !ok {
+			return errors.New("Gemini connection snapshot is unavailable")
+		}
+		launch = &plan
+	}
 	live := newLiveness(ctx, cancel, observe, request.FirstResponseTimeout, request.StallTimeout, request.StallAction)
 	gate.live = live
 	var nativeNames []string
@@ -111,12 +126,13 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 		gate.setNative(nativeNames)
 		cmd = command("gemini", args...)
 		cmd.Dir = request.WorkspaceRoot
-		// Preserve any environment the caller injected (endpoint, key, model)
-		// and only add the scoped runtime variables on top.
-		cmd.Env = overrideEnv(baseEnvironment(cmd.Env), env)
+		cmd.Env = removeEnv(overrideEnv(baseEnvironment(cmd.Env), launch.geminiGatedEnv), launch.geminiGatedUnset)
+		cmd.Env = overrideEnv(cmd.Env, env)
 		if err := configureGeminiSSE(cmd, workdir); err != nil {
 			return err
 		}
+		inputText := request.System + "\n\nComplete the assigned step with the supplied native and Cocogem tools. Prefer the native tools for file and command work; use the Cocogem tools for member handoff and final delivery.\nUser messages and upstream evidence:\n" + string(prompt)
+		cmd.Stdin = strings.NewReader(inputText)
 		live.start()
 		defer live.stop()
 		processErr := p.streamGeminiNative(ctx, cmd, gate, live, session)

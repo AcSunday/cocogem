@@ -27,7 +27,10 @@ type connectionPlan struct {
 	geminiModel         string
 	geminiEnv           map[string]string
 	geminiUnset         []string
+	geminiGatedEnv      map[string]string
+	geminiGatedUnset    []string
 	geminiThinking      []any
+	geminiAuthType      string
 	piAuth              []byte
 	piModels            []byte
 	piSettings          []byte
@@ -95,7 +98,7 @@ func (p Provider) resolveConnection(ctx context.Context, executor, model string)
 	case "codex":
 		return codexPlan(model)
 	case "gemini":
-		return geminiPlan(model)
+		return geminiPlan(ctx, model)
 	case "pi":
 		return p.piPlan(ctx, model)
 	case "opencode":
@@ -186,7 +189,7 @@ var geminiConnectionEnv = []string{
 	"GEMINI_MODEL", "GOOGLE_GENAI_MODEL", "GEMINI_CLI_MODEL", "GEMINI_CLI_HOME", "GEMINI_CONFIG_DIR",
 }
 
-func geminiPlan(model string) (connectionPlan, error) {
+func geminiPlan(ctx context.Context, model string) (connectionPlan, error) {
 	settingsFile := geminiSettingsFile()
 	settingsHash := ""
 	var settingsData []byte
@@ -200,10 +203,36 @@ func geminiPlan(model string) (connectionPlan, error) {
 	if len(settingsData) > 0 {
 		_ = json.Unmarshal(settingsData, &settings)
 	}
+	fileEnv, err := geminiConnectionFileEnv(ctx)
+	if err != nil {
+		return connectionPlan{}, err
+	}
+	env := map[string]string{}
+	unset := []string{}
+	gatedEnv := map[string]string{}
+	for key, value := range fileEnv {
+		gatedEnv[key] = value
+	}
+	gatedUnset := []string{}
+	present := []string{}
+	for _, key := range geminiConnectionEnv {
+		value, ok := os.LookupEnv(key)
+		if ok {
+			env[key] = value
+			gatedEnv[key] = value
+		} else {
+			unset = append(unset, key)
+		}
+		if _, ok := gatedEnv[key]; !ok {
+			gatedUnset = append(gatedUnset, key)
+			continue
+		}
+		present = append(present, key)
+	}
 	resolved := model
 	if resolved == "" || resolved == "default" {
 		for _, key := range []string{"GEMINI_MODEL", "GOOGLE_GENAI_MODEL", "GEMINI_CLI_MODEL"} {
-			if value := os.Getenv(key); value != "" {
+			if value := gatedEnv[key]; value != "" {
 				resolved = value
 				break
 			}
@@ -215,18 +244,8 @@ func geminiPlan(model string) (connectionPlan, error) {
 	if resolved == "" || resolved == "default" {
 		resolved = "cli-default"
 	}
-	env := map[string]string{}
-	unset := []string{}
-	present := []string{}
 	fields := map[string]any{"executor": "gemini", "model": resolved, "settings_hash": settingsHash}
-	for _, key := range geminiConnectionEnv {
-		value, ok := os.LookupEnv(key)
-		if !ok {
-			unset = append(unset, key)
-			continue
-		}
-		present = append(present, key)
-		env[key] = value
+	for key, value := range gatedEnv {
 		if key != "GEMINI_API_KEY" && key != "GOOGLE_API_KEY" {
 			fields[key] = value
 		} else {
@@ -237,7 +256,7 @@ func geminiPlan(model string) (connectionPlan, error) {
 	// an unset key must not share an identity.
 	fields["env_present"] = present
 	info := agent.ConnectionInfo{ResolvedModel: resolved, Identity: connectionDigest(fields)}
-	return connectionPlan{executor: "gemini", info: info, geminiModel: resolved, geminiEnv: env, geminiUnset: unset, geminiThinking: geminiThinkingOverrides(settings)}, nil
+	return connectionPlan{executor: "gemini", info: info, geminiModel: resolved, geminiEnv: env, geminiUnset: unset, geminiGatedEnv: gatedEnv, geminiGatedUnset: gatedUnset, geminiThinking: geminiThinkingOverrides(settings), geminiAuthType: settings.Security.Auth.SelectedType}, nil
 }
 
 func geminiSettingsFile() string {
