@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AcSunday/cocogem/internal/model"
 )
 
 // blockingReader delivers the given lines and then blocks forever, like Pi's
@@ -204,6 +206,47 @@ func TestParsePiRPCToolLifecycleUsesOneIdentityAndRealOutput(t *testing.T) {
 	}
 	if finished["status"] != "succeeded" {
 		t.Fatalf("status=%v, want succeeded", finished["status"])
+	}
+}
+
+func TestParsePiRPCHostToolDoesNotDuplicateBridgeLifecycle(t *testing.T) {
+	var events []capturedEvent
+	gate := newTestGate(t, []model.Tool{{Name: "probe", Schema: map[string]any{"type": "object"}}}, func(kind string, data map[string]any) error {
+		events = append(events, capturedEvent{kind: kind, data: data})
+		return nil
+	})
+	lines := []string{
+		piRecord(t, map[string]any{"id": "cocogem-state", "type": "response", "command": "get_state", "success": true, "data": map[string]any{"sessionId": piSession}}),
+		piRecord(t, map[string]any{"id": "cocogem-prompt", "type": "response", "command": "prompt", "success": true, "data": map[string]any{"disposition": "started"}}),
+		piRecord(t, map[string]any{"type": "message_start", "message": map[string]any{"role": "assistant"}}),
+		piRecord(t, map[string]any{"type": "tool_execution_start", "toolCallId": "host_call", "toolName": "mcp__cocogem__probe", "args": map[string]any{}}),
+		piRecord(t, map[string]any{"type": "tool_execution_end", "toolCallId": "host_call", "toolName": "mcp__cocogem__probe", "isError": false}),
+		piRecord(t, map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "stopReason": "stop"}}),
+		piRecord(t, map[string]any{"type": "agent_settled", "aborted": false}),
+	}
+	reader := newBlockingReader(lines...)
+	defer close(reader.done)
+	if err := parsePiRPC(reader, gate, nil, newTestPiStdin()); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.kind == "tool_started" || event.kind == "tool_finished" {
+			t.Fatalf("the Pi stream duplicated the host bridge lifecycle: %+v", event)
+		}
+	}
+	events = nil
+	lines[4] = piRecord(t, map[string]any{"type": "tool_execution_end", "toolCallId": "host_call", "toolName": "mcp__cocogem__probe", "isError": true})
+	failed := newBlockingReader(lines...)
+	defer close(failed.done)
+	if err := parsePiRPC(failed, gate, nil, newTestPiStdin()); err != nil {
+		t.Fatal(err)
+	}
+	var noticed bool
+	for _, event := range events {
+		noticed = noticed || event.kind == "native_notice" && event.data["kind"] == "pi_host_tool_failed"
+	}
+	if !noticed {
+		t.Fatal("a failed host tool with no bridge lifecycle was hidden")
 	}
 }
 

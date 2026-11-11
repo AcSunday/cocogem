@@ -333,6 +333,12 @@ func parsePiRPC(reader io.Reader, gate *bridge, live *liveness, input *piRPCStdi
 			if live != nil {
 				live.valid("tool_call")
 			}
+			if strings.HasPrefix(event.ToolName, "mcp__cocogem__") {
+				if !gate.allowedToolName(event.ToolName) {
+					return newFailure(FailureProtocol, "Pi started an undeclared host tool")
+				}
+				break
+			}
 			input := json.RawMessage(`{}`)
 			var params struct {
 				Args json.RawMessage `json:"args"`
@@ -357,6 +363,17 @@ func parsePiRPC(reader io.Reader, gate *bridge, live *liveness, input *piRPCStdi
 			}
 			if live != nil {
 				live.valid("tool_result")
+			}
+			if strings.HasPrefix(event.ToolName, "mcp__cocogem__") {
+				if !gate.allowedToolName(event.ToolName) {
+					return newFailure(FailureProtocol, "Pi finished an undeclared host tool")
+				}
+				if event.IsError {
+					if err := gate.notice("pi_host_tool_failed", "Pi reported a failed scoped host tool call"); err != nil {
+						return err
+					}
+				}
+				break
 			}
 			// The user must see what the tool actually reported. The CLI's own
 			// result is bounded and never replaced with a synthesized success.
