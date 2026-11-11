@@ -113,6 +113,50 @@ test("composer hint button renders 24×24 with a transparent background", async 
   await expect(page.getByLabel("输入问题")).toHaveValue("");
 });
 
+test("the permission queue notice is exactly as wide as the composer notice", async ({
+  page,
+}) => {
+  // The queue is the Composer's sibling, not a child of the Composer column.
+  // Before the fix it stretched across the whole conversation pane while the
+  // retry/failure notice above the Composer stayed at 820px, so the widths must
+  // be measured in a real browser, not matched from CSS text.
+  const headers = await signIn(page);
+  const workspace = await seedTasks(page, headers);
+  await page.goto(`${baseURL}/w/${workspace.id}`);
+  const composer = page.getByLabel("输入问题");
+  await expect(composer).toBeVisible();
+  // `data-composer` marks the Composer form itself, not a nested form.
+  const widths = await page.evaluate(() => {
+    const composer = document.querySelector("form[data-composer]");
+    if (!composer) throw new Error("composer not rendered");
+    const parent = composer.parentElement;
+    if (!parent) throw new Error("composer has no parent");
+    const template = (extra: Record<string, string>) => {
+      const node = document.createElement("div");
+      Object.assign(node.style, extra);
+      parent.insertBefore(node, composer);
+      const width = node.getBoundingClientRect().width;
+      node.remove();
+      return width;
+    };
+    return {
+      pane: parent.getBoundingClientRect().width,
+      composer: composer.getBoundingClientRect().width,
+      // Same box model the queue rule declares: width + horizontal padding.
+      queue: template({
+        boxSizing: "border-box",
+        width: "calc(100% - 64px)",
+        maxWidth: "820px",
+        padding: "8px 10px",
+      }),
+    };
+  });
+  expect(widths.pane).toBeGreaterThan(0);
+  expect(widths.queue).toBeCloseTo(widths.composer, 1);
+  // And the notice must not span the pane: that is the bug being fixed.
+  expect(widths.queue).toBeLessThan(widths.pane);
+});
+
 test("board controls stay inside a 360px viewport", async ({ page }) => {
   const headers = await signIn(page);
   const workspace = await seedTasks(page, headers);

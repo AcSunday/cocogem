@@ -212,11 +212,18 @@
   cursor: progress;
 }
 
-/* Composer-facing queue: a notice shape, never a modal. */
+/* Composer-facing queue: a notice shape, never a modal. It is the Composer's
+   sibling, so it cannot inherit the Composer column and used to stretch across
+   the whole conversation pane. Match the retry/failure notice instead: the
+   Composer column's max width and viewport gutters (conversation.module.css
+   → .composer), centred, with the same bottom gap. */
 .queue {
   display: grid;
   gap: 6px;
-  margin: 0 0 8px;
+  box-sizing: border-box;
+  width: calc(100% - 64px);
+  max-width: 820px;
+  margin: 0 auto 10px;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--warn-text) 30%, var(--border));
   border-radius: var(--radius-md);
@@ -238,7 +245,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin: 0 0 8px;
+  box-sizing: border-box;
+  width: calc(100% - 64px);
+  max-width: 820px;
+  margin: 0 auto 10px;
   padding: 6px 10px;
   font-size: 12px;
   color: var(--text-2);
