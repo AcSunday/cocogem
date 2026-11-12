@@ -75,10 +75,10 @@ Use `COCOGEM_DATA_DIR` to choose the data directory and `--allow-root /absolute/
 | Capability | How it works |
 | --- | --- |
 | Projects and durable tasks | The project home keeps the welcome scenarios plus a small summary; a far-left rail switches to a linked todo list of durable tasks. Goal revisions keep their history, and delivery is distinct from acceptance |
-| Free collaboration | Use `@` or natural language; the coordinator answers, hands off tasks, or selects a built-in workflow as needed. Engineering is one workflow; an authorized engineer reads and reproduces first, then uses the granted write and test tools when the task requires changes |
-| Team discussion | Members form independent views, challenge each other, and check the synthesis while preserving disagreements |
-| Research | Search and read sources, then challenge, respond, and recheck before delivering a research report |
-| Engineering collaboration | Select it or let the coordinator choose it; authorized members read, reproduce, modify and test, followed by independent review and delivery. Task and role restrictions still apply. Other file tasks can use their authorized tools without selecting it |
+| Free collaboration | Use `@` or natural language; the coordinator answers directly, hands off parallel or peer-to-peer relay tasks (`mode="relay"`, e.g. engineer → reviewer with 1-round early exit on approval), or selects a built-in workflow in the same turn |
+| Team discussion | Members form independent views, challenge each other, and synthesize while preserving disagreements, skipping redundant contributor check rounds when consensus is clear |
+| Research | Search and read sources, challenge and respond, or converge early to the final research report when independent critique confirms sufficient evidence |
+| Engineering collaboration | Select it or let the coordinator choose it; authorized members read, reproduce, modify and test, followed by independent review—converging immediately on approval or adding rework rounds up to budget when defects remain |
 | Reusable members | Share global profiles across workspaces with roles, models, execution options and avatars; workspace membership manages links and enablement |
 | Global permissions | Choose controlled, project-autonomous or full-access mode; extra operations offer once, conversation-wide or deny, with exact tool and resource scope |
 | Sources and deliverables | Inspect captured sources, exact report versions, and human feedback; download Markdown reports and delivered files |

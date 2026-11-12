@@ -3279,6 +3279,7 @@ export interface components {
             attempt_count?: number;
             context_refs?: string[] | null;
             continuation_id?: string;
+            converged?: boolean;
             deadline_at?: string;
             depends_on: string[] | null;
             depth?: number;
@@ -3292,6 +3293,7 @@ export interface components {
             kind?: string;
             request_id?: string;
             retry_of_step_id?: string;
+            review_verdict?: string;
             role: string;
             run_id: string;
             started_at?: string;
@@ -3450,6 +3452,7 @@ export interface components {
       attempt_count?: number;
       context_refs?: string[] | null;
       continuation_id?: string;
+      converged?: boolean;
       deadline_at?: string;
       depends_on: string[] | null;
       depth?: number;
@@ -3463,6 +3466,7 @@ export interface components {
       kind?: string;
       request_id?: string;
       retry_of_step_id?: string;
+      review_verdict?: string;
       role: string;
       run_id: string;
       started_at?: string;

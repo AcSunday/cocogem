@@ -141,6 +141,10 @@ func (e *Engine) promoteTask(ctx context.Context, run w.Run, sender w.Step, raw 
 	if err != nil {
 		return "", err
 	}
-	encoded, err := json.Marshal(map[string]any{"task_id": taskID, "accepted": true, "instruction": "Finish this invocation now. The host continues the accepted objective in a fresh execution step in this same conversation."})
+	instruction := "Finish this invocation now. The host continues the accepted objective in a fresh execution step in this same conversation."
+	if len(run.Agents) > 1 {
+		instruction = "Task promoted. If teammates should execute or review this work, call handoff_task (prefer mode='relay' for peer-to-peer execution and review) or choose_workflow right now in this same invocation, then finish. Only finish without dispatching if you will execute the entire task yourself in the next step."
+	}
+	encoded, err := json.Marshal(map[string]any{"task_id": taskID, "accepted": true, "instruction": instruction})
 	return string(encoded), err
 }

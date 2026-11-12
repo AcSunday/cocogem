@@ -26,6 +26,7 @@ type handoffInput struct {
 	TargetAgentID string   `json:"target_agent_id"`
 	Task          string   `json:"task"`
 	Role          string   `json:"role"`
+	Mode          string   `json:"mode,omitempty"`
 	ContextRefs   []string `json:"context_refs,omitempty"`
 }
 
@@ -53,9 +54,10 @@ func collaborationTools(run w.Run) []model.Tool {
 		out = append(out, model.Tool{Name: "read_skill", Description: "Read an enabled shared skill or its reference file. Read the relevant skill before collaboration; use only runtime roster IDs.", Schema: object(map[string]any{"skill_id": text(64), "resource": text(200)}, "skill_id")})
 	}
 	if workflow := effectiveInput(run).Workflow; (workflow == "free" || workflow == "") && len(run.Agents) > 1 {
-		out = append(out, model.Tool{Name: "handoff_task", Description: "Submit a bounded task to another member in this run. Returns a durable submission receipt, not an answer. Finish your invocation after submitting; the platform calls you again with committed results, including failures. Multiple independent submissions before finishing run in parallel. Never repeat a submission with a new request_id or dispatch through @ text. context_refs must be exact committed IDs: the complete message_id shown in Shared history or returned by get_task, an artifact reference as id@version, or a captured source ID. Shortened IDs, step IDs and prefixes are rejected rather than guessed. For role reviewer or critic, the target must not have authored any referenced message or artifact: reference only the work under review and omit the target's own replies.", Schema: object(map[string]any{
+		out = append(out, model.Tool{Name: "handoff_task", Description: "Hand off or delegate bounded work to another member in this run. Set mode='relay' for direct peer-to-peer A2A transfer (for example: coordinator -> engineer -> reviewer, where the target takes over directly; if a reviewer finds no issues it finishes the run directly without wasted rounds, or relays back to engineer only if concrete changes are needed). Omit mode or set mode='delegate' when you want the platform to call you back in a continuation step after parallel subtasks finish. Finish your invocation after submitting. Never dispatch through @ text. In delegate mode, context_refs must be exact committed IDs (message_id, id@version, or source ID), and reviewer/critic targets cannot review their own work. In relay mode, your current step's committed reply and captured diffs/tests are passed automatically to the target.", Schema: object(map[string]any{
 			"request_id": text(100), "target_agent_id": text(100), "task": text(6000),
-			"role":         map[string]any{"type": "string", "enum": []string{"researcher", "analyst", "reviewer", "critic", "coordinator", "member"}},
+			"role":         map[string]any{"type": "string", "enum": []string{"engineer", "researcher", "analyst", "reviewer", "critic", "coordinator", "member"}},
+			"mode":         map[string]any{"type": "string", "enum": []string{"delegate", "relay"}},
 			"context_refs": map[string]any{"type": "array", "maxItems": 12, "uniqueItems": true, "items": text(150)},
 		}, "request_id", "target_agent_id", "task", "role")})
 		out = append(out, model.Tool{Name: "get_task", Description: "Inspect a task's current durable status and committed result in this run. This does not wait or wake another member; finish to let the platform return results.", Schema: object(map[string]any{"task_id": text(100)}, "task_id")})
@@ -236,6 +238,9 @@ func (e *Engine) collaborationContext(ctx context.Context, run w.Run, step w.Ste
 }
 
 func handoffDigest(in handoffInput) string {
+	if in.Mode == "" || in.Mode == "delegate" {
+		in.Mode = ""
+	}
 	in.ContextRefs = append([]string{}, in.ContextRefs...)
 	slices.Sort(in.ContextRefs)
 	b, _ := json.Marshal(in)
@@ -256,7 +261,11 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 	if strings.TrimSpace(in.RequestID) == "" || utf8.RuneCountInString(in.RequestID) > 100 || strings.TrimSpace(in.Task) == "" || utf8.RuneCountInString(in.Task) > 6000 || len(in.ContextRefs) > 12 {
 		return "", errors.New("invalid handoff request")
 	}
-	if !slices.Contains([]string{"researcher", "analyst", "reviewer", "critic", "coordinator", "member"}, in.Role) {
+	if in.Mode != "" && in.Mode != "delegate" && in.Mode != "relay" {
+		return "", errors.New("invalid handoff mode")
+	}
+	relayMode := in.Mode == "relay"
+	if !slices.Contains([]string{"engineer", "researcher", "analyst", "reviewer", "critic", "coordinator", "member"}, in.Role) {
 		return "", errors.New("invalid temporary task role")
 	}
 	targetIndex := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == in.TargetAgentID && !a.Disabled })
@@ -289,8 +298,12 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 			return errors.New("target must be another member of this run roster")
 		}
 		for _, s := range steps {
-			if s.Kind == "handoff" && s.FromStepID == sender.ID && s.RequestID == in.RequestID {
-				old := handoffInput{RequestID: s.RequestID, TargetAgentID: s.AgentID, Task: s.Instruction, Role: s.Role, ContextRefs: s.ContextRefs}
+			if (s.Kind == "handoff" || s.Kind == "relay") && s.FromStepID == sender.ID && s.RequestID == in.RequestID {
+				oldMode := ""
+				if s.Kind == "relay" {
+					oldMode = "relay"
+				}
+				old := handoffInput{RequestID: s.RequestID, TargetAgentID: s.AgentID, Task: s.Instruction, Role: s.Role, Mode: oldMode, ContextRefs: s.ContextRefs}
 				if handoffDigest(old) != handoffDigest(in) {
 					return errors.New("request_id was already used with different task content")
 				}
@@ -310,21 +323,46 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 		}
 		if currentAttempt != "" {
 			for _, s := range steps {
-				if s.Kind == "handoff" && s.FromStepID == sender.ID && s.FromAttemptID != currentAttempt {
+				if (s.Kind == "handoff" || s.Kind == "relay") && s.FromStepID == sender.ID && s.FromAttemptID != currentAttempt {
 					return errors.New("a previous attempt already submitted work; reuse its request_id or finish without duplicating the handoff")
 				}
 			}
 		}
-		if err := e.validateMember(tx, run, sender.AgentID); err != nil {
+		for _, s := range steps {
+			if s.FromStepID != sender.ID {
+				continue
+			}
+			if relayMode && (s.Kind == "handoff" || s.Kind == "relay") {
+				return errors.New("relay transfers control to exactly one next member; do not submit multiple handoffs from the same relay step")
+			}
+			if !relayMode && s.Kind == "relay" {
+				return errors.New("cannot mix delegate and relay handoffs from the same step")
+			}
+		}
+		if err := e.validateMember(tx, current, sender.AgentID); err != nil {
 			return err
 		}
-		if err := e.validateMember(tx, run, target.ID); err != nil {
+		if err := e.validateMember(tx, current, target.ID); err != nil {
 			return err
 		}
 		count := 0
 		for _, s := range steps {
-			if s.Kind == "handoff" {
+			if s.Kind == "handoff" || s.Kind == "relay" {
 				count++
+			}
+		}
+		// If this step promoted the conversation to a task and immediately
+		// relays control to another member, absorb the unstarted intake
+		// continuation so the coordinator is not invoked a second time.
+		if relayMode && current.TaskPromotionStepID == sender.ID {
+			for i := len(steps) - 1; i >= 0; i-- {
+				s := steps[i]
+				if s.Kind == "continuation" && s.FromStepID == sender.ID && s.Status == "pending" {
+					if err := tx.DeletePendingStep(s.ID); err != nil {
+						return err
+					}
+					steps = slices.Delete(steps, i, i+1)
+				}
 			}
 		}
 		for _, s := range steps {
@@ -333,6 +371,56 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 				break
 			}
 		}
+		if relayMode {
+			if count >= maxHandoffs || len(steps)+1 > maxSteps {
+				return errors.New("collaboration task or depth budget exceeded")
+			}
+			if err := validateContextRefs(tx, current, sender, in); err != nil {
+				return err
+			}
+			deps := slices.Clone(sender.DependsOn)
+			if !slices.Contains(deps, sender.ID) {
+				deps = append(deps, sender.ID)
+			}
+			child = w.Step{
+				ID:            w.NewID(),
+				RunID:         run.ID,
+				AgentID:       target.ID,
+				AgentName:     target.DisplayName,
+				Role:          in.Role,
+				Instruction:   in.Task,
+				DependsOn:     deps,
+				Status:        "pending",
+				Kind:          "relay",
+				FromStepID:    sender.ID,
+				FromAgentID:   sender.AgentID,
+				FromAttemptID: currentAttempt,
+				RequestID:     in.RequestID,
+				ContextRefs:   slices.Clone(in.ContextRefs),
+				Depth:         sender.Depth,
+			}
+			for _, s := range steps {
+				if s.Status != "pending" {
+					continue
+				}
+				changed := false
+				for i, id := range s.DependsOn {
+					if id == sender.ID {
+						s.DependsOn[i] = child.ID
+						changed = true
+					}
+				}
+				if changed {
+					if err := tx.SaveStep(s); err != nil {
+						return err
+					}
+				}
+			}
+			if err := tx.SaveStep(child); err != nil {
+				return err
+			}
+			return tx.AppendEvent(run.ID, sender.ID, sender.AgentID, "task_submitted", child)
+		}
 		newSteps := 1
 		if continuation.ID == "" {
 			newSteps++
@@ -340,12 +428,13 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 		if count >= maxHandoffs || len(steps)+newSteps > maxSteps || sender.Depth >= maxDepth {
 			return errors.New("collaboration task or depth budget exceeded")
 		}
-		if err := validateContextRefs(tx, run, sender, in); err != nil {
+		if err := validateContextRefs(tx, current, sender, in); err != nil {
 			return err
 		}
 		child = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: target.ID, AgentName: target.DisplayName, Role: in.Role, Instruction: in.Task, DependsOn: []string{sender.ID}, Status: "pending", Kind: "handoff", FromStepID: sender.ID, FromAgentID: sender.AgentID, FromAttemptID: currentAttempt, RequestID: in.RequestID, ContextRefs: slices.Clone(in.ContextRefs), Depth: sender.Depth + 1}
+		handoffContinuationPrompt := "根据返回的任务结果继续完成用户原始目标。如实处理失败和分歧；只有确实需要时才从当前名册选择后续复核者，否则交付结果。不要重复已完成的委派，也不要为确认收到而创建新任务。"
 		if continuation.ID == "" {
-			continuation = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: sender.AgentID, AgentName: sender.AgentName, Role: sender.Role, Instruction: "根据返回的任务结果继续完成用户原始目标。如实处理失败和分歧；只有确实需要时才从当前名册选择后续复核者，否则交付结果。不要重复已完成的委派，也不要为确认收到而创建新任务。", DependsOn: []string{sender.ID}, Status: "pending", Kind: "continuation", FromStepID: sender.ID, FromAgentID: sender.AgentID, Depth: sender.Depth}
+			continuation = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: sender.AgentID, AgentName: sender.AgentName, Role: sender.Role, Instruction: handoffContinuationPrompt, DependsOn: []string{sender.ID}, Status: "pending", Kind: "continuation", FromStepID: sender.ID, FromAgentID: sender.AgentID, Depth: sender.Depth}
 			// Pending consumers must wait for the delegated task's final continuation.
 			for _, s := range steps {
 				if s.Status != "pending" {
@@ -364,6 +453,8 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 					}
 				}
 			}
+		} else if current.TaskPromotionStepID == sender.ID && continuation.Status == "pending" {
+			continuation.Instruction = handoffContinuationPrompt
 		}
 		child.ContinuationID = continuation.ID
 		continuation.DependsOn = append(continuation.DependsOn, child.ID)
@@ -377,6 +468,10 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 	})
 	if err != nil {
 		return "", err
+	}
+	if child.Kind == "relay" {
+		encoded, err := json.Marshal(map[string]any{"task_id": child.ID, "mode": "relay", "status": "accepted", "instruction": "Relay handoff accepted. Finish this invocation now; the target member takes over next with your committed reply and captured sources in its handoff."})
+		return string(encoded), err
 	}
 	encoded, err := json.Marshal(map[string]any{"task_id": child.ID, "continuation_id": child.ContinuationID, "status": "accepted", "instruction": "Submission accepted, not completed. Finish this invocation after any other independent submissions. The platform returns committed results in a new invocation; do not poll or send @ acknowledgements."})
 	return string(encoded), err
@@ -400,7 +495,7 @@ func validateContextRefs(tx *store.Tx, run w.Run, sender w.Step, in handoffInput
 		return err
 	}
 	seen := map[string]bool{}
-	workReferenced := false
+	workReferenced := in.Mode == "relay" && sender.AgentID != "" && sender.AgentID != in.TargetAgentID
 	for _, ref := range in.ContextRefs {
 		if ref == "" || seen[ref] {
 			return errors.New("context references must be unique and nonempty")

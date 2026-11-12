@@ -83,7 +83,7 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		critiques := make([]string, 0, len(in.Targets))
 		for _, id := range in.Targets {
 			deps := append(slices.Clone(views), critiques...)
-			if err := add(id, "critic", "Read the other members' independent views and any completed critiques in the exact upstream handoff. Challenge or extend specific arguments by quoting or referencing them; do not restate the whole discussion. Do not publish an artifact. Match the answer length to the task.", deps); err != nil {
+			if err := add(id, "critic", "Read the other members' independent views and any completed critiques in the exact upstream handoff. Challenge or extend specific arguments by quoting or referencing them; do not restate the whole discussion. If all views are consistent without unresolved factual disputes, call submit_review_verdict with verdict='approved'; otherwise call submit_review_verdict with verdict='changes_requested'. Do not publish an artifact. Match the answer length to the task.", deps); err != nil {
 				return nil, err
 			}
 			critiques = append(critiques, last())
@@ -91,7 +91,7 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 		// The draft is deliberately not a coordinator: only the final step has
 		// a publication obligation.
 		draftDeps := append(slices.Clone(views), critiques...)
-		if err := add(in.Assignments["coordinator"], "synthesizer", "Draft a concise synthesis of the independent views and completed critiques: agreements, real disagreements, corrections and open questions. Do not invent consensus or treat agreement as evidence. This is an intermediate draft, not the final deliverable; return it as your step reply and do not publish an artifact.", draftDeps); err != nil {
+		if err := add(in.Assignments["coordinator"], "synthesizer", "Draft a concise synthesis of the independent views and completed critiques: agreements, real disagreements, corrections and open questions. Do not invent consensus or treat agreement as evidence. If every participant's position and disagreement is already accurately captured without needing contributor check rounds, call submit_review_verdict with verdict='approved' to skip redundant check steps. This is an intermediate draft, not the final deliverable; return it as your step reply and do not publish an artifact.", draftDeps); err != nil {
 			return nil, err
 		}
 		draft := last()
@@ -118,7 +118,7 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 			return nil, err
 		}
 		research := last()
-		if err := add(c, "critic", "Independently read relevant sources. Challenge dates, evidence, assumptions, missing alternatives and unsupported conclusions. Reply as a plain step message with exact references; do not publish an artifact.", []string{research}); err != nil {
+		if err := add(c, "critic", "Independently read relevant sources. Challenge dates, evidence, assumptions, missing alternatives and unsupported conclusions. If the research is well-supported and needs no further rework round, call submit_review_verdict with verdict='approved' so synthesis runs immediately without wasted rounds; otherwise call submit_review_verdict with verdict='changes_requested' and list concrete gaps. Reply as a plain step message with exact references; do not publish an artifact.", []string{research}); err != nil {
 			return nil, err
 		}
 		critique := last()
@@ -176,7 +176,7 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 			return nil, err
 		}
 		initial := out[len(out)-1].ID
-		if err := add(reviewer, "reviewer", "Independently read the relevant files plus the engineer's committed reply and any captured diff or test evidence. Confirm or dispute each finding with exact source IDs and preserve disagreement. Run the relevant test yourself when run_test is granted; otherwise keep the review read-only and say runtime verification was unavailable. Reply as a plain step message and do not publish an artifact.", []string{initial}); err != nil {
+		if err := add(reviewer, "reviewer", "Independently read the relevant files plus the engineer's committed reply and any captured diff or test evidence. Confirm or dispute each finding with exact source IDs and preserve disagreement. Run the relevant test yourself when run_test is granted; otherwise keep the review read-only and say runtime verification was unavailable. If the work is verified and you have no blocking objections, call submit_review_verdict with verdict='approved' so the run converges immediately without forcing a redundant second round; if concrete fixes or missing verification remain, call submit_review_verdict with verdict='changes_requested'. Reply as a plain step message and do not publish an artifact.", []string{initial}); err != nil {
 			return nil, err
 		}
 		review := out[len(out)-1].ID
@@ -185,7 +185,7 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 			return nil, err
 		}
 		response := out[len(out)-1].ID
-		if err := add(reviewer, "final_reviewer", "Independently inspect the relevant files, the initial reply, the review and the engineer response in the handoff. Publish exactly one engineering_report with confirmed, disputed or insufficient_evidence findings, severities, exact file/diff/test source IDs and limitations. Never modify files. If this run captured a write diff, cite the latest diff per changed path and a passing test captured after the last write; if it captured no write diff, report the result as read-only and do not claim runtime verification. Keep disputes and unresolved findings visible.", []string{initial, review, response}); err != nil {
+		if err := add(reviewer, "final_reviewer", "Independently inspect the relevant files, the initial reply, the review and the engineer response in the handoff. If blocking defects still remain and submit_review_verdict is available, call submit_review_verdict with verdict='changes_requested' to schedule another repair round instead of publishing prematurely. Otherwise publish exactly one engineering_report with confirmed, disputed or insufficient_evidence findings, severities, exact file/diff/test source IDs and limitations. Never modify files. If this run captured a write diff, cite the latest diff per changed path and a passing test captured after the last write; if it captured no write diff, report the result as read-only and do not claim runtime verification. Keep disputes and unresolved findings visible.", []string{initial, review, response}); err != nil {
 			return nil, err
 		}
 	default:
@@ -202,9 +202,9 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 }
 
 // finalSteps selects the steps whose replies form the run delivery. A built-in
-// has one fixed final role. A free run keeps every root responder and follows
-// its continuation chain to the last return, because a delegated task's reply
-// belongs to the delegating root and is never itself the final answer.
+// has one fixed final role unless an intermediate review converged early. A
+// free run keeps every root responder and follows its continuation or relay
+// chain to the terminal member.
 func finalSteps(in w.RunInput, steps []w.Step) []w.Step {
 	out := []w.Step{}
 	if in.Workflow == "" || in.Workflow == "free" {
@@ -215,7 +215,7 @@ func finalSteps(in w.RunInput, steps []w.Step) []w.Step {
 			final := root
 			for range len(steps) {
 				next := slices.IndexFunc(steps, func(s w.Step) bool {
-					return s.Kind == "continuation" && s.FromStepID == final.ID
+					return (s.Kind == "continuation" || s.Kind == "relay") && s.FromStepID == final.ID && !s.Converged
 				})
 				if next < 0 {
 					break
@@ -227,15 +227,31 @@ func finalSteps(in w.RunInput, steps []w.Step) []w.Step {
 		return out
 	}
 	for _, step := range steps {
+		if step.Converged {
+			continue
+		}
 		if RequiredArtifact(step, in) != "" {
 			out = append(out, step)
 		}
 	}
 	if len(out) == 0 {
 		for _, step := range steps {
-			if step.Kind == "retry_result" {
+			if step.Kind == "retry_result" && !step.Converged {
 				out = append(out, step)
 			}
+		}
+	}
+	if len(out) == 0 {
+		for i := len(steps) - 1; i >= 0; i-- {
+			s := steps[i]
+			if s.Status == "skipped" || s.Role == "task_intake" {
+				continue
+			}
+			if s.Kind == "" && s.Role == "responder" && len(steps) > 1 {
+				continue
+			}
+			out = append(out, s)
+			break
 		}
 	}
 	return out

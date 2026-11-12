@@ -40,7 +40,7 @@ func (e *Engine) mayPublish(ctx context.Context, run w.Run, step w.Step) (bool, 
 	if step.Kind == "" {
 		return true, nil
 	}
-	if step.Kind != "continuation" {
+	if step.Kind != "continuation" && step.Kind != "relay" {
 		return false, nil
 	}
 	var steps []w.Step

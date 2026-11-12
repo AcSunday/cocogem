@@ -304,7 +304,12 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 				allowFailure := step.Kind == "continuation" && id != step.FromStepID
 				switch dependency.Status {
 				case "succeeded":
-				case "failed", "skipped":
+				case "skipped":
+					if dependency.Converged || allowFailure {
+						continue
+					}
+					failed, depsOK = true, false
+				case "failed":
 					if allowFailure {
 						continue
 					}

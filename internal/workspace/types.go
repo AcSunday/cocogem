@@ -411,6 +411,8 @@ type Step struct {
 	RequestID      string   `json:"request_id,omitempty"`
 	ContextRefs    []string `json:"context_refs,omitempty"`
 	ContinuationID string   `json:"continuation_id,omitempty"`
+	Converged      bool     `json:"converged,omitempty"`
+	ReviewVerdict  string   `json:"review_verdict,omitempty"`
 	Depth          int      `json:"depth,omitempty"`
 	AttemptCount   int      `json:"attempt_count,omitempty"`
 	StartedAt      string   `json:"started_at,omitempty"`

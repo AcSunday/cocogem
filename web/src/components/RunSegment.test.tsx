@@ -1211,3 +1211,72 @@ it("loads the exact run history from a tool activity link", async () => {
     expect.objectContaining({ method: "GET" }),
   );
 });
+
+it("keeps intake and completed upstream steps inside the process drawer while an A2A run is active and displays converged review badges", () => {
+  const intakeStep = {
+    ...step,
+    id: "step-intake",
+    role: "task_intake",
+    agent_name: "协调者",
+    status: "succeeded" as const,
+  };
+  const relayExec = {
+    ...step,
+    id: "step-exec",
+    kind: "relay",
+    from_step_id: "step-intake",
+    from_agent_id: "agent-coord",
+    role: "engineer",
+    agent_name: "执行者",
+    status: "succeeded" as const,
+  };
+  const relayRev = {
+    ...step,
+    id: "step-rev",
+    kind: "relay",
+    from_step_id: "step-exec",
+    from_agent_id: "agent-exec",
+    depends_on: ["step-exec"],
+    role: "reviewer",
+    agent_name: "质疑者",
+    review_verdict: "approved",
+    status: "running" as const,
+  };
+  const skippedRework = {
+    ...step,
+    id: "step-skip",
+    depends_on: ["step-rev"],
+    role: "engineer",
+    agent_name: "执行者",
+    status: "skipped" as const,
+    converged: true,
+  };
+  render(
+    <RunSegment
+      {...props}
+      run={{
+        ...baseRun,
+        status: "running",
+        task_promotion_step_id: "step-intake",
+      }}
+      steps={[intakeStep, relayExec, relayRev, skippedRework]}
+      messages={[
+        { ...message("m-intake", "任务已建立，正在继续执行。"), step_id: "step-intake" },
+        { ...message("m-exec", "执行者已完成修复"), step_id: "step-exec" },
+        {
+          ...message("m-rev", "质疑者正在独立复核"),
+          step_id: "step-rev",
+          status: "processing",
+        },
+      ]}
+    />,
+  );
+  const processDrawer = screen.getByTestId("run-process");
+  expect(within(processDrawer).getAllByText("任务已建立，正在继续执行。").length).toBeGreaterThan(0);
+  expect(articles("任务已建立，正在继续执行。")[0].closest("details")).toBe(processDrawer);
+  expect(articles("执行者已完成修复")[0].closest("details")).toBe(processDrawer);
+  expect(articles("质疑者正在独立复核")[0].closest("details")).toBeNull();
+  expect(within(processDrawer).getByText("复核通过")).toBeVisible();
+  expect(within(processDrawer).getByText("已收敛跳过")).toBeVisible();
+});
+

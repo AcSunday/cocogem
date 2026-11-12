@@ -3,6 +3,8 @@ package workflow
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/nativecli"
@@ -44,6 +46,22 @@ type stepCompletion struct {
 func (e *Engine) settleStep(ctx context.Context, s stepSettlement) (w.Step, w.Attempt, error) {
 	step, attempt, message := s.step, s.attempt, s.message
 	published := s.published
+	_ = e.Store.Read(context.WithoutCancel(ctx), func(tx *store.Tx) error {
+		current, err := tx.Run(s.run.ID)
+		if err != nil {
+			return err
+		}
+		steps, err := tx.Steps(s.run.ID)
+		if err != nil {
+			return err
+		}
+		if idx := slices.IndexFunc(steps, func(item w.Step) bool { return item.ID == step.ID }); idx >= 0 {
+			step.Role = steps[idx].Role
+			step.ReviewVerdict = steps[idx].ReviewVerdict
+			s.required = RequiredArtifact(step, effectiveInput(current))
+		}
+		return nil
+	})
 	if s.cause == nil && s.required != "" && published == nil && !s.delegated {
 		s.cause = &nativecli.Failure{Kind: nativecli.FailureKind(failureArtifactContract), Reason: "required artifact was not submitted"}
 	}
@@ -172,10 +190,15 @@ func (e *Engine) persistStepCompletion(ctx context.Context, c stepCompletion) (w
 		}
 		if current.TaskPromotionStepID == step.ID {
 			step.Role = "task_intake"
-			message.Content = "任务已建立，正在继续执行。"
-			message.ContentFormat = ""
-			message.ContentBytes = len(message.Content)
-			message.ContentTruncated = false
+			dispatchedInPlace := current.SelectedWorkflow != nil || slices.ContainsFunc(steps, func(s w.Step) bool {
+				return (s.Kind == "handoff" || s.Kind == "relay") && s.FromStepID == step.ID
+			})
+			if !dispatchedInPlace || strings.TrimSpace(message.Content) == "" {
+				message.Content = "任务已建立，正在继续执行。"
+				message.ContentFormat = ""
+				message.ContentBytes = len(message.Content)
+				message.ContentTruncated = false
+			}
 		}
 		if published != nil && step.Status == "succeeded" && formal[step.ID] {
 			if len(current.Input.ArtifactRefs) > 0 {

@@ -338,7 +338,14 @@ func (t *Tx) Steps(runID string) ([]w.Step, error) {
 
 // SaveStep persists a planned step or its state without changing its position.
 func (t *Tx) SaveStep(v w.Step) error {
-	return t.exec("INSERT INTO steps(id,run_id,status,position,body) VALUES(?,?,?,(SELECT COUNT(*) FROM steps WHERE run_id=?),?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,body=excluded.body", v.ID, v.RunID, v.Status, v.RunID, body(v))
+	return t.exec("INSERT INTO steps(id,run_id,status,position,body) VALUES(?,?,?,COALESCE((SELECT MAX(position)+1 FROM steps WHERE run_id=?),0),?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,body=excluded.body", v.ID, v.RunID, v.Status, v.RunID, body(v))
+}
+
+// DeletePendingStep removes an unstarted pending step that was superseded in
+// place (such as a task-intake continuation replaced by an immediate workflow
+// selection or handoff in the same invocation).
+func (t *Tx) DeletePendingStep(id string) error {
+	return t.exec("DELETE FROM steps WHERE id=? AND status='pending'", id)
 }
 
 // Attempts lists every execution try for a run in stable order.

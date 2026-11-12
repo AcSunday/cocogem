@@ -382,7 +382,7 @@ func aggregateSteps(steps []w.Step, runTimedOut bool) (string, string, string) {
 		return "interrupted", reason, kind
 	}
 	for _, step := range steps {
-		if step.Status == "skipped" {
+		if step.Status == "skipped" && !step.Converged {
 			reason := step.Error
 			if reason == "" {
 				reason = "a required step was skipped before it could run"

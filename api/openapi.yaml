@@ -9440,6 +9440,9 @@
                 "continuation_id": {
                   "type": "string"
                 },
+                "converged": {
+                  "type": "boolean"
+                },
                 "deadline_at": {
                   "type": "string"
                 },
@@ -9483,6 +9486,9 @@
                   "type": "string"
                 },
                 "retry_of_step_id": {
+                  "type": "string"
+                },
+                "review_verdict": {
                   "type": "string"
                 },
                 "role": {
@@ -10133,6 +10139,9 @@
           "continuation_id": {
             "type": "string"
           },
+          "converged": {
+            "type": "boolean"
+          },
           "deadline_at": {
             "type": "string"
           },
@@ -10176,6 +10185,9 @@
             "type": "string"
           },
           "retry_of_step_id": {
+            "type": "string"
+          },
+          "review_verdict": {
             "type": "string"
           },
           "role": {
