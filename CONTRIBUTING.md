@@ -6,7 +6,8 @@ Follow its [project layout](docs/product.md#项目结构) when adding files.
 
 Each pull request should implement one reviewable feature or fix, include tests,
 and describe the user-visible result, validation, limitations and migrations.
-Use Conventional Commits, for example `feat: add workspace creation`.
+Write commit messages, pull request titles and pull request descriptions in
+English. Use Conventional Commits, for example `feat: add workspace creation`.
 
 Keep provider protocols inside adapters. Treat model output, files, URLs and
 browser requests as untrusted input. Never include keys or private source data

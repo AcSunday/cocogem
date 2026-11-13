@@ -412,12 +412,39 @@ export function RunSegment({
     const scoped = visibleOwn.filter(
       (message) => message.run_id === item.id && message.role !== "user",
     );
+    const runSteps =
+      item.id === run.id
+        ? (steps ?? [])
+        : (retries.find((entry) => entry.run.id === item.id)?.steps ?? []);
+    const stepByID = new Map(runSteps.map((step) => [step.id, step]));
     if (deliveredRun(item)) {
       const delivered = deliveredMessageIDs(item);
       for (const message of scoped)
         if (delivered.has(message.id)) finalIDs.add(message.id);
+    } else if (!terminal(item.status)) {
+      for (const message of scoped) {
+        const step = stepByID.get(message.step_id);
+        const hasDownstream =
+          runSteps.length > 1 &&
+          runSteps.some(
+            (other) =>
+              other.id !== message.step_id &&
+              (other.from_step_id === message.step_id ||
+                other.depends_on?.includes(message.step_id)),
+          );
+        const isProcessOnly =
+          step?.role === "task_intake" ||
+          item.task_promotion_step_id === message.step_id ||
+          item.selected_workflow?.step_id === message.step_id ||
+          (hasDownstream && message.status === "completed");
+        if (!isProcessOnly) finalIDs.add(message.id);
+      }
     } else {
-      for (const message of scoped) finalIDs.add(message.id);
+      for (const message of scoped) {
+        const step = stepByID.get(message.step_id);
+        if (step?.role === "task_intake" && scoped.length > 1) continue;
+        finalIDs.add(message.id);
+      }
     }
   }
   // A retried member replaces its failed slot instead of moving to the end of

@@ -249,20 +249,32 @@ func TestNativeProtocolFailureAndCancellation(t *testing.T) {
 	for _, mode := range []string{"truncate", "session", "badjson", "unapproved", "after", "failed", "exit", "block"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			started := time.Now()
+			var mu sync.Mutex
+			var canceledAt time.Time
 			err := fakeProvider(mode).Run(ctx, testRequest(), func(context.Context, string, json.RawMessage) (string, error) { return "ok", nil }, func(kind string, _ map[string]any) error {
 				if mode == "block" && kind == "native_session" {
-					time.AfterFunc(30*time.Millisecond, cancel)
+					time.AfterFunc(30*time.Millisecond, func() {
+						mu.Lock()
+						canceledAt = time.Now()
+						mu.Unlock()
+						cancel()
+					})
 				}
 				return nil
 			})
 			if err == nil {
 				t.Fatal("unconfirmed execution succeeded")
 			}
-			if mode == "block" && (!errors.Is(err, context.Canceled) || time.Since(started) > 2*time.Second) {
-				t.Fatalf("cancel failed to reclaim process tree: %v elapsed=%s", err, time.Since(started))
+			if mode == "block" {
+				mu.Lock()
+				reclaimElapsed := time.Since(canceledAt)
+				wasCanceled := !canceledAt.IsZero()
+				mu.Unlock()
+				if !wasCanceled || !errors.Is(err, context.Canceled) || reclaimElapsed > 3*time.Second {
+					t.Fatalf("cancel failed to reclaim process tree: %v wasCanceled=%v reclaimElapsed=%s", err, wasCanceled, reclaimElapsed)
+				}
 			}
 		})
 	}

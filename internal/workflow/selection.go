@@ -154,7 +154,7 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 			return errors.New("the selected engineering method requires a bound source directory")
 		}
 		if slices.ContainsFunc(steps, func(s w.Step) bool {
-			return s.Kind == "handoff" || s.Kind == "continuation" && s.FromStepID != current.TaskPromotionStepID
+			return s.Kind == "handoff" || s.Kind == "relay" || s.Kind == "continuation" && s.FromStepID != current.TaskPromotionStepID
 		}) {
 			return errors.New("work was already committed through delegation; finish its continuation instead of selecting a method")
 		}
@@ -172,6 +172,20 @@ func (e *Engine) chooseWorkflow(ctx context.Context, run w.Run, sender w.Step, r
 			}
 			receipt, repeated = *current.SelectedWorkflow, true
 			return nil
+		}
+		// If this step promoted the conversation to a task and selects the
+		// workflow method in the same invocation, absorb the unstarted intake
+		// continuation so no redundant second coordinator CLI turn runs.
+		if current.TaskPromotionStepID == step.ID {
+			for i := len(steps) - 1; i >= 0; i-- {
+				s := steps[i]
+				if s.Kind == "continuation" && s.FromStepID == step.ID && s.Status == "pending" {
+					if err := tx.DeletePendingStep(s.ID); err != nil {
+						return err
+					}
+					steps = slices.Delete(steps, i, i+1)
+				}
+			}
 		}
 		settings, err := tx.Settings()
 		if err != nil {
@@ -272,7 +286,7 @@ func settledMethod(run w.Run, steps []w.Step) string {
 	if run.Input.Workflow != "" && run.Input.Workflow != "free" {
 		return ""
 	}
-	if slices.ContainsFunc(steps, func(s w.Step) bool { return s.Kind == "handoff" }) {
+	if slices.ContainsFunc(steps, func(s w.Step) bool { return s.Kind == "handoff" || s.Kind == "relay" }) {
 		return "delegation"
 	}
 	return "direct"

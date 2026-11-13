@@ -226,8 +226,8 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 		in.Targets = route.Targets
 		// Global defaults were resolved and validated with the accepted routing.
 		in.Assignments = route.Assignments
-		writeBranch := in.Workflow == "engineering" && slices.ContainsFunc(agents, func(a w.Agent) bool {
-			return !a.Disabled && slices.Contains(th.AgentIDs, a.ID) && slices.Contains(a.Tools, "write_file") && slices.Contains(a.Tools, "run_test")
+		writeBranch := in.Workflow == "engineering" && ws.Root != "" && slices.ContainsFunc(agents, func(a w.Agent) bool {
+			return !a.Disabled && slices.Contains(th.AgentIDs, a.ID)
 		})
 		var policy *w.ExecutionPolicy
 		if s.engine != nil {

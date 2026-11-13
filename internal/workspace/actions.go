@@ -20,7 +20,7 @@ func ActionForTool(name string) string {
 		// Publish/deploy/release/install to an external destination is a distinct
 		// class from an ordinary public network read.
 		return "external"
-	case "handoff_task", "choose_workflow", "promote_to_task", "send_task_message", "delegate_task", "yield_run", "ask_question":
+	case "handoff_task", "choose_workflow", "promote_to_task", "submit_review_verdict", "send_task_message", "delegate_task", "yield_run", "ask_question":
 		return "collaborate"
 	default:
 		return ""

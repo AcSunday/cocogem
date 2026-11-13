@@ -7,8 +7,9 @@
 | `request_id` | 在当前调用步骤内稳定的请求标识；重试同一交接时保持不变，不能换 ID 重复派发 |
 | `target_agent_id` | 当前名册中真实且获准的成员 UUID |
 | `task` | 具体子问题、允许范围、预期输出与验收条件 |
-| `role` | 本项任务的临时角色：`researcher`、`analyst`、`reviewer`、`critic`、`coordinator` 或 `member` |
-| `context_refs` | 可选，仅引用当前会话已提交且当前步骤可访问的消息 ID、来源 ID 和 `产物ID@版本号`（例如工具返回的确切 ID 加 `@1`） |
+| `role` | 本项任务的临时角色：`engineer`、`researcher`、`analyst`、`reviewer`、`critic`、`coordinator` 或 `member` |
+| `mode` | 可选：`delegate`（默认，子任务完成后回到发送者汇总）或 `relay`（点对点接力，直接移交控制权给目标成员，不强制绕回发送者） |
+| `context_refs` | 可选，仅引用当前会话已提交且当前步骤可访问的消息 ID、来源 ID 和 `产物ID@版本号`（`relay` 模式下当前步骤的回复与来源会自动传递） |
 
 交接应让接收者无需猜测即可继续：
 

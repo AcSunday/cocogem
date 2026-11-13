@@ -28,6 +28,7 @@ func writeGeminiUserSettings(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("GEMINI_CLI_HOME", home)
 	t.Setenv("GEMINI_CONFIG_DIR", t.TempDir())
+	t.Setenv("GEMINI_MODEL", "")
 	dir := filepath.Join(home, ".gemini")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)

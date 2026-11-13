@@ -82,8 +82,15 @@ export function CollaborationTasks({
                 <span className={cx("role-chip")}>
                   {step.kind === "continuation"
                     ? "结果回传"
-                    : roleLabel(step.role) || "任务交接"}
+                    : step.kind === "relay"
+                      ? `接力 · ${roleLabel(step.role) || "协作"}`
+                      : roleLabel(step.role) || "任务交接"}
                 </span>
+                {step.review_verdict && (
+                  <span className={cx("role-chip")}>
+                    {step.review_verdict === "approved" ? "复核通过" : "请求修改"}
+                  </span>
+                )}
                 <span className={cx(`status ${step.status}`)}>
                   {waiting
                     ? step.kind === "continuation"
@@ -91,7 +98,9 @@ export function CollaborationTasks({
                       : "等待上游"
                     : step.status === "pending"
                       ? "等待调度"
-                      : statusText[step.status] || step.status}
+                      : step.status === "skipped" && step.converged
+                        ? "已收敛跳过"
+                        : statusText[step.status] || step.status}
                 </span>
                 {stepAttempts.length > 0 && (
                   <small className={cx("muted")}>

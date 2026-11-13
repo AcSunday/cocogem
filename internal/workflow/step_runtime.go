@@ -166,7 +166,7 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		x.mu.Unlock()
 		return "", errors.New("finish the invocation after yield_run; no further tools are admitted")
 	}
-	if x.taskPromoted && name != "promote_to_task" {
+	if x.taskPromoted && !slices.Contains([]string{"promote_to_task", "choose_workflow", "handoff_task", "read_skill", "get_task", "read_context", "list_sources"}, name) {
 		x.mu.Unlock()
 		return "", errors.New("finish the intake invocation after task promotion; execution continues in a fresh step")
 	}
@@ -282,7 +282,16 @@ func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID stri
 		return x.engine.getTask(callCtx, x.run, input)
 	case "choose_workflow":
 		x.mutated.Store(true)
-		return x.engine.chooseWorkflow(callCtx, x.run, x.step, input)
+		out, err := x.engine.chooseWorkflow(callCtx, x.run, x.step, input)
+		if err == nil {
+			x.mu.Lock()
+			x.delegated = true
+			x.mu.Unlock()
+		}
+		return out, err
+	case "submit_review_verdict":
+		x.mutated.Store(true)
+		return x.engine.submitReviewVerdict(callCtx, x.run, x.step, input)
 	case "read_source":
 		x.mu.Lock()
 		snapshot := slices.Clone(x.sources)

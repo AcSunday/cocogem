@@ -218,6 +218,11 @@ func (e *Engine) finish(parent context.Context, run w.Run, status string, cause 
 	}
 	if err == nil {
 		slog.Info("run settled", "run_id", run.ID, "status", status)
+		if run.TaskID != "" {
+			if _, wakeErr := project.New(e.Store).WakeTask(ctx, "delegation", run.TaskID, "run:"+run.ID+":"+status); wakeErr != nil {
+				e.report(wakeErr)
+			}
+		}
 	}
 }
 
