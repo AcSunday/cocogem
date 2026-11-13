@@ -232,6 +232,10 @@ func (c *claudeControl) handleRequest(ctx context.Context, event claudeEvent, ra
 	if debugNative() {
 		fmt.Fprintf(os.Stderr, "native debug: control_request subtype=%q\n", request.Subtype)
 	}
+	if (request.Subtype == "hook_callback" || request.Subtype == "can_use_tool") && c.gate != nil {
+		// Both ask the host about a tool the CLI is about to run.
+		c.gate.noteTool()
+	}
 	switch request.Subtype {
 	case "hook_callback":
 		if request.CallbackID != claudeNativeGate {

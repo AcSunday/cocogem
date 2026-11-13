@@ -265,6 +265,7 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 				return err
 			}
 		case "tool_use":
+			gate.noteTool()
 			if !initialized {
 				return newFailure(FailureProtocol, "native CLI requested a tool before session initialization")
 			}
@@ -324,6 +325,7 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 				return err
 			}
 		case "tool_result":
+			gate.noteTool()
 			if !initialized {
 				return newFailure(FailureProtocol, "native CLI returned a tool result before initialization")
 			}

@@ -1,6 +1,9 @@
 package nativecli
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -193,5 +196,182 @@ func TestClaudeRedeliveredCompleteFrameAddsNothing(t *testing.T) {
 	}
 	if got, want := claudeVisibleText(events), "final answer"; got != want {
 		t.Fatalf("visible text = %q, want %q", got, want)
+	}
+}
+
+// claudeAPIFailure renders the two frames Claude Code 2.1.323 ends a turn with
+// when its endpoint fails: a synthetic assistant frame carrying the error
+// category and HTTP status, then a result frame that reports subtype=success
+// with is_error=true. Captured against a local fixture endpoint.
+func claudeAPIFailure(category, status, text string) string {
+	return claudeFrames(
+		claudeInitFrame(),
+		`{"type":"assistant","uuid":"e1","is_api_error_message":true,"error":"`+category+`","api_error_status":`+status+`,"message":{"id":"synthetic-1","model":"<synthetic>","content":[{"type":"text","text":"`+text+`"}]}}`,
+		`{"type":"result","subtype":"success","is_error":true,"terminal_reason":"api_error","stop_reason":"stop_sequence","api_error_status":`+status+`,"num_turns":1,"result":"`+text+`","session_id":"`+nativeSession+`"}`,
+	)
+}
+
+func TestClaudeEndpointFailuresAreClassifiedFromStructuredFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		category string
+		status   string
+		text     string
+		want     FailureKind
+		reason   string
+	}{
+		{
+			name: "overloaded", category: "server_error", status: "529",
+			text: "API Error: 529 fixture upstream failure. This is a server-side issue, usually temporary",
+			want: FailureProviderTransient, reason: "status=529",
+		},
+		{
+			name: "gateway origin error", category: "server_error", status: "524",
+			text: "API Error: 524 fixture upstream failure",
+			want: FailureProviderTransient, reason: "status=524",
+		},
+		{
+			name: "server error with no recognisable wording", category: "server_error", status: "500",
+			text: "API Error: 500 upstream said no",
+			want: FailureProviderTransient, reason: "status=500",
+		},
+		{
+			name: "rate limit", category: "rate_limit", status: "429",
+			text: "API Error: Request rejected (429)",
+			want: FailureQuota, reason: "status=429",
+		},
+		{
+			name: "authentication", category: "authentication_failed", status: "401",
+			text: "Failed to authenticate. API Error: 401 fixture upstream failure",
+			want: FailureAuthentication, reason: "status=401",
+		},
+		{
+			name: "bad request stays unknown", category: "unknown", status: "400",
+			text: "API Error: 400 fixture upstream failure",
+			want: FailureUnknown, reason: "status=400",
+		},
+		{
+			// A proxy cut the stream while the model was still thinking. The
+			// byte and timing counts in the text must not be read as HTTP codes.
+			name: "truncated stream", category: "unknown", status: "null",
+			text: "API Error: API returned an empty or malformed response (HTTP 200) — check for a proxy or gateway intercepting the request. Response: content-type event-stream, 1403 bytes, request-id absent. This was the non-streaming retry of streaming request, which failed with: stream_truncated, StreamTruncatedError; 6 stream events received, first after 429 ms.",
+			want: FailureNetwork, reason: "category=incomplete_response",
+		},
+		{
+			// The frames behind "result=success, category=execution": the endpoint
+			// answered 200 with a stream the CLI could not use, as recorded in a
+			// managed session transcript.
+			name: "malformed stream reported as a server error", category: "server_error", status: "null",
+			text: "API Error: The response stream was malformed and no response was produced. Try again.",
+			want: FailureProviderTransient, reason: "category=connection",
+		},
+		{
+			name: "category without a status", category: "rate_limit", status: "null",
+			text: "API Error: please slow down",
+			want: FailureQuota, reason: "category=quota",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parseWithEvents(t, nil, claudeAPIFailure(test.category, test.status, test.text), parseClaude)
+			if got := FailureKindOf(err); got != test.want {
+				t.Fatalf("kind = %q, want %q (%v)", got, test.want, err)
+			}
+			if !strings.Contains(err.Error(), test.reason) {
+				t.Fatalf("reason %q does not name %q", err.Error(), test.reason)
+			}
+			if strings.Contains(err.Error(), "fixture upstream failure") || strings.Contains(err.Error(), "bytes") {
+				t.Fatalf("reason echoes CLI output: %q", err.Error())
+			}
+		})
+	}
+}
+
+// claudeToolEvidence parses stream with an adapter that reports every tool and
+// returns the terminal failure as the provider would hand it to the workflow.
+func claudeToolEvidence(t *testing.T, native []string, stream string) error {
+	t.Helper()
+	gate := newTestGate(t, testRequest().Tools, discardObserve)
+	gate.setNative(native)
+	gate.reportsEveryTool = true
+	live := newLiveness(t.Context(), func() {}, discardObserve, 0, 0, "warn")
+	err := parseClaude(strings.NewReader(stream), gate, live)
+	if gate.toolFree() {
+		err = toolFreeFailure(err)
+	}
+	return err
+}
+
+func TestClaudeFailureBeforeAnyToolIsProvenToolFree(t *testing.T) {
+	failure := `{"type":"result","subtype":"success","is_error":true,"terminal_reason":"api_error","api_error_status":529,"result":"API Error: 529","session_id":"` + nativeSession + `"}`
+	thinking := claudeStreamFrame("s1", `{"type":"message_start","message":{"id":"msg_t"}}`) + "\n" +
+		claudeStreamFrame("s2", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`) + "\n" +
+		claudeStreamFrame("s3", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"considering"}}`)
+	tests := []struct {
+		name   string
+		native []string
+		frames []string
+		want   bool
+	}{
+		{name: "only thinking before the failure", frames: []string{thinking}, want: true},
+		{name: "text but no tool", frames: []string{`{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"partial answer"}]}}`}, want: true},
+		{
+			name: "a native tool ran", native: []string{"Read"},
+			frames: []string{
+				`{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"tool_1","name":"Read","input":{"file_path":"/workspace/a"}}]}}`,
+				`{"type":"user","message":{"id":"m2","content":[{"type":"tool_result","tool_use_id":"tool_1","content":"ok"}]}}`,
+			},
+		},
+		{
+			name:   "a tool request was only streamed",
+			frames: []string{claudeStreamFrame("s9", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_2","name":"Bash","input":{}}}`)},
+		},
+		{
+			name:   "a host tool result arrived",
+			frames: []string{`{"type":"user","message":{"id":"m3","content":[{"type":"tool_result","tool_use_id":"host_1","content":"done"}]}}`},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stream := claudeFrames(append(append([]string{claudeInitFrame()}, test.frames...), failure)...)
+			err := claudeToolEvidence(t, test.native, stream)
+			if FailureKindOf(err) != FailureProviderTransient {
+				t.Fatalf("unexpected failure: %v", err)
+			}
+			if got := ToolFree(err); got != test.want {
+				t.Fatalf("ToolFree = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestToolFreeNeedsProofOnEveryLeaf(t *testing.T) {
+	proven := &Failure{Kind: FailureNetwork, Reason: "endpoint failed", ToolFree: true}
+	unproven := &Failure{Kind: FailureNetwork, Reason: "endpoint failed"}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil},
+		{name: "proven failure", err: proven, want: true},
+		{name: "wrapped proven failure", err: fmt.Errorf("step: %w", proven), want: true},
+		{name: "unproven failure", err: unproven},
+		{name: "proven next to a cancellation", err: errors.Join(context.Canceled, proven)},
+		{name: "proven next to an unverified process", err: errors.Join(newFailure(FailureProcessUncertain, "group survived"), proven)},
+		{name: "proven next to an untyped error", err: errors.Join(proven, errors.New("stdio closed"))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := ToolFree(test.err); got != test.want {
+				t.Fatalf("ToolFree = %v, want %v", got, test.want)
+			}
+		})
+	}
+	// A failure inferred from stdio rather than reported by the CLI is never
+	// upgraded, whatever the adapter saw.
+	inferred := newFailure(FailureNetwork, "output could not be read")
+	if ToolFree(toolFreeFailure(inferred)) {
+		t.Fatal("an unconfirmed failure was marked tool-free")
 	}
 }

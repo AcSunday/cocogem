@@ -30,6 +30,9 @@ type claudeEvent struct {
 	Usage             tokenUsage      `json:"usage"`
 	Error             json.RawMessage `json:"error"`
 	IsAPIErrorMessage bool            `json:"is_api_error_message"`
+	// APIErrorStatus is the HTTP status of the provider request that ended the
+	// turn; null when the failure was not an HTTP error response.
+	APIErrorStatus *int `json:"api_error_status"`
 	// Bidirectional control frames. Request/Response are only interpreted when
 	// Type names a control frame; the shape is validated before use.
 	RequestID string          `json:"request_id"`
@@ -46,10 +49,12 @@ type claudeParser struct {
 	initialized bool
 	finished    bool
 	sessionID   string
-	// apiErrorCode is the last provider error code reported by the CLI. It is
-	// only used to classify a terminal failure, never as progress.
-	apiErrorCode string
-	anonymous    int
+	// apiErrorCode and apiErrorStatus are the last provider error category and
+	// HTTP status reported by the CLI. They only classify a terminal failure
+	// and are never progress.
+	apiErrorCode   string
+	apiErrorStatus int
+	anonymous      int
 
 	activity    *activityTracker
 	nativeCalls map[string]*claudeNativeCall
@@ -337,6 +342,9 @@ func (p *claudeParser) handleAssistant(event claudeEvent, errorCode string) erro
 		if errorCode != "" {
 			p.apiErrorCode = errorCode
 		}
+		if event.APIErrorStatus != nil {
+			p.apiErrorStatus = *event.APIErrorStatus
+		}
 		return p.gate.notice("assistant.api_error", "native CLI reported a provider error before a terminal result")
 	}
 	var message struct {
@@ -386,6 +394,7 @@ func (p *claudeParser) handleAssistant(event claudeEvent, errorCode string) erro
 }
 
 func (p *claudeParser) handleToolUse(item string, index int, callID, name string, input json.RawMessage) error {
+	p.gate.noteTool()
 	if !p.gate.allowedToolName(name) {
 		// The CLI is the enforced boundary. A tool missing from its inventory
 		// is rejected by the CLI with a fixed result; hold a bounded pending
@@ -496,7 +505,14 @@ func (p *claudeParser) handleResult(event claudeEvent, errorCode, errorMessage s
 		if errorMessage != "" {
 			detail += " " + errorMessage
 		}
-		return classifiedNativeFailure(terminalReason, event.Subtype, detail)
+		// The CLI ends such a turn with terminal_reason=api_error for every
+		// provider failure, so the cause is in the HTTP status and the error
+		// category it reported next to the result.
+		status := p.apiErrorStatus
+		if event.APIErrorStatus != nil {
+			status = *event.APIErrorStatus
+		}
+		return classifiedEndpointFailure(terminalReason, event.Subtype, status, p.apiErrorCode, detail)
 	}
 	if err := p.gate.requireTools(); err != nil {
 		return err
@@ -550,6 +566,12 @@ func (p *claudeParser) handleStreamEvent(event claudeEvent, line []byte) error {
 	key := claudeStreamKey(p.streamMessageID, streamEvent.index)
 	switch streamEvent.kind {
 	case "block_start":
+		switch streamEvent.blockType {
+		case "", "text", "thinking", "redacted_thinking":
+		default:
+			// Any other block is a tool request in the making.
+			p.gate.noteTool()
+		}
 		p.streams.setBlockType(key, streamEvent.blockType)
 		if streamEvent.blockType == "text" && streamEvent.text != "" {
 			p.blocks.streamed(p.streamMessageID, key)
@@ -615,6 +637,7 @@ func (p *claudeParser) handleUser(event claudeEvent) error {
 	for _, block := range message.Content {
 		switch block.Type {
 		case "tool_result":
+			p.gate.noteTool()
 			if err := p.handleToolResult(block.ToolUseID, block.Content, block.IsError, fileMetadata, nativeResults); err != nil {
 				return err
 			}

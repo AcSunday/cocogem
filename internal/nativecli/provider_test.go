@@ -160,6 +160,16 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 		fmt.Fprintln(os.Stdout, `{"type":"future","payload":{"tool_use":{"name":"Bash"}}}`)
 		os.Exit(0)
 	}
+	if mode == "api_failure" || mode == "api_failure_after_call" {
+		if mode == "api_failure_after_call" {
+			rpc("tools/call", map[string]any{"name": "read_file", "arguments": map[string]any{"path": "README.md"}})
+		}
+		// The two frames the installed CLI ends a turn with when its endpoint
+		// fails; it then exits unsuccessfully.
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","is_api_error_message":true,"error":"server_error","api_error_status":529,"message":{"id":"synthetic","model":"<synthetic>","content":[{"type":"text","text":"API Error: 529 fixture"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","is_error":true,"terminal_reason":"api_error","api_error_status":529,"result":"API Error: 529 fixture","usage":{"input_tokens":5,"output_tokens":0}}`)
+		os.Exit(1)
+	}
 	if mode == "call" || mode == "routing" {
 		name, args := "read_file", map[string]any{"path": "README.md"}
 		if mode == "routing" {
@@ -215,6 +225,33 @@ func TestRunNativeToolLoop(t *testing.T) {
 	joined := strings.Join(events, ",")
 	if strings.Join(names, ",") != "read_file" || !strings.Contains(joined, "tool_started,tool_finished") || !strings.Contains(joined, "native_process") || !strings.Contains(joined, "native_session") {
 		t.Fatalf("tools=%v events=%v", names, events)
+	}
+}
+
+// The whole launch path keeps the adapter's evidence: an endpoint failure is
+// proven tool-free only when the CLI called no tool before reporting it.
+func TestRunMarksEndpointFailureToolFreeOnlyWithoutToolCalls(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		mode string
+		want bool
+	}{
+		{mode: "api_failure", want: true},
+		{mode: "api_failure_after_call", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.mode, func(t *testing.T) {
+			t.Parallel()
+			err := fakeProvider(test.mode).Run(context.Background(), testRequest(), func(context.Context, string, json.RawMessage) (string, error) {
+				return `{"source":"fixture"}`, nil
+			}, func(string, map[string]any) error { return nil })
+			if FailureKindOf(err) != FailureProviderTransient {
+				t.Fatalf("kind = %q (%v)", FailureKindOf(err), err)
+			}
+			if got := ToolFree(err); got != test.want {
+				t.Fatalf("ToolFree = %v, want %v (%v)", got, test.want, err)
+			}
+		})
 	}
 }
 
