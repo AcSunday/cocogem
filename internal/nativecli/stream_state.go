@@ -113,6 +113,28 @@ func (s *textStreams) snapshotUnchecked(key, text string) (string, error) {
 	return advance(current, text[current.length:])
 }
 
+// covers reports how a complete text relates to what key already recorded:
+// equal when it is exactly that text, extends when that text is its prefix. An
+// unknown or still-empty key relates to nothing.
+func (s *textStreams) covers(key, text string) (equal, extends bool) {
+	current, ok := s.items[key]
+	if !ok || current.length == 0 || uint64(len(text)) < current.length {
+		return false, false
+	}
+	if prefixHash(text, current.length) != current.hash {
+		return false, false
+	}
+	return uint64(len(text)) == current.length, true
+}
+
+// restart forgets what key recorded, so the next complete text opens a new
+// block under the same key instead of being compared with the old one.
+func (s *textStreams) restart(key string) {
+	if current, ok := s.items[key]; ok {
+		current.length, current.hash = 0, 0
+	}
+}
+
 // authoritative reconciles a complete snapshot. A shorter body or a changed
 // prefix is a protocol failure, not a silently discarded final answer.
 func (s *textStreams) authoritative(key, text string) (suffix string, streamed bool, err error) {

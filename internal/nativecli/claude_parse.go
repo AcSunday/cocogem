@@ -61,6 +61,129 @@ type claudeParser struct {
 	// unseen suffix is sent. The visible body is never retained here.
 	streamMessageID string
 	streams         *textStreams
+	blocks          claudeBlocks
+}
+
+// claudeBlockWindow bounds how many unconfirmed streamed blocks and frame
+// positions are remembered. A reply normally has one of each at a time.
+const claudeBlockWindow = 64
+
+// claudeBlocks pairs each text block the CLI streamed with the complete frame
+// that later confirms it. Stream events carry a block's API content index, but
+// the CLI delivers every completed block alone in its own assistant frame, so
+// the frame's array position cannot name the block it completes: a reply that
+// opens with a thinking block streams its text at index 1 and then repeats it
+// at position 0. Blocks are therefore matched by message identity and content,
+// in stream order. Only keys are held here, never text.
+type claudeBlocks struct {
+	// open lists streamed blocks no frame has confirmed yet, oldest first.
+	open []claudeBlockRef
+	// confirmed maps a frame position to the block it last confirmed.
+	confirmed []claudeBlockRef
+}
+
+// claudeBlockRef names a recorded block by the message or frame position that
+// owns it.
+type claudeBlockRef struct {
+	owner string
+	key   string
+}
+
+// streamed notes that key received streamed text for message. A block a frame
+// already confirmed is not reopened by a late delta.
+func (b *claudeBlocks) streamed(message, key string) {
+	for i := len(b.open) - 1; i >= 0; i-- {
+		if b.open[i].key == key {
+			return
+		}
+	}
+	for _, ref := range b.confirmed {
+		if ref.key == key {
+			return
+		}
+	}
+	b.open = appendBounded(b.open, claudeBlockRef{owner: message, key: key})
+}
+
+// resolve names the recorded block a complete frame's text belongs to. The
+// caller reconciles the text against that block, which also reports a frame
+// that contradicts what was already shown.
+func (b *claudeBlocks) resolve(streams *textStreams, message string, index int, text string) string {
+	position := claudeStreamKey(message, index)
+	oldest := -1
+	for i, ref := range b.open {
+		if ref.owner != message {
+			continue
+		}
+		if oldest < 0 {
+			oldest = i
+		}
+		if equal, _ := streams.covers(ref.key, text); equal {
+			return b.confirm(i, position)
+		}
+	}
+	// A stream that stopped early is finished from its frame.
+	for i, ref := range b.open {
+		if ref.owner != message {
+			continue
+		}
+		if _, extends := streams.covers(ref.key, text); extends {
+			return b.confirm(i, position)
+		}
+	}
+	// The block this position confirmed before, delivered again or grown.
+	if key := b.at(position); key != "" {
+		if _, extends := streams.covers(key, text); extends {
+			return key
+		}
+	}
+	// Streamed text that this frame contradicts.
+	if oldest >= 0 {
+		return b.open[oldest].key
+	}
+	// Text that was never streamed is its own block at this position; different
+	// text there is the message's next block, not a rewrite of the last one.
+	key := "frame:" + position
+	if _, extends := streams.covers(key, text); !extends {
+		streams.restart(key)
+	}
+	b.bind(position, key)
+	return key
+}
+
+func (b *claudeBlocks) confirm(open int, position string) string {
+	key := b.open[open].key
+	b.open = append(b.open[:open:open], b.open[open+1:]...)
+	b.bind(position, key)
+	return key
+}
+
+func (b *claudeBlocks) at(position string) string {
+	for i := len(b.confirmed) - 1; i >= 0; i-- {
+		if b.confirmed[i].owner == position {
+			return b.confirmed[i].key
+		}
+	}
+	return ""
+}
+
+func (b *claudeBlocks) bind(position, key string) {
+	for i := range b.confirmed {
+		if b.confirmed[i].owner == position {
+			b.confirmed = append(b.confirmed[:i:i], b.confirmed[i+1:]...)
+			break
+		}
+	}
+	b.confirmed = appendBounded(b.confirmed, claudeBlockRef{owner: position, key: key})
+}
+
+// appendBounded keeps the newest claudeBlockWindow entries.
+func appendBounded(refs []claudeBlockRef, ref claudeBlockRef) []claudeBlockRef {
+	refs = append(refs, ref)
+	if len(refs) > claudeBlockWindow {
+		refs = append([]claudeBlockRef(nil), refs[len(refs)-claudeBlockWindow:]...)
+	}
+	return refs
 }
 
 func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
@@ -320,7 +443,7 @@ func (p *claudeParser) handleAssistantText(item string, index int, text string) 
 	if text == "" {
 		return nil
 	}
-	key := claudeStreamKey(item, index)
+	key := p.blocks.resolve(p.streams, item, index, text)
 	suffix, streamed, err := p.streams.authoritative(key, text)
 	if err != nil {
 		return newFailure(FailureProtocol, "native CLI complete assistant frame conflicted with streamed text: %v", err)
@@ -429,6 +552,7 @@ func (p *claudeParser) handleStreamEvent(event claudeEvent, line []byte) error {
 	case "block_start":
 		p.streams.setBlockType(key, streamEvent.blockType)
 		if streamEvent.blockType == "text" && streamEvent.text != "" {
+			p.blocks.streamed(p.streamMessageID, key)
 			return emitClaudeDelta(streamEvent.text, key, p.streams, p.live, p.gate)
 		}
 	case "text_delta":
@@ -437,6 +561,9 @@ func (p *claudeParser) handleStreamEvent(event claudeEvent, line []byte) error {
 		}
 		if p.activity.duplicateFrame(event.UUID, line) {
 			return nil
+		}
+		if streamEvent.text != "" {
+			p.blocks.streamed(p.streamMessageID, key)
 		}
 		return emitClaudeDelta(streamEvent.text, key, p.streams, p.live, p.gate)
 	case "thinking_delta":
