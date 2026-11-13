@@ -92,7 +92,7 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 	}
 	config["plugins"] = plugins
 	if request.ExecutionMode == "project_autonomous" && gate.sandbox != nil && gate.modelGateway == nil {
-		gateway, err := openCodeModelGateway(config)
+		gateway, err := openCodeModelGateway(config, plan.openCodeModel)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -121,27 +121,33 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 // openCodeModelGateway points the sandboxed CLI at a loopback reverse proxy so
 // the model connection stays outside the sandbox while tool processes see only
 // the private listener.
-func openCodeModelGateway(config map[string]any) (*modelGateway, error) {
-	providers, _ := config["providers"].(map[string]any)
-	for _, raw := range providers {
-		provider, ok := raw.(map[string]any)
-		if !ok {
-			continue
+func openCodeModelGateway(config map[string]any, selectedModel string) (*modelGateway, error) {
+	providerID, modelID, valid := strings.Cut(selectedModel, "/")
+	if valid && providerID != "" && modelID != "" {
+		// OpenCode gives an explicit providers entry precedence over the
+		// compatibility provider entry with the same ID.
+		for _, schema := range []struct{ group, settings string }{
+			{"providers", "settings"},
+			{"provider", "options"},
+		} {
+			providers, _ := config[schema.group].(map[string]any)
+			raw, exists := providers[providerID]
+			if !exists {
+				continue
+			}
+			provider, _ := raw.(map[string]any)
+			settings, _ := provider[schema.settings].(map[string]any)
+			base, _ := settings["baseURL"].(string)
+			if base == "" {
+				break
+			}
+			gateway, err := newModelGateway(base)
+			if err != nil {
+				return nil, err
+			}
+			settings["baseURL"] = gateway.url()
+			return gateway, nil
 		}
-		settings, ok := provider["settings"].(map[string]any)
-		if !ok {
-			continue
-		}
-		base, _ := settings["baseURL"].(string)
-		if base == "" {
-			continue
-		}
-		gateway, err := newModelGateway(base)
-		if err != nil {
-			return nil, err
-		}
-		settings["baseURL"] = gateway.url()
-		return gateway, nil
 	}
 	return nil, errors.New("OpenCode model endpoint is not available for the loopback gateway")
 }
