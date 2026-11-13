@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
@@ -508,5 +509,65 @@ func TestUserRunIsDispatchedWhileAutomaticLimitParksTheTask(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An interrupted run of a durable task keeps its checkpoint for an explicit
+// resume. The run was already counted when it first started; continuing it is
+// the same run, so it is admitted again instead of waiting in the queue.
+func TestResumedTaskRunIsAdmittedAgain(t *testing.T) {
+	db, task, source, _ := taskRetrySource(t)
+	run := source
+	run.ID, run.Status, run.Error, run.FinishedAt = w.NewID(), "queued", "", ""
+	step := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[0].ID, AgentName: run.Agents[0].DisplayName, Role: "responder", Instruction: "answer", Status: "pending"}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.InsertRun(run, "resumed-task-run", "resumed-task-run"); err != nil {
+			return err
+		}
+		return tx.SaveStep(step)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	runner := nativeRunnerFunc(func(_ context.Context, _ model.Request, _ agent.Execute, observe agent.Observe) error {
+		calls++
+		if calls == 1 {
+			return &nativecli.Failure{Kind: nativecli.FailureStallTimeout, Reason: "no validated progress"}
+		}
+		return observe("text", map[string]any{"text": "Finished after the checkpoint was resumed."})
+	})
+	e := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, Limits: DefaultLimits()}
+	_, stop := startEngine(t, &e)
+	defer stop()
+	if interrupted := awaitRun(t, db, run.ID); interrupted.Status != "interrupted" {
+		t.Fatalf("status=%s error=%s", interrupted.Status, interrupted.Error)
+	}
+	if _, err := e.Resume(t.Context(), run.ID); err != nil {
+		t.Fatalf("resume was refused: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	var current w.Run
+	for {
+		if err := db.Read(t.Context(), func(tx *store.Tx) error {
+			var err error
+			current, err = tx.Run(run.ID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if current.Status == "succeeded" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if current.Status != "succeeded" || calls != 2 {
+		t.Fatalf("the resumed run was not admitted again: status=%s calls=%d error=%s", current.Status, calls, current.Error)
+	}
+	view, err := project.New(db).Task(t.Context(), task.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Budget.ActiveBranches != 0 || view.Budget.UsedContinuations != 0 || view.Task.Status != "ready" {
+		t.Fatalf("resuming left the task or its budget inconsistent: task=%s budget=%+v", view.Task.Status, view.Budget)
 	}
 }

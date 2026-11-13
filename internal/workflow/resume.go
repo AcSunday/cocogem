@@ -309,6 +309,8 @@ func (e *Engine) Resume(ctx context.Context, id string) (w.Run, error) {
 		current.Error = ""
 		current.FailureKind = ""
 		current.FinishedAt = ""
+		current.BudgetStarted = false
+		current.BudgetReserved = false
 		current.RecoveryCount++
 		current.RecoveredAt = w.Now()
 		current.RecoveryNote = "manual_resume"
