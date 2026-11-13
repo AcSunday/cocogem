@@ -9,9 +9,38 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-// retriesPlanningStep reports whether the failed step is the coordinator's
-// planning step of a free run that had not yet chosen a method. Its retry may
-// still choose one, exactly as the step it replaces could.
+// retryOrigin follows a step back through earlier member retries to the step
+// its retry chain started from, together with that step's run and plan. Retry
+// runs queued before a retried step kept its place recorded it as an assigned,
+// stand-alone repair, so what a step may do is read from its origin.
+func retryOrigin(tx *store.Tx, run w.Run, steps []w.Step, step w.Step) (w.Run, []w.Step, w.Step, error) {
+	for range maxSteps {
+		if step.RetryOfStepID == "" || run.Input.RetryOfRunID == "" {
+			break
+		}
+		previous, err := tx.Run(run.Input.RetryOfRunID)
+		if err != nil {
+			return run, steps, step, err
+		}
+		if previous.ThreadID != run.ThreadID {
+			break
+		}
+		previousSteps, err := tx.Steps(previous.ID)
+		if err != nil {
+			return run, steps, step, err
+		}
+		index := slices.IndexFunc(previousSteps, func(s w.Step) bool { return s.ID == step.RetryOfStepID })
+		if index < 0 {
+			break
+		}
+		run, steps, step = previous, previousSteps, previousSteps[index]
+	}
+	return run, steps, step, nil
+}
+
+// retriesPlanningStep reports whether the failed step is, at its origin, the
+// coordinator's planning step of a free run that had not yet chosen a method.
+// Its retry may still choose one, exactly as the step it replaces could.
 func retriesPlanningStep(tx *store.Tx, source w.Run, stepID string) (bool, error) {
 	if source.SelectedWorkflow != nil {
 		return false, nil
@@ -20,12 +49,29 @@ func retriesPlanningStep(tx *store.Tx, source w.Run, stepID string) (bool, error
 	if err != nil {
 		return false, err
 	}
-	for _, step := range steps {
-		if step.ID == stepID {
-			return selectionRoot(source, step), nil
+	index := slices.IndexFunc(steps, func(step w.Step) bool { return step.ID == stepID })
+	if index < 0 {
+		return false, nil
+	}
+	run, _, step, err := retryOrigin(tx, source, steps, steps[index])
+	if err != nil {
+		return false, err
+	}
+	return run.SelectedWorkflow == nil && selectionRoot(run, step), nil
+}
+
+// onDeliveryChain reports whether step is a member of one of its plan's
+// free-run delivery chains.
+func onDeliveryChain(steps []w.Step, step w.Step) bool {
+	for _, root := range steps {
+		if !freeRoot(root) {
+			continue
+		}
+		if slices.ContainsFunc(deliveryChain(steps, root), func(member w.Step) bool { return member.ID == step.ID }) {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
 func retryStepPlan(tx *store.Tx, runID string, source w.Run, stepID string) ([]w.Step, error) {
@@ -130,24 +176,38 @@ func retryStepPlan(tx *store.Tx, runID string, source w.Run, stepID string) ([]w
 	}
 	if in := effectiveInput(source); in.Workflow == "" || in.Workflow == "free" {
 		// A free run has no fixed plan to fall back on: whatever the failed step
-		// still had to organise or deliver happens through the retry itself.
-		onChain := map[string]bool{}
-		for _, root := range previous {
-			if !freeRoot(root) {
+		// still had to organise or deliver happens through the retry itself. A
+		// replanned step whose predecessor is kept as-is therefore keeps the
+		// place its origin had: a root stays a root, and any other member of a
+		// delivery chain heads the retry's chain.
+		chainMember := func(step w.Step) (w.Step, bool, error) {
+			_, originSteps, origin, err := retryOrigin(tx, source, previous, step)
+			if err != nil {
+				return w.Step{}, false, err
+			}
+			return origin, onDeliveryChain(originSteps, origin), nil
+		}
+		for i := range out {
+			if out[i].FromStepID != "" {
 				continue
 			}
-			for _, member := range deliveryChain(previous, root) {
-				onChain[member.ID] = true
+			origin, member, err := chainMember(byID[out[i].RetryOfStepID])
+			if err != nil {
+				return nil, err
+			}
+			if !member {
+				continue
+			}
+			out[i].Kind = kindRetryRoot
+			if origin.Kind == "" {
+				out[i].Kind = ""
 			}
 		}
-		// A replanned member of a delivery chain whose predecessor is kept as-is
-		// heads the retry's chain, with the abilities its place in the chain had.
-		for i := range out {
-			if !freeRoot(out[i]) && out[i].FromStepID == "" && onChain[out[i].RetryOfStepID] {
-				out[i].Kind = kindRetryRoot
-			}
+		follow, ok, err := repairedResultContinuation(runID, target, selected[stepID], byID, results, chainMember, messages, artifacts)
+		if err != nil {
+			return nil, err
 		}
-		if follow, ok := repairedResultContinuation(runID, target, selected[stepID], byID, results, onChain, messages, artifacts); ok && selected[follow.RetryOfStepID] == "" {
+		if ok && selected[follow.RetryOfStepID] == "" {
 			for i := range out {
 				if out[i].ID == selected[stepID] {
 					out[i].ContinuationID = follow.ID
@@ -177,20 +237,22 @@ const repairedResultPrompt = "此前失败的成员任务已补跑并返回结�
 // when that member's continuation already settled on the failure, nothing else
 // would read the repaired result, so it goes back in a fresh continuation. A
 // continuation that never ran is replanned by the caller instead.
-func repairedResultContinuation(runID string, target w.Step, repairedID string, byID, results map[string]w.Step, onChain map[string]bool, messages []w.Message, artifacts []w.Artifact) (w.Step, bool) {
+func repairedResultContinuation(runID string, target w.Step, repairedID string, byID, results map[string]w.Step, chainMember func(w.Step) (w.Step, bool, error), messages []w.Message, artifacts []w.Artifact) (w.Step, bool, error) {
 	if target.Kind != "handoff" || target.ContinuationID == "" {
-		return w.Step{}, false
+		return w.Step{}, false, nil
 	}
 	settled, ok := byID[target.ContinuationID]
 	if !ok || settled.Status != "succeeded" {
-		return w.Step{}, false
+		return w.Step{}, false, nil
 	}
 	follow := w.Step{
 		ID: w.NewID(), RunID: runID, AgentID: settled.AgentID, AgentName: settled.AgentName,
 		Role: settled.Role, Instruction: repairedResultPrompt, DependsOn: []string{repairedID},
 		Status: "pending", Kind: kindRetryResult, RetryOfStepID: settled.ID, Depth: settled.Depth,
 	}
-	if onChain[settled.ID] {
+	if _, member, err := chainMember(settled); err != nil {
+		return w.Step{}, false, err
+	} else if member {
 		follow.Kind = kindRetryRoot
 	}
 	// The delegator reads its own newest reply, so a second repaired member
@@ -206,5 +268,5 @@ func repairedResultContinuation(runID string, target w.Step, repairedID string, 
 			follow.ContextRefs = append(follow.ContextRefs, fmt.Sprintf("%s@%d", artifact.ID, artifact.Version))
 		}
 	}
-	return follow, true
+	return follow, true, nil
 }

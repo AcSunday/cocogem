@@ -225,8 +225,9 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 			run.Routing.Explanation = "重试指定失败成员，保留已完成的工作"
 			// Only the coordinator's own planning step keeps the routing that
 			// lets it choose a method; every other retried member is assigned.
-			if !planningRetry {
-				run.Routing.Decision = "assign"
+			run.Routing.Decision = "assign"
+			if planningRetry {
+				run.Routing.Decision = "discuss"
 			}
 		}
 		if err := tx.ReserveTaskRun(&run); err != nil {

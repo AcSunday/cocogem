@@ -201,6 +201,82 @@ func TestRetriedPlanningRootKeepsItsRosterAndCollaborationTools(t *testing.T) {
 	}
 }
 
+// Retry runs queued before a retried step kept its place recorded it as an
+// assigned, stand-alone repair with a one-member roster. Retrying such a run
+// again restores what the step could do where its retry chain started.
+func TestRetryOfAnEarlierStandAloneRetryRestoresTheOriginalStep(t *testing.T) {
+	tests := []struct {
+		name        string
+		specs       []customStepSpec
+		statuses    []string
+		link        func(run *w.Run, steps []w.Step)
+		failed      int
+		earlierKind string
+		wantKind    string
+	}{
+		{
+			name:     "the coordinator's planning root",
+			specs:    []customStepSpec{{Agent: 0, Role: "responder", Instruction: "coordinate the work"}},
+			statuses: []string{"failed"},
+			wantKind: "",
+		},
+		{
+			name: "the execution step after task promotion",
+			specs: []customStepSpec{
+				{Agent: 0, Role: "task_intake", Instruction: "intake"},
+				{Agent: 0, Role: "responder", Instruction: "continue the accepted objective", DependsOn: []int{0}, Kind: "continuation"},
+			},
+			statuses: []string{"succeeded", "failed"},
+			link: func(run *w.Run, steps []w.Step) {
+				run.TaskPromotionStepID = steps[0].ID
+				steps[1].FromStepID = steps[0].ID
+			},
+			failed: 1, earlierKind: kindRetryResult, wantKind: kindRetryRoot,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, source, steps := freeCollaborationSource(t, test.specs, test.statuses, test.link)
+			earlier := source
+			earlier.ID, earlier.Status, earlier.Error, earlier.FinishedAt = w.NewID(), "queued", "", ""
+			earlier.Input.RetryOfRunID, earlier.RetryOfStepID = source.ID, steps[test.failed].ID
+			earlier.Routing.Decision, earlier.TaskPromotionStepID = "assign", ""
+			earlier.Agents = source.Agents[:1]
+			failed := steps[test.failed]
+			failed.ID, failed.RunID, failed.RetryOfStepID = w.NewID(), earlier.ID, steps[test.failed].ID
+			failed.Kind, failed.FromStepID, failed.DependsOn = test.earlierKind, "", nil
+			if err := db.Write(t.Context(), func(tx *store.Tx) error {
+				if err := tx.InsertRun(earlier, "earlier-stand-alone-retry", "earlier-stand-alone-retry"); err != nil {
+					return err
+				}
+				if err := tx.SaveStep(failed); err != nil {
+					return err
+				}
+				earlier.Status, earlier.Error, earlier.FinishedAt = "failed", "the member failed again", w.Now()
+				return tx.SaveRun(earlier)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			script := &memberScript{}
+			finished, retried := runRetry(t, db, script, earlier.ID, failed.ID)
+			if finished.Status != "succeeded" {
+				t.Fatalf("status=%s error=%s", finished.Status, finished.Error)
+			}
+			if len(finished.Agents) != 3 || finished.Routing.Decision != "discuss" {
+				t.Fatalf("roster or routing was not restored: members=%d decision=%q", len(finished.Agents), finished.Routing.Decision)
+			}
+			if len(retried) != 1 || retried[0].Kind != test.wantKind {
+				t.Fatalf("the step did not regain its place: %+v", retried)
+			}
+			for _, name := range []string{"handoff_task", "choose_workflow", "publish_artifact"} {
+				if !slices.Contains(script.tools["custom-a"], name) {
+					t.Fatalf("the restored step was not offered %s: %v", name, script.tools["custom-a"])
+				}
+			}
+		})
+	}
+}
+
 // After promote_to_task the work runs in a fresh execution step. When that step
 // fails, its retry is still the run's executor: it dispatches teammates and
 // owns the delivery, files included.
