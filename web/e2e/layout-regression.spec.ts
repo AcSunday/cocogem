@@ -52,6 +52,70 @@ async function seedTasks(page: Page, headers: Record<string, string>) {
   return workspace;
 }
 
+const MARKER = "权限审批浏览器验收：";
+
+async function startPermissionTask(
+  page: Page,
+  headers: Record<string, string>,
+  workspace: string,
+  goal: string,
+) {
+  const created = await page.request.post(
+    `${baseURL}/api/v1/workspaces/${workspace}/tasks`,
+    {
+      headers,
+      data: {
+        request_id: crypto.randomUUID(),
+        title: goal.slice(MARKER.length).slice(0, 40) || "权限审批",
+        goal,
+      },
+    },
+  );
+  expect(created.ok()).toBeTruthy();
+  const created_ = await created.json();
+  const taskID = created_.task.id as string;
+  const started = await page.request.post(
+    `${baseURL}/api/v1/tasks/${taskID}/start`,
+    { headers, data: { request_id: crypto.randomUUID() } },
+  );
+  expect(started.ok()).toBeTruthy();
+  const detail = await (
+    await page.request.get(`${baseURL}/api/v1/tasks/${taskID}`)
+  ).json();
+  return {
+    id: taskID,
+    thread_id: detail.task.thread_id as string,
+    workspace_id: detail.task.workspace_id as string,
+  };
+}
+
+async function pendingRequest(
+  page: Page,
+  threadID: string,
+  timeout = 30000,
+) {
+  let found: Record<string, unknown> | undefined;
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          `${baseURL}/api/v1/threads/${threadID}/permission-requests`,
+        );
+        if (!response.ok()) return 0;
+        const body = await response.json();
+        const pending = (body.items ?? []).filter(
+          (item: { status: string }) => item.status === "pending",
+        );
+        found = pending[0];
+        return pending.length;
+      },
+      { timeout, intervals: [250, 500, 1000] },
+    )
+    .toBeGreaterThan(0);
+  return found!;
+}
+
+
 test("composer hint button renders 24×24 with a transparent background", async ({
   page,
 }) => {
@@ -116,45 +180,116 @@ test("composer hint button renders 24×24 with a transparent background", async 
 test("the permission queue notice is exactly as wide as the composer notice", async ({
   page,
 }) => {
+  test.setTimeout(60000);
   // The queue is the Composer's sibling, not a child of the Composer column.
   // Before the fix it stretched across the whole conversation pane while the
-  // retry/failure notice above the Composer stayed at 820px, so the widths must
-  // be measured in a real browser, not matched from CSS text.
+  // retry/failure notice above the Composer stayed at the Composer width.
+  // We trigger the real host permission fixture and measure the rendered
+  // PermissionQueue (.queue) and folded bar (.queueBar) against the rendered
+  // Composer across both desktop and mobile (< 700px) viewports.
   const headers = await signIn(page);
-  const workspace = await seedTasks(page, headers);
-  await page.goto(`${baseURL}/w/${workspace.id}`);
-  const composer = page.getByLabel("输入问题");
+  const workspace = await (
+    await page.request.post(baseURL + "/api/v1/workspaces", {
+      headers,
+      data: { name: "权限提示布局回归" },
+    })
+  ).json();
+  const task = await startPermissionTask(
+    page,
+    headers,
+    workspace.id,
+    `${MARKER}验证权限弹窗宽度与输入框及重试提示一致。`,
+  );
+  await page.goto(`${baseURL}/w/${task.workspace_id}/t/${task.thread_id}`);
+  await pendingRequest(page, task.thread_id);
+
+  const composer = page.locator("form[data-composer]");
+  const queue = page.getByRole("region", { name: "待处理授权" }).last();
   await expect(composer).toBeVisible();
-  // `data-composer` marks the Composer form itself, not a nested form.
-  const widths = await page.evaluate(() => {
+  await expect(queue).toBeVisible();
+
+  // Desktop viewport: queue matches composer width and does not stretch across pane.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const desktopWidths = await page.evaluate(() => {
     const composer = document.querySelector("form[data-composer]");
     if (!composer) throw new Error("composer not rendered");
     const parent = composer.parentElement;
     if (!parent) throw new Error("composer has no parent");
-    const template = (extra: Record<string, string>) => {
-      const node = document.createElement("div");
-      Object.assign(node.style, extra);
-      parent.insertBefore(node, composer);
-      const width = node.getBoundingClientRect().width;
-      node.remove();
-      return width;
-    };
+    const queues = document.querySelectorAll("section[aria-label='待处理授权']");
+    const queue = queues[queues.length - 1];
+    if (!queue) throw new Error("queue not rendered");
     return {
       pane: parent.getBoundingClientRect().width,
       composer: composer.getBoundingClientRect().width,
-      // Same box model the queue rule declares: width + horizontal padding.
-      queue: template({
-        boxSizing: "border-box",
-        width: "calc(100% - 64px)",
-        maxWidth: "820px",
-        padding: "8px 10px",
-      }),
+      queue: queue.getBoundingClientRect().width,
     };
   });
-  expect(widths.pane).toBeGreaterThan(0);
-  expect(widths.queue).toBeCloseTo(widths.composer, 1);
-  // And the notice must not span the pane: that is the bug being fixed.
-  expect(widths.queue).toBeLessThan(widths.pane);
+  expect(desktopWidths.pane).toBeGreaterThan(0);
+  expect(desktopWidths.queue).toBeCloseTo(desktopWidths.composer, 1);
+  expect(desktopWidths.queue).toBeLessThan(desktopWidths.pane);
+
+  // Mobile viewport (<= 700px): both queue and composer switch to calc(100% - 24px).
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileWidths = await page.evaluate(() => {
+    const composer = document.querySelector("form[data-composer]");
+    if (!composer) throw new Error("composer not rendered");
+    const parent = composer.parentElement;
+    if (!parent) throw new Error("composer has no parent");
+    const queues = document.querySelectorAll("section[aria-label='待处理授权']");
+    const queue = queues[queues.length - 1];
+    if (!queue) throw new Error("queue not rendered");
+    return {
+      pane: parent.getBoundingClientRect().width,
+      composer: composer.getBoundingClientRect().width,
+      queue: queue.getBoundingClientRect().width,
+    };
+  });
+  expect(mobileWidths.queue).toBeCloseTo(mobileWidths.composer, 1);
+  expect(mobileWidths.queue).toBeCloseTo(mobileWidths.pane - 24, 1);
+
+  // Folded queue bar (.queueBar): dismissing keeps the same box on both mobile and desktop.
+  await queue.getByRole("button", { name: "稍后处理" }).click();
+  const reopen = page.getByRole("button", { name: "重新打开" });
+  await expect(reopen).toBeVisible();
+
+  const mobileBarWidths = await page.evaluate(() => {
+    const composer = document.querySelector("form[data-composer]");
+    if (!composer) throw new Error("composer not rendered");
+    const parent = composer.parentElement;
+    if (!parent) throw new Error("composer has no parent");
+    const reopenBtn = Array.from(parent.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("重新打开"),
+    );
+    const bar = reopenBtn?.parentElement;
+    if (!bar) throw new Error("queueBar not rendered");
+    return {
+      pane: parent.getBoundingClientRect().width,
+      composer: composer.getBoundingClientRect().width,
+      bar: bar.getBoundingClientRect().width,
+    };
+  });
+  expect(mobileBarWidths.bar).toBeCloseTo(mobileBarWidths.composer, 1);
+  expect(mobileBarWidths.bar).toBeCloseTo(mobileBarWidths.pane - 24, 1);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const desktopBarWidths = await page.evaluate(() => {
+    const composer = document.querySelector("form[data-composer]");
+    if (!composer) throw new Error("composer not rendered");
+    const parent = composer.parentElement;
+    if (!parent) throw new Error("composer has no parent");
+    const reopenBtn = Array.from(parent.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("重新打开"),
+    );
+    const bar = reopenBtn?.parentElement;
+    if (!bar) throw new Error("queueBar not rendered");
+    return {
+      pane: parent.getBoundingClientRect().width,
+      composer: composer.getBoundingClientRect().width,
+      bar: bar.getBoundingClientRect().width,
+    };
+  });
+  expect(desktopBarWidths.bar).toBeCloseTo(desktopBarWidths.composer, 1);
+  expect(desktopBarWidths.bar).toBeLessThan(desktopBarWidths.pane);
 });
 
 test("board controls stay inside a 360px viewport", async ({ page }) => {

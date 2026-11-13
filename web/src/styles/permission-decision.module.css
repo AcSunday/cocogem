@@ -256,6 +256,13 @@
   border-radius: var(--radius-sm);
 }
 
+@media (max-width: 700px) {
+  .queue,
+  .queueBar {
+    width: calc(100% - 24px);
+  }
+}
+
 .quiet {
   min-height: 24px;
   padding: 0 8px;
