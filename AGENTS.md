@@ -9,7 +9,7 @@
 - The Web workspace is the only product surface. Do not add or preserve a standalone terminal command; native CLI behavior and tests belong in `internal/nativecli/`.
 - The local Claude/Codex/Gemini CLIs are already usable. Reuse their existing API key, endpoint, provider and model settings; do not require login, OAuth or extra Cocogem keys. Diagnose configuration forwarding and the actual error before suggesting credential changes.
 - Implement each feature with behavioral tests; commit only after its checks pass.
-- Write all commit messages, pull request titles and pull request descriptions in English. Commit messages follow Conventional Commits (`feat: ...`, `fix: ...`, `test: ...`).
+- Write all commit messages, pull request titles and pull request descriptions in English. Use scoped Conventional Commits `<type>(<scope>): <imperative summary>` with lowercase type (`feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`) and primary package/subsystem scope (`workflow`, `httpapi`, `nativecli`, `project`, `execution`, `contextplan`, `store`, `tools`, `workspace`, `skills`, `agent`, `server`, `contract`, `web`, `docs`, `ci`), without a trailing period (for example `feat(workflow): add relay handoffs`, `fix(nativecli): preserve selected provider endpoint`).
 - Follow the project layout in `docs/product.md` and co-locate tests with their implementations.
 - Keep API/OpenAPI, frontend generated types, fixtures and tests in sync.
 - Never commit credentials, captured user data, databases or build output.
