@@ -309,7 +309,7 @@ func guidanceFor(kind FailureKind) string {
 	case FailureNetwork:
 		return "the CLI could not reach its configured endpoint; check local network and connection settings"
 	case FailureProviderTransient:
-		return "the provider reported a temporary outage or rate limit; the workflow may retry safe read-only steps"
+		return "the provider reported a temporary outage or rate limit; the workflow retries steps it can prove safe to replay"
 	case FailureHostInputLimit:
 		return "reduce the required host input or retrieve evidence by exact reference"
 	case FailureFirstResponseTimeout:

@@ -169,6 +169,66 @@ it("explains recovery and capability checkpoints without hiding the reason", () 
   expect(limitLabel("stall_seconds", 900)).toContain("15 分钟");
 });
 
+it("explains a native CLI failure by the cause the CLI recorded", () => {
+  const reason = (kind: string, detail: string) =>
+    `${kind}: native CLI did not confirm success (${detail}); check the CLI locally`;
+  // The reasons a member step stores when its endpoint failed.
+  expect(
+    runErrorText(
+      reason(
+        "provider_transient",
+        "result=success, status=502, category=connection",
+      ),
+    ),
+  ).toBe("上游模型服务暂时出错（HTTP 502），本次回复未完成；可以稍后重试该成员。");
+  expect(
+    runErrorText(
+      reason("provider_transient", "result=success, category=connection"),
+    ),
+  ).toBe("上游模型服务暂时出错，本次回复未完成；可以稍后重试该成员。");
+  expect(
+    runErrorText(
+      reason("network", "result=success, category=incomplete_response"),
+    ),
+  ).toContain("不完整或格式异常的响应");
+  expect(
+    runErrorText(reason("network", "result=result_error, category=connection")),
+  ).toContain("无法连接它配置的上游端点");
+  expect(
+    runErrorText(reason("quota", "result=success, status=429, category=quota")),
+  ).toContain("额度或速率限制（HTTP 429）");
+  expect(
+    runErrorText(
+      reason(
+        "authentication",
+        "result=success, status=401, category=authentication",
+      ),
+    ),
+  ).toContain("没有接受本机 CLI 的现有认证（HTTP 401）");
+  expect(
+    runErrorText(
+      reason("unknown", "result=success, status=400, category=execution"),
+    ),
+  ).toContain("拒绝了这次请求（HTTP 400）");
+  // The reason older runs stored for every Claude endpoint failure.
+  expect(
+    runErrorText(reason("unknown", "result=success, category=execution")),
+  ).toBe("CLI 没有确认回复成功，也没有给出可归类的失败原因，本次回复未完成；可以重试该成员。");
+  // A run that failed in several steps still explains the first cause.
+  expect(
+    runErrorText(
+      `multiple_step_failures: step a [quota]: ${reason("quota", "result=opencode, category=quota")}`,
+    ),
+  ).toContain("额度或速率限制");
+  for (const text of [
+    runErrorText(reason("network", "result=success, category=connection")),
+    runErrorText(reason("unknown", "result=success, category=execution")),
+  ])
+    expect(text).not.toContain("native CLI");
+  expect(failureKindLabel("provider_transient")).toContain("暂时");
+  expect(failureKindLabel("network")).toContain("上游端点");
+});
+
 it("describes disabled limits and hides the removed tool-call counter", () => {
   expect(limitLabel("run_seconds", 0)).toBe("不设协作总期限");
   expect(limitLabel("step_seconds", 0)).toBe("不设单步执行期限");
