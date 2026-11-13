@@ -49,7 +49,8 @@ func selectionRoot(run w.Run, step w.Step) bool {
 	if run.Routing.Decision != "discuss" {
 		return false
 	}
-	return (step.Kind == "" || step.Kind == "continuation" && step.FromStepID == run.TaskPromotionStepID) && step.ID != "" && step.AgentID == run.CoordinatorID
+	planning := step.Kind == "" || step.Kind == kindRetryRoot || step.Kind == "continuation" && step.FromStepID == run.TaskPromotionStepID
+	return planning && step.ID != "" && step.AgentID == run.CoordinatorID
 }
 
 func canSelectWorkflow(run w.Run, step w.Step) bool {

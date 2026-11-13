@@ -310,7 +310,10 @@ func TestAutoRetryStopsAfterSideEffect(t *testing.T) {
 	}
 }
 
-func TestTrustedNativeInvocationIsNeverAutomaticallyReplayed(t *testing.T) {
+// trustedRetryRun is a full-access step that may run commands, so its native
+// CLI executes arbitrary tools the host cannot fully observe.
+func trustedRetryRun(t *testing.T) (*store.Store, w.Run, w.Step) {
+	t.Helper()
 	db, run, step := retryTestRun(t)
 	run.EffectiveExecutionMode = w.ExecutionFullAccess
 	run.Agents[0].Tools = append(run.Agents[0].Tools, "run_command")
@@ -330,19 +333,110 @@ func TestTrustedNativeInvocationIsNeverAutomaticallyReplayed(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	return db, run, step
+}
+
+// A transient failure alone proves nothing about a trusted invocation: the
+// disconnect may precede every observable tool receipt.
+func TestTrustedNativeInvocationIsNotReplayedWithoutToolFreeProof(t *testing.T) {
+	db, run, step := trustedRetryRun(t)
 	var calls atomic.Int32
 	runner := nativeRunnerFunc(func(_ context.Context, request model.Request, _ agent.Execute, _ agent.Observe) error {
 		if !request.TrustedExecution {
 			t.Error("expected native full access")
 		}
 		calls.Add(1)
-		// A disconnect may precede every observable tool receipt.
 		return transientFailure()
 	})
 	engine := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, RetryBackoff: time.Millisecond}
 	result := runStep(t, &engine, run, step)
 	if calls.Load() != 1 {
 		t.Fatalf("trusted native invocation replayed %d times; status=%s error=%s", calls.Load(), result.Status, result.Error)
+	}
+}
+
+// toolFreeFailure is what an adapter reports when its CLI ended the turn on a
+// provider error before requesting any tool.
+func toolFreeFailure(kind nativecli.FailureKind) error {
+	return &nativecli.Failure{Kind: kind, Reason: "the endpoint failed before any tool was requested", ToolFree: true}
+}
+
+// The endpoint failing before the CLI asked for a single tool cannot have had
+// an effect, so a full-access step recovers by itself like any other.
+func TestTrustedInvocationProvenToolFreeIsRetriedAutomatically(t *testing.T) {
+	db, run, step := trustedRetryRun(t)
+	var calls atomic.Int32
+	runner := nativeRunnerFunc(func(_ context.Context, request model.Request, _ agent.Execute, observe agent.Observe) error {
+		if !request.TrustedExecution {
+			t.Error("expected native full access")
+		}
+		if calls.Add(1) < 3 {
+			return toolFreeFailure(nativecli.FailureProviderTransient)
+		}
+		return observe("text", map[string]any{"text": "recovered after the endpoint came back"})
+	})
+	engine := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, RetryBackoff: time.Millisecond}
+	result := runStep(t, &engine, run, step)
+	if result.Status != "succeeded" || calls.Load() != 3 {
+		t.Fatalf("status=%s calls=%d error=%s", result.Status, calls.Load(), result.Error)
+	}
+	if scheduled := countRetryScheduled(retryEvents(t, db, run.ID)); scheduled != 2 {
+		t.Fatalf("retry_scheduled events = %d, want 2", scheduled)
+	}
+	attempts := stepAttempts(t, db, step.ID)
+	if len(attempts) != 3 || attempts[1].Reason != autoRetryReason || attempts[2].Status != "succeeded" {
+		t.Fatalf("attempt history = %+v", attempts)
+	}
+}
+
+func TestTrustedInvocationToolFreeProofDoesNotWidenWhatIsRetried(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, execute agent.Execute, observe agent.Observe) error
+	}{
+		{
+			name: "a failure that is not transient",
+			run: func(context.Context, agent.Execute, agent.Observe) error {
+				return toolFreeFailure(nativecli.FailureUnknown)
+			},
+		},
+		{
+			name: "the proof is joined with an unverified process",
+			run: func(context.Context, agent.Execute, agent.Observe) error {
+				return errors.Join(&nativecli.Failure{Kind: nativecli.FailureProcessUncertain, Reason: "group survived"}, toolFreeFailure(nativecli.FailureNetwork))
+			},
+		},
+		{
+			name: "the host saw a native command",
+			run: func(_ context.Context, _ agent.Execute, observe agent.Observe) error {
+				if err := observe("tool_started", map[string]any{"tool_call_id": "cli:bash-1", "name": "Bash", "origin": "native"}); err != nil {
+					return err
+				}
+				return toolFreeFailure(nativecli.FailureNetwork)
+			},
+		},
+		{
+			name: "the host ran a handoff",
+			run: func(ctx context.Context, execute agent.Execute, _ agent.Observe) error {
+				_, _ = execute(ctx, "handoff_task", []byte(`{"agent_id":"missing","instruction":"do work"}`))
+				return toolFreeFailure(nativecli.FailureNetwork)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, run, step := trustedRetryRun(t)
+			var calls atomic.Int32
+			runner := nativeRunnerFunc(func(ctx context.Context, _ model.Request, execute agent.Execute, observe agent.Observe) error {
+				calls.Add(1)
+				return test.run(ctx, execute, observe)
+			})
+			engine := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, RetryBackoff: time.Millisecond}
+			runStep(t, &engine, run, step)
+			if calls.Load() != 1 {
+				t.Fatalf("replayed %d times, want exactly one dispatch", calls.Load())
+			}
+		})
 	}
 }
 

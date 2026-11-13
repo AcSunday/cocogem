@@ -15,7 +15,7 @@ import (
 // is kept as an attempt draft if the root later delegates.
 func (e *Engine) mayPublish(ctx context.Context, run w.Run, step w.Step) (bool, error) {
 	current := run
-	if run.SelectedWorkflow == nil && step.Kind == "" && (run.Input.Workflow == "" || run.Input.Workflow == "free") {
+	if run.SelectedWorkflow == nil && (step.Kind == "" || step.Kind == kindRetryRoot) && (run.Input.Workflow == "" || run.Input.Workflow == "free") {
 		// The planning root may select a method during this same invocation, so
 		// its publication authority follows the persisted run, not the stale
 		// dispatch snapshot.
@@ -37,7 +37,7 @@ func (e *Engine) mayPublish(ctx context.Context, run w.Run, step w.Step) (bool, 
 	if in.Workflow != "" && in.Workflow != "free" {
 		return false, nil
 	}
-	if step.Kind == "" {
+	if step.Kind == "" || step.Kind == kindRetryRoot {
 		return true, nil
 	}
 	if step.Kind != "continuation" && step.Kind != "relay" {

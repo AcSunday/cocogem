@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
@@ -256,6 +257,8 @@ func TestRetryStepRejectsSuccessfulUnrelatedAndUncertainAttempts(t *testing.T) {
 	}
 }
 
+// A member retry stays on its task revision and root budget account. It neither
+// resets what automatic work already spent nor reserves automatic allowance.
 func TestRetryStepKeepsTaskRevisionAndUsedRootBudget(t *testing.T) {
 	db, source, old := retrySource(t, []customStepSpec{{Agent: 0, Role: "responder"}}, []string{"failed"})
 	task, err := project.New(db).CreateTask(t.Context(), project.CreateTaskInput{WorkspaceID: source.WorkspaceID, ThreadID: source.ThreadID, Goal: source.Input.Message, SourceMessageID: "budget-proof", AcceptedBy: "user"})
@@ -291,11 +294,280 @@ func TestRetryStepKeepsTaskRevisionAndUsedRootBudget(t *testing.T) {
 	}
 	if err := db.Read(t.Context(), func(tx *store.Tx) error {
 		account, err := tx.BudgetAccount(task.Budget.ID)
-		if err == nil && (account.UsedContinuations != 3 || account.ReservedRuns != 1) {
-			t.Fatalf("retry reset spent budget or did not reserve capacity: %+v", account)
+		if err == nil && (account.UsedContinuations != 3 || account.ReservedRuns != 0) {
+			t.Fatalf("retry reset spent budget or reserved an automatic continuation: %+v", account)
 		}
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// taskRetrySource is a failed free run that belongs to a durable task. Every
+// automatic allowance of its root budget is set to one so any accidental charge
+// is visible immediately.
+func taskRetrySource(t *testing.T) (*store.Store, project.TaskView, w.Run, w.Step) {
+	t.Helper()
+	db, source, old := retrySource(t, []customStepSpec{{Agent: 0, Role: "responder", Instruction: "task work"}}, []string{"failed"})
+	task, err := project.New(db).CreateTask(t.Context(), project.CreateTaskInput{WorkspaceID: source.WorkspaceID, ThreadID: source.ThreadID, Goal: source.Input.Message, SourceMessageID: "user-retry-policy", AcceptedBy: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.ID, source.TaskID, source.TaskRevision, source.BudgetAccountID = w.NewID(), task.Task.ID, task.Task.CurrentRevision, task.Budget.ID
+	failed := old[0]
+	failed.ID, failed.RunID = w.NewID(), source.ID
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		account, err := tx.BudgetAccount(task.Budget.ID)
+		if err != nil {
+			return err
+		}
+		account.Policy.AutoContinuations, account.Policy.FixRounds, account.Policy.NoProgressFailures = 1, 1, 1
+		account.Revision++
+		if err := tx.SaveBudgetAccount(account, account.Revision-1); err != nil {
+			return err
+		}
+		if err := tx.InsertRun(source, "task-retry-source", "task-retry-source"); err != nil {
+			return err
+		}
+		return tx.SaveStep(failed)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return db, task, source, failed
+}
+
+func failedStep(t *testing.T, db *store.Store, runID string) w.Step {
+	t.Helper()
+	var failed w.Step
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		steps, err := tx.Steps(runID)
+		if err != nil {
+			return err
+		}
+		for _, step := range steps {
+			if step.Status == "failed" {
+				failed = step
+				return nil
+			}
+		}
+		return errors.New("the run has no failed step")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return failed
+}
+
+// The automatic continuation, repair-round and no-progress limits bound what
+// the host starts by itself. A retry the user asks for is never one of those.
+func TestUserMemberRetriesAreNeverCappedByAutomaticLimits(t *testing.T) {
+	db, task, source, failed := taskRetrySource(t)
+	calls := 0
+	runner := nativeRunnerFunc(func(context.Context, model.Request, agent.Execute, agent.Observe) error {
+		calls++
+		return errors.New("the member failed again")
+	})
+	e := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, Limits: DefaultLimits()}
+	_, stop := startEngine(t, &e)
+	defer stop()
+	const clicks = 6
+	runID, stepID := source.ID, failed.ID
+	for click := 1; click <= clicks; click++ {
+		retried, err := e.RetryStep(t.Context(), runID, stepID, fmt.Sprintf("user-retry-click-%04d-key", click))
+		if err != nil {
+			t.Fatalf("user retry %d was refused: %v", click, err)
+		}
+		if retried.AutomaticContinuation || retried.BudgetReserved {
+			t.Fatalf("user retry %d was booked as an automatic continuation: automatic=%v reserved=%v", click, retried.AutomaticContinuation, retried.BudgetReserved)
+		}
+		finished := awaitRun(t, db, retried.ID)
+		if finished.Status != "failed" || calls != click {
+			t.Fatalf("user retry %d did not run: status=%s calls=%d error=%s", click, finished.Status, calls, finished.Error)
+		}
+		runID, stepID = retried.ID, failedStep(t, db, retried.ID).ID
+	}
+	view, err := project.New(db).Task(t.Context(), task.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Task.Status == "waiting" {
+		t.Fatalf("user retries parked the task on %q", view.Task.WaitingReason)
+	}
+	if view.Budget.UsedContinuations != 0 || view.Budget.ReservedRuns != 0 || len(view.Budget.FixRoundsByIssue) != 0 || len(view.Budget.NoProgressByBranch) != 0 {
+		t.Fatalf("user retries were charged to the automatic ledger: %+v", view.Budget)
+	}
+}
+
+// A task the automatic policy already parked stays retryable by its user, and
+// the retry neither erases nor adds to what the automatic ledger recorded.
+func TestUserMemberRetryRunsForTaskParkedByAutomaticLimit(t *testing.T) {
+	for _, reason := range []string{"no_progress", "fix_limit", "budget"} {
+		t.Run(reason, func(t *testing.T) {
+			db, task, source, failed := taskRetrySource(t)
+			if err := db.Write(t.Context(), func(tx *store.Tx) error {
+				account, err := tx.BudgetAccount(task.Budget.ID)
+				if err != nil {
+					return err
+				}
+				account.UsedContinuations = 1
+				account.FixRoundsByIssue = map[string]int{source.ID: 1}
+				account.NoProgressByBranch = map[string]int{source.ID: 1}
+				account.Revision++
+				if err := tx.SaveBudgetAccount(account, account.Revision-1); err != nil {
+					return err
+				}
+				parked, err := tx.Task(task.Task.ID)
+				if err != nil {
+					return err
+				}
+				parked.Status, parked.WaitingReason = "waiting", reason
+				return tx.SaveTask(parked, parked.CurrentRevision)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			runner := nativeRunnerFunc(func(_ context.Context, _ model.Request, _ agent.Execute, observe agent.Observe) error {
+				return observe("text", map[string]any{"text": "The user's retry finished the work."})
+			})
+			e := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, Limits: DefaultLimits()}
+			retried, err := e.RetryStep(t.Context(), source.ID, failed.ID, "parked-task-user-retry-001")
+			if err != nil {
+				t.Fatalf("the user could not retry a parked task: %v", err)
+			}
+			_, stop := startEngine(t, &e)
+			defer stop()
+			if finished := awaitRun(t, db, retried.ID); finished.Status != "succeeded" {
+				t.Fatalf("status=%s error=%s", finished.Status, finished.Error)
+			}
+			view, err := project.New(db).Task(t.Context(), task.Task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if view.Task.Status != "ready" || view.Task.WaitingReason != "" {
+				t.Fatalf("task stayed parked after the user's retry ran: %+v", view.Task)
+			}
+			if view.Budget.UsedContinuations != 1 || view.Budget.FixRoundsByIssue[source.ID] != 1 {
+				t.Fatalf("the user's retry rewrote the automatic ledger: %+v", view.Budget)
+			}
+		})
+	}
+}
+
+// A message the user sends into a parked task is their own request too: the
+// scheduler holds automatic continuations only.
+func TestUserRunIsDispatchedWhileAutomaticLimitParksTheTask(t *testing.T) {
+	db, task, source, _ := taskRetrySource(t)
+	user := source
+	user.ID, user.Status, user.Error, user.FinishedAt = w.NewID(), "queued", "", ""
+	held := source
+	held.ID, held.Status, held.Error, held.FinishedAt = w.NewID(), "queued", "", ""
+	held.AutomaticContinuation = true
+	other := w.Thread{ID: w.NewID(), WorkspaceID: source.WorkspaceID, Revision: 1, UpdatedAt: w.Now()}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveThread(other) }); err != nil {
+		t.Fatal(err)
+	}
+	second, err := project.New(db).CreateTask(t.Context(), project.CreateTaskInput{WorkspaceID: source.WorkspaceID, ThreadID: other.ID, Goal: "automatic follow-up", SourceMessageID: "held-automatic", AcceptedBy: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	held.ThreadID, held.TaskID, held.TaskRevision, held.BudgetAccountID = other.ID, second.Task.ID, second.Task.CurrentRevision, second.Budget.ID
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		for _, id := range []string{task.Task.ID, second.Task.ID} {
+			parked, err := tx.Task(id)
+			if err != nil {
+				return err
+			}
+			parked.Status, parked.WaitingReason = "waiting", "no_progress"
+			if err := tx.SaveTask(parked, parked.CurrentRevision); err != nil {
+				return err
+			}
+		}
+		for _, run := range []w.Run{user, held} {
+			if err := tx.InsertRun(run, "parked-"+run.ID, "parked-"+run.ID); err != nil {
+				return err
+			}
+			if err := tx.SaveStep(w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[0].ID, AgentName: run.Agents[0].DisplayName, Role: "responder", Instruction: "answer", Status: "pending"}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := nativeRunnerFunc(func(_ context.Context, _ model.Request, _ agent.Execute, observe agent.Observe) error {
+		return observe("text", map[string]any{"text": "Answered the user's new message."})
+	})
+	e := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, Limits: DefaultLimits()}
+	_, stop := startEngine(t, &e)
+	defer stop()
+	if finished := awaitRun(t, db, user.ID); finished.Status != "succeeded" {
+		t.Fatalf("the user's run did not complete: status=%s error=%s", finished.Status, finished.Error)
+	}
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		automatic, err := tx.Run(held.ID)
+		if err == nil && automatic.Status != "queued" {
+			t.Fatalf("an automatic continuation ran past its parked task: %s", automatic.Status)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An interrupted run of a durable task keeps its checkpoint for an explicit
+// resume. The run was already counted when it first started; continuing it is
+// the same run, so it is admitted again instead of waiting in the queue.
+func TestResumedTaskRunIsAdmittedAgain(t *testing.T) {
+	db, task, source, _ := taskRetrySource(t)
+	run := source
+	run.ID, run.Status, run.Error, run.FinishedAt = w.NewID(), "queued", "", ""
+	step := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[0].ID, AgentName: run.Agents[0].DisplayName, Role: "responder", Instruction: "answer", Status: "pending"}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.InsertRun(run, "resumed-task-run", "resumed-task-run"); err != nil {
+			return err
+		}
+		return tx.SaveStep(step)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	runner := nativeRunnerFunc(func(_ context.Context, _ model.Request, _ agent.Execute, observe agent.Observe) error {
+		calls++
+		if calls == 1 {
+			return &nativecli.Failure{Kind: nativecli.FailureStallTimeout, Reason: "no validated progress"}
+		}
+		return observe("text", map[string]any{"text": "Finished after the checkpoint was resumed."})
+	})
+	e := Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, Limits: DefaultLimits()}
+	_, stop := startEngine(t, &e)
+	defer stop()
+	if interrupted := awaitRun(t, db, run.ID); interrupted.Status != "interrupted" {
+		t.Fatalf("status=%s error=%s", interrupted.Status, interrupted.Error)
+	}
+	if _, err := e.Resume(t.Context(), run.ID); err != nil {
+		t.Fatalf("resume was refused: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	var current w.Run
+	for {
+		if err := db.Read(t.Context(), func(tx *store.Tx) error {
+			var err error
+			current, err = tx.Run(run.ID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if current.Status == "succeeded" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if current.Status != "succeeded" || calls != 2 {
+		t.Fatalf("the resumed run was not admitted again: status=%s calls=%d error=%s", current.Status, calls, current.Error)
+	}
+	view, err := project.New(db).Task(t.Context(), task.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Budget.ActiveBranches != 0 || view.Budget.UsedContinuations != 0 || view.Task.Status != "ready" {
+		t.Fatalf("resuming left the task or its budget inconsistent: task=%s budget=%+v", view.Task.Status, view.Budget)
 	}
 }

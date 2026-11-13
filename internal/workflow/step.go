@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
+	"github.com/AcSunday/cocogem/internal/nativecli"
 	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
@@ -37,6 +38,8 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	connection := prep.connection
 
 	var err error
+	// trusted marks an invocation whose CLI may run arbitrary native tools.
+	trusted := false
 	var stepCtx context.Context
 	var stopStep context.CancelFunc
 	if !stepDeadline.IsZero() {
@@ -90,11 +93,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		if runner == nil {
 			err = errors.New(capabilityBlockedPrefix + " " + a.Executor + ": selected CLI executor is unavailable")
 		} else {
-			// Arbitrary native tools may have effects the runner cannot report before a disconnect.
-			// Never replay a trusted invocation automatically to guess whether those effects happened.
-			if request.TrustedExecution {
-				rt.mutated.Store(true)
-			}
+			trusted = request.TrustedExecution
 			err = runner.Run(stepCtx, request, rt.executeTool, rt.observeEvent)
 		}
 	} else {
@@ -151,13 +150,18 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		internalFailure: rt.internalFailed.Load(),
 		cause:           err,
 	})
+	// Arbitrary native tools may have effects the runner cannot report before a
+	// disconnect, so a trusted invocation is never replayed to guess whether
+	// they happened. It is replayed only when its adapter proves the CLI
+	// reported the failure itself before requesting any tool.
+	replaySafe := !rt.mutated.Load() && (!trusted || nativecli.ToolFree(err))
 	// Automatic retries create a fresh Attempt and Message after the failed
 	// evidence is durable. Only a transient provider/connection failure with
 	// no committed side effect, live context and untriggered checkpoint is
 	// eligible; the persisted reason keeps the budget across restarts.
 	if saveErr == nil &&
 		step.Status == "failed" && attempt.Status == "failed" &&
-		ctx.Err() == nil && !rt.mutated.Load() &&
+		ctx.Err() == nil && replaySafe &&
 		// attempt.Number is durable and includes the current attempt, so the
 		// budget survives restart and cannot be reset by relabelling reasons.
 		attempt.Number <= autoRetryLimit &&

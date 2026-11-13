@@ -165,6 +165,11 @@ export function runErrorText(error = "", status = "") {
     return "Gemini 上游服务拒绝了这次请求，本次回复未完成。";
   if (error.includes("result=result_error, category=execution") || error.includes("Gemini reported an unsuccessful result without diagnostic details"))
     return "Gemini 未确认回复成功，CLI 没有提供具体失败原因；可以重试该成员。";
+  const native =
+    /(?:^|[\s\]:])([a-z_]+): native CLI did not confirm success \(result=[a-z0-9_.-]+(?:, status=(\d+))?, category=([a-z_]+)\)/.exec(
+      error,
+    );
+  if (native) return nativeFailureText(native[1], native[3], native[2]);
   if (error.includes("connection_changed:")) {
     return `本机 CLI 的解析模型或上游连接已变化，任务与检查点已保留：${error.replace(/^.*?connection_changed:/, "").trim()}`;
   }
@@ -204,6 +209,36 @@ export function runErrorText(error = "", status = "") {
   );
 }
 
+/**
+ * A native CLI reports why its endpoint failed as a machine kind, a category and
+ * the HTTP status when there was one. The status is shown so the cause can be
+ * checked against the CLI's own endpoint, relay or account.
+ */
+function nativeFailureText(kind: string, category: string, status = "") {
+  const code = status ? `（HTTP ${status}）` : "";
+  if (category === "incomplete_response")
+    return "上游返回了不完整或格式异常的响应（常见于中转网关或代理中途断开连接），本次回复未完成；可以重试该成员。";
+  switch (kind) {
+    case "provider_transient":
+      return `上游模型服务暂时出错${code}，本次回复未完成；可以稍后重试该成员。`;
+    case "network":
+      return `本机 CLI 无法连接它配置的上游端点${code}，本次回复未完成；请检查本机网络与代理后重试该成员。`;
+    case "quota":
+      return `上游报告额度或速率限制${code}，本次回复未完成；可以稍后重试该成员，或检查该 CLI 账户的现有额度。`;
+    case "authentication":
+      return `上游没有接受本机 CLI 的现有认证${code}，本次回复未完成；请检查该 CLI 自身的连接配置。`;
+    case "permissions":
+      return `上游或 CLI 拒绝了这次请求所需的权限${code}，本次回复未完成。`;
+    case "model_unavailable":
+      return `上游不提供所选模型${code}，本次回复未完成；请检查成员的模型设置与该 CLI 的模型映射。`;
+    case "tool_unavailable":
+      return "CLI 报告所需工具不可用，本次回复未完成。";
+  }
+  return status
+    ? `上游拒绝了这次请求${code}，CLI 没有给出可归类的原因，本次回复未完成；可以重试该成员。`
+    : "CLI 没有确认回复成功，也没有给出可归类的失败原因，本次回复未完成；可以重试该成员。";
+}
+
 /** Machine failure kinds need a clear reason without promising an automatic retry. */
 export const failureKindLabel = labels({
   host_input_limit:
@@ -218,6 +253,8 @@ export const failureKindLabel = labels({
   permissions: "CLI 拒绝了这次执行所需的权限，任务没有继续。",
   quota: "CLI 账户报告额度或速率限制，任务没有继续。",
   authentication: "CLI 的现有认证配置未通过检查，任务没有继续。",
+  provider_transient: "上游模型服务暂时出错，本次尝试未完成。",
+  network: "本机 CLI 无法连接它配置的上游端点，或上游响应中途断开。",
 });
 export const attemptReasonLabel = labels({
   initial: "首次执行",

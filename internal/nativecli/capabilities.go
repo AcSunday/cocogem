@@ -51,6 +51,14 @@ var adapters = map[string]adapterSpec{
 	},
 }
 
+// probeWindow bounds one capability probe command. The OS verifies a CLI binary
+// before the first launch after it was installed or updated; for a large
+// single-file CLI that alone takes several seconds, longer on a busy machine.
+const probeWindow = 30 * time.Second
+
+// errProbeTimeout marks a probe command that did not answer inside its window.
+var errProbeTimeout = errors.New("CLI capability probe timed out")
+
 // Inspect checks installation and required isolation arguments without running
 // a model turn. It never claims that the tool boundary has been proven.
 func Inspect(ctx context.Context, id string) (agent.AdapterInfo, error) {
@@ -62,6 +70,11 @@ func Inspect(ctx context.Context, id string) (agent.AdapterInfo, error) {
 }
 
 func check(ctx context.Context, id string, command func(string, ...string) *exec.Cmd) (agent.AdapterInfo, error) {
+	return checkWithin(ctx, id, command, probeWindow)
+}
+
+// checkWithin is check with an explicit window for each probe command.
+func checkWithin(ctx context.Context, id string, command func(string, ...string) *exec.Cmd, window time.Duration) (agent.AdapterInfo, error) {
 	spec, ok := adapters[id]
 	info := agent.AdapterInfo{ID: id, Adapter: spec.adapter, Isolation: "unavailable"}
 	if !ok {
@@ -101,9 +114,13 @@ func check(ctx context.Context, id string, command func(string, ...string) *exec
 		info.Identity = programIdentity(resolved, stat)
 	}
 
-	version, help, err := probeCLI(ctx, id, command)
+	version, help, err := probeCLI(ctx, id, command, window)
 	if err != nil {
 		info.Reason = "CLI 能力探测失败"
+		if errors.Is(err, errProbeTimeout) {
+			// A CLI that is still starting is not an incompatible installation.
+			info.Reason = fmt.Sprintf("CLI 能力探测超时：%s 内没有返回版本或帮助信息，可稍后继续", window)
+		}
 		if ctx.Err() != nil {
 			return info, ctx.Err()
 		}
@@ -143,23 +160,24 @@ func check(ctx context.Context, id string, command func(string, ...string) *exec
 	return info, nil
 }
 
-func probeCLI(ctx context.Context, id string, command func(string, ...string) *exec.Cmd) (string, string, error) {
+func probeCLI(ctx context.Context, id string, command func(string, ...string) *exec.Cmd, window time.Duration) (string, string, error) {
+	run := func(output *boundedBuffer, args ...string) error {
+		probeCtx, cancel := context.WithTimeout(ctx, window)
+		defer cancel()
+		cmd := command(id, args...)
+		cmd.Stdout, cmd.Stderr = output, output
+		err := runProbe(probeCtx, cmd)
+		if err != nil && ctx.Err() == nil && errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+			return errProbeTimeout
+		}
+		return err
+	}
 	version := &boundedBuffer{limit: 4096}
-	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	cmd := command(id, "--version")
-	cmd.Stdout, cmd.Stderr = version, version
-	err := runProbe(probeCtx, cmd)
-	cancel()
-	if err != nil {
+	if err := run(version, "--version"); err != nil {
 		return "", "", err
 	}
 	help := &boundedBuffer{limit: 65536}
-	helpCtx, stop := context.WithTimeout(ctx, 5*time.Second)
-	probe := command(id, helpArgs(id)...)
-	probe.Stdout, probe.Stderr = help, help
-	err = runProbe(helpCtx, probe)
-	stop()
-	if err != nil {
+	if err := run(help, helpArgs(id)...); err != nil {
 		return "", "", err
 	}
 	return strings.TrimSpace(version.String()), help.String(), nil

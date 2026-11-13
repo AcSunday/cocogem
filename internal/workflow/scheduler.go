@@ -73,7 +73,10 @@ func (e *Engine) worker(ctx context.Context) {
 				if r.Status != "queued" || reserved[r.ID] {
 					continue
 				}
-				if r.TaskID != "" {
+				// An exhausted automatic allowance parks only what the host queued
+				// by itself. A run the user asked for (a message or a member
+				// retry) is dispatched and lifts the task out of that wait.
+				if r.TaskID != "" && r.AutomaticContinuation {
 					task, err := tx.Task(r.TaskID)
 					if err != nil {
 						return err

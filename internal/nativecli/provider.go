@@ -216,6 +216,10 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	gate.trustedNative = request.TrustedExecution && request.ExecutionMode == "full_access"
 	gate.setRequired(request.RequiredTools)
 	gate.sessionMode, gate.sessionID = request.SessionMode, request.SessionID
+	// Claude and Gemini print every tool request in their stream before running
+	// it, and their parsers note each one. The other adapters make no such
+	// claim, so their failures are never treated as proven tool-free.
+	gate.reportsEveryTool = request.Executor == "claude" || request.Executor == "gemini"
 	managed := request.SessionStorageRoot != ""
 	if managed && request.Executor != "claude" && request.Executor != "opencode" {
 		return errors.New("this CLI does not support a Cocogem-managed resumable session")
@@ -686,6 +690,11 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		processErr = p.streamCodexAppServer(ctx, cmd, gate, live, inputText, approver, codexProfile, codexRoots, dangerous, codexThreadConfig)
 	} else {
 		processErr = streamProcess(ctx, request.Executor, cmd, gate, live)
+	}
+	if gate.toolFree() {
+		// The CLI reported this failure itself and requested no tool first, so
+		// replaying the invocation cannot repeat an effect.
+		processErr = toolFreeFailure(processErr)
 	}
 	// Usage belongs to the attempt even when the terminal state is a failure.
 	// Observation failures are kept rather than swallowed.
