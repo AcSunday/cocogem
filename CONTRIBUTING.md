@@ -7,7 +7,19 @@ Follow its [project layout](docs/product.md#项目结构) when adding files.
 Each pull request should implement one reviewable feature or fix, include tests,
 and describe the user-visible result, validation, limitations and migrations.
 Write commit messages, pull request titles and pull request descriptions in
-English. Use Conventional Commits, for example `feat: add workspace creation`.
+English.
+
+Format commit headlines and pull request titles as scoped Conventional Commits:
+`<type>(<scope>): <imperative summary>` (lowercase type and scope, no trailing
+period):
+
+- `<type>`: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`
+- `<scope>`: primary package or subsystem touched, such as `workflow`, `httpapi`,
+  `nativecli`, `project`, `execution`, `contextplan`, `store`, `tools`,
+  `workspace`, `skills`, `agent`, `server`, `contract`, `web`, `docs`, or `ci`
+- Examples: `feat(workflow): add peer-to-peer relay handoffs`,
+  `fix(nativecli): route OpenCode gateway to the selected provider`,
+  `fix(web): match the permission notice width to the retry notice`
 
 Keep provider protocols inside adapters. Treat model output, files, URLs and
 browser requests as untrusted input. Never include keys or private source data
