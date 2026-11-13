@@ -201,6 +201,37 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 	return out, nil
 }
 
+// Step kinds a member retry gives the steps it replans. A retry_result is a
+// repaired member whose reply is delivered on its own; a retry_root also heads
+// the retry's delivery chain, so it keeps what the step it replaces could do:
+// publish, and organise further work.
+const (
+	kindRetryResult = "retry_result"
+	kindRetryRoot   = "retry_root"
+)
+
+// freeRoot reports whether a free-run step starts a delivery chain.
+func freeRoot(step w.Step) bool {
+	return step.Kind == "" || step.Kind == kindRetryResult || step.Kind == kindRetryRoot
+}
+
+// deliveryChain follows one free-run root through its continuation or relay
+// successors to the terminal member.
+func deliveryChain(steps []w.Step, root w.Step) []w.Step {
+	chain := []w.Step{root}
+	for range len(steps) {
+		last := chain[len(chain)-1]
+		next := slices.IndexFunc(steps, func(s w.Step) bool {
+			return (s.Kind == "continuation" || s.Kind == "relay") && s.FromStepID == last.ID && !s.Converged
+		})
+		if next < 0 {
+			break
+		}
+		chain = append(chain, steps[next])
+	}
+	return chain
+}
+
 // finalSteps selects the steps whose replies form the run delivery. A built-in
 // has one fixed final role unless an intermediate review converged early. A
 // free run keeps every root responder and follows its continuation or relay
@@ -209,20 +240,11 @@ func finalSteps(in w.RunInput, steps []w.Step) []w.Step {
 	out := []w.Step{}
 	if in.Workflow == "" || in.Workflow == "free" {
 		for _, root := range steps {
-			if root.Kind != "" && root.Kind != "retry_result" {
+			if !freeRoot(root) {
 				continue
 			}
-			final := root
-			for range len(steps) {
-				next := slices.IndexFunc(steps, func(s w.Step) bool {
-					return (s.Kind == "continuation" || s.Kind == "relay") && s.FromStepID == final.ID && !s.Converged
-				})
-				if next < 0 {
-					break
-				}
-				final = steps[next]
-			}
-			out = append(out, final)
+			chain := deliveryChain(steps, root)
+			out = append(out, chain[len(chain)-1])
 		}
 		return out
 	}
@@ -236,7 +258,7 @@ func finalSteps(in w.RunInput, steps []w.Step) []w.Step {
 	}
 	if len(out) == 0 {
 		for _, step := range steps {
-			if step.Kind == "retry_result" && !step.Converged {
+			if step.Kind == kindRetryResult && !step.Converged {
 				out = append(out, step)
 			}
 		}

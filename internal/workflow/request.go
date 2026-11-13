@@ -194,7 +194,14 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 	}
 	contextText := strings.Builder{}
 	if run.RetryOfStepID != "" {
-		contextText.WriteString("\nThis is a user-requested retry of one failed member step. Follow this step's original role and instruction. Preserve completed peer work and reuse its exact upstream references; do not repeat completed work or select another workflow. Only the blocked follow-up steps in the accepted plan will run after this repair.\n")
+		contextText.WriteString("\nThis is a user-requested retry of one failed member step. Follow this step's original role and instruction. Preserve completed peer work and reuse its exact upstream references; do not repeat completed work.")
+		if in.Workflow == "" || in.Workflow == "free" {
+			// A free run has no fixed plan: follow-up work exists only if this
+			// step organises it, exactly as the step it replaces could.
+			contextText.WriteString(" Whatever this step still has to organise or deliver happens now: use the collaboration tools offered to this step for any follow-up work the task needs.\n")
+		} else {
+			contextText.WriteString(" Do not select another workflow. Only the blocked follow-up steps in the accepted plan will run after this repair.\n")
+		}
 	}
 	previousBudget := 12000
 	for _, m := range all {
