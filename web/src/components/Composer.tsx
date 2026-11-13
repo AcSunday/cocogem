@@ -352,7 +352,7 @@ export function Composer({
       ? "一起构建什么？"
       : "一起构建什么？（Enter 发送 · Shift + Enter 换行）";
   return (
-    <form className={cx("composer")} onSubmit={submit}>
+    <form className={cx("composer")} data-composer="" onSubmit={submit}>
       {notice && (
         <div
           className={cx("composer-notice")}
