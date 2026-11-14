@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -222,8 +223,11 @@ func TestRunNativeToolLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The session frame is parsed from stdout while the tool call is served
+	// over HTTP, so native_session may land between the two tool events.
+	started, finished := slices.Index(events, "tool_started"), slices.Index(events, "tool_finished")
 	joined := strings.Join(events, ",")
-	if strings.Join(names, ",") != "read_file" || !strings.Contains(joined, "tool_started,tool_finished") || !strings.Contains(joined, "native_process") || !strings.Contains(joined, "native_session") {
+	if strings.Join(names, ",") != "read_file" || started < 0 || finished < started || !strings.Contains(joined, "native_process") || !strings.Contains(joined, "native_session") {
 		t.Fatalf("tools=%v events=%v", names, events)
 	}
 }
