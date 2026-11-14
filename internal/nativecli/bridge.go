@@ -68,6 +68,12 @@ type bridge struct {
 	repeatNotice     bool
 	activityAt       time.Time
 	now              func() time.Time
+	// toolSeen records that the CLI requested or ran any tool, host or native,
+	// during this invocation. reportsEveryTool is set for adapters whose
+	// protocol shows every tool request before it runs, so only for them does
+	// an unset toolSeen prove that none ran.
+	toolSeen         bool
+	reportsEveryTool bool
 }
 
 // activityInterval bounds metadata-only activity signals; the first one in an
@@ -233,6 +239,20 @@ func (b *bridge) notice(kind, detail string) error {
 	return b.emitLocked("native_notice", map[string]any{"kind": kind, "detail": detail})
 }
 
+// noteTool records a tool request the adapter saw but emits no event for.
+func (b *bridge) noteTool() {
+	b.mu.Lock()
+	b.toolSeen = true
+	b.mu.Unlock()
+}
+
+// toolFree reports whether this invocation provably requested no tool.
+func (b *bridge) toolFree() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.reportsEveryTool && !b.toolSeen
+}
+
 func (b *bridge) emit(kind string, data map[string]any) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -240,6 +260,9 @@ func (b *bridge) emit(kind string, data map[string]any) error {
 }
 
 func (b *bridge) emitLocked(kind string, data map[string]any) error {
+	if kind == "tool_started" || kind == "tool_finished" || kind == "native_action" {
+		b.toolSeen = true
+	}
 	if b.err != nil {
 		return b.err
 	}

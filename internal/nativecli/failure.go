@@ -34,6 +34,10 @@ const (
 type Failure struct {
 	Kind   FailureKind
 	Reason string
+	// ToolFree is set only by an adapter whose protocol shows every tool request
+	// before it runs, for a failure the CLI reported itself after a turn in
+	// which it requested none. Replaying that invocation cannot repeat an effect.
+	ToolFree bool
 	// confirmed marks a failure read from explicit protocol error fields rather
 	// than inferred from stdio that a cancellation may have truncated.
 	confirmed bool
@@ -52,6 +56,57 @@ func FailureKindOf(err error) FailureKind {
 
 func newFailure(kind FailureKind, format string, args ...any) error {
 	return &Failure{Kind: kind, Reason: fmt.Sprintf(format, args...)}
+}
+
+// ToolFree reports whether err proves that the native CLI ended its turn on a
+// failure it reported itself, before requesting any tool. Every leaf of a
+// joined error must carry that proof: a cancellation, an unverified process or
+// an untyped error next to it leaves the outcome unproven.
+func ToolFree(err error) bool {
+	proven := false
+	var walk func(error) bool
+	walk = func(current error) bool {
+		if current == nil {
+			return false
+		}
+		if joined, ok := current.(interface{ Unwrap() []error }); ok {
+			leaves := joined.Unwrap()
+			if len(leaves) == 0 {
+				return false
+			}
+			for _, leaf := range leaves {
+				if !walk(leaf) {
+					return false
+				}
+			}
+			return true
+		}
+		if failure, ok := current.(*Failure); ok {
+			if !failure.ToolFree {
+				return false
+			}
+			proven = true
+			return true
+		}
+		if wrapped := errors.Unwrap(current); wrapped != nil {
+			return walk(wrapped)
+		}
+		return false
+	}
+	return walk(err) && proven
+}
+
+// toolFreeFailure marks the terminal failure of an invocation whose adapter saw
+// no tool request. Only a failure the CLI reported itself qualifies; anything
+// inferred from stdio, or joined with other evidence, is returned unchanged.
+func toolFreeFailure(err error) error {
+	failure, ok := err.(*Failure)
+	if !ok || !failure.confirmed {
+		return err
+	}
+	marked := *failure
+	marked.ToolFree = true
+	return &marked
 }
 
 // structuredFailureKind maps an exact or namespace-suffixed protocol code to a
@@ -74,7 +129,7 @@ func structuredFailureKind(code string) (kind FailureKind, broad bool) {
 			return FailureContextOverflow, false
 		case "authentication_error", "authentication_failed", "unauthenticated", "unauthorized", "invalid_api_key", "login_required", "401", "403":
 			return FailureAuthentication, false
-		case "rate_limited", "rate_limit_exceeded", "quota_exceeded", "insufficient_quota", "usage_limit", "429":
+		case "rate_limited", "rate_limit", "rate_limit_exceeded", "quota_exceeded", "insufficient_quota", "usage_limit", "billing_error", "429":
 			return FailureQuota, false
 		case "network_error", "connection_error":
 			return FailureNetwork, false
@@ -136,6 +191,49 @@ func classifiedNativeFailure(terminalReason, subtype, detail string) error {
 	return confirmedFailure(kind, "native CLI did not confirm success (result=%s, category=%s); %s", safeToken(subtype), category, guidance)
 }
 
+// classifiedEndpointFailure classifies a turn the CLI ended on a provider error
+// from the structured facts it reports: the HTTP status of the failed request
+// and the CLI's own error category. Those outrank the error text, which is
+// consulted only when neither is decisive. A known status is named in the
+// reason so the cause is visible without echoing CLI output.
+func classifiedEndpointFailure(terminalReason, subtype string, status int, errorCategory, detail string) error {
+	kind, category, guidance := endpointFailure(terminalReason, subtype, status, errorCategory, detail)
+	if status > 0 {
+		return confirmedFailure(kind, "native CLI did not confirm success (result=%s, status=%d, category=%s); %s", safeToken(subtype), status, category, guidance)
+	}
+	return confirmedFailure(kind, "native CLI did not confirm success (result=%s, category=%s); %s", safeToken(subtype), category, guidance)
+}
+
+func endpointFailure(terminalReason, subtype string, status int, errorCategory, detail string) (FailureKind, string, string) {
+	if kind := statusFailureKind(status); kind != "" {
+		return kind, categoryFor(kind), guidanceFor(kind)
+	}
+	if kind, broad := structuredFailureKind(errorCategory); kind != "" {
+		if broad && explicitOverflowDetail(detail) {
+			kind = FailureContextOverflow
+		}
+		return kind, categoryFor(kind), guidanceFor(kind)
+	}
+	return classifyFailure(terminalReason, subtype, detail)
+}
+
+// statusFailureKind maps the HTTP status of a failed provider request. Statuses
+// that do not identify a cause on their own, such as 400 or 404, stay open.
+func statusFailureKind(status int) FailureKind {
+	switch {
+	case status == 401 || status == 403:
+		return FailureAuthentication
+	case status == 429:
+		return FailureQuota
+	case status == 408:
+		return FailureNetwork
+	case status >= 500 && status <= 599:
+		return FailureProviderTransient
+	default:
+		return ""
+	}
+}
+
 func confirmedFailure(kind FailureKind, format string, args ...any) error {
 	return &Failure{Kind: kind, Reason: fmt.Sprintf(format, args...), confirmed: true}
 }
@@ -163,6 +261,10 @@ func classifyFailure(terminalReason, subtype, detail string) (FailureKind, strin
 	}
 	lower := strings.ToLower(detail)
 	switch {
+	// A CLI's own diagnosis of a cut or malformed response comes first: its
+	// byte and timing counts would otherwise be read as HTTP status codes.
+	case containsAny(lower, "empty or malformed response", "stream_truncated", "streamtruncated", "stream ended unexpectedly", "premature close"):
+		return FailureNetwork, "incomplete_response", "the configured endpoint returned an incomplete or malformed response, often a proxy or gateway cutting the stream; the workflow may retry safe steps"
 	case containsAny(lower, "openai-compatible upstream", "use /v1/chat/completions or /v1/responses", "unsupported api protocol"):
 		return FailureProtocol, "protocol_mismatch", guidanceFor(FailureProtocol)
 	case containsAny(lower, "authentication", "authenticate", "unauthorized", "not authorized", "invalid api key", "api key", "credential", "oauth", "log in", "login", "401", "403"):
@@ -177,7 +279,7 @@ func classifyFailure(terminalReason, subtype, detail string) (FailureKind, strin
 		return FailureToolUnavailable, "tool_unavailable", guidanceFor(FailureToolUnavailable)
 	case containsAny(lower, "model", "404", "not found"):
 		return FailureModelUnavailable, "model_unavailable", guidanceFor(FailureModelUnavailable)
-	case containsAny(lower, "network", "connect", "timeout", "fetch", "dns", "tls"):
+	case containsAny(lower, "network", "connect", "timeout", "timed out", "fetch", "dns", "tls", "econnreset", "etimedout", "enotfound", "eai_again", "socket hang up"):
 		return FailureNetwork, "connection", guidanceFor(FailureNetwork)
 	}
 	return FailureUnknown, "execution", "check the CLI locally"
@@ -207,7 +309,7 @@ func guidanceFor(kind FailureKind) string {
 	case FailureNetwork:
 		return "the CLI could not reach its configured endpoint; check local network and connection settings"
 	case FailureProviderTransient:
-		return "the provider reported a temporary outage or rate limit; the workflow may retry safe read-only steps"
+		return "the provider reported a temporary outage or rate limit; the workflow retries steps it can prove safe to replay"
 	case FailureHostInputLimit:
 		return "reduce the required host input or retrieve evidence by exact reference"
 	case FailureFirstResponseTimeout:

@@ -177,6 +177,54 @@ test("composer hint button renders 24×24 with a transparent background", async 
   await expect(page.getByLabel("输入问题")).toHaveValue("");
 });
 
+test("long composer text never runs under the hint button", async ({ page }) => {
+  const headers = await signIn(page);
+  const workspace = await seedTasks(page, headers);
+  await page.goto(`${baseURL}/w/${workspace.id}`);
+
+  const hint = page.getByRole("button", {
+    name: "输入提示：/ 选择协作模式，@ 指定成员",
+  });
+  const input = page.getByLabel("输入问题");
+  await expect(hint).toBeVisible();
+  await expect(input).toBeVisible();
+
+  // One unbroken token has no wrap opportunity of its own, so without a right
+  // inset the line necessarily runs to the edge of the text box and under the
+  // absolutely positioned hint button.
+  await input.fill("长文本".repeat(80));
+
+  const measure = () =>
+    input.evaluate((node) => {
+      const textarea = node as HTMLTextAreaElement;
+      const style = getComputedStyle(textarea);
+      const inputRect = textarea.getBoundingClientRect();
+      const hintRect = textarea.parentElement!
+        .querySelector("button")!
+        .getBoundingClientRect();
+      const paddingRight = parseFloat(style.paddingRight);
+      return {
+        paddingRight,
+        // The farthest right edge any glyph may paint, in viewport coordinates.
+        contentRight: inputRect.left + textarea.clientWidth - paddingRight,
+        hintLeft: hintRect.left,
+        height: inputRect.height,
+      };
+    });
+
+  const desktop = await measure();
+  expect(desktop.paddingRight).toBeGreaterThanOrEqual(28);
+  expect(desktop.contentRight).toBeLessThanOrEqual(desktop.hintLeft - 4);
+  // The long draft still expands the textarea instead of being clipped.
+  expect(desktop.height).toBeGreaterThan(60);
+
+  // The reserved inset survives the compact layout too.
+  await page.setViewportSize({ width: 360, height: 780 });
+  const mobile = await measure();
+  expect(mobile.paddingRight).toBeGreaterThanOrEqual(28);
+  expect(mobile.contentRight).toBeLessThanOrEqual(mobile.hintLeft - 4);
+});
+
 test("the permission queue notice is exactly as wide as the composer notice", async ({
   page,
 }) => {

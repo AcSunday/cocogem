@@ -678,9 +678,6 @@
 .composer-input-wrap {
   position: relative;
 }
-.composer-input-wrap .composer-input {
-  padding-right: 28px;
-}
 .composer .composer-hint {
   position: absolute;
   top: 0;
@@ -761,14 +758,18 @@
   border-color: var(--border-strong);
 }
 /* Two classes outrank the global `textarea` / `textarea:focus` element rules
- * in every load order, so no !important is needed here. */
+ * in every load order, so no !important is needed here. The right inset must
+ * live in this same rule: the hint button floats over the input's top-right
+ * corner, and a separate `.composer-input-wrap .composer-input` override ties
+ * on specificity before losing to this `padding` shorthand. */
 .composer .composer-input {
   display: block;
   width: 100%;
   min-height: 52px;
   max-height: 40dvh;
   margin: 4px 0 6px;
-  padding: 4px 0;
+  /* 24px icon + 8px breathing room, so long unwrapped text never touches it. */
+  padding: 4px 32px 4px 0;
   border: none;
   outline: none;
   box-shadow: none;

@@ -151,9 +151,14 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 		}
 		runID := w.NewID()
 		var steps []w.Step
+		planningRetry := false
 		if stepID == "" {
 			steps, err = Plan(runID, input, agents)
 		} else {
+			planningRetry, err = retriesPlanningStep(tx, current, stepID)
+			if err != nil {
+				return err
+			}
 			attempts, readErr := tx.Attempts(current.ID)
 			if readErr != nil {
 				return readErr
@@ -181,27 +186,31 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 			issueID = current.ID
 		}
 		run := w.Run{
-			ID:                    runID,
-			WorkspaceID:           workspace.ID,
-			Workspace:             workspace,
-			ThreadID:              thread.ID,
-			Input:                 input,
-			Routing:               current.Routing,
-			RetryOfStepID:         stepID,
-			Status:                "queued",
-			CreatedAt:             w.Now(),
-			CoordinatorID:         coordinatorID,
-			SkillVersions:         map[string]string{},
-			TaskID:                current.TaskID,
-			TaskIntake:            current.TaskIntake && current.TaskID == "",
-			TaskRevision:          current.TaskRevision,
-			PolicyVersion:         current.PolicyVersion,
-			BudgetAccountID:       current.BudgetAccountID,
-			GrantSnapshot:         current.GrantSnapshot,
-			InputDigest:           current.InputDigest,
-			ContinuedFromRun:      current.ID,
-			BudgetIssueID:         issueID,
-			AutomaticContinuation: current.TaskID != "",
+			ID:               runID,
+			WorkspaceID:      workspace.ID,
+			Workspace:        workspace,
+			ThreadID:         thread.ID,
+			Input:            input,
+			Routing:          current.Routing,
+			RetryOfStepID:    stepID,
+			Status:           "queued",
+			CreatedAt:        w.Now(),
+			CoordinatorID:    coordinatorID,
+			SkillVersions:    map[string]string{},
+			TaskID:           current.TaskID,
+			TaskIntake:       current.TaskIntake && current.TaskID == "",
+			TaskRevision:     current.TaskRevision,
+			PolicyVersion:    current.PolicyVersion,
+			BudgetAccountID:  current.BudgetAccountID,
+			GrantSnapshot:    current.GrantSnapshot,
+			InputDigest:      current.InputDigest,
+			ContinuedFromRun: current.ID,
+			BudgetIssueID:    issueID,
+			// The user asked for this retry. It keeps the task revision and the
+			// root budget account, but it is not an automatic continuation: the
+			// continuation, repair-round and no-progress limits bound only what
+			// the host starts by itself.
+			AutomaticContinuation: false,
 			WriteBranch:           current.WriteBranch,
 			Delivery:              &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}},
 			ExecutionPolicy: &w.ExecutionPolicy{
@@ -213,8 +222,13 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 			},
 		}
 		if stepID != "" {
-			run.Routing.Decision = "assign"
 			run.Routing.Explanation = "重试指定失败成员，保留已完成的工作"
+			// Only the coordinator's own planning step keeps the routing that
+			// lets it choose a method; every other retried member is assigned.
+			run.Routing.Decision = "assign"
+			if planningRetry {
+				run.Routing.Decision = "discuss"
+			}
 		}
 		if err := tx.ReserveTaskRun(&run); err != nil {
 			return err
@@ -243,7 +257,10 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 				thread.AgentIDs = append(thread.AgentIDs, member.ID)
 			}
 		}
-		if stepID == "" && (input.Workflow == "free" || input.Workflow == "") {
+		// A free run reaches teammates through handoffs, so its retry needs the
+		// conversation roster a new submission would get. A built-in workflow
+		// keeps the members of its accepted plan.
+		if input.Workflow == "free" || input.Workflow == "" {
 			for _, member := range agents {
 				if !member.Disabled && slices.Contains(thread.AgentIDs, member.ID) && !slices.ContainsFunc(run.Agents, func(agent w.Agent) bool { return agent.ID == member.ID }) {
 					run.Agents = append(run.Agents, member)
