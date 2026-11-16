@@ -25,6 +25,7 @@ type nativeSandbox struct {
 	profiles     string
 	writeRoots   []string
 	readRoots    []string
+	readOnlyDirs []string
 	proxyURL     string
 	proxyAddr    string
 	caPath       string
@@ -101,6 +102,24 @@ func (s *nativeSandbox) addRoots(roots ...string) {
 		if resolved := resolvePhysicalPath(absolute); resolved != absolute {
 			s.writeRoots = appendUnique(s.writeRoots, resolved)
 		}
+	}
+}
+
+// addReadOnlyRoot keeps one subtree readable but not writable. Uploaded
+// attachments live in a read-only exchange area, so a native command can inspect
+// an original but can never tamper with it, and the deny rule is emitted last so
+// it overrides the task directory's write allow.
+func (s *nativeSandbox) addReadOnlyRoot(root string) {
+	if s == nil || root == "" {
+		return
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return
+	}
+	s.readOnlyDirs = appendUnique(s.readOnlyDirs, absolute)
+	if resolved := resolvePhysicalPath(absolute); resolved != absolute {
+		s.readOnlyDirs = appendUnique(s.readOnlyDirs, resolved)
 	}
 }
 
@@ -194,6 +213,9 @@ func (s *nativeSandbox) profile(name string, approvedRead, approvedWrite []strin
 		// for effects: the command may still read normal project files, but it
 		// cannot write through any path the host could not classify.
 		rules.WriteString("(deny file-write* (subpath \"/\"))\n")
+	}
+	for _, path := range s.readOnlyDirs {
+		fmt.Fprintf(&rules, "(deny file-write* (literal %s) (subpath %s))\n", seatbeltQuote(path), seatbeltQuote(path))
 	}
 	for _, path := range s.denyPaths {
 		if !filepath.IsAbs(path) {

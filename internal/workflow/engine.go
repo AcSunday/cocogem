@@ -73,6 +73,11 @@ func (e *Engine) Start(ctx context.Context) error {
 		}
 		e.Owner = owner
 	}
+	// Orphaned candidate directories from a crash are reclaimed before any new
+	// work derives another one.
+	if err := e.PruneExecutions(ctx); err != nil {
+		return err
+	}
 	if err := e.recoverActive(ctx); err != nil {
 		return err
 	}

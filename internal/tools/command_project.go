@@ -67,7 +67,34 @@ func executeProjectCommand(ctx context.Context, raw json.RawMessage, scope Scope
 	if resolved, err := filepath.EvalSymlinks(temp); err == nil {
 		temp = resolved
 	}
-	spec := sandboxSpec{Root: absWork, Temp: temp, Toolchain: toolchainSpec{Command: in.Argv, Display: strings.Join(in.Argv, " "), Env: commandEnv(temp)}}
+	env := commandEnv(temp)
+	// The exchange area is orthogonal to the code root: inputs are readable,
+	// outputs are writable, and both absolute paths are exported so a command
+	// never resolves an attachment relative to the candidate tree.
+	// Seatbelt matches real paths, so a /var -> /private/var exchange directory
+	// must be resolved for both the sandbox rule and the exported variable.
+	ioInputs, ioOutputs := "", ""
+	if scope.IOInputs != "" {
+		if resolved, err := filepath.EvalSymlinks(scope.IOInputs); err == nil {
+			ioInputs = resolved
+			env = append(env, "COCOGEM_IO_INPUTS="+resolved)
+		}
+	}
+	if scope.IOOutputs != "" {
+		if resolved, err := filepath.EvalSymlinks(scope.IOOutputs); err == nil {
+			ioOutputs = resolved
+			env = append(env, "COCOGEM_IO_OUTPUTS="+resolved)
+		}
+	}
+	spec := sandboxSpec{Root: absWork, Temp: temp, Toolchain: toolchainSpec{Command: in.Argv, Display: strings.Join(in.Argv, " "), Env: env}}
+	// Attachment inputs are read-only; collected deliverables are a separate
+	// writable root. Neither one widens the code root.
+	if ioInputs != "" {
+		spec.ExtraReads = append(spec.ExtraReads, ioInputs)
+	}
+	if ioOutputs != "" {
+		spec.ExtraWrites = append(spec.ExtraWrites, ioOutputs)
+	}
 	for _, approved := range scope.ApprovedRoots {
 		// An approved outside write target widens exactly that root, resolved to
 		// its real path like every other sandbox path.

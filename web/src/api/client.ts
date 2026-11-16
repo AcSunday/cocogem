@@ -54,6 +54,14 @@ export type PermissionRequestList =
 export type ConversationGrant = components["schemas"]["ConversationGrant"];
 export type ConversationGrantList =
   components["schemas"]["ConversationGrantList"];
+export type WorkspaceExecution = components["schemas"]["WorkspaceExecution"];
+export type CandidateVerification =
+  components["schemas"]["CandidateVerification"];
+/** One unapplied candidate directory and its settlement verdict. */
+export type CandidateView = {
+  execution: WorkspaceExecution;
+  verification: CandidateVerification;
+};
 
 /** The browser keeps a bounded activity window; older history is paged on demand. */
 export const EVENT_WINDOW = 500;
@@ -493,6 +501,44 @@ export async function revokePermissionGrant(
 ): Promise<ConversationGrant> {
   return api<ConversationGrant>(
     `/api/v1/permission-grants/${encodeURIComponent(grantID)}/revoke`,
+    "POST",
+    {},
+  );
+}
+
+/** Unapplied candidate directories of one conversation and their verdicts. */
+export async function threadCandidates(
+  threadID: string,
+): Promise<CandidateView[]> {
+  const page = await api<{ items?: CandidateView[] | null }>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/candidates`,
+  );
+  return page.items ?? [];
+}
+
+/**
+ * Writes one candidate back to the bound project. The server refuses with 409
+ * when a project file changed after the candidate was derived; the caller
+ * shows the exact conflict instead of retrying blindly.
+ */
+export function applyCandidate(
+  threadID: string,
+  executionID: string,
+): Promise<WorkspaceExecution> {
+  return api<WorkspaceExecution>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/candidates/${encodeURIComponent(executionID)}/apply`,
+    "POST",
+    {},
+  );
+}
+
+/** Destroys one candidate without touching the bound project. */
+export function discardCandidate(
+  threadID: string,
+  executionID: string,
+): Promise<WorkspaceExecution> {
+  return api<WorkspaceExecution>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/candidates/${encodeURIComponent(executionID)}/discard`,
     "POST",
     {},
   );

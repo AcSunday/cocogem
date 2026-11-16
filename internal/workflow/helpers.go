@@ -1,21 +1,35 @@
 package workflow
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
+// shortTaskResult bounds a committed body for an inline preview. It keeps both
+// the head and the tail: a conclusion, acceptance condition or counterexample
+// usually sits at the end, so a head-only cut would silently lose it. The
+// omitted middle names the exact tool that pages the full bytes.
 func shortTaskResult(value string) string {
-	if len(value) > 6000 {
-		end := 6000
-		for end > 0 && !utf8.RuneStart(value[end]) {
-			end--
-		}
-		return value[:end] + "\n[truncated; reference IDs and exact sources remain available]"
+	const limit = 6000
+	if len(value) <= limit {
+		return value
 	}
-	return value
+	head := limit * 2 / 5
+	tail := limit - head
+	for head > 0 && !utf8.RuneStart(value[head]) {
+		head--
+	}
+	start := len(value) - tail
+	for start < len(value) && !utf8.RuneStart(value[start]) {
+		start++
+	}
+	omitted := len(value) - head - (len(value) - start)
+	return value[:head] +
+		fmt.Sprintf("\n[...省略 %d 字节，中间部分不是已读证据；请用 read_context（消息/产物版本）或 read_source（捕获来源）翻阅原件...]\n", omitted) +
+		value[start:]
 }
 
 func shortPointer(value string) string {

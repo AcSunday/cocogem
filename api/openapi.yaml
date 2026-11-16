@@ -1448,6 +1448,208 @@
         ],
         "type": "object"
       },
+      "CandidateList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "execution": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "base_files": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "base_revision": {
+                      "type": "string"
+                    },
+                    "base_tree_digest": {
+                      "type": "string"
+                    },
+                    "canonical_root": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "lease_epoch": {
+                      "type": "integer"
+                    },
+                    "lease_expires_at": {
+                      "type": "string"
+                    },
+                    "lease_owner": {
+                      "type": "string"
+                    },
+                    "observation_completeness": {
+                      "type": "string"
+                    },
+                    "owner_member_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "task_id": {
+                      "type": "string"
+                    },
+                    "thread_id": {
+                      "type": "string"
+                    },
+                    "tree_digest": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    },
+                    "workspace_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "workspace_id",
+                    "thread_id",
+                    "kind",
+                    "path",
+                    "canonical_root",
+                    "base_revision",
+                    "tree_digest",
+                    "owner_member_id",
+                    "lease_owner",
+                    "lease_epoch",
+                    "lease_expires_at",
+                    "status",
+                    "observation_completeness",
+                    "created_at",
+                    "updated_at"
+                  ],
+                  "type": "object"
+                },
+                "verification": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "changed_paths": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "diff_source_ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "test_source_ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "tree_digest": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "execution",
+                "verification"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "CandidateVerification": {
+        "additionalProperties": false,
+        "properties": {
+          "changed_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "diff_source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "test_source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tree_digest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
       "Claim": {
         "additionalProperties": false,
         "properties": {
@@ -4580,16 +4782,22 @@
           "task_id": {
             "type": "string"
           },
+          "thread_id": {
+            "type": "string"
+          },
           "updated_at": {
             "type": "string"
           },
           "visibility_epoch": {
             "type": "integer"
+          },
+          "work_root": {
+            "type": "string"
           }
         },
         "required": [
           "id",
-          "task_id",
+          "thread_id",
           "member_id",
           "role",
           "execution_branch",
@@ -14571,7 +14779,19 @@
       "WorkspaceExecution": {
         "additionalProperties": false,
         "properties": {
+          "base_files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "base_revision": {
+            "type": "string"
+          },
+          "base_tree_digest": {
             "type": "string"
           },
           "canonical_root": {
@@ -14610,6 +14830,9 @@
           "task_id": {
             "type": "string"
           },
+          "thread_id": {
+            "type": "string"
+          },
           "tree_digest": {
             "type": "string"
           },
@@ -14623,7 +14846,7 @@
         "required": [
           "id",
           "workspace_id",
-          "task_id",
+          "thread_id",
           "kind",
           "path",
           "canonical_root",
@@ -17616,6 +17839,169 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ArtifactList"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/threads/{id}/candidates": {
+      "get": {
+        "operationId": "threadCandidates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateList"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/threads/{id}/candidates/{executionID}/apply": {
+      "post": {
+        "operationId": "applyCandidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "executionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceExecution"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/threads/{id}/candidates/{executionID}/discard": {
+      "post": {
+        "operationId": "discardCandidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "executionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceExecution"
                 }
               }
             },

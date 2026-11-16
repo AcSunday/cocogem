@@ -12,72 +12,81 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-func TestCanonicalRootLeaseHandlesRootAndParentChildPaths(t *testing.T) {
-	tests := []struct {
-		name         string
-		existing     string
-		candidate    string
-		wantConflict bool
-	}{
-		{name: "root contains child", existing: "/", candidate: "/tmp/cocogem-lease-child", wantConflict: true},
-		{name: "child conflicts with new root", existing: "/tmp/cocogem-lease-child", candidate: "/", wantConflict: true},
-		{name: "root exact match", existing: "/", candidate: "/", wantConflict: true},
-		{name: "parent contains child", existing: "/tmp/cocogem-lease", candidate: "/tmp/cocogem-lease/child", wantConflict: true},
-		{name: "child conflicts with parent", existing: "/tmp/cocogem-lease/child", candidate: "/tmp/cocogem-lease", wantConflict: true},
-		{name: "path prefix is not a child", existing: "/tmp/cocogem-lease", candidate: "/tmp/cocogem-lease-other", wantConflict: false},
+func leaseFixture(t *testing.T) (*store.Store, string, w.Run) {
+	t.Helper()
+	db, root, run := executionFixture(t)
+	return db, root, run
+}
+
+// TestActiveCandidateIsUniquePerScopeAndRoot is the A02 regression: a plain
+// conversation and a durable task may each hold a candidate worktree on the
+// same bound project, while one owning scope never forks a second live
+// candidate for one root.
+func TestActiveCandidateIsUniquePerScopeAndRoot(t *testing.T) {
+	db, root, run := leaseFixture(t)
+	now := time.Now().UTC()
+	base := w.WorkspaceExecution{
+		WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, CanonicalRoot: root,
+		LeaseOwner: "one", LeaseEpoch: 1,
+		LeaseExpiresAt: now.Add(time.Hour).Format(time.RFC3339Nano), Status: "active",
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			db, _, run := executionFixture(t)
-			err := db.Write(t.Context(), func(tx *store.Tx) error {
-				now := time.Now().UTC()
-				existing := w.WorkspaceExecution{
-					ID: "existing", WorkspaceID: run.WorkspaceID, TaskID: run.TaskID,
-					CanonicalRoot: tt.existing, LeaseOwner: "one", LeaseEpoch: 1,
-					LeaseExpiresAt: now.Add(time.Hour).Format(time.RFC3339Nano), Status: "active",
-				}
-				if err := tx.AcquireExecution(existing); err != nil {
-					return err
-				}
-				candidate := existing
-				candidate.ID = "candidate"
-				candidate.CanonicalRoot = tt.candidate
-				candidate.LeaseOwner = "two"
-				return tx.AcquireExecution(candidate)
-			})
-			if tt.wantConflict && !errors.Is(err, w.ErrConflict) {
-				t.Fatalf("lease conflict = %v, want ErrConflict", err)
-			}
-			if !tt.wantConflict && err != nil {
-				t.Fatalf("independent roots conflicted: %v", err)
-			}
-		})
+	err := db.Write(t.Context(), func(tx *store.Tx) error {
+		taskScoped := base
+		taskScoped.ID, taskScoped.TaskID = "task-scoped", run.TaskID
+		if err := tx.AcquireExecution(taskScoped); err != nil {
+			return err
+		}
+		threadScoped := base
+		threadScoped.ID = "thread-scoped"
+		if err := tx.AcquireExecution(threadScoped); err != nil {
+			t.Fatalf("thread-scoped candidate rejected: %v", err)
+		}
+		taskDuplicate := taskScoped
+		taskDuplicate.ID = "task-duplicate"
+		if err := tx.AcquireExecution(taskDuplicate); !errors.Is(err, w.ErrConflict) {
+			t.Fatalf("same-task candidate conflict = %v, want ErrConflict", err)
+		}
+		threadDuplicate := threadScoped
+		threadDuplicate.ID = "thread-duplicate"
+		if err := tx.AcquireExecution(threadDuplicate); !errors.Is(err, w.ErrConflict) {
+			t.Fatalf("same-thread candidate conflict = %v, want ErrConflict", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestPrepareRejectsChangedRootForActiveTask(t *testing.T) {
-	db, root, run := executionFixture(t)
+// TestPrepareRejectsASecondLiveCandidateForOneScope keeps the lease rule that a
+// scope cannot silently take over an unverified owner, and that the same owner
+// continues the existing candidate instead of forking a new one.
+func TestPrepareRejectsASecondLiveCandidateForOneScope(t *testing.T) {
+	db, root, run := leaseFixture(t)
 	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
-	if _, err := manager.Prepare(t.Context(), run); err != nil {
+	first, err := manager.Prepare(t.Context(), run)
+	if err != nil {
 		t.Fatal(err)
 	}
-	otherRoot := filepath.Join(t.TempDir(), "other-source")
-	if err := os.Mkdir(otherRoot, 0700); err != nil {
+	// A different process owner observes the live candidate as unverified.
+	other := New(db, filepath.Join(t.TempDir(), "executions"), "other-owner")
+	if _, err := other.Prepare(t.Context(), run); !errors.Is(err, w.ErrConflict) || !strings.Contains(err.Error(), "quarantine") {
+		t.Fatalf("second live candidate = %v", err)
+	}
+	again, err := manager.Prepare(t.Context(), run)
+	if err != nil {
 		t.Fatal(err)
 	}
-	changed := run
-	changed.ID = "changed-root-run"
-	changed.Workspace.Root = otherRoot
-	if root == otherRoot {
-		t.Fatal("test roots must differ")
+	if again.ID != first.ID || again.Path != first.Path {
+		t.Fatalf("continuity broke: first=%s/%s again=%s/%s", first.ID, first.Path, again.ID, again.Path)
 	}
-	if _, err := manager.Prepare(t.Context(), changed); !errors.Is(err, w.ErrConflict) || !strings.Contains(err.Error(), "another source root") {
-		t.Fatalf("changed source root was not rejected: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "main.txt")); err != nil {
+		t.Fatalf("source file disappeared: %v", err)
 	}
 }
 
 func TestFileCopyRejectsSourceMutation(t *testing.T) {
-	db, root, run := executionFixture(t)
+	db, root, run := leaseFixture(t)
 	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
 	canonicalRoot, err := canonical(root)
 	if err != nil {
@@ -115,7 +124,7 @@ func TestFileCopyRejectsSourceMutation(t *testing.T) {
 }
 
 func TestFinishDigestFailureMarksUncertainOutsideTransaction(t *testing.T) {
-	db, _, run := executionFixture(t)
+	db, _, run := leaseFixture(t)
 	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
 	candidate, err := manager.Prepare(t.Context(), run)
 	if err != nil {
@@ -151,7 +160,7 @@ func TestFinishDigestFailureMarksUncertainOutsideTransaction(t *testing.T) {
 }
 
 func TestHeartbeatStopsAndRejectsStaleEpoch(t *testing.T) {
-	db, _, run := executionFixture(t)
+	db, _, run := leaseFixture(t)
 	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
 	manager.heartbeatInterval = 5 * time.Millisecond
 	candidate, err := manager.Prepare(t.Context(), run)

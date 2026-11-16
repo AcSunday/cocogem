@@ -59,9 +59,11 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 		thread.DeletedAt = now.Format(time.RFC3339Nano)
 		thread.PurgeAt = now.AddDate(0, 0, w.EffectiveRetentionDays(settings.RetentionDays)).Format(time.RFC3339Nano)
 		thread.Revision++
-		// Moving a conversation to the trash ends its execution authorization:
-		// conversation grants are revoked and pending requests are canceled so a
-		// restore never revives authority the user did not re-approve.
+		// Moving a conversation to the trash ends its execution authorization but
+		// keeps unapplied candidate worktrees and the IO area frozen on disk, so a
+		// restore preserves the user's unfinished code without re-granting
+		// authority: conversation grants are revoked and pending requests are
+		// canceled, and only a permanent delete/purge reclaims the directories.
 		if err := tx.RevokeConversationGrantsForThread(id, now.Format(time.RFC3339Nano)); err != nil {
 			return err
 		}
@@ -140,9 +142,42 @@ func (s *Server) permanentDeleteThread(rw http.ResponseWriter, r *http.Request) 
 		}
 		return tx.DeleteThread(id)
 	})
-	if err == nil {
+	if err == nil && s.engine != nil {
+		// Permanent deletion reclaims the candidate worktrees and the IO area;
+		// a soft delete keeps them so a restore preserves unapplied work.
+		if roots := s.threadRoots(r, id); len(roots) > 0 {
+			if releaseErr := s.engine.ReleaseThreadExecutions(context.WithoutCancel(r.Context()), id, roots); releaseErr != nil {
+				slog.Error("release thread executions failed", "thread", id, "error", releaseErr)
+			}
+		}
 	}
 	respond(rw, r, DeleteReply{ID: id}, err)
+}
+
+// threadRoots reads the distinct bound project roots of one conversation,
+// including the soft-deleted row itself.
+func (s *Server) threadRoots(r *http.Request, threadID string) []string {
+	roots := []string{}
+	if err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+		thread, err := tx.ThreadAny(threadID)
+		if err != nil {
+			return err
+		}
+		if thread.WorkspaceID == "" {
+			return nil
+		}
+		workspace, err := tx.Workspace(thread.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if workspace.Root != "" {
+			roots = append(roots, workspace.Root)
+		}
+		return nil
+	}); err != nil {
+		return nil
+	}
+	return roots
 }
 
 // PurgeExpiredThreads performs the retention cleanup in one bounded write. It
@@ -227,9 +262,42 @@ func (s *Server) PurgeExpiredThreads(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if len(purged) > 0 {
+	if len(purged) > 0 && s.engine != nil {
+		// Retention purge is a permanent removal: reclaim candidate worktrees and
+		// IO areas so nothing survives on disk or as zombie worktree metadata.
+		for _, id := range purged {
+			roots := s.rootsFor(ctx, id)
+			if err := s.engine.ReleaseThreadExecutions(ctx, id, roots); err != nil {
+				slog.Error("release purged thread executions failed", "thread", id, "error", err)
+			}
+		}
 	}
 	return len(purged), nil
+}
+
+// rootsFor resolves a conversation's bound project root without an HTTP request.
+func (s *Server) rootsFor(ctx context.Context, threadID string) []string {
+	roots := []string{}
+	if err := s.store.Read(ctx, func(tx *store.Tx) error {
+		thread, err := tx.ThreadAny(threadID)
+		if err != nil {
+			return err
+		}
+		if thread.WorkspaceID == "" {
+			return nil
+		}
+		workspace, err := tx.Workspace(thread.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if workspace.Root != "" {
+			roots = append(roots, workspace.Root)
+		}
+		return nil
+	}); err != nil {
+		return nil
+	}
+	return roots
 }
 
 // StartMaintenance runs startup cleanup and a low-frequency bounded ticker.

@@ -512,8 +512,11 @@ type sandboxSpec struct {
 	Temp      string
 	Toolchain toolchainSpec
 	// ExtraWrites are exact approved outside roots a project-autonomous command
-	// may write. Test execution never sets them.
+	// may write, plus this scope's IO outputs directory.
 	ExtraWrites []string
+	// ExtraReads are exact outside roots a command may read but never write,
+	// such as this scope's read-only attachment inputs.
+	ExtraReads []string
 }
 
 type sandboxPlan struct {

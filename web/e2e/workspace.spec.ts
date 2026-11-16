@@ -486,17 +486,25 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(
     page.getByRole("combobox", { name: "协调者", exact: true }),
   ).toHaveText(/布偶猫/);
+  const threadSaved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/threads"),
+  );
   await page.getByRole("button", { name: "保存会话" }).click();
-  const twoMemberURL = page.url();
-  const twoMemberThread = await (
-    await page.request.get(
-      `/api/v1/threads/${new URL(twoMemberURL).pathname.split("/t/")[1]}`,
-    )
-  ).json();
+  // The created conversation is the save response itself; the address bar can
+  // still point at the previous conversation for a frame after the dialog
+  // closes, so it is not a reliable source for the chosen roster.
+  const savedThread = (await (await threadSaved).json()) as Thread;
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   // The saved conversation keeps exactly the members chosen in the form; the
   // later run roster must match it and never invite an unselected member.
-  const chosenMemberCount = twoMemberThread.thread.agent_ids.length;
+  const chosenMemberCount = savedThread.agent_ids.length;
   expect(chosenMemberCount).toBeGreaterThanOrEqual(1);
+  // The unchecked member is exactly the one whose handle is orange.
+  expect(savedThread.agent_ids).toHaveLength(chosenMemberCount);
+  await expect(page).toHaveURL(new RegExp(`/t/${savedThread.id}$`));
+  const twoMemberURL = page.url();
   await page.reload();
   await page.getByLabel("输入问题").fill("独立讨论协作工作空间的优缺点。");
   const accepted = page.waitForResponse(
@@ -507,6 +515,20 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByRole("button", { name: "发送", exact: true }).click();
   const discussionRun = await (await accepted).json();
   expect(discussionRun.agents).toHaveLength(chosenMemberCount);
+  // Wait for this exact Run to reach a terminal state before snapshotting the
+  // baseline: the badge can still show the previous turn's "已完成" while the
+  // new reply is being written, which would freeze a "processing" message.
+  await expect
+    .poll(
+      async () => {
+        const detail = await (
+          await page.request.get(`/api/v1/runs/${discussionRun.id}`)
+        ).json();
+        return detail.run?.status ?? "";
+      },
+      { timeout: 30000 },
+    )
+    .toBe("succeeded");
   await expect(page.getByTestId("run-status")).toHaveText("已完成", {
     timeout: 20000,
   });

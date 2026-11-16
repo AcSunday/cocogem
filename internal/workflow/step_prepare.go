@@ -30,7 +30,30 @@ type stepPreparation struct {
 	retiredSession string
 	adapter        agent.AdapterInfo
 	connection     agent.ConnectionInfo
-	stopped        bool
+	// verifyDir is the independent reviewer sandbox derived before dispatch. It
+	// is destroyed after settlement and the author candidate must be unchanged.
+	verifyDir *w.WorkspaceExecution
+	workRoot  string
+	stopped   bool
+}
+
+// isIndependentReview reports whether this step must run in its own sandbox and
+// a fresh native session, never inside the author's candidate.
+func isIndependentReview(step w.Step) bool {
+	return step.Role == "reviewer" || step.Role == "critic"
+}
+
+// prepareReviewSandbox materializes the reviewer's isolated copy of the author's
+// exact candidate tree before any child process starts.
+func (e *Engine) prepareReviewSandbox(ctx context.Context, run w.Run, step w.Step) (*w.WorkspaceExecution, error) {
+	if e.Executions == nil || !isIndependentReview(step) || run.ExecutionRef == "" {
+		return nil, nil
+	}
+	verification, err := e.Executions.VerifyTree(ctx, run.ExecutionRef, step.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &verification, nil
 }
 
 func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step, history, all []w.Message, sourceSnapshot []w.Source) stepPreparation {
@@ -108,6 +131,12 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 				reason = "context_fresh"
 				recovery = "context_fresh"
 				retiredSession = latest.SessionID
+				// The overflowing native session is retired for good: sealing the
+				// Cocogem row keeps the next attempt from ever resuming it, and the
+				// continuation then gets the checkpoint capsule instead.
+				if err := sealExecutionSession(tx, latest.ExecutionSessionRef); err != nil {
+					return err
+				}
 			case latest.Status == "failed" && transientRetryableKind(latest.FailureKind):
 				reason = autoRetryReason
 				recovery = "new_attempt_after_transient_failure"
@@ -299,6 +328,23 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 		return stepPreparation{step: step, stopped: true}
 	}
 
+	// The reviewer's independent sandbox is materialized before the child process
+	// starts, so a review can never read the author's live tree.
+	verifyDir, sandboxErr := e.prepareReviewSandbox(ctx, run, step)
+	if sandboxErr != nil {
+		step.Status = "failed"
+		step.FailureKind = failureUnknown
+		step.Error = sandboxErr.Error()
+		if saveErr := e.saveStep(context.WithoutCancel(ctx), step, "step_finished"); saveErr != nil {
+			e.report(saveErr)
+		}
+		return stepPreparation{step: step, stopped: true}
+	}
+	// The step's working root defaults to the run's project or candidate root.
+	workRoot := run.ProjectRoot()
+	if verifyDir != nil {
+		workRoot = verifyDir.Path
+	}
 	return stepPreparation{
 		step:           step,
 		agent:          a,
@@ -314,5 +360,7 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 		retiredSession: retiredSession,
 		adapter:        adapter,
 		connection:     connection,
+		verifyDir:      verifyDir,
+		workRoot:       workRoot,
 	}
 }

@@ -10,7 +10,10 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-func TestRevocationRemovesOnlyManagedNativeSessionStorage(t *testing.T) {
+// TestRevocationSealsSessionsWithoutTouchingNativeDirectories is the A30
+// regression: revoking a member retires the Cocogem ledger rows so no --resume is
+// attempted, and never deletes a file from the CLI's own home directory.
+func TestRevocationSealsSessionsWithoutTouchingNativeDirectories(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -36,41 +39,52 @@ func TestRevocationRemovesOnlyManagedNativeSessionStorage(t *testing.T) {
 			return err
 		}
 		return tx.SaveSession(w.ExecutionSession{
-			ID: "revoked-managed-session", TaskID: run.TaskID, MemberID: run.Agents[0].ID,
+			ID: "revoked-managed-session", ThreadID: run.ThreadID, TaskID: run.TaskID, MemberID: run.Agents[0].ID,
 			Status: "active", Acknowledgement: "fresh_acknowledged", NativeSessionID: "native-id",
 			ExposedRefs: []string{"source_id:private:digest"}, CreatedAt: w.Now(), UpdatedAt: w.Now(),
 		})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
-	managed := filepath.Join(root, "revoked-managed-session", ".cocogem", "config")
-	if err := os.MkdirAll(managed, 0700); err != nil {
+	// A user-owned native CLI directory with a session file the host must never
+	// remove.
+	nativeHome := t.TempDir()
+	sessionFile := filepath.Join(nativeHome, "sessions", "native-id.json")
+	if err := os.MkdirAll(filepath.Dir(sessionFile), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(managed, "session.json"), []byte("managed private cache"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	external := filepath.Join(t.TempDir(), "terminal-history.json")
-	if err := os.WriteFile(external, []byte("not managed by Cocogem"), 0600); err != nil {
+	if err := os.WriteFile(sessionFile, []byte("user-owned native session"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	service := project.New(db)
 	if _, err := service.BeginRevocation(t.Context(), run.WorkspaceID, run.Agents[0].ID, "revoke-source"); err != nil {
 		t.Fatal(err)
 	}
-	engine := Engine{Store: db, NativeSessionRoot: root}
+	engine := Engine{Store: db}
 	if err := engine.reconcileRevocations(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "revoked-managed-session")); !os.IsNotExist(err) {
-		t.Fatalf("managed revoked cache still exists: %v", err)
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		session, err := tx.Session("revoked-managed-session")
+		if err != nil {
+			return err
+		}
+		if session.Status != "revoked" || session.NativeSessionID != "" || session.Acknowledgement != "revoked" {
+			t.Fatalf("revoked session was not sealed: %+v", session)
+		}
+		// A sealed session can never be reused by a new attempt.
+		if sessionReuseEligible(session, session.Fingerprint, session.VisibilityEpoch) {
+			t.Fatal("a revoked session is still resume-eligible")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
-	if content, err := os.ReadFile(external); err != nil || string(content) != "not managed by Cocogem" {
-		t.Fatalf("unmanaged terminal history was modified: %q, %v", content, err)
+	if content, err := os.ReadFile(sessionFile); err != nil || string(content) != "user-owned native session" {
+		t.Fatalf("the host modified the user's native CLI directory: %q %v", content, err)
 	}
 	grants, err := service.Grants(t.Context(), run.WorkspaceID)
 	if err != nil || len(grants) == 0 || grants[0].Status != "revoked" {
-		t.Fatalf("settled cache cleanup was not recorded: %+v, %v", grants, err)
+		t.Fatalf("revocation was not settled: %+v, %v", grants, err)
 	}
 }

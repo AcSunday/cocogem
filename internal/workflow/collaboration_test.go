@@ -860,15 +860,33 @@ func TestSubmitHandoffUnicodeLimitMatchesSchema(t *testing.T) {
 	submitCollaboration(t, e, run, sender, in)
 }
 
-func TestShortTaskResultPreservesUTF8(t *testing.T) {
+// TestShortTaskResultKeepsHeadAndTail is the A27 truncation regression: the
+// inline preview keeps the opening and, crucially, the closing conclusion
+// instead of losing a counterexample that sits at the end of a long body.
+func TestShortTaskResultKeepsHeadAndTail(t *testing.T) {
 	t.Parallel()
-	value := strings.Repeat("a", 5999) + "猫" + strings.Repeat("尾", 1000)
+	head := "开头结论：" + strings.Repeat("a", 4000)
+	tail := "尾部反证：单一来源不足以支持均价结论。"
+	value := head + strings.Repeat("中", 4000) + tail
 	got := shortTaskResult(value)
 	if !utf8.ValidString(got) {
 		t.Fatal("task result truncation cut a Unicode code point")
 	}
-	if len(got) >= len(value) || !strings.Contains(got, "truncated") {
-		t.Fatal("large result was not explicitly truncated")
+	if len(got) >= len(value) {
+		t.Fatal("large result was not truncated")
+	}
+	if !strings.HasPrefix(got, "开头结论：") {
+		t.Fatal("head was dropped from the preview")
+	}
+	if !strings.HasSuffix(got, tail) {
+		t.Fatalf("tail conclusion was dropped from the preview: %q", got[len(got)-40:])
+	}
+	if !strings.Contains(got, "省略") || !strings.Contains(got, "read_context") {
+		t.Fatalf("omitted middle was not explained: %q", got)
+	}
+	// A body under the limit is returned byte-for-byte.
+	if short := shortTaskResult("短文"); short != "短文" {
+		t.Fatalf("short body changed: %q", short)
 	}
 }
 

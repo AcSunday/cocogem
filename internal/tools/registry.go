@@ -111,6 +111,13 @@ type Scope struct {
 	// a mode that does not run commands autonomously. It runs under the project
 	// sandbox with writes limited to the project and any approved roots.
 	ApprovedCommand bool
+	// IOInputs is this scope's read-only attachment exchange directory
+	// ($COCOGEM_DATA_DIR/io/<scope>/inputs). It is an explicit sandbox allow, not
+	// part of the code root, so an uploaded attachment stays readable while the
+	// candidate diff stays clean.
+	IOInputs string
+	// IOOutputs is the writable deliverable directory of the same exchange area.
+	IOOutputs string
 }
 
 // Execute returns a JSON observation for a registered host operation. run_test

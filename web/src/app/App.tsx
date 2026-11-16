@@ -10,11 +10,15 @@ import {
   applyMessageDelta,
   eventHistory,
   uploadSource,
+  threadCandidates,
+  applyCandidate,
+  discardCandidate,
   EVENT_WINDOW,
   type Agent,
   type Artifact,
   type Attempt,
   type BootstrapReply,
+  type CandidateView,
   type Event,
   type Run,
   type RunInput,
@@ -32,6 +36,7 @@ import {
 import { AuthScreen } from "../components/AuthScreen";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
+import { CandidateBar } from "../components/CandidateBar";
 import { Composer, type ComposerAttachment } from "../components/Composer";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
@@ -217,6 +222,9 @@ function WorkspaceApp({
   const [threads, setThreads] = useState<Thread[]>([]);
   const [view, setView] = useState<ThreadView>();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  // Unapplied candidate worktrees of the open conversation; never inferred
+  // from run status, because applying is always an explicit reader decision.
+  const [candidates, setCandidates] = useState<CandidateView[]>([]);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [stepsByRun, setStepsByRun] = useState<Record<string, Step[]>>({});
@@ -510,9 +518,10 @@ function WorkspaceApp({
       // Anything applied after this point is newer than the HTTP snapshot.
       const startConfirmed = { ...confirmedSeq.current };
       const result = await loadThreadPage(id, cursor);
-      const deliverables = await api<{ items: Artifact[] }>(
-        `/api/v1/threads/${id}/artifacts`,
-      );
+      const [deliverables, candidateItems] = await Promise.all([
+        api<{ items: Artifact[] }>(`/api/v1/threads/${id}/artifacts`),
+        threadCandidates(id),
+      ]);
       if (
         currentThread.current !== id ||
         generation !== refreshGeneration.current
@@ -530,6 +539,7 @@ function WorkspaceApp({
       );
       viewCursor.current = cursor;
       setArtifacts(deliverables.items ?? []);
+      setCandidates(candidateItems);
       const stale = result.runs.filter(
         (run) => !settledSteps.current.has(run.id),
       );
@@ -675,6 +685,7 @@ function WorkspaceApp({
   useEffect(() => {
     if (ready && threadID) {
       setView(undefined);
+      setCandidates([]);
       setEvents([]);
       void refreshThread(threadID).catch((error) => setError(errorText(error)));
     }
@@ -1610,6 +1621,36 @@ function WorkspaceApp({
                   onRestore={permissions.restore}
                 />
               )}
+            {!taskID && threadID && (
+              <CandidateBar
+                items={candidates}
+                locked={!!active || busy}
+                onApply={async (item) => {
+                  await applyCandidate(threadID, item.execution.id);
+                  // The server settled this candidate; drop it locally before a
+                  // quiet refresh so a slow reload never re-offers applied work.
+                  setCandidates((current) =>
+                    current.filter(
+                      (entry) => entry.execution.id !== item.execution.id,
+                    ),
+                  );
+                  void refreshThread(threadID).catch((error) =>
+                    setError(errorText(error)),
+                  );
+                }}
+                onDiscard={async (item) => {
+                  await discardCandidate(threadID, item.execution.id);
+                  setCandidates((current) =>
+                    current.filter(
+                      (entry) => entry.execution.id !== item.execution.id,
+                    ),
+                  );
+                  void refreshThread(threadID).catch((error) =>
+                    setError(errorText(error)),
+                  );
+                }}
+              />
+            )}
             {!taskID && (threadID || projectView !== "tasks") && (
               <Composer
               agents={threadID ? threadMembers : available}

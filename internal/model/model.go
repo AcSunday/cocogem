@@ -63,8 +63,11 @@ type Request struct {
 	NativeTools      []string `json:"-"`
 	WorkspaceRoot    string   `json:"-"`
 	WorkingDirectory string   `json:"-"`
-	TrustedExecution bool     `json:"-"`
-	NativeProxy      string   `json:"-"`
+	// IOInputs is the read-only attachment exchange directory of this scope. It
+	// is separate from the code root and never writable by a native command.
+	IOInputs         string `json:"-"`
+	TrustedExecution bool   `json:"-"`
+	NativeProxy      string `json:"-"`
 	// Managed native sessions live only under SessionStorageRoot. SessionID is
 	// populated solely after an earlier runner acknowledged the exact session.
 	ExecutionMode       string `json:"-"`

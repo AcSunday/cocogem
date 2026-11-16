@@ -36,6 +36,7 @@ func prepareGeminiNativeSession(request model.Request, base, workdir string, gat
 		return nil, err
 	}
 	sandbox.addRoots(request.WorkspaceRoot, request.WorkingDirectory)
+	sandbox.addReadOnlyRoot(request.IOInputs)
 	session := &geminiNativeSession{request: request, gate: gate, sandbox: sandbox, workdir: workdir, launch: launch}
 	if probeURL == "" {
 		// Real turns get the host egress proxy so dependency retrieval keeps

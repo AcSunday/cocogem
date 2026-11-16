@@ -331,6 +331,8 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		} else {
 			sandbox = created
 			sandbox.addRoots(request.WorkspaceRoot, request.WorkingDirectory)
+			// Uploaded originals stay readable but never writable.
+			sandbox.addReadOnlyRoot(request.IOInputs)
 			proxy, proxyErr := newEgressProxy(func(host, method string) {
 				_ = gate.notice("native_egress_blocked", "sandboxed command attempted "+method+" "+host+"; arbitrary external writes are not authorized")
 			})

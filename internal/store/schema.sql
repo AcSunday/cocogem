@@ -35,10 +35,14 @@ CREATE TABLE IF NOT EXISTS completion_records(id TEXT PRIMARY KEY, task_id TEXT 
 CREATE INDEX IF NOT EXISTS completion_task ON completion_records(task_id,task_revision,evaluation_generation);
 CREATE TABLE IF NOT EXISTS grants(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), subject_member_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0), epoch INTEGER NOT NULL CHECK(epoch>0), status TEXT NOT NULL CHECK(status IN ('active','revoking','revoked','revocation_uncertain')), body TEXT NOT NULL CHECK(json_valid(body)));
 CREATE INDEX IF NOT EXISTS grant_current ON grants(workspace_id,subject_member_id,status,epoch DESC);
-CREATE TABLE IF NOT EXISTS workspace_executions(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), task_id TEXT NOT NULL REFERENCES tasks(id), canonical_root TEXT NOT NULL, lease_epoch INTEGER NOT NULL CHECK(lease_epoch>0), lease_expires_at TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
-CREATE UNIQUE INDEX IF NOT EXISTS one_active_execution_root ON workspace_executions(canonical_root) WHERE status IN ('active','quarantined','uncertain');
-CREATE TABLE IF NOT EXISTS execution_sessions(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), member_id TEXT NOT NULL, fingerprint TEXT NOT NULL, visibility_epoch INTEGER NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
-CREATE INDEX IF NOT EXISTS session_reuse ON execution_sessions(task_id,member_id,fingerprint,status);
+CREATE TABLE IF NOT EXISTS workspace_executions(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), thread_id TEXT REFERENCES threads(id), task_id TEXT REFERENCES tasks(id), canonical_root TEXT NOT NULL, lease_epoch INTEGER NOT NULL CHECK(lease_epoch>0), lease_expires_at TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)), CHECK(thread_id IS NOT NULL OR task_id IS NOT NULL));
+-- One live candidate per owning scope and source root: a plain conversation and
+-- every durable task can hold its own worktree on the same project, while a
+-- single scope never forks two live candidates for one root.
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_execution_scope ON workspace_executions(COALESCE(task_id, thread_id), canonical_root) WHERE status IN ('active','quarantined','uncertain');
+CREATE INDEX IF NOT EXISTS execution_thread ON workspace_executions(thread_id,status);
+CREATE TABLE IF NOT EXISTS execution_sessions(id TEXT PRIMARY KEY, thread_id TEXT REFERENCES threads(id), task_id TEXT REFERENCES tasks(id), member_id TEXT NOT NULL, fingerprint TEXT NOT NULL, visibility_epoch INTEGER NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)), CHECK(thread_id IS NOT NULL OR task_id IS NOT NULL));
+CREATE INDEX IF NOT EXISTS session_reuse ON execution_sessions(COALESCE(task_id, thread_id),member_id,fingerprint,status);
 CREATE TABLE IF NOT EXISTS effect_records(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), idempotency_key TEXT NOT NULL, request_digest TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)), UNIQUE(task_id,idempotency_key));
 CREATE INDEX IF NOT EXISTS pending_effects ON effect_records(task_id,status);
 CREATE TABLE IF NOT EXISTS inbox_items(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), idempotency_key TEXT NOT NULL, expected_revision INTEGER NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)), UNIQUE(task_id,idempotency_key));

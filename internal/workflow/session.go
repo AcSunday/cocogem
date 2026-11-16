@@ -22,7 +22,7 @@ type sessionInput struct {
 }
 
 func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession, error) {
-	if in.run.TaskID == "" {
+	if in.run.TaskID == "" && in.run.ThreadID == "" {
 		return w.ExecutionSession{}, nil
 	}
 	// Visibility is bound to the global permission epoch frozen on this Run.
@@ -111,7 +111,7 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 	}
 	fingerprint := contentDigest(string(encoded))
 	contextEpoch := 1
-	existing, err := tx.Sessions(in.run.TaskID)
+	existing, err := tx.Sessions(sessionScope(in.run))
 	if err != nil {
 		return w.ExecutionSession{}, err
 	}
@@ -122,7 +122,8 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 	}
 	now := w.Now()
 	prepared := w.ExecutionSession{
-		ID: w.NewID(), TaskID: in.run.TaskID, MemberID: in.member.ID, Role: in.step.Role,
+		ID: w.NewID(), ThreadID: in.run.ThreadID, TaskID: in.run.TaskID, MemberID: in.member.ID, Role: in.step.Role,
+		WorkRoot:        in.run.ProjectRoot(),
 		ExecutionBranch: in.run.ExecutionRef, Fingerprint: fingerprint,
 		ContextEpoch: contextEpoch, VisibilityEpoch: visibilityEpoch,
 		ExposedRefs: exposed, ExposureDigest: contentDigest(strings.Join(exposed, "\n")),
@@ -133,8 +134,12 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 		prepared.Status, prepared.Acknowledgement = "active", "awaiting_runner_ack"
 	}
 	for _, session := range existing {
+		// A different working root (an applied or discarded candidate) has no
+		// continuous context, so it rolls a new native session.
 		if !managed || !sessionReuseEligible(session, fingerprint, visibilityEpoch) ||
-			session.MemberID != in.member.ID || session.Role != in.step.Role || session.ExecutionBranch != in.run.ExecutionRef || session.NativeSessionID == "" {
+			session.MemberID != in.member.ID || session.Role != in.step.Role ||
+			session.ExecutionBranch != in.run.ExecutionRef || session.NativeSessionID == "" ||
+			session.WorkRoot != in.run.ProjectRoot() {
 			continue
 		}
 		prepared.ID, prepared.NativeSessionID = session.ID, session.NativeSessionID
@@ -184,6 +189,39 @@ func updateNativeSession(tx *store.Tx, attempt w.Attempt, nativeSessionID string
 	if session.Status == "active" {
 		session.AcknowledgedExposedRefs = slices.Clone(session.ExposedRefs)
 	}
+	session.UpdatedAt = w.Now()
+	return tx.SaveSession(session)
+}
+
+// sessionScope is the owning scope of a managed native session: the durable task
+// when present, else the conversation.
+func sessionScope(run w.Run) string {
+	if run.TaskID != "" {
+		return run.TaskID
+	}
+	return run.ThreadID
+}
+
+// sealExecutionSession retires one native session for good. Sealing keeps the
+// ledger row (and its exposure evidence) readable while making it unusable for
+// reuse, so an overflowing or corrupt native context can never be resumed and
+// is replaced by a fresh session with a continuity capsule.
+func sealExecutionSession(tx *store.Tx, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	session, err := tx.Session(sessionID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if session.Status == "sealed" {
+		return nil
+	}
+	session.Status = "sealed"
+	session.Acknowledgement = "sealed"
 	session.UpdatedAt = w.Now()
 	return tx.SaveSession(session)
 }

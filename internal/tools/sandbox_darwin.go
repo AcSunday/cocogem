@@ -48,6 +48,9 @@ func prepareCommandSandbox(ctx context.Context, spec sandboxSpec) (sandboxPlan, 
 
 func darwinProfile(spec sandboxSpec) string {
 	readPaths := []string{"/usr", "/bin", "/sbin", "/System", "/dev", spec.Root, spec.Temp, spec.Toolchain.GoRoot, spec.Toolchain.GoModCache, spec.Toolchain.NPMRoot, spec.Toolchain.NodePath}
+	// The scope's attachment inputs are an explicit read-only allow; they are
+	// never a write root, so a delivered file can never be silently replaced.
+	readPaths = append(readPaths, spec.ExtraReads...)
 	execPaths := []string{"/bin/sh", "/bin/bash", "/usr/bin/env", spec.Root, spec.Temp, spec.Toolchain.GoRoot, spec.Toolchain.NPMRoot, spec.Toolchain.NodePath}
 	if len(spec.Toolchain.Command) > 0 {
 		readPaths = append(readPaths, spec.Toolchain.Command[0])

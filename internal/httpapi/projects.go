@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/AcSunday/cocogem/internal/project"
+	"github.com/AcSunday/cocogem/internal/store"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -86,11 +88,39 @@ func (s *Server) deleteProjectTasks(rw http.ResponseWriter, r *http.Request) {
 	if !decode(rw, r, &in) {
 		return
 	}
+	// Capture the derived directories before the rows disappear: once the task
+	// aggregate is deleted there is no longer a record naming its workfolder.
+	roots := []string{}
+	candidates := []w.WorkspaceExecution{}
+	if err := s.store.Read(r.Context(), func(tx *store.Tx) error {
+		seen := map[string]bool{}
+		for _, taskID := range in.TaskIDs {
+			task, err := tx.Task(taskID)
+			if err != nil {
+				continue
+			}
+			workspace, err := tx.Workspace(task.WorkspaceID)
+			if err == nil && workspace.Root != "" && !seen[workspace.Root] {
+				seen[workspace.Root] = true
+				roots = append(roots, workspace.Root)
+			}
+			items, err := tx.ScopeExecutions(taskID)
+			if err != nil {
+				return err
+			}
+			candidates = append(candidates, items...)
+		}
+		return nil
+	}); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
 	value, err := s.projects.PermanentDeleteTasks(r.Context(), in.TaskIDs)
-	if err == nil && len(value.ThreadIDs) > 0 {
-		threads := make(map[string]bool, len(value.ThreadIDs))
-		for _, id := range value.ThreadIDs {
-			threads[id] = true
+	if err == nil && s.engine != nil {
+		// A permanently deleted task must not leave a candidate directory or an
+		// exchange area behind, even though its rows are already gone.
+		if releaseErr := s.engine.ReleaseDeletedTaskExecutions(r.Context(), candidates, in.TaskIDs, roots); releaseErr != nil {
+			slog.Error("release task executions failed", "tasks", in.TaskIDs, "error", releaseErr)
 		}
 	}
 	respond(rw, r, value, err)

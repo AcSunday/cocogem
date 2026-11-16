@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -21,6 +22,15 @@ import (
 // stepRuntime owns the mutable state shared by one step's tool handler, event
 // observer and settlement. Keeping it in one place makes the locking rules and
 // the lifetime of an attempt explicit instead of relying on closure capture.
+// stepRoot is the root this step may read and write: its own sandbox copy for a
+// reviewer, otherwise the run's project or candidate root.
+func (x *stepRuntime) stepRoot() string {
+	if x.workRoot != "" {
+		return x.workRoot
+	}
+	return x.run.ProjectRoot()
+}
+
 type stepRuntime struct {
 	ctx     context.Context
 	stepCtx context.Context
@@ -33,6 +43,9 @@ type stepRuntime struct {
 	allowed  []string
 	required string
 	scope    *readScope
+	// workRoot is the root this step may read and write. A reviewer step uses its
+	// own sandbox copy; every other step uses the run's project or candidate root.
+	workRoot string
 
 	mu             sync.Mutex
 	writer         *messageWriter
@@ -318,14 +331,19 @@ func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID stri
 		if slices.Contains([]string{"write_file", "patch_file", "run_test", "run_command"}, name) {
 			x.mutated.Store(true)
 		}
+		// A command starts in the step's own working root: the candidate for an
+		// author, the sandbox copy for a reviewer. The IO directory is a separate
+		// exchange area and never the command root for code work.
 		workDir := ""
 		if slices.Contains(x.allowed, "run_command") {
 			switch x.run.EffectiveExecutionMode {
 			case w.ExecutionFullAccess, w.ExecutionProjectAutonomous:
-				workDir = x.run.TaskDirectory
+				workDir = x.stepRoot()
 			}
 		}
-		scope := tools.Scope{Root: x.run.ProjectRoot(), WorkDir: workDir, ExecutionMode: x.run.EffectiveExecutionMode, Web: x.engine.Web, Capture: x.capture}
+		scope := tools.Scope{Root: x.stepRoot(), WorkDir: workDir, ExecutionMode: x.run.EffectiveExecutionMode, Web: x.engine.Web, Capture: x.capture,
+			// The exchange area is explicit and separate from the code root.
+			IOInputs: joinNonEmpty(x.run.TaskDirectory, "inputs"), IOOutputs: joinNonEmpty(x.run.TaskDirectory, "outputs")}
 		if authorization.approved {
 			// A human decision authorized this exact call. A command runs under the
 			// sandbox with the approved target; a file tool may resolve an outside
@@ -621,4 +639,13 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 			return tx.AppendEvent(x.run.ID, x.step.ID, x.agent.ID, kind, data)
 		})
 	}
+}
+
+// joinNonEmpty joins a bound directory and a child, and stays empty when no
+// directory is bound so a tool never resolves a relative path by accident.
+func joinNonEmpty(dir, child string) string {
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, child)
 }

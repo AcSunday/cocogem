@@ -3030,3 +3030,115 @@ it("restores a selected trashed conversation, refreshes the sidebar and keeps se
   expect(screen.getByRole("dialog", { name: "设置" })).toBeVisible();
   expect(location.pathname).toBe("/w/ws");
 });
+
+it("shows an unapplied candidate and applies it only after confirmation", async () => {
+  history.replaceState({}, "", "/w/ws/t/thread");
+  const thread = {
+    id: "thread",
+    workspace_id: "ws",
+    title: "候选变更测试",
+    agent_ids: ["one"],
+    revision: 1,
+  };
+  const agent: Agent = {
+    id: "one",
+    workspace_id: "ws",
+    display_name: "布偶猫",
+    handle: "ragdoll",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "claude",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  };
+  const run = {
+    id: "run",
+    agents: [agent],
+    status: "succeeded",
+    created_at: "2026-11-16T00:00:00Z",
+  } as unknown as Run;
+  const execution = {
+    id: "execution-one",
+    workspace_id: "ws",
+    thread_id: "thread",
+    kind: "git_worktree",
+    path: "/data/worktrees/thread-run",
+    canonical_root: "/projects/cocogem",
+    base_revision: "abc123",
+    tree_digest: "tree-digest",
+    owner_member_id: "one",
+    lease_owner: "server",
+    lease_epoch: 1,
+    lease_expires_at: "2026-11-16T10:00:00Z",
+    status: "completed",
+    observation_completeness: "candidate_tree_only",
+    created_at: "2026-11-16T09:00:00Z",
+    updated_at: "2026-11-16T09:30:00Z",
+  };
+  let candidates = [
+    {
+      execution,
+      verification: {
+        state: "verified",
+        changed_paths: ["internal/execution/manager.go"],
+        diff_source_ids: ["diff-1"],
+        test_source_ids: ["test-1"],
+        tree_digest: "tree-digest",
+      },
+    },
+  ];
+  const applied: string[] = [];
+  const fetcher = vi.fn(
+    async (path: string, options?: RequestInit) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "研究室" }] });
+      if (path.endsWith("/agents")) return Response.json({ items: [agent] });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [thread], next_cursor: "" });
+      if (path.startsWith("/api/v1/threads/thread?"))
+        return Response.json({
+          thread,
+          messages: { items: [], next_cursor: "" },
+          runs: [run],
+          sources: [],
+        });
+      if (path === "/api/v1/threads/thread/candidates")
+        return Response.json({ items: candidates });
+      if (
+        path ===
+          "/api/v1/threads/thread/candidates/execution-one/apply" &&
+        options?.method === "POST"
+      ) {
+        applied.push(path);
+        candidates = [];
+        return Response.json({ ...execution, status: "applied" });
+      }
+      if (path.endsWith("/artifacts")) return Response.json({ items: [] });
+      return Response.json({ items: [] });
+    },
+  );
+  vi.stubGlobal("fetch", fetcher);
+  render(<App />);
+  const user = userEvent.setup();
+
+  expect(await screen.findByText("候选变更")).toBeVisible();
+  expect(screen.getByText("已验证")).toBeVisible();
+  expect(
+    screen.getByText("internal/execution/manager.go"),
+  ).toBeVisible();
+  expect(applied).toHaveLength(0);
+
+  await user.click(
+    screen.getByRole("button", { name: "应用到项目目录" }),
+  );
+  expect(applied).toHaveLength(0);
+  await user.click(screen.getByRole("button", { name: "确认应用" }));
+
+  await waitFor(() => expect(applied).toHaveLength(1));
+  await waitFor(() =>
+    expect(screen.queryByText("候选变更")).not.toBeInTheDocument(),
+  );
+});

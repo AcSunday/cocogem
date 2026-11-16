@@ -58,6 +58,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		allowed:        allowed,
 		required:       required,
 		scope:          scope,
+		workRoot:       prep.workRoot,
 		attempt:        attempt,
 		sources:        slices.Clone(sourceSnapshot),
 		nativeCaptured: map[string]bool{},
@@ -69,6 +70,11 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		stopStep()
 	})
 	request, requestErr := e.buildRequest(stepCtx, run, step, a, allowed, required, connection, adapter, message, handoff, scope, history, all, sourceSnapshot, previousDraft, rt.attempt)
+	if requestErr == nil && prep.workRoot != "" {
+		// A reviewer step runs inside its own sandbox copy, never the author's
+		// candidate or the bound project.
+		request.WorkspaceRoot = prep.workRoot
+	}
 	if requestErr == nil {
 		// Every CLI-owned effect must be admitted by the live host policy before
 		// it happens. The callback is bound here, per attempt, so it always sees
@@ -133,6 +139,15 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			return step
 		}
 		err = yieldErr
+	}
+	// The reviewer sandbox is disposable: destroy it after the step settles and
+	// assert the author candidate never changed.
+	if prep.verifyDir != nil && e.Executions != nil {
+		destroyCtx, stopDestroy := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		if destroyErr := e.Executions.DestroyVerifyTree(destroyCtx, *prep.verifyDir, run.ExecutionRef); destroyErr != nil {
+			e.report(destroyErr)
+		}
+		stopDestroy()
 	}
 	step, attempt, saveErr := e.settleStep(ctx, stepSettlement{
 		run:             run,

@@ -31,6 +31,7 @@ func preparePiNativeSession(request model.Request, base, workdir string, gate *b
 		return nil, err
 	}
 	sandbox.addRoots(request.WorkspaceRoot, request.WorkingDirectory)
+	sandbox.addReadOnlyRoot(request.IOInputs)
 	session := &piNativeSession{request: request, gate: gate, sandbox: sandbox, workdir: workdir, launch: launch, probeURL: probeURL}
 	if probeURL == "" {
 		proxy, proxyErr := newEgressProxy(func(host, method string) {

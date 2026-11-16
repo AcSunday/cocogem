@@ -772,6 +772,54 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/threads/{id}/candidates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["threadCandidates"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/candidates/{executionID}/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["applyCandidate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/candidates/{executionID}/discard": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["discardCandidate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/threads/{id}/permanent": {
     parameters: {
       query?: never;
@@ -1416,6 +1464,51 @@ export interface components {
       no_progress_failures: string;
       parallel_branches: string;
       writer_branches: string;
+    };
+    CandidateList: {
+      items:
+        | {
+            execution: {
+              base_files?: {
+                [key: string]: string;
+              } | null;
+              base_revision: string;
+              base_tree_digest?: string;
+              canonical_root: string;
+              created_at: string;
+              id: string;
+              kind: string;
+              lease_epoch: number;
+              lease_expires_at: string;
+              lease_owner: string;
+              observation_completeness: string;
+              owner_member_id: string;
+              path: string;
+              status: string;
+              task_id?: string;
+              thread_id: string;
+              tree_digest: string;
+              updated_at: string;
+              workspace_id: string;
+            };
+            verification: {
+              changed_paths?: string[] | null;
+              diff_source_ids?: string[] | null;
+              reason?: string;
+              state: string;
+              test_source_ids?: string[] | null;
+              tree_digest?: string;
+            };
+          }[]
+        | null;
+    };
+    CandidateVerification: {
+      changed_paths?: string[] | null;
+      diff_source_ids?: string[] | null;
+      reason?: string;
+      state: string;
+      test_source_ids?: string[] | null;
+      tree_digest?: string;
     };
     Claim: {
       applicability: string;
@@ -2150,9 +2243,11 @@ export interface components {
       native_session_id?: string;
       role: string;
       status: string;
-      task_id: string;
+      task_id?: string;
+      thread_id: string;
       updated_at: string;
       visibility_epoch: number;
+      work_root?: string;
     };
     ExecutorInfo: {
       adapter: string;
@@ -4458,7 +4553,11 @@ export interface components {
       skill_ids: string[] | null;
     };
     WorkspaceExecution: {
+      base_files?: {
+        [key: string]: string;
+      } | null;
       base_revision: string;
+      base_tree_digest?: string;
       canonical_root: string;
       created_at: string;
       id: string;
@@ -4470,7 +4569,8 @@ export interface components {
       owner_member_id: string;
       path: string;
       status: string;
-      task_id: string;
+      task_id?: string;
+      thread_id: string;
       tree_digest: string;
       updated_at: string;
       workspace_id: string;
@@ -6566,6 +6666,113 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ArtifactList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  threadCandidates: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CandidateList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  applyCandidate: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+        executionID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkspaceExecution"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  discardCandidate: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+        executionID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkspaceExecution"];
         };
       };
       /** @description Structured error */

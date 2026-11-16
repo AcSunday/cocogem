@@ -1339,17 +1339,19 @@ func TestMissingProcessOwnershipRequiresManualResume(t *testing.T) {
 	if len(runner.calls) != 0 {
 		t.Fatalf("runner was invoked without ownership confirmation: %+v", runner.calls)
 	}
-	if _, err := e.Resume(t.Context(), run.ID); !errors.Is(err, ErrRecoveryUncertain) {
-		t.Fatalf("resume bypassed missing process ownership: %v", err)
+	// A human resume unlocks the exact candidate state: the step is dispatched
+	// again on the existing work instead of staying blocked forever.
+	if _, err := e.Resume(t.Context(), run.ID); err != nil {
+		t.Fatalf("human resume was refused: %v", err)
 	}
-	got, err = loadRun(t, s, run.ID)
+	resumed := awaitRun(t, s, run.ID)
 	cancel()
 	e.Wait()
-	if err != nil {
-		t.Fatal(err)
+	if resumed.Status == "interrupted" && strings.Contains(resumed.Error, "recovery_uncertain_process") {
+		t.Fatalf("human resume left the run blocked: %+v", resumed)
 	}
-	if got.Status != "interrupted" || len(runner.calls) != 0 {
-		t.Fatalf("missing ownership was not kept blocked: %+v calls=%+v", got, runner.calls)
+	if len(runner.calls) == 0 {
+		t.Fatalf("human resume did not dispatch the interrupted member: %+v", resumed)
 	}
 }
 

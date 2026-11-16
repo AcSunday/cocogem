@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -56,6 +57,7 @@ func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ws w.Workspace
+	var sealedThreads []string
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
 		var err error
 		ws, err = tx.Workspace(r.PathValue("id"))
@@ -80,6 +82,24 @@ func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
 			if slices.ContainsFunc(active, func(run w.Run) bool { return run.WorkspaceID == ws.ID }) {
 				return w.ErrConflict
 			}
+			// An unapplied candidate belongs to the previous repository. Refusing
+			// the rebind keeps the user from writing that work into a new project.
+			list, err := tx.ThreadsAny(ws.ID)
+			if err != nil {
+				return err
+			}
+			for _, thread := range list {
+				candidates, err := tx.ThreadExecutions(thread.ID)
+				if err != nil {
+					return err
+				}
+				for _, candidate := range candidates {
+					if candidate.Status == "active" || candidate.Status == "completed" || candidate.Status == "uncertain" {
+						return &RequestError{409, "candidate_pending", "该工作空间仍有未应用或未丢弃的候选变更，请先在对应会话中选择应用或丢弃后再更换项目目录"}
+					}
+				}
+				sealedThreads = append(sealedThreads, thread.ID)
+			}
 		}
 		ws.Name = in.Name
 		ws.Description = in.Description
@@ -89,7 +109,18 @@ func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
 		}
 		ws.SkillIDs = in.SkillIDs
 		ws.Revision++
-		return tx.SaveWorkspace(ws)
+		if err := tx.SaveWorkspace(ws); err != nil {
+			return err
+		}
+		// Every native session bound to the previous root is history: the next
+		// turn must start a fresh one in the new project instead of continuing
+		// with cross-repository memory.
+		for _, threadID := range sealedThreads {
+			if err := tx.SealThreadSessions(threadID); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	respond(rw, r, ws, err)
 }
@@ -138,6 +169,13 @@ func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 		return tx.DeleteWorkspace(id)
 	})
 	if err == nil {
+	}
+	if err == nil && s.engine != nil {
+		for threadID := range threads {
+			if releaseErr := s.engine.ReleaseThreadExecutions(r.Context(), threadID, nil); releaseErr != nil {
+				slog.Error("release workspace thread executions failed", "thread", threadID, "error", releaseErr)
+			}
+		}
 	}
 	respond(rw, r, DeleteReply{ID: id}, err)
 }

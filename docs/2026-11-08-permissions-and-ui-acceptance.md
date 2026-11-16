@@ -2,7 +2,7 @@
 
 日期：2026-11-08
 
-状态：**本机已验证的交付范围通过验收，服务已启动；保留明确的原生协议与平台能力缺口。** 19 条界面批注、全局权限/预算、宿主审批、数据迁移与关键回归已通过。Codex 原生项目外按次扩权未实现，已关闭该路径并由范围受限的宿主工具承接，不把它记为 A10 的完整原生通过。后续静态核对还发现候选目录、重启恢复及外部请求重定向的限制，详见下方能力缺口；原有通过记录不能覆盖这些情况。本文不把组件测试、合成模型或安装版检查视为全部平台/供应商验证完成。
+状态：**本机已验证的交付范围通过验收，服务已启动；保留明确的原生协议与平台能力缺口。** 19 条界面批注、全局权限/预算、宿主审批、数据迁移与关键回归已通过。Codex 原生项目外按次扩权未实现，已关闭该路径并由范围受限的宿主工具承接，不把它记为 A10 的完整原生通过。后续静态核对发现的候选目录限制已在阶段 2 由按作用域 worktree + Apply/Discard 闭环替代，重启恢复与外部请求重定向的限制仍保留，详见下方能力缺口；原有通过记录不能覆盖这些情况。本文不把组件测试、合成模型或安装版检查视为全部平台/供应商验证完成。
 
 执行合同：[改造文档](2026-11-08-permissions-and-ui-redesign.md)。用户已授权 OpenCode 实施，Codex 独立验收并反馈修复。
 
@@ -96,8 +96,8 @@
 1. Codex 0.166.0 的命令审批响应不能表达按次外部目录范围，额外权限 overlay 只有 turn/session，原生 `view_image` 没有逐调用宿主准入。项目内自主时不开放这些扩大路径；原生调用明确拒绝后，模型可使用受统一审批约束的宿主工具。原生项目内命令仍保留，不把这一限制描述为所有适配器的完全原生闭环。
 2. 原生 Codex 命令网络保持关闭，公共检索和项目依赖可由宿主工具承接。安装版协议及本机边界通过不代表该适配器真实供应商任务已验证。
 3. 非 macOS 实机隔离、另外四种适配器的真实供应商任务、真实公开发布/部署、移动真机软键盘仍为未验证。公开发布/部署的决定和单次效果已用本地 TLS handler 验证，没有对外发布测试内容。
-4. 后续静态核对发现，会话提交时创建工程候选目录仍依赖历史成员工具数组，而新建成员的该数组为空；未建立候选目录时执行根可能回退到绑定源目录。此前的候选目录和权限测试不能证明所有可写任务都与源目录隔离。代码见 [`runs.go`](../internal/httpapi/runs.go)、[`execution.go`](../internal/workflow/execution.go)。
-5. 后续静态核对发现，重启恢复在已确认进程退出或停止、但结果尚未提交时，仍可能重新排队未完成步骤。此前同次调用内不重放的测试不能证明重启窗口中未记录的原生副作用不会重复。代码见 [`connection_check.go`](../internal/workflow/connection_check.go)、[`recovery.go`](../internal/workflow/recovery.go) 和 [`recovery_settle.go`](../internal/workflow/recovery_settle.go)。
+4. 候选目录隔离已在阶段 2 改为按会话/任务作用域的 `git worktree add --detach`：未绑定记录、并行子任务各自成域，未应用前源目录字节不变，Apply 前逐文件核对基线并拒绝覆盖外部修改，Discard 只销毁候选。相应行为由 `internal/execution`、`internal/workflow`、`internal/httpapi/candidates_test.go` 与前端 `CandidateBar` 测试覆盖；仍未在真实多仓大项目与全部平台组合上实测性能与 `git worktree prune` 边界。代码见 [`execution.go`](../internal/workflow/execution.go)、[`manager.go`](../internal/execution/manager.go)、[`candidates.go`](../internal/httpapi/candidates.go)。
+5. 后续静态核对发现，重启恢复在已确认进程退出或停止、但结果尚未提交时，仍可能重新排队未完成步骤。此前同次调用内不重放的测试不能证明重启窗口中未记录的原生副作用不会重复。代码见 [`connection_check.go`](../internal/workflow/connection_check.go)、[`recovery.go`](../internal/workflow/recovery.go) 和 [`recovery_settle.go`](../internal/workflow/recovery_settle.go)。阶段 2 已让用户人工「继续」放行对应候选现场并注入检查点摘要，自动恢复仍不在未核实副作用上重放。
 6. 后续静态核对发现，宿主外部 HTTP 写入只在首次请求前检查 HTTPS 和目标名单；默认客户端可能跟随重定向，后续目标未重新检查。此前本地 TLS handler 的允许/拒绝测试不覆盖该重定向边界。代码见 [`egress.go`](../internal/tools/egress.go)。
 
 ## 交付与运行
@@ -106,3 +106,14 @@
 - 迁移前备份：`/Users/sunday/Library/Application Support/cocogem/backups/before-global-permissions-20261108T123654Z.sqlite`，备份完整性已核验。
 - 实际界面截图：`/Users/sunday/.codex/visualizations/2026/11/08/01a1ba17-77ab-79f3-81ba-df3777181be1/cocogem-redesign/`，含 10 张隔离测试环境的真实页面截图，无用户会话内容。
 - 详细测试、基线、各 OpenCode 工作包和独立复验日志保存在 `/var/folders/7_/srdsmgns77l_n36f3cb1r0xw0000gn/T/cocogem-redesign-20261108-gbvllu6h/`。没有混合提交原有工作区改动。
+
+## 阶段 2 补充验证（worktree、上下文与续接）
+
+本节只记录阶段 2 的实际验证范围，不把 Go 单元/HTTP 测试或浏览器夹具当作真实供应商或多平台完成。
+
+- 候选隔离：`internal/execution` 覆盖 `git worktree add --detach` 共享对象池、脏工作区同步、同作用域单候选、并行任务各自候选、Apply 写回新建与删除、外部修改 409、Discard 零改动、worktree 与 `prune` 回收、孤儿目录清理；非 Git 目录回退到受界副本并拒绝复制期间源树变化。
+- 复核沙箱：`verify_dir` 从作者确切树派生、复核方写入不回流、销毁后作者摘要不变；`internal/workflow` 覆盖复核步骤使用沙箱根与其只读/审批边界。
+- HTTP/UI：`internal/httpapi/candidates_test.go` 走完整列表/Apply/409/Discard 旅程；前端 `CandidateBar` 与 `App` 覆盖二次确认、未验证变更呈现、运行期锁定、冲突保留重试，`web/e2e/candidates.spec.ts` 覆盖浏览器点击路径。
+- 上下文与续接：真实增量（已确认引用账本）、头 40%/尾 60% 截断、人工继续放行 uncertain、检查点摘要注入均由 `internal/workflow` 行为测试覆盖。
+- 生命周期：软删冻结候选、永久删除/Purge/删空间回收、换根 409 与 session seal、撤销只封存 DB 行不触碰用户 CLI 目录，均由 Go 测试覆盖。
+- 未验证：真实大仓 worktree 性能、非 macOS 的 `git worktree`/副本边界、五家 CLI 在各自原生目录中的真实跨轮续聊（按计划留到阶段 3/4/6 的真实 CLI 探针）。
