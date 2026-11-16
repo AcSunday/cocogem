@@ -153,14 +153,8 @@ func TestLiveMixedCLICollaboration(t *testing.T) {
 	call("POST", "/api/v1/workspaces", WorkspaceInput{Name: "Isolated public collaboration acceptance"}, nil, http.StatusOK, &workspace)
 	ids := []string{profiles[0].ID, profiles[1].ID, profiles[2].ID}
 	var thread w.Thread
-	call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "Public arithmetic handoff acceptance", AgentIDs: ids, CoordinatorID: ids[0], Workflow: "free"}, nil, http.StatusOK, &thread)
-	input := w.RunInput{Workflow: "free", Targets: []string{ids[0]}, ResearchScope: "given_sources", Message: liveCollaborationTask}
-	var preview RoutingPreview
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, http.StatusOK, &preview)
-	if preview.ProposalID == "" || preview.Routing.Decision == "clarify" || !slices.Equal(preview.Routing.Targets, []string{ids[0]}) {
-		t.Fatal("explicit coordinator routing did not produce a dispatch proposal")
-	}
-	input.ProposalID = preview.ProposalID
+	call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "Public arithmetic handoff acceptance", AgentIDs: ids, CoordinatorID: ids[0]}, nil, http.StatusOK, &thread)
+	input := w.RunInput{Targets: []string{ids[0]}, ResearchScope: "given_sources", Message: liveCollaborationTask}
 	var run w.Run
 	call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": "live-public-collaboration-" + w.NewID()}, http.StatusAccepted, &run)
 	t.Logf("real acceptance started: coordinator=%s researcher=%s reviewer=%s", coordinatorCLI, researcherCLI, reviewerCLI)

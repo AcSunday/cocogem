@@ -248,7 +248,7 @@ func (s *Service) Consult(ctx context.Context, in SendTaskMessageInput) (TaskVie
 			ID: w.NewID(), WorkspaceID: sender.WorkspaceID, Workspace: w.Workspace{ID: sender.WorkspaceID},
 			ThreadID: thread.ID, TaskID: taskView.Task.ID, TaskRevision: 1,
 			Status: "queued", CreatedAt: now, Agents: []w.Agent{member}, CoordinatorID: member.ID,
-			Input:                 w.RunInput{Message: in.Body, Workflow: "free", ResearchScope: "given_sources"},
+			Input:                 w.RunInput{Message: in.Body, ResearchScope: "given_sources"},
 			Delivery:              &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}},
 			AutomaticContinuation: true,
 		}

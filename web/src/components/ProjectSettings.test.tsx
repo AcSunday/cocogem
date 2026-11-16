@@ -26,7 +26,6 @@ const workspace = {
 const settings = {
   revision: 3,
   default_coordinator_id: "",
-  assignments: {},
   execution_mode: "project_autonomous",
   permission_epoch: 2,
   collaboration_budget: {

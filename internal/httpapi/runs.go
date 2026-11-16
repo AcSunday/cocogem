@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/skills"
@@ -15,104 +14,9 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-func (s *Server) preview(rw http.ResponseWriter, r *http.Request) {
-	var in w.RunInput
-	if !decode(rw, r, &in) {
-		return
-	}
-	if strings.TrimSpace(in.Message) == "" || len([]rune(in.Message)) > 16000 {
-		respond(rw, r, nil, errors.New("问题必须为 1–16000 个字符"))
-		return
-	}
-	select {
-	case s.routerSlots <- struct{}{}:
-		defer func() { <-s.routerSlots }()
-	default:
-		writeError(rw, r, 429, "routing_busy", "路由解析繁忙，请稍后再试")
-		return
-	}
-	var thread w.Thread
-	var agents []w.Agent
-	var settings w.Settings
-	err := s.store.Read(r.Context(), func(tx *store.Tx) error {
-		var err error
-		thread, err = tx.Thread(r.PathValue("id"))
-		if err != nil {
-			return err
-		}
-		_, err = tx.Workspace(thread.WorkspaceID)
-		if err != nil {
-			return err
-		}
-		if settings, err = tx.Settings(); err != nil {
-			return err
-		}
-		agents, err = tx.Agents(thread.WorkspaceID)
-		return err
-	})
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	effective, defaultsErr := applySettingsDefaults(in, thread, agents, settings)
-	if defaultsErr != nil {
-		// Default staffing cannot block a more specific user assignment.
-		effective = in
-	}
-	route, err := workflow.ResolveRouting(r.Context(), s.config.Model, effective, thread, agents)
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	if route.Decision == "clarify" {
-		writeJSON(rw, 200, map[string]any{"routing": route})
-		return
-	}
-	// Resolve the user's instructions before filling roles for the actual method.
-	effective = in
-	effective.Workflow, effective.Targets = route.Workflow, route.Targets
-	if route.Workflow != in.Workflow || route.ModelCall {
-		// The router proposed exact roles from the current user instruction.
-		effective.Assignments = route.Assignments
-	} else {
-		// The selected workflow's filled defaults must not hide open roles from
-		// the coordinator's responsibility-based selection.
-		effective.Assignments = in.Assignments
-	}
-	deterministic, err := applySettingsDefaults(effective, thread, agents, settings)
-	if err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	selected, selectionReason := s.applySettingsDefaultsWithModel(r.Context(), effective, thread, agents, settings, deterministic)
-	if selectionReason != "" {
-		route.Explanation = strings.TrimSpace(route.Explanation + "；" + selectionReason)
-	}
-	effective = selected
-	route.Assignments = effective.Assignments
-	// Never hand out a proposal whose frozen assignments cannot form a plan.
-	if _, err := workflow.Plan("preview", effective, agents); err != nil {
-		respond(rw, r, nil, err)
-		return
-	}
-	id := w.NewID()
-	s.mu.Lock()
-	for key, p := range s.proposals {
-		if time.Now().After(p.Expires) {
-			delete(s.proposals, key)
-		}
-	}
-	if len(s.proposals) >= 100 {
-		s.mu.Unlock()
-		writeError(rw, r, 429, "routing_capacity", "待提交建议过多")
-		return
-	}
-	in.ProposalID = ""
-	s.proposals[id] = proposal{ThreadID: thread.ID, Input: in, Routing: route, Digest: digest(in), Catalog: digest(routingCatalog(agents)), Expires: time.Now().Add(5 * time.Minute)}
-	s.mu.Unlock()
-	writeJSON(rw, 200, map[string]any{"proposal_id": id, "routing": route, "expires_in": 300})
-}
-
+// submit validates and freezes one accepted submission. Explicit @member text
+// and the Composer's selected recipients resolve deterministically, so sending a
+// message never waits for a slow model pre-routing round trip.
 func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 	var in w.RunInput
 	if !decode(rw, r, &in) {
@@ -121,6 +25,10 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 	key := r.Header.Get("Idempotency-Key")
 	if len(key) < 16 || len(key) > 100 {
 		respond(rw, r, nil, errors.New("有效的 Idempotency-Key 是必需的"))
+		return
+	}
+	if strings.TrimSpace(in.Message) == "" || len([]rune(in.Message)) > 16000 {
+		respond(rw, r, nil, errors.New("问题必须为 1–16000 个字符"))
 		return
 	}
 	executors := s.refreshExecutors(r.Context())
@@ -146,18 +54,17 @@ func (s *Server) submit(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		s.mu.Lock()
-		p, ok := s.proposals[in.ProposalID]
-		s.mu.Unlock()
-		original := in
-		original.ProposalID = ""
-		if !ok || p.ThreadID != th.ID || time.Now().After(p.Expires) || p.Digest != digest(original) || p.Catalog != digest(routingCatalog(agents)) {
-			return &RequestError{409, "routing_proposal_stale", "路由建议已失效，请重新解析收件人"}
-		}
 		if !s.modelConfigured(executors) {
 			return &RequestError{503, "model_unavailable", "没有可用的本机 CLI，请检查 CLI 安装和现有连接配置"}
 		}
-		run, err = s.queueRunInTx(tx, th, in, p.Routing, key, hash)
+		route, err := workflow.ResolveRouting(in, th, agents)
+		if err != nil {
+			return err
+		}
+		if route.Decision == "clarify" {
+			return &RequestError{409, "routing_clarification", route.Clarification}
+		}
+		run, err = s.queueRunInTx(tx, th, in, route, key, hash)
 		return err
 	})
 	if err != nil {
@@ -182,9 +89,6 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 	err = func() error {
 		if in.ResearchScope == "web_discovery" && !s.engine.Web.SearchEnabled() {
 			return &RequestError{503, "search_unavailable", "在线搜索尚未配置"}
-		}
-		if (route.Workflow == "code_analysis" || route.Workflow == "engineering") && ws.Root == "" {
-			return errors.New("代码分析与工程协作需要绑定允许的资料目录")
 		}
 		if len(in.SourceURLs) > 10 || len(in.ArtifactRefs) > 5 || len(in.SourceIDs) > 5 {
 			return errors.New("资料引用过多")
@@ -222,13 +126,8 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 		if slices.ContainsFunc(active, func(r w.Run) bool { return r.ThreadID == th.ID }) {
 			return w.ErrConflict
 		}
-		in.Workflow = route.Workflow
 		in.Targets = route.Targets
-		// Global defaults were resolved and validated with the accepted routing.
-		in.Assignments = route.Assignments
-		writeBranch := in.Workflow == "engineering" && ws.Root != "" && slices.ContainsFunc(agents, func(a w.Agent) bool {
-			return !a.Disabled && slices.Contains(th.AgentIDs, a.ID)
-		})
+		writeBranch := ws.Root != ""
 		var policy *w.ExecutionPolicy
 		if s.engine != nil {
 			limits := s.engine.Limits
@@ -265,16 +164,14 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 		if len(th.AgentIDs) > 10 {
 			return errors.New("会话不能超过十个成员")
 		}
-		if in.Workflow == "free" || in.Workflow == "" {
-			for _, a := range agents {
-				if !a.Disabled && slices.Contains(th.AgentIDs, a.ID) && !slices.ContainsFunc(run.Agents, func(x w.Agent) bool { return x.ID == a.ID }) {
-					run.Agents = append(run.Agents, a)
-				}
+		for _, a := range agents {
+			if !a.Disabled && slices.Contains(th.AgentIDs, a.ID) && !slices.ContainsFunc(run.Agents, func(x w.Agent) bool { return x.ID == a.ID }) {
+				run.Agents = append(run.Agents, a)
 			}
-			run.SkillSnapshot, err = skills.SnapshotHash(ws.SkillIDs)
-			if err != nil {
-				return err
-			}
+		}
+		run.SkillSnapshot, err = skills.SnapshotHash(ws.SkillIDs)
+		if err != nil {
+			return err
 		}
 		th.UpdatedAt = w.Now()
 		th.Revision++

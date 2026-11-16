@@ -16,7 +16,7 @@ func TestBootstrapFirstInputIsAtomicAndReplayable(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	api := newDeliveryAPI(t, root, db, nil)
-	input := BootstrapInput{Title: "比较两种协作方案", Workflow: "research"}
+	input := BootstrapInput{Title: "比较两种协作方案"}
 	headers := map[string]string{"Idempotency-Key": "first-input-stable-key"}
 	var first, replay BootstrapReply
 	api.call("POST", "/api/v1/bootstrap", input, headers, 200, &first)

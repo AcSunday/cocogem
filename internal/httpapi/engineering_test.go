@@ -15,7 +15,10 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-func TestEngineeringWorkflowAndGrants(t *testing.T) {
+// TestDynamicDispatchWithoutPresetWorkflow is the A01/A05 API regression: sending
+// a message resolves recipients deterministically, with no routing-preview round
+// trip and no preset workflow on either the request or the persisted run.
+func TestDynamicDispatchWithoutPresetWorkflow(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("test"), 0600); err != nil {
 		t.Fatal(err)
@@ -78,74 +81,92 @@ func TestEngineeringWorkflowAndGrants(t *testing.T) {
 	if len(agents.Items) < 2 {
 		t.Fatal("expected initialized members")
 	}
-	engineeringTools := []string{"list_files", "read_file", "search_content", "read_source", "publish_artifact", "write_file", "run_test"}
-	for i := 0; i < 2; i++ {
-		agent := agents.Items[i]
-		agent.Tools = engineeringTools
-		var saved w.Agent
-		call("PATCH", "/api/v1/agents/"+agent.ID, agent, &saved, agent.Revision, 200)
-		if agent.Membership == nil {
-			t.Fatal("initialized member has no workspace membership")
-		}
-		member := *agent.Membership
-		member.Tools = engineeringTools
-		call("PATCH", "/api/v1/workspaces/"+ws.ID+"/members/"+agent.ID, member, nil, member.Revision, 200)
-	}
 	var thread w.Thread
-	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "工程", AgentIDs: []string{agents.Items[0].ID, agents.Items[1].ID}, CoordinatorID: agents.Items[1].ID, Workflow: "engineering"}, &thread, 0, 200)
-	assignments := map[string]string{"engineer": agents.Items[0].ID, "reviewer": agents.Items[1].ID}
-	preview := func(roles map[string]string, want int) RoutingPreview {
+	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "协作", AgentIDs: []string{agents.Items[0].ID, agents.Items[1].ID}, CoordinatorID: agents.Items[1].ID}, &thread, 0, 200)
+
+	// A single explicit recipient produces one writable step.
+	var single w.Run
+	postRun := func(input w.RunInput, out any) {
 		t.Helper()
-		var out RoutingPreview
-		call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "修复 Add 并运行测试", Workflow: "engineering", Assignments: roles, ResearchScope: "given_sources"}, &out, 0, want)
-		return out
+		b, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest("POST", "http://local.test/api/v1/threads/"+thread.ID+"/runs", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "dynamic-dispatch-"+w.NewID())
+		req.AddCookie(cookie)
+		req.Header.Set("X-CSRF-Token", csrf)
+		rw := httptest.NewRecorder()
+		handler.ServeHTTP(rw, req)
+		if rw.Code != 202 {
+			t.Fatalf("submit got %d: %s", rw.Code, rw.Body.String())
+		}
+		if out != nil {
+			if err := json.Unmarshal(rw.Body.Bytes(), out); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
-	engineering := preview(assignments, 200)
-	if engineering.ProposalID == "" || engineering.Routing.Workflow != "engineering" {
-		t.Fatalf("engineering preview = %+v", engineering)
+	postRun(w.RunInput{Message: "@" + agents.Items[0].Handle + " 修复 Add 并运行测试", ResearchScope: "given_sources"}, &single)
+	if len(single.Input.Targets) != 1 || single.Input.Targets[0] != agents.Items[0].ID {
+		t.Fatalf("explicit recipient was not resolved deterministically: %+v", single.Input)
 	}
-	// The old analyze/develop role vocabulary is gone; an explicit legacy role
-	// is rejected instead of silently selecting another plan.
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "修复", Workflow: "engineering", Assignments: map[string]string{"developer": agents.Items[0].ID, "reviewer": agents.Items[1].ID}}, nil, 0, 400)
-	var directed RoutingPreview
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", w.RunInput{Message: "@" + agents.Items[0].Handle + " 修复", Workflow: "engineering"}, &directed, 0, 200)
-	if directed.ProposalID == "" || directed.Routing.Workflow != "free" || !slices.Equal(directed.Routing.Targets, []string{agents.Items[0].ID}) || len(directed.Routing.Assignments) != 0 {
-		t.Fatalf("explicit member did not override the selected workflow: %+v", directed)
+	var singleView RunView
+	call("GET", "/api/v1/runs/"+single.ID, nil, &singleView, 0, 200)
+	if len(singleView.Steps) != 1 || singleView.Steps[0].Role != "responder" || singleView.Steps[0].ReadOnly {
+		t.Fatalf("single-recipient plan = %+v", singleView.Steps)
 	}
-
-	req := httptest.NewRequest("POST", "http://local.test/api/v1/threads/"+thread.ID+"/runs", bytes.NewReader(mustJSON(t, w.RunInput{Message: "修复 Add 并运行测试", Workflow: "engineering", Assignments: assignments, ResearchScope: "given_sources", ProposalID: engineering.ProposalID})))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", "engineering-test-key-0001")
-	req.AddCookie(cookie)
-	req.Header.Set("X-CSRF-Token", csrf)
-	rw := httptest.NewRecorder()
-	handler.ServeHTTP(rw, req)
-	if rw.Code != 202 {
-		t.Fatalf("submit got %d: %s", rw.Code, rw.Body.String())
-	}
-	var run w.Run
-	if err := json.Unmarshal(rw.Body.Bytes(), &run); err != nil {
-		t.Fatal(err)
-	}
-	if run.Input.Workflow != "engineering" {
-		t.Fatalf("persisted input = %+v", run.Input)
-	}
-	var view RunView
-	call("GET", "/api/v1/runs/"+run.ID, nil, &view, 0, 200)
-	roles := []string{}
-	for _, step := range view.Steps {
-		roles = append(roles, step.Role)
-	}
-	if !slices.Equal(roles, []string{"engineer", "reviewer", "engineer", "final_reviewer"}) {
-		t.Fatalf("engineering plan roles = %v", roles)
-	}
-}
-
-func mustJSON(t *testing.T, value any) []byte {
-	t.Helper()
-	encoded, err := json.Marshal(value)
+	// The retired preset workflow must not survive anywhere on the wire.
+	encoded, err := json.Marshal(single)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return encoded
+	for _, banned := range []string{`"workflow"`, `"assignments"`, `"selected_workflow"`, `"proposal_id"`} {
+		if bytes.Contains(encoded, []byte(banned)) {
+			t.Fatalf("persisted run still exposes %s: %s", banned, encoded)
+		}
+	}
+
+	// Two explicit recipients fan out to two independent read-only steps on a
+	// second conversation (one active run per conversation).
+	var secondThread w.Thread
+	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "并行", AgentIDs: []string{agents.Items[0].ID, agents.Items[1].ID}, CoordinatorID: agents.Items[1].ID}, &secondThread, 0, 200)
+	var parallel w.Run
+	postParallel := func(input w.RunInput, out any) {
+		t.Helper()
+		b, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest("POST", "http://local.test/api/v1/threads/"+secondThread.ID+"/runs", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "dynamic-dispatch-"+w.NewID())
+		req.AddCookie(cookie)
+		req.Header.Set("X-CSRF-Token", csrf)
+		rw := httptest.NewRecorder()
+		handler.ServeHTTP(rw, req)
+		if rw.Code != 202 {
+			t.Fatalf("submit got %d: %s", rw.Code, rw.Body.String())
+		}
+		if out != nil {
+			if err := json.Unmarshal(rw.Body.Bytes(), out); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	postParallel(w.RunInput{Message: "@" + agents.Items[0].Handle + " @" + agents.Items[1].Handle + " 各自评估", ResearchScope: "given_sources"}, &parallel)
+	var parallelView RunView
+	call("GET", "/api/v1/runs/"+parallel.ID, nil, &parallelView, 0, 200)
+	if len(parallelView.Steps) != 2 {
+		t.Fatalf("parallel plan = %+v", parallelView.Steps)
+	}
+	for _, step := range parallelView.Steps {
+		if !step.ReadOnly || len(step.DependsOn) != 0 {
+			t.Fatalf("parallel blind step = %+v", step)
+		}
+	}
+	if !slices.ContainsFunc(agents.Items, func(a w.Agent) bool { return a.ID == parallelView.Steps[0].AgentID }) {
+		t.Fatalf("unknown step member: %+v", parallelView.Steps[0])
+	}
 }

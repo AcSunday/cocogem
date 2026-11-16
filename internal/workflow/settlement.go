@@ -160,7 +160,7 @@ func (e *Engine) finish(parent context.Context, run w.Run, status string, cause 
 				}
 			} else {
 				current.Delivery = delivery
-				current.Method = settledMethod(current, steps)
+				current.Method = settledMethod(steps)
 			}
 		}
 		if current.CollaborationMessageID != "" {
@@ -206,7 +206,7 @@ func (e *Engine) finish(parent context.Context, run w.Run, status string, cause 
 		if err := tx.SaveRun(current); err != nil {
 			return err
 		}
-		if status == "succeeded" && current.SelectedWorkflow == nil && (current.Input.Workflow == "" || current.Input.Workflow == "free") {
+		if status == "succeeded" {
 			if err := tx.AppendEvent(run.ID, "", "", "method_recorded", map[string]any{"method": current.Method}); err != nil {
 				return err
 			}

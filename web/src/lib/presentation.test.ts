@@ -26,7 +26,6 @@ import {
   sourceKindLabel,
   threadTitle,
   usageSummary,
-  workflowChoices,
 } from "./presentation";
 import { applyMention, mentionAt, mentionMatches } from "./mention";
 
@@ -580,16 +579,7 @@ it("sums run usage from persisted attempts, not the bounded event window", () =>
     started_at: "",
     ...extra,
   });
-  const run = (routing: Record<string, unknown> = {}): Run =>
-    ({
-      routing: {
-        usage_known: false,
-        model_call: false,
-        input_tokens: 0,
-        output_tokens: 0,
-        ...routing,
-      },
-    }) as Run;
+  const run = (): Run => ({}) as Run;
   const zero = attempt({
     usage_known: true,
     input_tokens: 0,
@@ -608,16 +598,10 @@ it("sums run usage from persisted attempts, not the bounded event window", () =>
     "用量未知",
   );
   expect(
-    runUsageSummary(
-      run({
-        usage_known: true,
-        model_call: true,
-        input_tokens: 3,
-        output_tokens: 1,
-      }),
-      [attempt({ usage_known: true, input_tokens: 10, output_tokens: 2 })],
-    ),
-  ).toBe("用量：13 / 3 tokens");
+    runUsageSummary(run(), [
+      attempt({ usage_known: true, input_tokens: 10, output_tokens: 2 }),
+    ]),
+  ).toBe("用量：10 / 2 tokens");
   expect(attemptUsageLabel(zero)).toBe("0 / 0 tokens");
   expect(attemptUsageLabel(attempt({ usage_known: false }))).toBe("用量未知");
   expect(
@@ -637,16 +621,7 @@ it("keeps a partial attempt's known numbers without calling them complete", () =
     started_at: "",
     ...extra,
   });
-  const run = (routing: Record<string, unknown> = {}): Run =>
-    ({
-      routing: {
-        usage_known: false,
-        model_call: false,
-        input_tokens: 0,
-        output_tokens: 0,
-        ...routing,
-      },
-    }) as Run;
+  const run = (): Run => ({}) as Run;
   const partial = attempt({
     usage_known: false,
     usage_completeness: "partial",
@@ -733,18 +708,11 @@ it("labels search result pages as unread leads", () => {
   ).toBe("网页 · 已读原文");
 });
 
-it("offers engineering as the primary mode and keeps legacy code analysis out", () => {
-  const keys = workflowChoices.map(([key]) => key);
-  expect(keys).toContain("engineering");
-  expect(keys).not.toContain("code_analysis");
-});
-
-it("labels the persisted run method and readable selection reason", () => {
-  const run = (extra: Record<string, unknown>): Run =>
-    ({ input: { workflow: "free" }, ...extra }) as Run;
+it("labels the persisted run method without preset workflows", () => {
+  const run = (extra: Record<string, unknown>): Run => ({ ...extra }) as unknown as Run;
   expect(runMethod(run({}))).toEqual({
     method: "",
-    label: "自由协作",
+    label: "协作会话",
     reason: "",
   });
   expect(runMethod(run({ method: "direct" }))).toEqual({
@@ -752,49 +720,19 @@ it("labels the persisted run method and readable selection reason", () => {
     label: "直接回答",
     reason: "",
   });
-  expect(runMethod(run({ method: "delegation" })).label).toBe("自由分工");
-  expect(runMethod(run({ input: { workflow: "research" } })).label).toBe(
-    "研究协作",
-  );
-  const selection = {
-    workflow: "code_analysis",
-    targets: ["member-uuid"],
-    assignments: { analyst: "member-uuid", future_role: "other-uuid" },
-    reason: "  需要只读核对源码  ",
-    step_id: "step-uuid",
-    selected_at: "2026-10-28T00:00:00Z",
-  };
-  // The selection wins and the reason is trimmed; unknown roles never affect
-  // how the persisted method reads, and no member ID enters the label.
-  expect(runMethod(run({ selected_workflow: selection }))).toEqual({
-    method: "code_analysis",
-    label: "代码分析（旧）",
-    reason: "需要只读核对源码",
-  });
+  expect(runMethod(run({ method: "delegation" })).label).toBe("协作分工");
+  // Removed preset fields never influence the visible method again.
   expect(
     runMethod(
       run({
         input: { workflow: "engineering" },
+        selected_workflow: { workflow: "research" },
       }),
-    ),
-  ).toEqual({ method: "engineering", label: "工程协作", reason: "" });
-  expect(
-    runMethod(
-      run({
-        input: { workflow: "engineering" },
-      }),
-    ),
-  ).toEqual({ method: "engineering", label: "工程协作", reason: "" });
-  // A selected workflow records the method only; engineering is writable under
-  // the member's actual grants.
-  expect(
-    runMethod(
-      run({ selected_workflow: { ...selection, workflow: "engineering" } }),
-    ),
-  ).toMatchObject({ method: "engineering", label: "工程协作" });
+    ).label,
+  ).toBe("协作会话");
 });
 
-it("renders method events as readable text without raw payload details", () => {
+it("renders only settled method events without raw payload details", () => {
   const event = (type: string, data: unknown): Event => ({
     schema_version: 1,
     run_id: "run",
@@ -803,32 +741,18 @@ it("renders method events as readable text without raw payload details", () => {
     occurred_at: "",
     data,
   });
+  expect(methodEventLabel(event("method_recorded", { method: "direct" }))).toBe(
+    "本轮方法：直接回答",
+  );
+  expect(methodEventLabel(event("method_recorded", {}))).toBe("");
+  // The retired selection event no longer renders.
   expect(
     methodEventLabel(
       event("workflow_selected", {
         selection: { workflow: "engineering", reason: "只读核对" },
       }),
     ),
-  ).toBe("协调者选择方法：工程协作 · 只读核对");
-  const selected = methodEventLabel(
-    event("workflow_selected", {
-      selection: {
-        workflow: "discussion",
-        targets: ["member-uuid"],
-        assignments: { coordinator: "member-uuid", future_role: "other-uuid" },
-        reason: "需要独立观点和交叉质询",
-        step_id: "step-uuid",
-        selected_at: "2026-10-28T00:00:00Z",
-      },
-      steps: [{ step_id: "plan-step-uuid" }],
-    }),
-  );
-  expect(selected).toBe("协调者选择方法：协作讨论 · 需要独立观点和交叉质询");
-  expect(selected).not.toContain("uuid");
-  expect(methodEventLabel(event("method_recorded", { method: "direct" }))).toBe(
-    "本轮方法：直接回答",
-  );
-  expect(methodEventLabel(event("method_recorded", {}))).toBe("");
+  ).toBe("");
   expect(methodEventLabel(event("run_finished", { method: "direct" }))).toBe(
     "",
   );
@@ -856,5 +780,5 @@ it("explains Gemini failures without guessing credentials and labels member retr
   expect(runErrorText("quota: Gemini provider reported a quota or rate limit; this step did not complete")).toContain("额度或速率限制");
   expect(runErrorText("authentication: Gemini provider rejected the existing authentication; this step did not complete")).toContain("未接受现有认证");
   expect(runErrorText("permissions: Gemini provider denied this request; this step did not complete")).toContain("拒绝了这次请求");
-  expect(runMethod({ input: { workflow: "research" } as Run["input"], retry_of_step_id: "failed-step" }).label).toBe("成员重试");
+  expect(runMethod({ retry_of_step_id: "failed-step" }).label).toBe("成员重试");
 });

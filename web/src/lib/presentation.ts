@@ -7,17 +7,10 @@ import type {
   Source,
 } from "../api/client";
 
+/** The single dynamic collaboration kernel has no preset workflow choices. */
 export const workflows = {
-  free: "自由协作",
-  discussion: "协作讨论",
-  research: "研究协作",
-  engineering: "工程协作",
-  code_analysis: "代码分析（旧）",
+  free: "协作会话",
 };
-/** New choices use engineering; legacy code_analysis stays readable only. */
-export const workflowChoices = Object.entries(workflows).filter(
-  ([key]) => key !== "code_analysis",
-);
 export const errorText = (error: unknown) =>
   error instanceof Error ? runErrorText(error.message) : "操作失败";
 /** Member avatars use the first character of the display name. */
@@ -89,40 +82,23 @@ export const roleLabel = labels({
   responder: "回复",
   member: "成员",
 });
-/** Persisted run methods, including the two free-run outcomes. */
+/** Persisted run outcomes of the single dynamic kernel. */
 export const methodLabel = labels({
   direct: "直接回答",
-  delegation: "自由分工",
-  discussion: "协作讨论",
-  research: "研究协作",
-  engineering: "工程协作",
-  code_analysis: "代码分析（旧）",
+  delegation: "协作分工",
 });
 
 /**
- * The method actually recorded on a run: the coordinator's selection first,
- * then an explicit built-in workflow, then the settled free-run outcome. No
- * message or current member setting can fill a missing record.
+ * The settled outcome recorded on a run: a member retry, a delegated chain, or a
+ * direct answer. Preset workflow labels no longer exist.
  */
 export function runMethod(
-  run: Pick<Run, "input" | "method" | "selected_workflow" | "retry_of_step_id">,
+  run: Pick<Run, "method" | "retry_of_step_id">,
 ) {
   if (run.retry_of_step_id) return { method: "member_retry", label: "成员重试", reason: "保留已完成的回复，仅重试失败步骤并继续其尚未执行的后续工作" };
-  const selected = run.selected_workflow;
-  const input = run.input?.workflow ?? "";
-  const method =
-    selected?.workflow ||
-    (input && input !== "free" ? input : "") ||
-    run.method ||
-    "";
-  // Engineering is one user-facing method. Read-only analysis and development
-  // are task behaviors, not separate workflow labels.
+  const method = run.method || "";
   const label = method ? methodLabel(method) : workflows.free;
-  return {
-    method,
-    label,
-    reason: selected?.reason?.trim() ?? "",
-  };
+  return { method, label, reason: "" };
 }
 export const skillLabel = labels({
   "task-orchestration": "任务编排",
@@ -314,19 +290,6 @@ const eventData = (event: Event) =>
  */
 export function methodEventLabel(event: Event) {
   const data = eventData(event);
-  if (event.type === "workflow_selected") {
-    const selection =
-      data.selection && typeof data.selection === "object"
-        ? (data.selection as Record<string, unknown>)
-        : {};
-    const workflow =
-      typeof selection.workflow === "string" ? selection.workflow : "";
-    if (!workflow) return "";
-    const reason =
-      typeof selection.reason === "string" ? selection.reason.trim() : "";
-    const label = methodLabel(workflow);
-    return `协调者选择方法：${label}${reason ? ` · ${reason}` : ""}`;
-  }
   if (event.type === "method_recorded") {
     const method = typeof data.method === "string" ? data.method : "";
     return method ? `本轮方法：${methodLabel(method)}` : "";
@@ -482,12 +445,10 @@ export function attemptUsageLabel(attempt: Attempt) {
 }
 
 /**
- * Run totals use persisted attempts (plus known routing usage), not the bounded
- * live event window. Known parts of a partial attempt still count; gaps never
- * become zero.
+ * Run totals use persisted attempts, not the bounded live event window. Known
+ * parts of a partial attempt still count; gaps never become zero.
  */
-/** Token totals without the "用量：" label, for compact status lines. */
-export function runUsageTokens(run: Run, attempts: Attempt[]) {
+export function runUsageTokens(_run: Run, attempts: Attempt[]) {
   let input = 0;
   let output = 0;
   let reported = 0;
@@ -502,14 +463,6 @@ export function runUsageTokens(run: Run, attempts: Attempt[]) {
     if (usage.completeness === "partial") incomplete++;
     input += usage.input;
     output += usage.output;
-  }
-  const routing = run.routing;
-  if (routing?.usage_known) {
-    reported++;
-    input += routing.input_tokens ?? 0;
-    output += routing.output_tokens ?? 0;
-  } else if (routing?.model_call) {
-    incomplete++;
   }
   if (!reported && !incomplete) return "";
   // A partial zero is still a reported number; only missing usage is unknown.
@@ -745,14 +698,6 @@ export function threadTitle(text: string) {
   const chars = [...sentence];
   return chars.length > 28 ? `${chars.slice(0, 28).join("")}…` : sentence;
 }
-
-/** Roles each built-in workflow needs, in execution order. */
-export const workflowRoles: Record<string, string[]> = {
-  discussion: ["coordinator"],
-  research: ["researcher", "critic", "coordinator"],
-  engineering: ["engineer", "reviewer"],
-  code_analysis: ["analyst", "reviewer"],
-};
 
 /**
  * The coordinator a new conversation gets from its prepared roster: the global

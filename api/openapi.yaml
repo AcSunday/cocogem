@@ -890,16 +890,12 @@
           "title": {
             "type": "string"
           },
-          "workflow": {
-            "type": "string"
-          },
           "workspace_id": {
             "type": "string"
           }
         },
         "required": [
-          "title",
-          "workflow"
+          "title"
         ],
         "type": "object"
       },
@@ -1086,9 +1082,6 @@
               "updated_at": {
                 "type": "string"
               },
-              "workflow": {
-                "type": "string"
-              },
               "workspace_id": {
                 "type": "string"
               }
@@ -1099,7 +1092,6 @@
               "title",
               "agent_ids",
               "coordinator_id",
-              "workflow",
               "revision",
               "updated_at"
             ],
@@ -3263,19 +3255,7 @@
                       "null"
                     ]
                   },
-                  "assignments": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
                   "message": {
-                    "type": "string"
-                  },
-                  "proposal_id": {
                     "type": "string"
                   },
                   "research_scope": {
@@ -3310,21 +3290,15 @@
                       "array",
                       "null"
                     ]
-                  },
-                  "workflow": {
-                    "type": "string"
                   }
                 },
                 "required": [
                   "message",
-                  "workflow",
                   "targets",
-                  "assignments",
                   "source_urls",
                   "source_ids",
                   "artifact_refs",
                   "research_scope",
-                  "proposal_id",
                   "retry_of_run_id"
                 ],
                 "type": "object"
@@ -3380,54 +3354,14 @@
               "routing": {
                 "additionalProperties": false,
                 "properties": {
-                  "assignments": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
                   "clarification": {
                     "type": "string"
                   },
                   "decision": {
                     "type": "string"
                   },
-                  "evidence": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "agent_id": {
-                          "type": "string"
-                        },
-                        "quote": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "agent_id",
-                        "quote"
-                      ],
-                      "type": "object"
-                    },
-                    "type": [
-                      "array",
-                      "null"
-                    ]
-                  },
                   "explanation": {
                     "type": "string"
-                  },
-                  "input_tokens": {
-                    "type": "integer"
-                  },
-                  "model_call": {
-                    "type": "boolean"
-                  },
-                  "output_tokens": {
-                    "type": "integer"
                   },
                   "targets": {
                     "items": {
@@ -3437,78 +3371,15 @@
                       "array",
                       "null"
                     ]
-                  },
-                  "usage_known": {
-                    "type": "boolean"
-                  },
-                  "workflow": {
-                    "type": "string"
                   }
                 },
                 "required": [
                   "decision",
                   "targets",
-                  "workflow",
-                  "assignments",
                   "explanation",
-                  "clarification",
-                  "evidence",
-                  "model_call",
-                  "usage_known",
-                  "input_tokens",
-                  "output_tokens"
+                  "clarification"
                 ],
                 "type": "object"
-              },
-              "selected_workflow": {
-                "anyOf": [
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "assignments": {
-                        "additionalProperties": {
-                          "type": "string"
-                        },
-                        "type": [
-                          "object",
-                          "null"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string"
-                      },
-                      "selected_at": {
-                        "type": "string"
-                      },
-                      "step_id": {
-                        "type": "string"
-                      },
-                      "targets": {
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": [
-                          "array",
-                          "null"
-                        ]
-                      },
-                      "workflow": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "workflow",
-                      "targets",
-                      "assignments",
-                      "step_id",
-                      "selected_at"
-                    ],
-                    "type": "object"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
               },
               "skill_snapshot": {
                 "type": "string"
@@ -7286,54 +7157,14 @@
       "Routing": {
         "additionalProperties": false,
         "properties": {
-          "assignments": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": [
-              "object",
-              "null"
-            ]
-          },
           "clarification": {
             "type": "string"
           },
           "decision": {
             "type": "string"
           },
-          "evidence": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "agent_id": {
-                  "type": "string"
-                },
-                "quote": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "agent_id",
-                "quote"
-              ],
-              "type": "object"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          },
           "explanation": {
             "type": "string"
-          },
-          "input_tokens": {
-            "type": "integer"
-          },
-          "model_call": {
-            "type": "boolean"
-          },
-          "output_tokens": {
-            "type": "integer"
           },
           "targets": {
             "items": {
@@ -7343,124 +7174,13 @@
               "array",
               "null"
             ]
-          },
-          "usage_known": {
-            "type": "boolean"
-          },
-          "workflow": {
-            "type": "string"
           }
         },
         "required": [
           "decision",
           "targets",
-          "workflow",
-          "assignments",
           "explanation",
-          "clarification",
-          "evidence",
-          "model_call",
-          "usage_known",
-          "input_tokens",
-          "output_tokens"
-        ],
-        "type": "object"
-      },
-      "RoutingPreview": {
-        "additionalProperties": false,
-        "properties": {
-          "expires_in": {
-            "type": "integer"
-          },
-          "proposal_id": {
-            "type": "string"
-          },
-          "routing": {
-            "additionalProperties": false,
-            "properties": {
-              "assignments": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              "clarification": {
-                "type": "string"
-              },
-              "decision": {
-                "type": "string"
-              },
-              "evidence": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "agent_id": {
-                      "type": "string"
-                    },
-                    "quote": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "agent_id",
-                    "quote"
-                  ],
-                  "type": "object"
-                },
-                "type": [
-                  "array",
-                  "null"
-                ]
-              },
-              "explanation": {
-                "type": "string"
-              },
-              "input_tokens": {
-                "type": "integer"
-              },
-              "model_call": {
-                "type": "boolean"
-              },
-              "output_tokens": {
-                "type": "integer"
-              },
-              "targets": {
-                "items": {
-                  "type": "string"
-                },
-                "type": [
-                  "array",
-                  "null"
-                ]
-              },
-              "usage_known": {
-                "type": "boolean"
-              },
-              "workflow": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "decision",
-              "targets",
-              "workflow",
-              "assignments",
-              "explanation",
-              "clarification",
-              "evidence",
-              "model_call",
-              "usage_known",
-              "input_tokens",
-              "output_tokens"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "routing"
+          "clarification"
         ],
         "type": "object"
       },
@@ -7742,19 +7462,7 @@
                   "null"
                 ]
               },
-              "assignments": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
               "message": {
-                "type": "string"
-              },
-              "proposal_id": {
                 "type": "string"
               },
               "research_scope": {
@@ -7790,21 +7498,15 @@
                   "array",
                   "null"
                 ]
-              },
-              "workflow": {
-                "type": "string"
               }
             },
             "required": [
               "message",
-              "workflow",
               "targets",
-              "assignments",
               "source_urls",
               "source_ids",
               "artifact_refs",
               "research_scope",
-              "proposal_id",
               "retry_of_run_id"
             ],
             "type": "object"
@@ -7860,54 +7562,14 @@
           "routing": {
             "additionalProperties": false,
             "properties": {
-              "assignments": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
               "clarification": {
                 "type": "string"
               },
               "decision": {
                 "type": "string"
               },
-              "evidence": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "agent_id": {
-                      "type": "string"
-                    },
-                    "quote": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "agent_id",
-                    "quote"
-                  ],
-                  "type": "object"
-                },
-                "type": [
-                  "array",
-                  "null"
-                ]
-              },
               "explanation": {
                 "type": "string"
-              },
-              "input_tokens": {
-                "type": "integer"
-              },
-              "model_call": {
-                "type": "boolean"
-              },
-              "output_tokens": {
-                "type": "integer"
               },
               "targets": {
                 "items": {
@@ -7917,78 +7579,15 @@
                   "array",
                   "null"
                 ]
-              },
-              "usage_known": {
-                "type": "boolean"
-              },
-              "workflow": {
-                "type": "string"
               }
             },
             "required": [
               "decision",
               "targets",
-              "workflow",
-              "assignments",
               "explanation",
-              "clarification",
-              "evidence",
-              "model_call",
-              "usage_known",
-              "input_tokens",
-              "output_tokens"
+              "clarification"
             ],
             "type": "object"
-          },
-          "selected_workflow": {
-            "anyOf": [
-              {
-                "additionalProperties": false,
-                "properties": {
-                  "assignments": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
-                  "reason": {
-                    "type": "string"
-                  },
-                  "selected_at": {
-                    "type": "string"
-                  },
-                  "step_id": {
-                    "type": "string"
-                  },
-                  "targets": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": [
-                      "array",
-                      "null"
-                    ]
-                  },
-                  "workflow": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "workflow",
-                  "targets",
-                  "assignments",
-                  "step_id",
-                  "selected_at"
-                ],
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "skill_snapshot": {
             "type": "string"
@@ -8197,19 +7796,7 @@
               "null"
             ]
           },
-          "assignments": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": [
-              "object",
-              "null"
-            ]
-          },
           "message": {
-            "type": "string"
-          },
-          "proposal_id": {
             "type": "string"
           },
           "research_scope": {
@@ -8245,21 +7832,15 @@
               "array",
               "null"
             ]
-          },
-          "workflow": {
-            "type": "string"
           }
         },
         "required": [
           "message",
-          "workflow",
           "targets",
-          "assignments",
           "source_urls",
           "source_ids",
           "artifact_refs",
           "research_scope",
-          "proposal_id",
           "retry_of_run_id"
         ],
         "type": "object"
@@ -8289,19 +7870,7 @@
               "null"
             ]
           },
-          "assignments": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": [
-              "object",
-              "null"
-            ]
-          },
           "message": {
-            "type": "string"
-          },
-          "proposal_id": {
             "type": "string"
           },
           "research_scope": {
@@ -8337,9 +7906,6 @@
               "array",
               "null"
             ]
-          },
-          "workflow": {
-            "type": "string"
           }
         },
         "required": [
@@ -8986,19 +8552,7 @@
                       "null"
                     ]
                   },
-                  "assignments": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
                   "message": {
-                    "type": "string"
-                  },
-                  "proposal_id": {
                     "type": "string"
                   },
                   "research_scope": {
@@ -9033,21 +8587,15 @@
                       "array",
                       "null"
                     ]
-                  },
-                  "workflow": {
-                    "type": "string"
                   }
                 },
                 "required": [
                   "message",
-                  "workflow",
                   "targets",
-                  "assignments",
                   "source_urls",
                   "source_ids",
                   "artifact_refs",
                   "research_scope",
-                  "proposal_id",
                   "retry_of_run_id"
                 ],
                 "type": "object"
@@ -9103,54 +8651,14 @@
               "routing": {
                 "additionalProperties": false,
                 "properties": {
-                  "assignments": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "type": [
-                      "object",
-                      "null"
-                    ]
-                  },
                   "clarification": {
                     "type": "string"
                   },
                   "decision": {
                     "type": "string"
                   },
-                  "evidence": {
-                    "items": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "agent_id": {
-                          "type": "string"
-                        },
-                        "quote": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "agent_id",
-                        "quote"
-                      ],
-                      "type": "object"
-                    },
-                    "type": [
-                      "array",
-                      "null"
-                    ]
-                  },
                   "explanation": {
                     "type": "string"
-                  },
-                  "input_tokens": {
-                    "type": "integer"
-                  },
-                  "model_call": {
-                    "type": "boolean"
-                  },
-                  "output_tokens": {
-                    "type": "integer"
                   },
                   "targets": {
                     "items": {
@@ -9160,78 +8668,15 @@
                       "array",
                       "null"
                     ]
-                  },
-                  "usage_known": {
-                    "type": "boolean"
-                  },
-                  "workflow": {
-                    "type": "string"
                   }
                 },
                 "required": [
                   "decision",
                   "targets",
-                  "workflow",
-                  "assignments",
                   "explanation",
-                  "clarification",
-                  "evidence",
-                  "model_call",
-                  "usage_known",
-                  "input_tokens",
-                  "output_tokens"
+                  "clarification"
                 ],
                 "type": "object"
-              },
-              "selected_workflow": {
-                "anyOf": [
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "assignments": {
-                        "additionalProperties": {
-                          "type": "string"
-                        },
-                        "type": [
-                          "object",
-                          "null"
-                        ]
-                      },
-                      "reason": {
-                        "type": "string"
-                      },
-                      "selected_at": {
-                        "type": "string"
-                      },
-                      "step_id": {
-                        "type": "string"
-                      },
-                      "targets": {
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": [
-                          "array",
-                          "null"
-                        ]
-                      },
-                      "workflow": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "workflow",
-                      "targets",
-                      "assignments",
-                      "step_id",
-                      "selected_at"
-                    ],
-                    "type": "object"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
               },
               "skill_snapshot": {
                 "type": "string"
@@ -9482,6 +8927,9 @@
                 "kind": {
                   "type": "string"
                 },
+                "read_only": {
+                  "type": "boolean"
+                },
                 "request_id": {
                   "type": "string"
                 },
@@ -9546,21 +8994,6 @@
       "Settings": {
         "additionalProperties": false,
         "properties": {
-          "assignments": {
-            "additionalProperties": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "type": [
-                "object",
-                "null"
-              ]
-            },
-            "type": [
-              "object",
-              "null"
-            ]
-          },
           "collaboration_budget": {
             "additionalProperties": false,
             "properties": {
@@ -9607,36 +9040,13 @@
         },
         "required": [
           "revision",
-          "default_coordinator_id",
-          "assignments"
+          "default_coordinator_id"
         ],
         "type": "object"
       },
       "SettingsInput": {
         "additionalProperties": false,
         "properties": {
-          "assignments": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": [
-                    "object",
-                    "null"
-                  ]
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "collaboration_budget": {
             "anyOf": [
               {
@@ -9719,28 +9129,6 @@
       "SettingsPatch": {
         "additionalProperties": false,
         "properties": {
-          "assignments": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": [
-                    "object",
-                    "null"
-                  ]
-                },
-                "type": [
-                  "object",
-                  "null"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "collaboration_budget": {
             "anyOf": [
               {
@@ -10180,6 +9568,9 @@
           },
           "kind": {
             "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
           },
           "request_id": {
             "type": "string"
@@ -11692,19 +11083,7 @@
                         "null"
                       ]
                     },
-                    "assignments": {
-                      "additionalProperties": {
-                        "type": "string"
-                      },
-                      "type": [
-                        "object",
-                        "null"
-                      ]
-                    },
                     "message": {
-                      "type": "string"
-                    },
-                    "proposal_id": {
                       "type": "string"
                     },
                     "research_scope": {
@@ -11739,21 +11118,15 @@
                         "array",
                         "null"
                       ]
-                    },
-                    "workflow": {
-                      "type": "string"
                     }
                   },
                   "required": [
                     "message",
-                    "workflow",
                     "targets",
-                    "assignments",
                     "source_urls",
                     "source_ids",
                     "artifact_refs",
                     "research_scope",
-                    "proposal_id",
                     "retry_of_run_id"
                   ],
                   "type": "object"
@@ -11809,54 +11182,14 @@
                 "routing": {
                   "additionalProperties": false,
                   "properties": {
-                    "assignments": {
-                      "additionalProperties": {
-                        "type": "string"
-                      },
-                      "type": [
-                        "object",
-                        "null"
-                      ]
-                    },
                     "clarification": {
                       "type": "string"
                     },
                     "decision": {
                       "type": "string"
                     },
-                    "evidence": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "agent_id": {
-                            "type": "string"
-                          },
-                          "quote": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "agent_id",
-                          "quote"
-                        ],
-                        "type": "object"
-                      },
-                      "type": [
-                        "array",
-                        "null"
-                      ]
-                    },
                     "explanation": {
                       "type": "string"
-                    },
-                    "input_tokens": {
-                      "type": "integer"
-                    },
-                    "model_call": {
-                      "type": "boolean"
-                    },
-                    "output_tokens": {
-                      "type": "integer"
                     },
                     "targets": {
                       "items": {
@@ -11866,78 +11199,15 @@
                         "array",
                         "null"
                       ]
-                    },
-                    "usage_known": {
-                      "type": "boolean"
-                    },
-                    "workflow": {
-                      "type": "string"
                     }
                   },
                   "required": [
                     "decision",
                     "targets",
-                    "workflow",
-                    "assignments",
                     "explanation",
-                    "clarification",
-                    "evidence",
-                    "model_call",
-                    "usage_known",
-                    "input_tokens",
-                    "output_tokens"
+                    "clarification"
                   ],
                   "type": "object"
-                },
-                "selected_workflow": {
-                  "anyOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "assignments": {
-                          "additionalProperties": {
-                            "type": "string"
-                          },
-                          "type": [
-                            "object",
-                            "null"
-                          ]
-                        },
-                        "reason": {
-                          "type": "string"
-                        },
-                        "selected_at": {
-                          "type": "string"
-                        },
-                        "step_id": {
-                          "type": "string"
-                        },
-                        "targets": {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": [
-                            "array",
-                            "null"
-                          ]
-                        },
-                        "workflow": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "workflow",
-                        "targets",
-                        "assignments",
-                        "step_id",
-                        "selected_at"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
                 },
                 "skill_snapshot": {
                   "type": "string"
@@ -13535,9 +12805,6 @@
           "updated_at": {
             "type": "string"
           },
-          "workflow": {
-            "type": "string"
-          },
           "workspace_id": {
             "type": "string"
           }
@@ -13548,7 +12815,6 @@
           "title",
           "agent_ids",
           "coordinator_id",
-          "workflow",
           "revision",
           "updated_at"
         ],
@@ -13603,9 +12869,6 @@
             "type": "string"
           },
           "updated_at": {
-            "type": "string"
-          },
-          "workflow": {
             "type": "string"
           },
           "workspace_id": {
@@ -13681,16 +12944,6 @@
           "updated_at": {
             "description": "Accepted for compatibility; ignored. The server sets the timestamp.",
             "type": "string"
-          },
-          "workflow": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "workspace_id": {
             "description": "Accepted for compatibility; ignored. A thread never changes workspace.",
@@ -14066,19 +13319,7 @@
                         "null"
                       ]
                     },
-                    "assignments": {
-                      "additionalProperties": {
-                        "type": "string"
-                      },
-                      "type": [
-                        "object",
-                        "null"
-                      ]
-                    },
                     "message": {
-                      "type": "string"
-                    },
-                    "proposal_id": {
                       "type": "string"
                     },
                     "research_scope": {
@@ -14113,21 +13354,15 @@
                         "array",
                         "null"
                       ]
-                    },
-                    "workflow": {
-                      "type": "string"
                     }
                   },
                   "required": [
                     "message",
-                    "workflow",
                     "targets",
-                    "assignments",
                     "source_urls",
                     "source_ids",
                     "artifact_refs",
                     "research_scope",
-                    "proposal_id",
                     "retry_of_run_id"
                   ],
                   "type": "object"
@@ -14183,54 +13418,14 @@
                 "routing": {
                   "additionalProperties": false,
                   "properties": {
-                    "assignments": {
-                      "additionalProperties": {
-                        "type": "string"
-                      },
-                      "type": [
-                        "object",
-                        "null"
-                      ]
-                    },
                     "clarification": {
                       "type": "string"
                     },
                     "decision": {
                       "type": "string"
                     },
-                    "evidence": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "agent_id": {
-                            "type": "string"
-                          },
-                          "quote": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "agent_id",
-                          "quote"
-                        ],
-                        "type": "object"
-                      },
-                      "type": [
-                        "array",
-                        "null"
-                      ]
-                    },
                     "explanation": {
                       "type": "string"
-                    },
-                    "input_tokens": {
-                      "type": "integer"
-                    },
-                    "model_call": {
-                      "type": "boolean"
-                    },
-                    "output_tokens": {
-                      "type": "integer"
                     },
                     "targets": {
                       "items": {
@@ -14240,78 +13435,15 @@
                         "array",
                         "null"
                       ]
-                    },
-                    "usage_known": {
-                      "type": "boolean"
-                    },
-                    "workflow": {
-                      "type": "string"
                     }
                   },
                   "required": [
                     "decision",
                     "targets",
-                    "workflow",
-                    "assignments",
                     "explanation",
-                    "clarification",
-                    "evidence",
-                    "model_call",
-                    "usage_known",
-                    "input_tokens",
-                    "output_tokens"
+                    "clarification"
                   ],
                   "type": "object"
-                },
-                "selected_workflow": {
-                  "anyOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "assignments": {
-                          "additionalProperties": {
-                            "type": "string"
-                          },
-                          "type": [
-                            "object",
-                            "null"
-                          ]
-                        },
-                        "reason": {
-                          "type": "string"
-                        },
-                        "selected_at": {
-                          "type": "string"
-                        },
-                        "step_id": {
-                          "type": "string"
-                        },
-                        "targets": {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": [
-                            "array",
-                            "null"
-                          ]
-                        },
-                        "workflow": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "workflow",
-                        "targets",
-                        "assignments",
-                        "step_id",
-                        "selected_at"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
                 },
                 "skill_snapshot": {
                   "type": "string"
@@ -14663,9 +13795,6 @@
               "updated_at": {
                 "type": "string"
               },
-              "workflow": {
-                "type": "string"
-              },
               "workspace_id": {
                 "type": "string"
               }
@@ -14676,7 +13805,6 @@
               "title",
               "agent_ids",
               "coordinator_id",
-              "workflow",
               "revision",
               "updated_at"
             ],
@@ -14907,9 +14035,6 @@
               "updated_at": {
                 "type": "string"
               },
-              "workflow": {
-                "type": "string"
-              },
               "workspace_id": {
                 "type": "string"
               }
@@ -14920,7 +14045,6 @@
               "title",
               "agent_ids",
               "coordinator_id",
-              "workflow",
               "revision",
               "updated_at"
             ],
@@ -14994,9 +14118,6 @@
                     "updated_at": {
                       "type": "string"
                     },
-                    "workflow": {
-                      "type": "string"
-                    },
                     "workspace_id": {
                       "type": "string"
                     }
@@ -15007,7 +14128,6 @@
                     "title",
                     "agent_ids",
                     "coordinator_id",
-                    "workflow",
                     "revision",
                     "updated_at"
                   ],
@@ -18686,61 +17806,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Thread"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Structured error"
-          }
-        }
-      }
-    },
-    "/api/v1/threads/{id}/routing-preview": {
-      "post": {
-        "operationId": "routingPreview",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-CSRF-Token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RunRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RoutingPreview"
                 }
               }
             },

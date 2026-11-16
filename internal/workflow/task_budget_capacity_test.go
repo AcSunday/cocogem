@@ -69,8 +69,8 @@ func TestBudgetCapacityQueuesAndAutomaticallyBackfills(t *testing.T) {
 	}
 
 	runs := []w.Run{
-		{ID: "capacity-first", WorkspaceID: workspace.ID, Workspace: workspace, ThreadID: rootThread.ID, TaskID: created.Task.ID, TaskRevision: 1, BudgetAccountID: created.Budget.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID, Input: w.RunInput{Message: "first", Workflow: "free", Targets: []string{member.ID}, ResearchScope: "given_sources"}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}},
-		{ID: "capacity-second", WorkspaceID: workspace.ID, Workspace: workspace, ThreadID: childThread.ID, TaskID: "capacity-child-task", TaskRevision: 1, BudgetAccountID: created.Budget.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID, Input: w.RunInput{Message: "second", Workflow: "free", Targets: []string{member.ID}, ResearchScope: "given_sources"}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}},
+		{ID: "capacity-first", WorkspaceID: workspace.ID, Workspace: workspace, ThreadID: rootThread.ID, TaskID: created.Task.ID, TaskRevision: 1, BudgetAccountID: created.Budget.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID, Input: w.RunInput{Message: "first", Targets: []string{member.ID}, ResearchScope: "given_sources"}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}},
+		{ID: "capacity-second", WorkspaceID: workspace.ID, Workspace: workspace, ThreadID: childThread.ID, TaskID: "capacity-child-task", TaskRevision: 1, BudgetAccountID: created.Budget.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID, Input: w.RunInput{Message: "second", Targets: []string{member.ID}, ResearchScope: "given_sources"}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}},
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		for _, run := range runs {

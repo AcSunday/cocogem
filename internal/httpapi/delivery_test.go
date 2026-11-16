@@ -137,11 +137,8 @@ func TestQueuedSubmissionRecordsExplicitDelivery(t *testing.T) {
 		t.Fatal("no workspace member")
 	}
 	var thread w.Thread
-	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "排队取消", AgentIDs: []string{members.Items[0].ID}, CoordinatorID: members.Items[0].ID, Workflow: "free"}, nil, 200, &thread)
-	input := w.RunInput{Message: "排队后取消，草稿不得成为正式产物", Workflow: "free", Targets: []string{members.Items[0].ID}}
-	var preview RoutingPreview
-	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	input.ProposalID = preview.ProposalID
+	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "排队取消", AgentIDs: []string{members.Items[0].ID}, CoordinatorID: members.Items[0].ID}, nil, 200, &thread)
+	input := w.RunInput{Message: "排队后取消，草稿不得成为正式产物", Targets: []string{members.Items[0].ID}}
 	submitted := api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": "delivery-queued-cancel"}, 202, nil)
 	validateResponse(t, "/api/v1/threads/{id}/runs", "post", 202, submitted)
 	var accepted map[string]any

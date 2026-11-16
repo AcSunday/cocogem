@@ -64,7 +64,6 @@ it("replaces a coordinator disabled since the conversation was saved", () => {
         title: "已有会话",
         agent_ids: ["one", "two", "disabled"],
         coordinator_id: "disabled",
-        workflow: "discussion",
         revision: 2,
         updated_at: "",
       }}

@@ -102,12 +102,12 @@ func TestTaskLaunchPrioritizesExplicitRecipientOverConversationWorkflow(t *testi
 	api.call("GET", "/api/v1/workspaces/"+ws.ID+"/agents", nil, nil, 200, &members)
 	member := members.Items[0]
 	var thread w.Thread
-	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "文档比较", Workflow: "research", AgentIDs: []string{member.ID}, CoordinatorID: member.ID}, nil, 200, &thread)
+	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "文档比较", AgentIDs: []string{member.ID}, CoordinatorID: member.ID}, nil, 200, &thread)
 	var saved project.TaskView
 	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/tasks", project.CreateTaskInput{RequestID: "explicit-task", ThreadID: thread.ID, Goal: "@" + member.Handle + " 对比两份文档的变化"}, nil, 200, &saved)
 	var run w.Run
 	api.call("POST", "/api/v1/tasks/"+saved.Task.ID+"/start", map[string]any{}, nil, 202, &run)
-	if run.Input.Workflow != "free" || !slices.Equal(run.Input.Targets, []string{member.ID}) || len(run.Input.Assignments) != 0 {
+	if !slices.Equal(run.Input.Targets, []string{member.ID}) {
 		t.Fatalf("task ignored its explicit recipient: %+v", run.Input)
 	}
 }

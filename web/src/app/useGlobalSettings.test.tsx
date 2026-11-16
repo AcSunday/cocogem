@@ -18,7 +18,6 @@ afterEach(() => {
 const settings = (overrides: Partial<Settings> = {}): Settings => ({
   revision: 3,
   default_coordinator_id: "coordinator",
-  assignments: { engineering: { engineer: "writer" } },
   retention_days: 9,
   collaboration_budget: {
     auto_continuations: 20,
@@ -53,8 +52,6 @@ function server(initial: Settings) {
     const next: Settings = { ...current };
     if (body.default_coordinator_id !== undefined && body.default_coordinator_id !== null)
       next.default_coordinator_id = body.default_coordinator_id;
-    if (body.assignments !== undefined && body.assignments !== null)
-      next.assignments = body.assignments;
     if (body.retention_days !== undefined && body.retention_days !== null)
       next.retention_days = body.retention_days;
     if (body.collaboration_budget) next.collaboration_budget = body.collaboration_budget;
@@ -103,7 +100,6 @@ it("patches only the permission field so collaboration defaults survive", async 
   expect(api.calls[0].ifMatch).toBe("3");
   // Saving the permission did not clear anything else.
   expect(api.current.default_coordinator_id).toBe("coordinator");
-  expect(api.current.assignments).toEqual({ engineering: { engineer: "writer" } });
   expect(api.current.retention_days).toBe(9);
   expect(api.current.collaboration_budget?.auto_continuations).toBe(20);
   // A changed boundary advances the server-owned epoch.
@@ -223,7 +219,7 @@ it("converges within 2s while another window is visible", async () => {
 
 it("defensively defaults an older record to project_autonomous", () => {
   expect(executionModeOf(undefined)).toBe("project_autonomous");
-  expect(executionModeOf({ revision: 1, default_coordinator_id: "", assignments: {} }))
+  expect(executionModeOf({ revision: 1, default_coordinator_id: "" }))
     .toBe("project_autonomous");
   expect(executionModeOf(settings({ execution_mode: "controlled" }))).toBe(
     "controlled",

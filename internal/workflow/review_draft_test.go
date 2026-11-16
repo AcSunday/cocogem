@@ -45,8 +45,13 @@ func TestReviewResumeDoesNotPublishPreviousDraftWithoutResubmission(t *testing.T
 		t.Fatal(err)
 	}
 	got := awaitRun(t, s, run.ID)
-	if got.Status != "failed" || got.FailureKind != failureArtifactContract {
-		t.Fatalf("an old draft was treated as a newly submitted deliverable: %+v", got)
+	// The kernel requires no artifact template: a later plain reply may complete
+	// the run, but the earlier draft must never be published automatically.
+	if got.Status != "succeeded" {
+		t.Fatalf("a verified plain reply was refused: %+v", got)
+	}
+	if got.Delivery == nil || len(got.Delivery.ArtifactRefs) != 0 {
+		t.Fatalf("an old draft was silently published: %+v", got.Delivery)
 	}
 	if err := s.Read(t.Context(), func(tx *store.Tx) error {
 		artifacts, err := tx.Artifacts(run.ThreadID)

@@ -59,7 +59,7 @@ func TestPermanentDeleteTasksRemovesOwnedTreeAndConversation(t *testing.T) {
 	run := w.Run{
 		ID: "delete-run", WorkspaceID: th.WorkspaceID, ThreadID: th.ID,
 		TaskID: root.Task.ID, Status: "succeeded", CreatedAt: w.Now(),
-		Input: w.RunInput{Message: "已完成", Workflow: "free"},
+		Input: w.RunInput{Message: "已完成"},
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.InsertRun(run, "delete-run-key", "delete-run-hash"); err != nil {

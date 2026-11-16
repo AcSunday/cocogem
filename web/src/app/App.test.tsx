@@ -143,7 +143,6 @@ it("keeps linked drafts and exact artifact versions through theme and stream upd
     workspace_id: "ws",
     title: "持续协作",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const agent: Agent = {
@@ -161,11 +160,10 @@ it("keeps linked drafts and exact artifact versions through theme and stream upd
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-20T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const artifacts: Artifact[] = [1, 2].map((version) => ({
     id: "report",
     run_id: "run",
@@ -357,9 +355,6 @@ it("applies edited collaboration defaults to a new conversation without losing t
   let settings = {
     revision: 1,
     default_coordinator_id: "one",
-    assignments: {
-      research: { researcher: "one", critic: "two", coordinator: "one" },
-    } as Record<string, Record<string, string>>,
   };
   const thread = {
     id: "new-thread",
@@ -367,7 +362,6 @@ it("applies edited collaboration defaults to a new conversation without losing t
     title: "新会话",
     agent_ids: ["three", "one", "two"],
     coordinator_id: "three",
-    workflow: "free",
     revision: 1,
     updated_at: "",
   };
@@ -401,14 +395,6 @@ it("applies edited collaboration defaults to a new conversation without losing t
         runs: [],
         sources: [],
       });
-    if (path === "/api/v1/threads/new-thread/routing-preview")
-      return Response.json({
-        routing: {
-          decision: "discuss",
-          clarification: "等待确认",
-          targets: [],
-        },
-      });
     return Response.json({ items: [] });
   });
   vi.stubGlobal("fetch", fetcher);
@@ -420,7 +406,6 @@ it("applies edited collaboration defaults to a new conversation without losing t
   await user.click(screen.getByRole("button", { name: "设置" }));
   await user.click(screen.getByRole("tab", { name: "协作" }));
   await chooseOption(user, screen.getByLabelText("默认协调者"), "three");
-  await chooseOption(user, screen.getByLabelText("研究"), "three");
   await user.click(screen.getByRole("button", { name: "保存协作默认" }));
   await screen.findByText("协作默认已保存，新会话会使用这些选择。");
   await screen.findByText("协调者：three");
@@ -431,7 +416,6 @@ it("applies edited collaboration defaults to a new conversation without losing t
   );
   expect(JSON.parse(String((saved?.[1] as RequestInit).body))).toMatchObject({
     default_coordinator_id: "three",
-    assignments: { research: { researcher: "three" } },
   });
   await user.click(screen.getByRole("button", { name: "关闭窗口" }));
   expect(screen.getByLabelText("输入问题")).toHaveValue(draft);
@@ -469,7 +453,6 @@ it("shows a visible coordinator fallback when the global default is unavailable"
         return Response.json({
           revision: 1,
           default_coordinator_id: "gone",
-          assignments: {},
         });
       if (path.startsWith("/api/v1/workspaces/ws/threads"))
         return Response.json({ items: [], next_cursor: "" });
@@ -482,17 +465,12 @@ it("shows a visible coordinator fallback when the global default is unavailable"
 
 it.each([
   { search: "configured", question: "比较协作的取舍" },
-  { search: "not_configured", question: "比较协作的取舍" },
-  { search: "configured", question: "研究 https://example.org/topic" },
   { search: "not_configured", question: "研究 https://example.org/topic" },
 ])(
-  "sends no local role assignments and reports server-resolved global defaults ($search, $question)",
+  "submits directly with no preset workflow or role assignments ($search, $question)",
   async ({ search, question }) => {
     history.replaceState({}, "", "/w/ws/t/two");
-    const globalAssignments = {
-      research: { researcher: "one", critic: "two", coordinator: "two" },
-    };
-    const agents: Agent[] = ["disabled", "one", "two", "outside"].map((id) => ({
+    const agents: Agent[] = ["one", "two"].map((id) => ({
       id,
       workspace_id: "ws",
       display_name: id,
@@ -502,7 +480,7 @@ it.each([
       model: "default",
       executor: "codex",
       tools: ["publish_artifact"],
-      disabled: id === "disabled",
+      disabled: false,
       revision: 1,
     }));
     const thread = {
@@ -511,11 +489,10 @@ it.each([
       title: "双成员研究",
       agent_ids: ["one", "two"],
       coordinator_id: "two",
-      workflow: "research",
       revision: 1,
       updated_at: "",
     };
-    const previewInputs: RunInput[] = [];
+    const submissions: RunInput[] = [];
     const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
       if (path === "/api/v1/system")
         return Response.json({ ...system, search_status: search });
@@ -524,11 +501,7 @@ it.each([
       if (path === "/api/v1/workspaces/ws/agents")
         return Response.json({ items: agents });
       if (path === "/api/v1/settings")
-        return Response.json({
-          revision: 1,
-          default_coordinator_id: "two",
-          assignments: globalAssignments,
-        });
+        return Response.json({ revision: 1, default_coordinator_id: "two" });
       if (path.startsWith("/api/v1/workspaces/ws/threads"))
         return Response.json({ items: [thread], next_cursor: "" });
       if (path.startsWith("/api/v1/threads/two?"))
@@ -538,17 +511,9 @@ it.each([
           runs: [],
           sources: [],
         });
-      if (path === "/api/v1/threads/two/routing-preview") {
-        previewInputs.push(JSON.parse(String(options?.body)));
-        return Response.json({
-          routing: {
-            decision: "assign",
-            workflow: "research",
-            targets: [],
-            assignments: globalAssignments.research,
-            clarification: "保留问题等待确认",
-          },
-        });
+      if (path === "/api/v1/threads/two/runs" && options?.method === "POST") {
+        submissions.push(JSON.parse(String(options.body)));
+        return Response.json({});
       }
       return Response.json({ items: [] });
     });
@@ -556,30 +521,17 @@ it.each([
     render(<App />);
     const user = userEvent.setup();
     await screen.findByRole("heading", { name: "双成员研究" });
-    // The thread's saved method is shown as a chip; the selector is gone.
-    expect(screen.getByText("研究协作")).toBeVisible();
+    // The preset workflow selector, slash menu and role slots are gone.
     expect(screen.queryByLabelText("工作方式")).not.toBeInTheDocument();
-    // Sessions no longer edit roles; globals are resolved by the server.
+    expect(screen.queryByText("研究协作")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^成员与分工/)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("研究")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("质疑")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("汇总")).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("输入问题"), question);
     await user.click(screen.getByRole("button", { name: "发送" }));
-    await waitFor(() => expect(previewInputs).toHaveLength(1));
-    const previewInput = previewInputs[0];
-    expect(previewInput.targets).toEqual([]);
-    expect(previewInput.research_scope).toBe("auto");
-    expect(previewInput.message).toBe(question);
-    expect(previewInput.source_urls).toEqual([]);
-    expect(screen.queryByLabelText("资料链接")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("研究范围")).not.toBeInTheDocument();
-    // Saved defaults are not sent as manual overrides; the server resolves them.
-    expect(previewInput.assignments).toEqual({});
-    // The accepted preview's effective roles stay visible in the composer.
-    expect(
-      await screen.findByText("研究：one · 质疑：two · 汇总：two"),
-    ).toBeVisible();
+    await waitFor(() => expect(submissions).toHaveLength(1));
+    expect(submissions[0].message).toBe(question);
+    expect(submissions[0]).not.toHaveProperty("workflow");
+    expect(submissions[0]).not.toHaveProperty("assignments");
+    expect(submissions[0]).not.toHaveProperty("proposal_id");
   },
 );
 
@@ -604,17 +556,15 @@ it("loads persisted handoffs and stops their whole collaboration with the compos
     title: "持续交接",
     agent_ids: agents.map((agent) => agent.id),
     coordinator_id: "coordinator",
-    workflow: "free",
     revision: 1,
     updated_at: "",
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents,
     status: "running",
     created_at: "2026-10-24T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const steps: Step[] = [
     {
       id: "parent",
@@ -737,17 +687,15 @@ it("uses the run's member snapshot for message avatars, not the current profile"
     title: "头像快照",
     agent_ids: ["one"],
     coordinator_id: "one",
-    workflow: "free",
     revision: 1,
     updated_at: "",
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [{ ...current, avatar: snapshotAvatar, revision: 1 }],
     status: "succeeded",
     created_at: "2026-10-24T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const message = {
     id: "message",
     thread_id: "thread",
@@ -808,13 +756,11 @@ it("keeps the conversation content when the same sidebar conversation is clicked
     title: "重复会话",
     agent_ids: ["one"],
     coordinator_id: "one",
-    workflow: "free",
     revision: 1,
     updated_at: "2026-10-24T00:00:00Z",
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "succeeded",
     created_at: "2026-10-24T00:00:00Z",
@@ -843,7 +789,6 @@ it("keeps the conversation content when the same sidebar conversation is clicked
         return Response.json({
           revision: 1,
           default_coordinator_id: "one",
-          assignments: {},
           retention_days: 7,
         });
       if (path.startsWith("/api/v1/workspaces/ws/threads"))
@@ -949,7 +894,6 @@ it("preserves the current conversation while saving coordinator and workspace di
     title: "保留原会话",
     agent_ids: ["one", "two"],
     coordinator_id: "one",
-    workflow: "free",
     revision: 1,
     updated_at: "2026-10-24T00:00:00Z",
   };
@@ -968,11 +912,10 @@ it("preserves the current conversation while saving coordinator and workspace di
   }));
   const run = {
     id: "saved-run",
-    input: { workflow: "free" },
     agents,
     status: "succeeded",
     created_at: "2026-10-24T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const requests: string[] = [];
   vi.stubGlobal(
     "EventSource",
@@ -1104,7 +1047,6 @@ it("renames a conversation with If-Match, keeps its members and retains a failed
     title: "保留原会话",
     agent_ids: ["one", "two"],
     coordinator_id: "two",
-    workflow: "research",
     revision: 4,
     updated_at: "2026-10-24T00:00:00Z",
   };
@@ -1215,16 +1157,14 @@ it("clears a stale tool-wait warning after confirmed progress", async () => {
     workspace_id: "ws",
     title: "合成进度测试",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   let content = "工具执行前";
   const streams: { onmessage?: (event: MessageEvent) => void }[] = [];
   vi.stubGlobal(
@@ -1317,7 +1257,6 @@ it("pages conversation history one page at a time without accumulating it", asyn
     workspace_id: "ws",
     title: "长会话",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const agent: Agent = {
@@ -1347,11 +1286,10 @@ it("pages conversation history one page at a time without accumulating it", asyn
   });
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "succeeded",
     created_at: "2026-10-20T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   vi.stubGlobal(
     "EventSource",
     class {
@@ -1427,16 +1365,14 @@ it("keeps a liveness warning after activity events evict it from the window", as
     workspace_id: "ws",
     title: "合成进度测试",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const streams: { onmessage?: (event: MessageEvent) => void }[] = [];
   vi.stubGlobal(
     "EventSource",
@@ -1558,16 +1494,14 @@ it("restores a warning outside the 500-event window from the attempt snapshot an
     workspace_id: "ws",
     title: "持久告警测试",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   let warning: Attempt["liveness_warning"] = {
     state: "stalled",
     silence_seconds: 900,
@@ -1663,7 +1597,6 @@ it("loads source bodies from the source endpoint instead of the metadata list", 
     workspace_id: "ws",
     title: "来源测试",
     agent_ids: [],
-    workflow: "free",
     revision: 1,
   };
   const fetcher = vi.fn(async (path: string) => {
@@ -1744,16 +1677,14 @@ it("loads one page of run event history only when asked", async () => {
     workspace_id: "ws",
     title: "历史事件测试",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   // Tool activity renders next to the member reply that produced it.
   const reply = {
     id: "reply",
@@ -1907,16 +1838,14 @@ it("seeds the recent event window and resumes live from the snapshot cursor", as
     workspace_id: "ws",
     title: "种子测试",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const reply = {
     id: "reply-seed",
     run_id: "run",
@@ -2022,18 +1951,16 @@ it("merges a bounded seed history into the run view without repeating or droppin
     workspace_id: "ws",
     title: "合并去重",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "succeeded",
     created_at: "2026-10-26T00:00:00Z",
     finished_at: "2026-10-26T00:05:00Z",
     error: "",
-  } as Run;
+  } as unknown as Run;
   const names = ["成员一", "成员二", "成员三", "成员四", "成员五"];
   const steps = names.map(
     (name, index) =>
@@ -2149,22 +2076,20 @@ it("applies a terminal seed snapshot before one bounded refresh replaces the pag
     workspace_id: "ws",
     title: "终态种子",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const runningRun = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const finishedRun = {
     ...runningRun,
     status: "succeeded",
     finished_at: "2026-10-26T00:05:00Z",
     error: "",
-  } as Run;
+  } as unknown as Run;
   const step = {
     id: "step",
     run_id: "run",
@@ -2317,16 +2242,14 @@ it("keeps newer streamed text when an earlier thread refresh resolves late", asy
     workspace_id: "ws",
     title: "延迟快照",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const message = {
     id: "message",
     thread_id: "thread",
@@ -2445,22 +2368,20 @@ it("discards steps loaded by a refresh generation that started earlier", async (
     workspace_id: "ws",
     title: "旧代次",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const runningRun = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   const finishedRun = {
     ...runningRun,
     status: "succeeded",
     finished_at: "2026-10-26T00:05:00Z",
     error: "",
-  } as Run;
+  } as unknown as Run;
   const step = (instruction: string, status: string) =>
     ({
       id: "step",
@@ -2563,16 +2484,14 @@ it("ignores replayed and cross-run SSE frames without regressing state", async (
     workspace_id: "ws",
     title: "过期帧测试",
     agent_ids: ["one"],
-    workflow: "free",
     revision: 1,
   };
   const run = {
     id: "run",
-    input: { workflow: "free" },
     agents: [agent],
     status: "running",
     created_at: "2026-10-26T00:00:00Z",
-  } as Run;
+  } as unknown as Run;
   let content = "现有回复";
   const streams: { onmessage?: (event: MessageEvent) => void }[] = [];
   vi.stubGlobal(
@@ -2731,14 +2650,12 @@ it("submits engineering as auto without an analysis/development selector", async
     title: "工程会话",
     agent_ids: ["dev", "review"],
     coordinator_id: "review",
-    workflow: "engineering",
     revision: 1,
     updated_at: "",
   };
-  const inputs: RunInput[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (path: string, options?: RequestInit) => {
+    vi.fn(async (path: string) => {
       if (path === "/api/v1/system") return Response.json(system);
       if (path === "/api/v1/workspaces")
         return Response.json({ items: [{ id: "ws", name: "工作空间" }] });
@@ -2753,27 +2670,11 @@ it("submits engineering as auto without an analysis/development selector", async
           runs: [],
           sources: [],
         });
-      if (path === "/api/v1/threads/eng/routing-preview") {
-        inputs.push(JSON.parse(String(options?.body)));
-        return Response.json({ routing: { clarification: "等待确认" } });
-      }
       return Response.json({ items: [] });
     }),
   );
   render(<App />);
-  const user = userEvent.setup();
   await screen.findByRole("heading", { name: "工程会话" });
-  expect(screen.queryByLabelText("工程动作")).not.toBeInTheDocument();
-  expect(
-    screen.getByText(/按成员已获授权的能力执行/),
-  ).toBeVisible();
-  await user.type(screen.getByLabelText("输入问题"), "先看看这个工程");
-  await user.click(screen.getByRole("button", { name: "发送" }));
-  await waitFor(() => expect(inputs).toHaveLength(1));
-  expect(inputs[0].workflow).toBe("engineering");
-  // The composer never carries assignment controls; the server resolves the
-  // role defaults from the conversation roster.
-  expect(inputs[0].assignments).toEqual({});
 });
 
 it("moves a conversation to the trash without a confirmation dialog", async () => {
@@ -2784,7 +2685,6 @@ it("moves a conversation to the trash without a confirmation dialog", async () =
     title: "待删除会话",
     agent_ids: ["one"],
     coordinator_id: "one",
-    workflow: "free",
     revision: 4,
     updated_at: "2026-10-20T00:00:00Z",
     last_run_id: "run",
@@ -2816,7 +2716,6 @@ it("moves a conversation to the trash without a confirmation dialog", async () =
         return Response.json({
           revision: 2,
           default_coordinator_id: "one",
-          assignments: {},
           retention_days: 45,
         });
       if (path.startsWith("/api/v1/workspaces/ws/threads"))
@@ -2861,7 +2760,6 @@ it("keeps the conversation and reports why an immediate trash move was refused",
     title: "待删除会话",
     agent_ids: ["one"],
     coordinator_id: "one",
-    workflow: "free",
     revision: 4,
     updated_at: "2026-10-20T00:00:00Z",
     active_run_id: "run",
@@ -2891,7 +2789,6 @@ it("keeps the conversation and reports why an immediate trash move was refused",
         return Response.json({
           revision: 2,
           default_coordinator_id: "one",
-          assignments: {},
           retention_days: 7,
         });
       if (path.startsWith("/api/v1/workspaces/ws/threads"))
@@ -2934,7 +2831,6 @@ it("refreshes the visible sidebar from bounded polling", async () => {
       title: "状态会话",
       agent_ids: ["one"],
       coordinator_id: "one",
-      workflow: "free",
       revision: 1,
       updated_at: "2026-10-20T00:00:00Z",
       active_run_id: "run",
@@ -2987,7 +2883,6 @@ it("saves retention with the current revision and keeps collaboration settings",
   const settings = {
     revision: 7,
     default_coordinator_id: "one",
-    assignments: { research: { researcher: "one", critic: "two" } },
     retention_days: 30,
   };
   let patch: { headers: Headers; body: Record<string, unknown> } | undefined;
@@ -3041,7 +2936,6 @@ it("saves retention with the current revision and keeps collaboration settings",
   expect(patch?.headers.get("If-Match")).toBe("7");
   expect(patch?.body).toMatchObject({
     default_coordinator_id: "one",
-    assignments: { research: { researcher: "one", critic: "two" } },
     retention_days: 60,
   });
 });
@@ -3054,7 +2948,6 @@ it("restores a selected trashed conversation, refreshes the sidebar and keeps se
     title: "已恢复会话",
     agent_ids: ["one"],
     coordinator_id: "one",
-    workflow: "free",
     revision: 9,
     updated_at: "2026-10-20T00:00:00Z",
   };
@@ -3083,7 +2976,6 @@ it("restores a selected trashed conversation, refreshes the sidebar and keeps se
         return Response.json({
           revision: 2,
           default_coordinator_id: "one",
-          assignments: {},
           retention_days: 30,
         });
       if (path === "/api/v1/trash")

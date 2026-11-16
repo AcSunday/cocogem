@@ -310,7 +310,7 @@ func TestFreeFileTaskAutonomousNativeWriteRuns(t *testing.T) {
 	run := w.Run{
 		ID: "free-file-run", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: created.Task.ID,
 		TaskRevision: created.Task.CurrentRevision, BudgetAccountID: created.Budget.ID,
-		Input:  w.RunInput{Message: "写一个文件到项目里", Workflow: "free", Targets: []string{member.ID}},
+		Input:  w.RunInput{Message: "写一个文件到项目里", Targets: []string{member.ID}},
 		Agents: []w.Agent{member}, CoordinatorID: member.ID, Status: "running", CreatedAt: w.Now(),
 	}
 	step := w.Step{ID: "free-file-step", RunID: run.ID, AgentID: member.ID, Role: "responder", Status: "running"}
@@ -408,7 +408,7 @@ func TestControlledFreeTaskCanRequestCommand(t *testing.T) {
 	run := w.Run{
 		ID: "free-command-run", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: created.Task.ID,
 		TaskRevision: created.Task.CurrentRevision, BudgetAccountID: created.Budget.ID,
-		Input:  w.RunInput{Message: "运行一个命令", Workflow: "free", Targets: []string{member.ID}},
+		Input:  w.RunInput{Message: "运行一个命令", Targets: []string{member.ID}},
 		Agents: []w.Agent{member}, CoordinatorID: member.ID, Status: "running", CreatedAt: w.Now(),
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {

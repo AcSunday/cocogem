@@ -74,12 +74,6 @@ function sameFieldChanged(
     (fresh.default_coordinator_id ?? "") !== (base.default_coordinator_id ?? "")
   )
     return true;
-  if (
-    input.assignments !== undefined &&
-    base?.assignments &&
-    JSON.stringify(fresh.assignments ?? {}) !== JSON.stringify(base.assignments ?? {})
-  )
-    return true;
   return false;
 }
 

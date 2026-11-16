@@ -70,7 +70,7 @@ func newReviewPermissionFixture(t *testing.T, mode string) reviewPermissionFixtu
 		ID: "review-run", WorkspaceID: thread.WorkspaceID, ThreadID: thread.ID,
 		TaskID: created.Task.ID, TaskRevision: created.Task.CurrentRevision,
 		BudgetAccountID: created.Budget.ID,
-		Input:           w.RunInput{Workflow: "engineering", Message: "Execute the fixture inside its explicit permission boundary", Assignments: map[string]string{"engineer": member.ID}},
+		Input:           w.RunInput{Message: "Execute the fixture inside its explicit permission boundary"},
 		Agents:          []w.Agent{member}, CoordinatorID: member.ID,
 		Status: "running", CreatedAt: w.Now(),
 	}

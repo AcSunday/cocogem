@@ -19,12 +19,12 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-func seedPublicationRun(t *testing.T, s *store.Store, workflow, role string) w.Run {
+func seedPublicationRun(t *testing.T, s *store.Store, role string) w.Run {
 	t.Helper()
 	ws := w.Workspace{ID: w.NewID(), Name: "publication", Revision: 1}
 	member := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "发布者", Handle: "publisher", Model: "default", Executor: "claude", Tools: tools.Names, Revision: 1}
 	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Revision: 1, UpdatedAt: w.Now()}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, Input: w.RunInput{Message: "验证发布契约", Workflow: workflow, ResearchScope: "given_sources", SourceURLs: testutil.Sources}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, Input: w.RunInput{Message: "验证发布契约", ResearchScope: "given_sources", SourceURLs: testutil.Sources}}
 	step := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: member.ID, AgentName: member.DisplayName, Role: role, Instruction: "发布结果", Status: "pending"}
 	if err := s.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {
@@ -75,7 +75,7 @@ func TestResearchScopeControlsDiscoveryAndMessageLinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer s.Close()
-			run := seedPublicationRun(t, s, "free", "responder")
+			run := seedPublicationRun(t, s, "responder")
 			run.Input.ResearchScope, run.Input.Message, run.Input.SourceURLs = tc.scope, tc.message, nil
 			if err := s.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveRun(run) }); err != nil {
 				t.Fatal(err)
@@ -157,19 +157,16 @@ func TestPublishSchemaMatchesValidatorStatuses(t *testing.T) {
 	defer s.Close()
 	cases := []struct {
 		name        string
-		workflow    string
 		role        string
 		publishType string
 		statuses    []string
 	}{
-		{"note", "free", "responder", "note", []string{"supported", "confirmed", "disputed", "insufficient_evidence"}},
-		{"research report", "research", "coordinator", "research_report", []string{"supported", "disputed", "insufficient_evidence"}},
-		{"code analysis", "code_analysis", "reviewer", "code_analysis", []string{"confirmed", "disputed", "insufficient_evidence"}},
-		{"final code analysis", "code_analysis", "final_reviewer", "code_analysis", []string{"confirmed", "disputed", "insufficient_evidence"}},
+		{"note", "responder", "note", []string{"supported", "confirmed", "disputed", "insufficient_evidence"}},
+		{"reviewer note", "reviewer", "note", []string{"supported", "confirmed", "disputed", "insufficient_evidence"}},
 	}
 	runs := make([]w.Run, len(cases))
 	for i, tc := range cases {
-		runs[i] = seedPublicationRun(t, s, tc.workflow, tc.role)
+		runs[i] = seedPublicationRun(t, s, tc.role)
 	}
 	var mu sync.Mutex
 	visibleStatuses := map[string][]string{}
@@ -248,7 +245,7 @@ func TestResearchReportStatusErrorGuidesCorrectionAndPublishesOneArtifact(t *tes
 		t.Fatal(err)
 	}
 	defer s.Close()
-	run := seedPublicationRun(t, s, "research", "coordinator")
+	run := seedPublicationRun(t, s, "responder")
 	var rejection string
 	runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
 		result, err := execute(ctx, "fetch_url", json.RawMessage(`{"url":"`+testutil.Sources[0]+`"}`))
@@ -360,7 +357,7 @@ func TestNativeFirstGuidanceNamesActualToolsAndMarksOnlyTheirFallbacks(t *testin
 				t.Fatal(err)
 			}
 			defer s.Close()
-			run := seedPublicationRun(t, s, "free", "responder")
+			run := seedPublicationRun(t, s, "responder")
 			run.Input.ResearchScope = tc.scope
 			run.Agents[0].Executor = tc.executor
 			if tc.root {
@@ -463,7 +460,7 @@ func TestMemberExecutionOptionsReachModelRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	run := seedPublicationRun(t, s, "free", "responder")
+	run := seedPublicationRun(t, s, "responder")
 	member := run.Agents[0]
 	member.ContextSize = 64000
 	member.ThinkingLevel = "high"

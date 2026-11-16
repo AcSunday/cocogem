@@ -37,7 +37,7 @@ func seedParallelFreeRun(t *testing.T, s *store.Store) w.Run {
 	ws := w.Workspace{ID: w.NewID(), Name: "parallel", Revision: 1}
 	agent := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "并行成员", Handle: "parallel-cat", Model: "test", Tools: tools.Names, Revision: 1}
 	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Title: "parallel", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID, Revision: 1, UpdatedAt: w.Now()}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{agent}, CoordinatorID: agent.ID, Input: w.RunInput{Message: "独立会话并行", Workflow: "free", Targets: []string{agent.ID}, ResearchScope: "given_sources"}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{agent}, CoordinatorID: agent.ID, Input: w.RunInput{Message: "独立会话并行", Targets: []string{agent.ID}, ResearchScope: "given_sources"}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
 	steps, err := Plan(run.ID, run.Input, run.Agents)
 	if err != nil {
 		t.Fatal(err)

@@ -129,44 +129,6 @@ type WorkspaceMember struct {
 	Revision    int      `json:"revision"`
 }
 
-// WorkflowRoles is the exact role vocabulary of each built-in workflow.
-// Engineering is one workflow with an engineer and an independent reviewer;
-// the engineer uses whatever read, write and test tools the member was granted.
-var WorkflowRoles = map[string][]string{
-	"discussion":    {"coordinator"},
-	"research":      {"researcher", "critic", "coordinator"},
-	"code_analysis": {"analyst", "reviewer"},
-	"engineering":   {"engineer", "reviewer"},
-}
-
-// WorkflowActionRoles is kept for callers that still pass a legacy action.
-// Engineering no longer has action-specific role subsets.
-func WorkflowActionRoles(workflow, _ string) []string {
-	return WorkflowRoles[workflow]
-}
-
-// RoleTools are the role capabilities a planned step needs. They project onto
-// the runtime standard catalog, never onto a legacy member array: the engineer
-// may use the catalog's write/test tools when the task admits them, and only the
-// publishing roles require publish_artifact.
-func RoleTools(workflow, _ string, role string) []string {
-	return StandardRoleTools(role)
-}
-
-// RolesConflict reports whether two roles cannot be held by one member in the
-// same plan. Independent review must never be performed by the author.
-func RolesConflict(workflow, role, other string) bool {
-	switch workflow {
-	case "research":
-		return role == "researcher" && other == "critic" || role == "critic" && other == "researcher"
-	case "code_analysis":
-		return role == "analyst" && other == "reviewer" || role == "reviewer" && other == "analyst"
-	case "engineering":
-		return role == "engineer" && other == "reviewer" || role == "reviewer" && other == "engineer"
-	}
-	return false
-}
-
 // Trash retention bounds. Zero means the default of 7 days.
 const (
 	DefaultRetentionDays = 7
@@ -190,16 +152,15 @@ func ValidateRetentionDays(days int) error {
 	return nil
 }
 
-// Settings holds device-wide defaults: collaboration, retention and the single
-// execution permission policy shared by every workspace and by the Composer.
+// Settings holds device-wide defaults: the default coordinator, retention and
+// the single global execution permission policy shared by every workspace and
+// by the Composer.
 type Settings struct {
-	Revision             int                          `json:"revision"`
-	DefaultCoordinatorID string                       `json:"default_coordinator_id"`
-	Assignments          map[string]map[string]string `json:"assignments"`
-	RetentionDays        int                          `json:"retention_days,omitempty"`
-	CollaborationBudget  BudgetPolicy                 `json:"collaboration_budget,omitempty"`
-	// ExecutionMode is the only effective permission policy. Workspace bodies
-	// keep their legacy mode as inert migration data.
+	Revision             int          `json:"revision"`
+	DefaultCoordinatorID string       `json:"default_coordinator_id"`
+	RetentionDays        int          `json:"retention_days,omitempty"`
+	CollaborationBudget  BudgetPolicy `json:"collaboration_budget,omitempty"`
+	// ExecutionMode is the only effective permission policy.
 	ExecutionMode string `json:"execution_mode,omitempty"`
 	// PermissionEpoch advances only when an execution boundary changes. It
 	// invalidates pending requests and conversation grants of earlier epochs.
@@ -230,7 +191,6 @@ type Thread struct {
 	Title           string   `json:"title"`
 	AgentIDs        []string `json:"agent_ids"`
 	CoordinatorID   string   `json:"coordinator_id"`
-	Workflow        string   `json:"workflow"`
 	TaskID          string   `json:"task_id,omitempty"`
 	Internal        bool     `json:"internal,omitempty"`
 	Revision        int      `json:"revision"`
@@ -243,25 +203,17 @@ type Thread struct {
 	ActiveRunStatus string   `json:"active_run_status,omitempty"`
 }
 
-// WorkflowIsReadOnly reports whether a workflow is read-only. Engineering is a
-// single writable workflow; only the retired code_analysis workflow remains
-// read-only so old plans can still be restored and inspected.
-func WorkflowIsReadOnly(in RunInput) bool {
-	return in.Workflow == "code_analysis"
-}
-
 // RunInput is a user's request, independent of a particular provider protocol.
+// Recipients are explicit @member handles or the members selected in the
+// Composer; an empty target list goes straight to the conversation coordinator.
 type RunInput struct {
-	Message       string            `json:"message"`
-	Workflow      string            `json:"workflow"`
-	Targets       []string          `json:"targets"`
-	Assignments   map[string]string `json:"assignments"`
-	SourceURLs    []string          `json:"source_urls"`
-	SourceIDs     []string          `json:"source_ids"`
-	ArtifactRefs  []ArtifactRef     `json:"artifact_refs"`
-	ResearchScope string            `json:"research_scope"`
-	ProposalID    string            `json:"proposal_id"`
-	RetryOfRunID  string            `json:"retry_of_run_id"`
+	Message       string        `json:"message"`
+	Targets       []string      `json:"targets"`
+	SourceURLs    []string      `json:"source_urls"`
+	SourceIDs     []string      `json:"source_ids"`
+	ArtifactRefs  []ArtifactRef `json:"artifact_refs"`
+	ResearchScope string        `json:"research_scope"`
+	RetryOfRunID  string        `json:"retry_of_run_id"`
 }
 
 // ArtifactRef identifies an immutable version, not whichever version is newest.
@@ -270,25 +222,12 @@ type ArtifactRef struct {
 	Version int    `json:"version"`
 }
 
-// RoutingEvidence binds a semantic assignment to a quote in the current user input.
-type RoutingEvidence struct {
-	AgentID string `json:"agent_id"`
-	Quote   string `json:"quote"`
-}
-
 // Routing records the accepted recipient decision independently of provider wire data.
 type Routing struct {
-	Decision      string            `json:"decision"`
-	Targets       []string          `json:"targets"`
-	Workflow      string            `json:"workflow"`
-	Assignments   map[string]string `json:"assignments"`
-	Explanation   string            `json:"explanation"`
-	Clarification string            `json:"clarification"`
-	Evidence      []RoutingEvidence `json:"evidence"`
-	ModelCall     bool              `json:"model_call"`
-	UsageKnown    bool              `json:"usage_known"`
-	InputTokens   int               `json:"input_tokens"`
-	OutputTokens  int               `json:"output_tokens"`
+	Decision      string   `json:"decision"`
+	Targets       []string `json:"targets"`
+	Explanation   string   `json:"explanation"`
+	Clarification string   `json:"clarification"`
 }
 
 // ExecutionPolicy is the parsed policy frozen when a run is accepted. A nil
@@ -302,79 +241,65 @@ type ExecutionPolicy struct {
 	StallAction   string        `json:"stall_action"`
 }
 
-// WorkflowSelection records the collaboration method a free run's coordinator
-// selected from its planning step. Run.Input stays immutable; the selected
-// workflow and its exact participants are the effective plan input.
-type WorkflowSelection struct {
-	Workflow    string            `json:"workflow"`
-	Targets     []string          `json:"targets"`
-	Assignments map[string]string `json:"assignments"`
-	Reason      string            `json:"reason,omitempty"`
-	StepID      string            `json:"step_id"`
-	SelectedAt  string            `json:"selected_at"`
-}
-
-// Run snapshots a bounded workflow and owns its single terminal status.
+// Run snapshots one bounded execution and owns its single terminal status.
 type Run struct {
-	ID          string   `json:"id"`
-	WorkspaceID string   `json:"workspace_id"`
-	ThreadID    string   `json:"thread_id"`
-	Input       RunInput `json:"input"`
-	Routing     Routing  `json:"routing"`
-	// SelectedWorkflow is written once by the coordinator's planning step.
-	// Method records how a free run actually completed: direct, delegation, or
-	// the selected workflow. Built-in runs leave Method empty.
-	SelectedWorkflow         *WorkflowSelection `json:"selected_workflow,omitempty"`
-	Method                   string             `json:"method,omitempty"`
-	RetryOfStepID            string             `json:"retry_of_step_id,omitempty"`
-	Agents                   []Agent            `json:"agents"`
-	CoordinatorID            string             `json:"coordinator_id,omitempty"`
-	SkillVersions            map[string]string  `json:"skill_versions,omitempty"`
-	SkillSnapshot            string             `json:"skill_snapshot,omitempty"`
-	Workspace                Workspace          `json:"workspace"`
-	ExecutionPolicy          *ExecutionPolicy   `json:"execution_policy,omitempty"`
-	RequestedExecutionMode   string             `json:"requested_execution_mode,omitempty"`
-	EffectiveExecutionMode   string             `json:"effective_execution_mode,omitempty"`
-	PermissionEpoch          int                `json:"permission_epoch,omitempty"`
-	EnforcedCapabilities     []string           `json:"enforced_capabilities,omitempty"`
-	UnenforcedConstraints    []string           `json:"unenforced_constraints,omitempty"`
-	TaskID                   string             `json:"task_id,omitempty"`
-	TaskIntake               bool               `json:"task_intake,omitempty"`
-	TaskPromotionStepID      string             `json:"task_promotion_step_id,omitempty"`
-	TaskPromotionDigest      string             `json:"task_promotion_digest,omitempty"`
-	TaskRevision             int                `json:"task_revision,omitempty"`
-	PolicyVersion            int                `json:"policy_version,omitempty"`
-	BudgetAccountID          string             `json:"budget_account_id,omitempty"`
-	GrantSnapshot            string             `json:"grant_snapshot_digest,omitempty"`
-	GrantActions             []string           `json:"grant_actions,omitempty"`
-	ContextRef               string             `json:"context_manifest_id,omitempty"`
-	ExecutionRef             string             `json:"execution_ref,omitempty"`
-	ExecutionRoot            string             `json:"execution_root,omitempty"`
-	TaskDirectory            string             `json:"task_directory,omitempty"`
-	OutputBaseline           map[string]string  `json:"output_baseline,omitempty"`
-	InputDigest              string             `json:"input_snapshot_digest,omitempty"`
-	ContinuedFromRun         string             `json:"continued_from_run_id,omitempty"`
-	CollaborationMessageID   string             `json:"collaboration_message_id,omitempty"`
-	AutomaticContinuation    bool               `json:"automatic_continuation,omitempty"`
-	WriteBranch              bool               `json:"write_branch,omitempty"`
-	BudgetReserved           bool               `json:"budget_reserved,omitempty"`
-	BudgetStarted            bool               `json:"budget_started,omitempty"`
-	BudgetIssueID            string             `json:"budget_issue_id,omitempty"`
-	ProgressDigest           string             `json:"progress_digest,omitempty"`
-	ProgressObserved         bool               `json:"progress_observed,omitempty"`
-	ReservationReleaseReason string             `json:"reservation_release_reason,omitempty"`
-	Status                   string             `json:"status"`
-	FailureKind              string             `json:"failure_kind,omitempty"`
-	Error                    string             `json:"error"`
-	RecoveryCount            int                `json:"recovery_count,omitempty"`
-	RecoveredAt              string             `json:"recovered_at,omitempty"`
-	RecoveryNote             string             `json:"recovery_note,omitempty"`
-	CreatedAt                string             `json:"created_at"`
-	StartedAt                string             `json:"started_at,omitempty"`
-	DeadlineAt               string             `json:"deadline_at,omitempty"`
-	PolicyAdoptedAt          string             `json:"policy_adopted_at,omitempty"`
-	FinishedAt               string             `json:"finished_at"`
-	Delivery                 *Delivery          `json:"delivery,omitempty"`
+	ID            string   `json:"id"`
+	WorkspaceID   string   `json:"workspace_id"`
+	ThreadID      string   `json:"thread_id"`
+	Input         RunInput `json:"input"`
+	Routing       Routing  `json:"routing"`
+	RetryOfStepID string   `json:"retry_of_step_id,omitempty"`
+	// Method records how the run completed: direct or delegation. It is a
+	// factual execution record, not a preset workflow selector.
+	Method                   string            `json:"method,omitempty"`
+	Agents                   []Agent           `json:"agents"`
+	CoordinatorID            string            `json:"coordinator_id,omitempty"`
+	SkillVersions            map[string]string `json:"skill_versions,omitempty"`
+	SkillSnapshot            string            `json:"skill_snapshot,omitempty"`
+	Workspace                Workspace         `json:"workspace"`
+	ExecutionPolicy          *ExecutionPolicy  `json:"execution_policy,omitempty"`
+	RequestedExecutionMode   string            `json:"requested_execution_mode,omitempty"`
+	EffectiveExecutionMode   string            `json:"effective_execution_mode,omitempty"`
+	PermissionEpoch          int               `json:"permission_epoch,omitempty"`
+	EnforcedCapabilities     []string          `json:"enforced_capabilities,omitempty"`
+	UnenforcedConstraints    []string          `json:"unenforced_constraints,omitempty"`
+	TaskID                   string            `json:"task_id,omitempty"`
+	TaskIntake               bool              `json:"task_intake,omitempty"`
+	TaskPromotionStepID      string            `json:"task_promotion_step_id,omitempty"`
+	TaskPromotionDigest      string            `json:"task_promotion_digest,omitempty"`
+	TaskRevision             int               `json:"task_revision,omitempty"`
+	PolicyVersion            int               `json:"policy_version,omitempty"`
+	BudgetAccountID          string            `json:"budget_account_id,omitempty"`
+	GrantSnapshot            string            `json:"grant_snapshot_digest,omitempty"`
+	GrantActions             []string          `json:"grant_actions,omitempty"`
+	ContextRef               string            `json:"context_manifest_id,omitempty"`
+	ExecutionRef             string            `json:"execution_ref,omitempty"`
+	ExecutionRoot            string            `json:"execution_root,omitempty"`
+	TaskDirectory            string            `json:"task_directory,omitempty"`
+	OutputBaseline           map[string]string `json:"output_baseline,omitempty"`
+	InputDigest              string            `json:"input_snapshot_digest,omitempty"`
+	ContinuedFromRun         string            `json:"continued_from_run_id,omitempty"`
+	CollaborationMessageID   string            `json:"collaboration_message_id,omitempty"`
+	AutomaticContinuation    bool              `json:"automatic_continuation,omitempty"`
+	WriteBranch              bool              `json:"write_branch,omitempty"`
+	BudgetReserved           bool              `json:"budget_reserved,omitempty"`
+	BudgetStarted            bool              `json:"budget_started,omitempty"`
+	BudgetIssueID            string            `json:"budget_issue_id,omitempty"`
+	ProgressDigest           string            `json:"progress_digest,omitempty"`
+	ProgressObserved         bool              `json:"progress_observed,omitempty"`
+	ReservationReleaseReason string            `json:"reservation_release_reason,omitempty"`
+	Status                   string            `json:"status"`
+	FailureKind              string            `json:"failure_kind,omitempty"`
+	Error                    string            `json:"error"`
+	RecoveryCount            int               `json:"recovery_count,omitempty"`
+	RecoveredAt              string            `json:"recovered_at,omitempty"`
+	RecoveryNote             string            `json:"recovery_note,omitempty"`
+	CreatedAt                string            `json:"created_at"`
+	StartedAt                string            `json:"started_at,omitempty"`
+	DeadlineAt               string            `json:"deadline_at,omitempty"`
+	PolicyAdoptedAt          string            `json:"policy_adopted_at,omitempty"`
+	FinishedAt               string            `json:"finished_at"`
+	Delivery                 *Delivery         `json:"delivery,omitempty"`
 }
 
 // ProjectRoot is the candidate execution tree when one was prepared; source
@@ -412,6 +337,7 @@ type Step struct {
 	ContextRefs    []string `json:"context_refs,omitempty"`
 	ContinuationID string   `json:"continuation_id,omitempty"`
 	Converged      bool     `json:"converged,omitempty"`
+	ReadOnly       bool     `json:"read_only,omitempty"`
 	ReviewVerdict  string   `json:"review_verdict,omitempty"`
 	Depth          int      `json:"depth,omitempty"`
 	AttemptCount   int      `json:"attempt_count,omitempty"`
@@ -737,70 +663,16 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	return nil
 }
 
-// NormalizeSettings maps legacy engineering analyst/developer defaults to the
-// single engineer role. It preserves an explicit engineer value and removes
-// roles that no current workflow uses.
-func NormalizeSettings(s Settings) Settings {
-	roles := s.Assignments["engineering"]
-	if roles == nil {
-		return s
-	}
-	if roles["engineer"] == "" {
-		if roles["developer"] != "" {
-			roles["engineer"] = roles["developer"]
-		} else if roles["analyst"] != "" {
-			roles["engineer"] = roles["analyst"]
-		}
-	}
-	delete(roles, "developer")
-	delete(roles, "analyst")
-	if len(roles) == 0 {
-		delete(s.Assignments, "engineering")
-	}
-	return s
-}
-
-// ValidateSettings rejects unknown workflows and roles, unavailable global
-// members, and exclusive roles assigned twice. Empty values are explicit resets.
+// ValidateSettings rejects an unavailable default coordinator.
 func ValidateSettings(s Settings, agents []Agent) error {
 	byID := map[string]Agent{}
 	for _, a := range agents {
 		byID[a.ID] = a
 	}
-	available := func(id string) error {
-		if id == "" {
-			return nil
-		}
+	if id := s.DefaultCoordinatorID; id != "" {
 		a, ok := byID[id]
 		if !ok || a.Disabled {
 			return errors.New("settings reference an unavailable member")
-		}
-		return nil
-	}
-	if err := available(s.DefaultCoordinatorID); err != nil {
-		return err
-	}
-	for workflow, roles := range s.Assignments {
-		allowed, ok := WorkflowRoles[workflow]
-		if !ok {
-			return fmt.Errorf("unsupported workflow in settings: %s", workflow)
-		}
-		for role, id := range roles {
-			if !slices.Contains(allowed, role) {
-				return fmt.Errorf("unsupported role for %s: %s", workflow, role)
-			}
-			if err := available(id); err != nil {
-				return err
-			}
-		}
-		if roles["researcher"] != "" && roles["researcher"] == roles["critic"] {
-			return errors.New("researcher and critic must be different members")
-		}
-		if roles["analyst"] != "" && roles["analyst"] == roles["reviewer"] {
-			return errors.New("analyst and reviewer must be different members")
-		}
-		if roles["engineer"] != "" && roles["engineer"] == roles["reviewer"] {
-			return errors.New("engineer and reviewer must be different members")
 		}
 	}
 	return nil

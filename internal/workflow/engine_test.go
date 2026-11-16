@@ -26,7 +26,7 @@ func seedRun(t *testing.T, s *store.Store) w.Run {
 		agents = append(agents, w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: name, Handle: "cat-" + string(rune('a'+len(agents))), Model: "test", Tools: tools.Names, Revision: 1})
 	}
 	th := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Revision: 1, UpdatedAt: w.Now()}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, Input: w.RunInput{Message: "比较方法", Workflow: "research", ResearchScope: "given_sources", SourceURLs: testutil.Sources, Assignments: map[string]string{"researcher": agents[0].ID, "critic": agents[1].ID, "coordinator": agents[2].ID}}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, Input: w.RunInput{Message: "比较方法", Targets: []string{agents[0].ID}, ResearchScope: "given_sources", SourceURLs: testutil.Sources}}
 	steps, err := Plan(run.ID, run.Input, agents)
 	if err != nil {
 		t.Fatal(err)
@@ -471,22 +471,22 @@ func TestResearchExecutionAndCancellation(t *testing.T) {
 			if !cancelRun {
 				if err := s.Read(ctx, func(tx *store.Tx) error {
 					as, err := tx.Artifacts(run.ThreadID)
-					if len(as) != 1 || as[0].Type != "research_report" {
+					if len(as) != 1 || as[0].Type != "note" {
 						t.Fatalf("artifacts=%+v", as)
 					}
 					ss, _ := tx.Sources(run.ThreadID)
-					if len(ss) < 3 {
-						t.Fatal("members did not read sources")
+					if len(ss) < 1 {
+						t.Fatal("the member did not read a source")
 					}
 					es, _ := tx.Events(run.ID, 0)
-					handoffs := 0
+					settled := false
 					for _, ev := range es {
-						if ev.Type == "handoff_prepared" {
-							handoffs++
+						if ev.Type == "run_finished" {
+							settled = true
 						}
 					}
-					if handoffs != 4 {
-						t.Fatal("missing handoffs", handoffs)
+					if !settled {
+						t.Fatal("run did not record its terminal event")
 					}
 					return err
 				}); err != nil {
@@ -556,7 +556,7 @@ func TestMessageSnapshotsAttemptModelAndSurvivesMemberEdit(t *testing.T) {
 			t.Fatalf("message model snapshot = %+v", message)
 		}
 	}
-	if assistant != 5 {
+	if assistant != 1 {
 		t.Fatalf("assistant messages = %d", assistant)
 	}
 	// Editing the reusable member profile must not rewrite already produced history.
@@ -591,24 +591,26 @@ func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
 	}
 	defer s.Close()
 	run := seedRun(t, s)
+	enableExecutor(t, s, &run, "claude")
+	// Seed an explicit chain: the responder publishes, then relays to a critic.
+	var artifactID string
 	if err := s.Write(t.Context(), func(tx *store.Tx) error {
-		for i := range run.Agents {
-			run.Agents[i].Executor = "claude"
-			run.Agents[i].Model = "default"
-			if err := tx.SaveAgent(run.Agents[i]); err != nil {
-				return err
-			}
-		}
 		steps, err := tx.Steps(run.ID)
 		if err != nil {
 			return err
 		}
-		// A historical intermediate artifact stays readable in the handoff, but
-		// new intermediate steps may not publish formal artifacts.
-		if err := tx.SaveArtifact(w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[0].ID, Type: "note", Title: "Structured finding", Body: "upstream-only-structured-finding", Feedback: "unreviewed"}); err != nil {
+		root := steps[0]
+		root.Role, root.Status = "responder", "succeeded"
+		if err := tx.SaveStep(root); err != nil {
 			return err
 		}
-		return tx.SaveRun(run)
+		artifact := w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: run.ID, StepID: root.ID, Type: "note", Title: "Structured finding", Body: "upstream-only-structured-finding", Feedback: "unreviewed"}
+		artifactID = artifact.ID
+		if err := tx.SaveArtifact(artifact); err != nil {
+			return err
+		}
+		critic := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[1].ID, AgentName: run.Agents[1].DisplayName, Role: "critic", Instruction: "Review the exact upstream result", DependsOn: []string{root.ID}, Status: "pending", Kind: "relay", FromStepID: root.ID}
+		return tx.SaveStep(critic)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -624,13 +626,7 @@ func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
 			criticSawArtifact = true
 			return observe("text", map[string]any{"text": "Independent critique preserves insufficient evidence."})
 		}
-		if !strings.Contains(r.System, "role=coordinator") {
-			return observe("text", map[string]any{"text": "intermediate result"})
-		}
-		payload := map[string]any{"type": "research_report", "title": "Structured result", "body": "upstream-only-structured-finding", "source_ids": []string{}, "limitations": []string{"fixture only"}, "findings": []any{map[string]any{"title": "Uncertain claim", "detail": "upstream-only-structured-finding", "status": "insufficient_evidence", "source_ids": []string{}}}}
-		raw, _ := json.Marshal(payload)
-		_, err := execute(ctx, "publish_artifact", raw)
-		return err
+		return observe("text", map[string]any{"text": "unexpected member"})
 	})
 	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -650,14 +646,15 @@ func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
 			return err
 		}
 		for _, event := range events {
-			if event.Type == "handoff_prepared" {
-				var h Handoff
-				if err := json.Unmarshal(event.Data, &h); err != nil {
-					return err
-				}
-				if len(h.Artifacts) == 0 || h.Artifacts[0].Version != 1 {
-					return fmt.Errorf("handoff lacks exact published artifact")
-				}
+			if event.Type != "handoff_prepared" {
+				continue
+			}
+			var h Handoff
+			if err := json.Unmarshal(event.Data, &h); err != nil {
+				return err
+			}
+			if len(h.Artifacts) == 0 || h.Artifacts[0].ID != artifactID || h.Artifacts[0].Version != 1 {
+				return fmt.Errorf("handoff lacks the exact published artifact: %+v", h.Artifacts)
 			}
 		}
 		return nil
@@ -666,10 +663,6 @@ func TestNativeStepsConsumeExactPublishedUpstreamArtifacts(t *testing.T) {
 	}
 }
 
-// TestRevokedMemberToolStopsQueuedDispatch keeps the real revocation guarantee:
-// a queued dispatch revalidates current membership and enablement before it
-// launches. The legacy tool array is no longer an execution limit, so this test
-// disables the member (a revocation that still applies) instead of editing it.
 func TestRevokedMemberToolStopsQueuedDispatch(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
 	if err != nil {

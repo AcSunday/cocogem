@@ -72,7 +72,6 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 		return tx.SaveThread(thread)
 	})
 	if err == nil {
-		s.dropProposals(func(p proposal) bool { return p.ThreadID == id })
 	}
 	respond(rw, r, DeleteReply{ID: id, PurgeAt: purgeAt}, err)
 }
@@ -142,7 +141,6 @@ func (s *Server) permanentDeleteThread(rw http.ResponseWriter, r *http.Request) 
 		return tx.DeleteThread(id)
 	})
 	if err == nil {
-		s.dropProposals(func(p proposal) bool { return p.ThreadID == id })
 	}
 	respond(rw, r, DeleteReply{ID: id}, err)
 }
@@ -230,7 +228,6 @@ func (s *Server) PurgeExpiredThreads(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	if len(purged) > 0 {
-		s.dropProposals(func(p proposal) bool { return slices.Contains(purged, p.ThreadID) })
 	}
 	return len(purged), nil
 }

@@ -75,7 +75,7 @@ func TestYieldToolSettlesOnlyAfterModelInvocationReturns(t *testing.T) {
 	run := w.Run{
 		ID: "tool-yield-run", WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, TaskID: created.Task.ID,
 		TaskRevision: 1, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID,
-		Input: w.RunInput{Message: "wait for host event", Workflow: "free", ResearchScope: "given_sources"},
+		Input: w.RunInput{Message: "wait for host event", ResearchScope: "given_sources"},
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := service.EnsureRunAuthorization(tx, &run, "yield-create"); err != nil {

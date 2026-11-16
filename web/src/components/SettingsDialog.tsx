@@ -28,11 +28,8 @@ import {
   legacyPolicyNote,
   limitLabel,
   policyNote,
-  roleLabel,
   runMethod,
   skillLabel,
-  workflowRoles,
-  workflows,
 } from "../lib/presentation";
 import { MembersSettings } from "./forms/MembersSettings";
 import {
@@ -59,12 +56,6 @@ type TrashItem = { thread: Thread; workspace_name: string };
 /** Only collaboration defaults; the permission is patched from its own page. */
 const editable = (settings: Settings): SettingsInput => ({
   default_coordinator_id: settings.default_coordinator_id ?? "",
-  assignments: Object.fromEntries(
-    Object.entries(settings.assignments ?? {}).map(([workflow, roles]) => [
-      workflow,
-      { ...(roles ?? {}) },
-    ]),
-  ),
   collaboration_budget: {
     auto_continuations: settings.collaboration_budget?.auto_continuations ?? 20,
     parallel_branches: settings.collaboration_budget?.parallel_branches ?? 4,
@@ -303,16 +294,6 @@ function CollaborationSettings({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const enabled = agents.filter((agent) => !agent.disabled);
-  const role = (workflow: string, name: string) =>
-    value.assignments?.[workflow]?.[name] ?? "";
-  const choose = (workflow: string, name: string, id: string) =>
-    setValue((current) => ({
-      ...current,
-      assignments: {
-        ...current.assignments,
-        [workflow]: { ...current.assignments?.[workflow], [name]: id },
-      },
-    }));
   // Saving never resends a member the server would reject: disabled or removed
   // profiles are cleared from the value before the PATCH.
   const clearUnavailable = (current: SettingsInput): SettingsInput => {
@@ -321,14 +302,6 @@ function CollaborationSettings({
       default_coordinator_id: ids.has(current.default_coordinator_id ?? "")
         ? (current.default_coordinator_id ?? "")
         : "",
-      assignments: Object.fromEntries(
-        Object.entries(current.assignments ?? {}).map(([workflow, roles]) => [
-          workflow,
-          Object.fromEntries(
-            Object.entries(roles ?? {}).filter(([, id]) => !id || ids.has(id)),
-          ),
-        ]),
-      ),
       collaboration_budget: current.collaboration_budget,
     };
   };
@@ -386,32 +359,10 @@ function CollaborationSettings({
           </label>
         </section>
         <section className={cx("settings-section")}>
-          <h3>模式角色</h3>
-          <div className={cx("settings-fieldsets")}>
-            {Object.entries(workflowRoles)
-              .filter(([workflow]) => workflow !== "code_analysis")
-              .map(([workflow, roles]) => (
-                <fieldset key={workflow}>
-                  <legend>
-                    {workflows[workflow as keyof typeof workflows]}
-                  </legend>
-                  {roles.map((name) => (
-                    <label key={name}>
-                      {roleLabel(name)}
-                      <Select
-                        value={role(workflow, name)}
-                        onChange={(selected) => {
-                          setSaved(false);
-                          choose(workflow, name, selected);
-                        }}
-                      >
-                        {memberOptions(role(workflow, name))}
-                      </Select>
-                    </label>
-                  ))}
-                </fieldset>
-              ))}
-          </div>
+          <h3>协作方式</h3>
+          <p>
+            会话统一运行在单一动态协作内核上：显式提及或 Composer 选择的成员直接执行，未指定时由协调者决定分工。不再有预设流程或固定角色槽位。
+          </p>
           {error && (
             <p role="alert" className={cx("error")}>
               {error}
@@ -832,11 +783,6 @@ function TrashSettings({
               setError("");
               void saveSettings({
                 default_coordinator_id: settings.default_coordinator_id ?? "",
-                assignments: Object.fromEntries(
-                  Object.entries(settings.assignments ?? {}).map(
-                    ([workflow, roles]) => [workflow, { ...(roles ?? {}) }],
-                  ),
-                ),
                 retention_days: next,
               })
                 .then(async (saved) => {
@@ -1026,8 +972,6 @@ export function SnapshotDialog({
   run: Run;
   close: () => void;
 }) {
-  const workflow =
-    workflows[(run.input.workflow || "free") as keyof typeof workflows];
   // Only the persisted method/selection reaches the snapshot; a missing record
   // stays the free label instead of being inferred from messages.
   const method = runMethod(run);
@@ -1037,7 +981,7 @@ export function SnapshotDialog({
   return (
     <Modal title="本次协作配置快照" close={close}>
       <p>
-        {workflow} · 创建于 {formatDateTime(run.created_at)}
+        协作会话 · 创建于 {formatDateTime(run.created_at)}
       </p>
       <p>本轮方法：{method.label}</p>
       {method.reason && (

@@ -90,7 +90,7 @@ func newReviewEffectFixture(t *testing.T, mode string) reviewEffectFixture {
 		TaskID: created.Task.ID, TaskRevision: 1, BudgetAccountID: created.Budget.ID,
 		TaskDirectory: root, Status: "running", CreatedAt: w.Now(),
 		Agents: []w.Agent{member}, CoordinatorID: member.ID,
-		Input: w.RunInput{Workflow: "engineering", Message: "Perform the authorized fixture operation", ResearchScope: "auto", Assignments: map[string]string{"engineer": member.ID}},
+		Input: w.RunInput{Message: "Perform the authorized fixture operation", ResearchScope: "auto"},
 	}
 	step := w.Step{ID: "review-effect-step", RunID: run.ID, AgentID: member.ID, AgentName: member.DisplayName, Role: "engineer", Status: "running"}
 	attempt := w.Attempt{ID: "review-effect-attempt", RunID: run.ID, StepID: step.ID, Number: 1, Status: "running", StartedAt: w.Now()}

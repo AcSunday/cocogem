@@ -547,23 +547,14 @@ func TestSubmitFreezesExecutionPolicyAtEnqueue(t *testing.T) {
 		t.Fatal(rw.Body.String())
 	}
 	agent := agents.Items[0]
-	th := w.Thread{Title: "策略", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID, Workflow: "free"}
+	th := w.Thread{Title: "策略", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID}
 	rw = apiCall(server, "POST", "/api/v1/workspaces/"+ws.ID+"/threads", th, cookie, csrf, nil)
 	if rw.Code != 200 {
 		t.Fatal(rw.Body.String())
 	}
 	json.Unmarshal(rw.Body.Bytes(), &th)
 
-	in := w.RunInput{Message: "请用一句话总结。", Workflow: "free", Targets: []string{agent.ID}}
-	rw = apiCall(server, "POST", "/api/v1/threads/"+th.ID+"/routing-preview", in, cookie, csrf, nil)
-	if rw.Code != 200 {
-		t.Fatal(rw.Body.String())
-	}
-	var preview struct {
-		ProposalID string `json:"proposal_id"`
-	}
-	json.Unmarshal(rw.Body.Bytes(), &preview)
-	in.ProposalID = preview.ProposalID
+	in := w.RunInput{Message: "请用一句话总结。", Targets: []string{agent.ID}}
 	rw = apiCall(server, "POST", "/api/v1/threads/"+th.ID+"/runs", in, cookie, csrf, map[string]string{"Idempotency-Key": "freeze-policy-test-key"})
 	if rw.Code != 202 {
 		t.Fatal(rw.Body.String())

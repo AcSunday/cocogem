@@ -70,7 +70,7 @@ func smoke(binary, web string) error {
 	var thread struct {
 		ID string `json:"id"`
 	}
-	if err := client.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", map[string]any{"title": "Smoke conversation", "agent_ids": ids, "coordinator_id": ids[2], "workflow": "research"}, &thread); err != nil {
+	if err := client.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", map[string]any{"title": "Smoke conversation", "agent_ids": ids, "coordinator_id": ids[2]}, &thread); err != nil {
 		return err
 	}
 	if err := stop(); err != nil {

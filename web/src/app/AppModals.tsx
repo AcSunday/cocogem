@@ -10,7 +10,6 @@ import type {
   ThreadView,
   Workspace,
 } from "../api/client";
-import type { WorkflowKey } from "../components/Composer";
 import { ArtifactReader } from "../components/ArtifactReader";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { SettingsDialog, SnapshotDialog } from "../components/SettingsDialog";
@@ -64,7 +63,6 @@ export function AppModals({
   loadThreads,
   loadGlobalAgents,
   setView,
-  setWorkflowChoices,
   setArtifactRef,
   setPanelOpen,
   setError,
@@ -96,11 +94,6 @@ export function AppModals({
   loadGlobalAgents: () => Promise<void>;
   setView: (
     update: (current: ThreadView | undefined) => ThreadView | undefined,
-  ) => void;
-  setWorkflowChoices: (
-    update: (
-      current: Record<string, WorkflowKey>,
-    ) => Record<string, WorkflowKey>,
   ) => void;
   setArtifactRef: (value?: Artifact) => void;
   setPanelOpen: (value: boolean) => void;
@@ -181,14 +174,9 @@ export function AppModals({
                   title: value.title,
                   agent_ids: value.agent_ids,
                   coordinator_id: value.coordinator_id,
-                  workflow: value.workflow,
                 },
                 value.id ? { "If-Match": String(value.revision) } : {},
               );
-              setWorkflowChoices((current) => ({
-                ...current,
-                [th.id]: th.workflow as WorkflowKey,
-              }));
               if (value.id)
                 setView((current) =>
                   current?.thread.id === th.id

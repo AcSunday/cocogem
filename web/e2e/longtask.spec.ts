@@ -174,7 +174,6 @@ test("long task preview pages to tail evidence and bounds live events", async ({
       title: "长任务分页",
       agent_ids: ids,
       coordinator_id: ids[2],
-      workflow: "free",
     },
   );
   await page.goto(`${baseURL}/w/${workspace.id}/t/${thread.id}`);

@@ -55,7 +55,7 @@ func TestEngineTransferStopsRunningInvocationBeforeOwnerCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := w.Run{ID: "transfer-running-run", WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, TaskID: created.Task.ID, TaskRevision: 1, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{owner}, CoordinatorID: owner.ID, Input: w.RunInput{Message: "wait", Workflow: "free"}}
+	run := w.Run{ID: "transfer-running-run", WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, TaskID: created.Task.ID, TaskRevision: 1, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{owner}, CoordinatorID: owner.ID, Input: w.RunInput{Message: "wait"}}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := service.EnsureRunAuthorization(tx, &run, "transfer-create"); err != nil {
 			return err

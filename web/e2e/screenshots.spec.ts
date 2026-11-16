@@ -161,7 +161,7 @@ test("capture permission, board, acceptance and pending screenshots", async ({
   await page.getByLabel("输入问题").waitFor();
   await page
     .getByRole("button", {
-      name: "输入提示：/ 选择协作模式，@ 指定成员",
+      name: "输入提示：@ 指定成员",
     })
     .hover();
   await page.getByRole("tooltip").waitFor();

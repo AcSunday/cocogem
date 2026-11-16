@@ -394,7 +394,7 @@ export function RunSegment({
   const superseded = new Set(
     retries.flatMap((item) =>
       item.run.retry_of_step_id
-        ? [`${item.run.input.retry_of_run_id}/${item.run.retry_of_step_id}`]
+        ? [`${item.run.input?.retry_of_run_id}/${item.run.retry_of_step_id}`]
         : [],
     ),
   );
@@ -435,7 +435,6 @@ export function RunSegment({
         const isProcessOnly =
           step?.role === "task_intake" ||
           item.task_promotion_step_id === message.step_id ||
-          item.selected_workflow?.step_id === message.step_id ||
           (hasDownstream && message.status === "completed");
         if (!isProcessOnly) finalIDs.add(message.id);
       }

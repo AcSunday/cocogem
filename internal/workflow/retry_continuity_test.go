@@ -45,7 +45,7 @@ func freeCollaborationSource(t *testing.T, specs []customStepSpec, statuses []st
 			return err
 		}
 		source.CoordinatorID = thread.CoordinatorID
-		source.Routing = w.Routing{Decision: "discuss", Workflow: "free", Targets: []string{thread.CoordinatorID}}
+		source.Routing = w.Routing{Decision: "discuss", Targets: []string{thread.CoordinatorID}}
 		for i := range steps {
 			steps[i].Status = statuses[i]
 		}
@@ -188,10 +188,8 @@ func TestRetriedPlanningRootKeepsItsRosterAndCollaborationTools(t *testing.T) {
 	if len(finished.Agents) != 3 || finished.Routing.Decision != "discuss" {
 		t.Fatalf("the retry lost the conversation roster or its routing: members=%d decision=%q", len(finished.Agents), finished.Routing.Decision)
 	}
-	for _, name := range []string{"handoff_task", "choose_workflow"} {
-		if !slices.Contains(script.tools["custom-a"], name) {
-			t.Fatalf("the retried coordinator was not offered %s: %v", name, script.tools["custom-a"])
-		}
+	if !slices.Contains(script.tools["custom-a"], "handoff_task") {
+		t.Fatalf("the retried coordinator was not offered the collaboration tool: %v", script.tools["custom-a"])
 	}
 	if !slices.Equal(script.calls, []string{"custom-a", "custom-b"}) || len(retried) != 2 || retried[1].Kind != "relay" {
 		t.Fatalf("the follow-up member never ran: calls=%v steps=%+v", script.calls, retried)
@@ -268,7 +266,7 @@ func TestRetryOfAnEarlierStandAloneRetryRestoresTheOriginalStep(t *testing.T) {
 			if len(retried) != 1 || retried[0].Kind != test.wantKind {
 				t.Fatalf("the step did not regain its place: %+v", retried)
 			}
-			for _, name := range []string{"handoff_task", "choose_workflow", "publish_artifact"} {
+			for _, name := range []string{"handoff_task", "publish_artifact"} {
 				if !slices.Contains(script.tools["custom-a"], name) {
 					t.Fatalf("the restored step was not offered %s: %v", name, script.tools["custom-a"])
 				}
@@ -296,7 +294,7 @@ func TestRetriedExecutionStepAfterPromotionStillDispatchesAndDelivers(t *testing
 	if len(retried) != 1 || retried[0].Kind != "retry_root" {
 		t.Fatalf("the retried executor is not the head of the delivery chain: %+v", retried)
 	}
-	for _, name := range []string{"handoff_task", "choose_workflow", "publish_artifact"} {
+	for _, name := range []string{"handoff_task", "publish_artifact"} {
 		if !slices.Contains(script.tools["custom-a"], name) {
 			t.Fatalf("the retried executor was not offered %s: %v", name, script.tools["custom-a"])
 		}
@@ -412,30 +410,24 @@ func TestSecondRepairedMemberReachesTheLatestDelegatorReply(t *testing.T) {
 	}
 }
 
-// A built-in workflow keeps its accepted plan: the retry roster is the plan's
-// members and no retried step may reorganise the work.
-func TestRetriedBuiltInStepKeepsItsAcceptedPlan(t *testing.T) {
+// A retried root keeps the delivery-chain place its origin had and stays able to
+// organise the follow-up work the task still needs.
+func TestRetriedRootKeepsItsDeliveryChainPlace(t *testing.T) {
 	db, source, steps := freeCollaborationSource(t,
-		[]customStepSpec{{Agent: 0, Role: "researcher", Instruction: "evidence"}, {Agent: 1, Role: "critic", Instruction: "review", DependsOn: []int{0}}},
-		[]string{"succeeded", "failed"},
+		[]customStepSpec{{Agent: 0, Role: "responder", Instruction: "answer"}},
+		[]string{"failed"},
 		func(run *w.Run, _ []w.Step) {
-			run.Input.Workflow = "research"
-			run.Routing = w.Routing{Decision: "assign", Workflow: "research"}
+			run.Routing = w.Routing{Decision: "assign", Targets: []string{run.Agents[0].ID}}
 		})
 	script := &memberScript{}
-	finished, retried := runRetry(t, db, script, source.ID, steps[1].ID)
+	finished, retried := runRetry(t, db, script, source.ID, steps[0].ID)
 	if finished.Status != "succeeded" {
 		t.Fatalf("status=%s error=%s", finished.Status, finished.Error)
 	}
-	if len(finished.Agents) != 1 || len(retried) != 1 || retried[0].Kind == kindRetryRoot {
-		t.Fatalf("a built-in retry changed its roster or plan: members=%d steps=%+v", len(finished.Agents), retried)
+	if len(retried) != 1 || retried[0].Kind != "" {
+		t.Fatalf("a retried root lost its chain place: %+v", retried)
 	}
-	for _, name := range []string{"handoff_task", "choose_workflow"} {
-		if slices.Contains(script.tools["custom-b"], name) {
-			t.Fatalf("a built-in workflow step was offered %s", name)
-		}
-	}
-	if !strings.Contains(script.text["custom-b"], "accepted plan") {
-		t.Fatal("the built-in retry lost its accepted-plan instruction")
+	if !slices.Contains(script.tools["custom-a"], "handoff_task") {
+		t.Fatal("a retried root must keep the collaboration tools its origin had")
 	}
 }

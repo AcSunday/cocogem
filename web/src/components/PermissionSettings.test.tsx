@@ -23,7 +23,6 @@ afterEach(() => {
 const settings = {
   revision: 4,
   default_coordinator_id: "",
-  assignments: {},
   retention_days: 7,
   collaboration_budget: {
     auto_continuations: 20,

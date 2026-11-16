@@ -39,12 +39,9 @@ func retryOrigin(tx *store.Tx, run w.Run, steps []w.Step, step w.Step) (w.Run, [
 }
 
 // retriesPlanningStep reports whether the failed step is, at its origin, the
-// coordinator's planning step of a free run that had not yet chosen a method.
-// Its retry may still choose one, exactly as the step it replaces could.
+// coordinator's root step of an unaddressed run. Its retry may still organise
+// follow-up work, exactly as the step it replaces could.
 func retriesPlanningStep(tx *store.Tx, source w.Run, stepID string) (bool, error) {
-	if source.SelectedWorkflow != nil {
-		return false, nil
-	}
 	steps, err := tx.Steps(source.ID)
 	if err != nil {
 		return false, err
@@ -57,7 +54,7 @@ func retriesPlanningStep(tx *store.Tx, source w.Run, stepID string) (bool, error
 	if err != nil {
 		return false, err
 	}
-	return run.SelectedWorkflow == nil && selectionRoot(run, step), nil
+	return planningRoot(run, step), nil
 }
 
 // onDeliveryChain reports whether step is a member of one of its plan's
@@ -156,7 +153,7 @@ func retryStepPlan(tx *store.Tx, runID string, source w.Run, stepID string) ([]w
 			if byID[dep].Status != "succeeded" {
 				return nil, errors.New("该成员的上游步骤尚未成功，请先重试上游失败成员")
 			}
-			if dep == planningRootStep(source) || dep == source.TaskPromotionStepID {
+			if dep == source.TaskPromotionStepID {
 				continue
 			}
 			result := results[dep]
@@ -174,7 +171,7 @@ func retryStepPlan(tx *store.Tx, runID string, source w.Run, stepID string) ([]w
 		}
 		out = append(out, step)
 	}
-	if in := effectiveInput(source); in.Workflow == "" || in.Workflow == "free" {
+	if true {
 		// A free run has no fixed plan to fall back on: whatever the failed step
 		// still had to organise or deliver happens through the retry itself. A
 		// replanned step whose predecessor is kept as-is therefore keeps the

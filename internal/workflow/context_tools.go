@@ -110,9 +110,9 @@ func buildReadScope(tx *store.Tx, run w.Run, step w.Step, historyIDs []string, s
 		}
 		explicitArtifact[ref.ID][ref.Version] = true
 	}
-	// The planning root's message is a directive, not evidence: selected plan
-	// steps depend on it for scheduling but may never read its content.
-	planningRoot := planningRootStep(run)
+	// The task-promotion step's message is a directive, not evidence: dependent
+	// steps consume it for scheduling but may never read its content.
+	planningRoot := run.TaskPromotionStepID
 	dependencies := map[string]bool{}
 	for _, id := range step.DependsOn {
 		dependencies[id] = true
@@ -823,7 +823,6 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 		Capabilities  []string `json:"capabilities"`
 		Instruction   string   `json:"instruction"`
 		OriginalTask  string   `json:"original_task"`
-		Workflow      string   `json:"workflow"`
 		ResearchScope string   `json:"research_scope"`
 		SourceURLs    []string `json:"source_urls"`
 		Executor      string   `json:"executor"`
@@ -847,7 +846,7 @@ func inputPlanDigest(tx *store.Tx, step w.Step, run w.Run, modelName string, con
 		member = run.Agents[index]
 	}
 	in := effectiveInput(run)
-	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, Workflow: in.Workflow, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
+	value := plan{AgentID: member.ID, AgentName: member.DisplayName, Handle: member.Handle, Role: step.Role, RoleProfile: member.RoleDescription, Capabilities: slices.Clone(member.Capabilities), Instruction: step.Instruction, OriginalTask: run.Input.Message, ResearchScope: in.ResearchScope, SourceURLs: slices.Clone(run.Input.SourceURLs), Executor: adapter.ID, Model: modelName, ContextSize: member.ContextSize, ThinkingLevel: member.ThinkingLevel, ResolvedModel: connection.ResolvedModel, Connection: connection.Identity, CLIIdentity: adapter.Identity, CLIProgram: adapter.Program, Adapter: adapter.Adapter, Tools: slices.Clone(toolNames), NativeTools: nativecli.NativeTools(adapter.ID, toolNames, in.ResearchScope), System: contentDigest(systemIdentity(run, step, member))}
 	if run.ContextRef != "" {
 		manifest, err := tx.ContextManifest(run.ContextRef)
 		if err != nil {

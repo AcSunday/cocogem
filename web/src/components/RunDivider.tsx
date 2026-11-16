@@ -123,7 +123,7 @@ export function RunDivider({
       <div className={cx("run-card-head")}>
         <span className={cx("run-index")}>第 {index} 次</span>
         <span title={reason || undefined}>{workflow}</span>
-        {run.input.retry_of_run_id && (
+        {run.input?.retry_of_run_id && (
           <span className={cx("muted")}>重试</span>
         )}
         {reason && (

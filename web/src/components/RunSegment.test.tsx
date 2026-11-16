@@ -36,7 +36,6 @@ const baseRun = {
   id: "run",
   workspace_id: "ws",
   thread_id: "thread",
-  input: { workflow: "free" },
   agents: [agent],
   status: "running",
   created_at: "2026-10-20T00:00:00Z",
@@ -254,7 +253,7 @@ it("keeps a reader's expand or collapse across rerenders and remounts", async ()
     ...baseRun,
     status: "succeeded",
     delivery: { message_ids: ["final"], artifact_refs: [] },
-  } as Run;
+  } as unknown as Run;
   const view = () => (
     <RunSegment
       {...props}
@@ -295,23 +294,12 @@ it("opens the terminal run summary details by click and closes them on Escape or
     ...baseRun,
     status: "succeeded",
     finished_at: "2026-10-20T00:01:02Z",
-    routing: {
-      usage_known: true,
-      model_call: true,
-      input_tokens: 12,
-      output_tokens: 34,
-    },
-  } as Run;
+  } as unknown as Run;
   render(<RunSegment {...props} run={run} messages={[]} />);
   const badge = screen.getByRole("button", { name: "查看协作摘要详情" });
   expect(badge).toHaveAttribute("aria-expanded", "false");
   expect(badge.parentElement).not.toHaveAttribute("data-open");
   expect(within(badge).getByText("1 分 2 秒")).toBeVisible();
-  expect(within(badge).getByText("12 / 34 tokens")).toBeVisible();
-  expect(within(badge).getByText("12 / 34 tokens")).toHaveAttribute(
-    "title",
-    "12 / 34 tokens",
-  );
 
   await user.click(badge);
   expect(badge).toHaveAttribute("aria-expanded", "true");
@@ -688,7 +676,7 @@ it("replaces the failed member reply with the retry in the original turn", () =>
     input: { ...baseRun.input, retry_of_run_id: baseRun.id },
     retry_of_step_id: failedStep.id,
     delivery: { message_ids: ["retry-message"], artifact_refs: [] },
-  } as Run;
+  } as unknown as Run;
   render(
     <RunSegment
       {...props}

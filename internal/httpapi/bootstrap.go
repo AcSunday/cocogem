@@ -15,7 +15,6 @@ import (
 type BootstrapInput struct {
 	WorkspaceID string `json:"workspace_id,omitempty"`
 	Title       string `json:"title"`
-	Workflow    string `json:"workflow"`
 }
 
 // BootstrapReply is reconstructed from durable identities on replay.
@@ -38,9 +37,6 @@ func (s *Server) bootstrap(rw http.ResponseWriter, r *http.Request) {
 	if err := validateThreadTitle(in.Title); err != nil {
 		respond(rw, r, nil, err)
 		return
-	}
-	if in.Workflow == "" {
-		in.Workflow = "free"
 	}
 	digest := project.Digest(in)
 	var out BootstrapReply
@@ -87,7 +83,7 @@ func (s *Server) bootstrap(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		out.Thread = w.Thread{ID: w.NewID(), WorkspaceID: out.Workspace.ID, Title: strings.TrimSpace(in.Title), Workflow: in.Workflow, Revision: 1, UpdatedAt: w.Now()}
+		out.Thread = w.Thread{ID: w.NewID(), WorkspaceID: out.Workspace.ID, Title: strings.TrimSpace(in.Title), Revision: 1, UpdatedAt: w.Now()}
 		applyThreadDefaults(&out.Thread, out.Agents, settings)
 		if err := validateThread(out.Thread, out.Agents); err != nil {
 			return err

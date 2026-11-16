@@ -89,7 +89,7 @@ func newHostApprovalJourney(t *testing.T) *hostApprovalJourney {
 	run := w.Run{
 		ID: "journey-run", WorkspaceID: ws.ID, ThreadID: th.ID, TaskID: created.Task.ID,
 		TaskRevision: created.Task.CurrentRevision, BudgetAccountID: created.Budget.ID,
-		Input:  w.RunInput{Message: "Write the external report", Workflow: "free", Targets: []string{member.ID}},
+		Input:  w.RunInput{Message: "Write the external report", Targets: []string{member.ID}},
 		Agents: []w.Agent{member}, CoordinatorID: member.ID, Status: "running", CreatedAt: w.Now(),
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {

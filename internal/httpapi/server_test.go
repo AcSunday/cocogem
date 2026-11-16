@@ -107,7 +107,7 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 	if got := call("PATCH", "/api/v1/agents/"+a[0].ID, a[0], map[string]string{"If-Match": "1"}).Code; got != 412 {
 		t.Fatal("stale edit accepted", got)
 	}
-	th := w.Thread{Title: "研究", AgentIDs: []string{a[0].ID, a[1].ID, a[2].ID}, CoordinatorID: a[2].ID, Workflow: "research"}
+	th := w.Thread{Title: "研究", AgentIDs: []string{a[0].ID, a[1].ID, a[2].ID}, CoordinatorID: a[2].ID}
 	rw = call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", th, nil)
 	if rw.Code != 200 {
 		t.Fatal(rw.Body.String())
@@ -118,13 +118,7 @@ func TestAuthenticatedWorkspaceToResearch(t *testing.T) {
 		t.Fatal(rw.Body.String())
 	}
 
-	in := w.RunInput{SourceURLs: testutil.Sources, Message: "比较协作方法", Workflow: "research", Assignments: map[string]string{"researcher": a[0].ID, "critic": a[1].ID, "coordinator": a[2].ID}}
-	rw = call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", in, nil)
-	var preview struct {
-		ID string `json:"proposal_id"`
-	}
-	json.Unmarshal(rw.Body.Bytes(), &preview)
-	in.ProposalID = preview.ID
+	in := w.RunInput{SourceURLs: testutil.Sources, Message: "比较协作方法"}
 	s.config.ModelConfigured = false
 	denied := call("POST", "/api/v1/threads/"+th.ID+"/runs", in, map[string]string{"Idempotency-Key": "test-idempotency-key"})
 	if denied.Code != 503 || !strings.Contains(denied.Body.String(), "model_unavailable") {
@@ -319,7 +313,7 @@ func TestDeleteRefusesActiveRun(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{store: db, proposals: map[string]proposal{}}
+	s := &Server{store: db}
 	for _, path := range []string{"/api/v1/threads/" + th.ID, "/api/v1/workspaces/" + ws.ID} {
 		req := httptest.NewRequest("DELETE", path, nil)
 		rw := httptest.NewRecorder()

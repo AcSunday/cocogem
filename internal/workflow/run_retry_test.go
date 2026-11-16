@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/AcSunday/cocogem/internal/store"
@@ -54,7 +55,7 @@ func TestRetryFailedRunCreatesLinkedQueuedRun(t *testing.T) {
 	if retried.ID == source.ID || retried.Status != "queued" || retried.ThreadID != source.ThreadID {
 		t.Fatalf("retry was not a new queued run in the same conversation: %+v", retried)
 	}
-	if retried.Input.Message != source.Input.Message || retried.Input.Workflow != source.Input.Workflow || retried.Input.RetryOfRunID != source.ID {
+	if retried.Input.Message != source.Input.Message || !slices.Equal(retried.Input.Targets, source.Input.Targets) || retried.Input.RetryOfRunID != source.ID {
 		t.Fatalf("retry did not preserve the accepted input: %+v", retried.Input)
 	}
 	if retried.Delivery == nil || len(retried.Delivery.MessageIDs) != 0 || len(retried.Delivery.ArtifactRefs) != 0 {
@@ -139,48 +140,41 @@ func TestRetryRejectsSettledSuccessAndActiveConversation(t *testing.T) {
 	}
 }
 
-func TestRetryUsesPersistedWorkflowSelection(t *testing.T) {
+// TestRetryFreezesTheAcceptedRecipients proves a retry reuses the run's accepted
+// recipient set instead of re-resolving routing.
+func TestRetryFreezesTheAcceptedRecipients(t *testing.T) {
 	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 	source := seedRun(t, s)
-	selected := source
-	selected.Input.Workflow, selected.Input.Targets, selected.Input.Assignments = "free", nil, nil
-	selected.SelectedWorkflow = &w.WorkflowSelection{
-		Workflow:    "research",
-		Assignments: map[string]string{"researcher": source.Agents[0].ID, "critic": source.Agents[1].ID, "coordinator": source.Agents[2].ID},
-		StepID:      w.NewID(),
-		SelectedAt:  w.Now(),
-	}
 	if err := s.Write(t.Context(), func(tx *store.Tx) error {
-		current, err := tx.Run(selected.ID)
+		current, err := tx.Run(source.ID)
 		if err != nil {
 			return err
 		}
-		current.Input = selected.Input
-		current.SelectedWorkflow = selected.SelectedWorkflow
+		current.Input.Targets = []string{current.Agents[0].ID}
 		current.Status, current.FinishedAt = "failed", w.Now()
 		return tx.SaveRun(current)
 	}); err != nil {
 		t.Fatal(err)
 	}
 	e := Engine{Store: s, Model: testutil.Model{}, AllowedModels: []string{"test"}}
-	retried, err := e.Retry(t.Context(), selected.ID)
+	retried, err := e.Retry(t.Context(), source.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if retried.Input.Workflow != "research" || retried.SelectedWorkflow != nil {
-		t.Fatalf("retry did not freeze the selected plan: workflow=%s selected=%+v", retried.Input.Workflow, retried.SelectedWorkflow)
+	if !slices.Equal(retried.Input.Targets, []string{source.Agents[0].ID}) {
+		t.Fatalf("retry lost the accepted recipients: %+v", retried.Input.Targets)
 	}
 	if err := s.Read(t.Context(), func(tx *store.Tx) error {
 		steps, err := tx.Steps(retried.ID)
 		if err != nil {
 			return err
 		}
-		if len(steps) != 5 || steps[0].Role != "researcher" || steps[len(steps)-1].Role != "coordinator" {
-			t.Fatalf("retry did not materialize the selected research plan: %+v", steps)
+		if len(steps) != 1 || steps[0].AgentID != source.Agents[0].ID || steps[0].Role != "responder" {
+			t.Fatalf("retry did not materialize one responder step: %+v", steps)
 		}
 		return nil
 	}); err != nil {

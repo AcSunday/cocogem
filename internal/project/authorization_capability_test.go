@@ -32,7 +32,7 @@ func TestExecutionModesExposeOnlyTheirRealCapabilities(t *testing.T) {
 					t.Fatal(err)
 				}
 				run.ThreadID = thread.ID
-				actions := TaskActions(test.mode, w.RunInput{Workflow: "engineering"})
+				actions := TaskActions(test.mode, w.RunInput{})
 				var err error
 				created, err = service.CreateTask(t.Context(), CreateTaskInput{
 					WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, OwnerMemberID: run.Agents[0].ID,

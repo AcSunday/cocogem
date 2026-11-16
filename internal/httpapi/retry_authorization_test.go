@@ -69,7 +69,7 @@ func TestMemberRetryReauthorizesUnderLivePolicy(t *testing.T) {
 	member.Executor = "claude"
 	api.call("PATCH", "/api/v1/agents/"+member.ID, member, map[string]string{"If-Match": "1"}, 200, &member)
 	var thread w.Thread
-	api.call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "重试授权会话", AgentIDs: []string{member.ID}, CoordinatorID: member.ID, Workflow: "free"}, nil, 200, &thread)
+	api.call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "重试授权会话", AgentIDs: []string{member.ID}, CoordinatorID: member.ID}, nil, 200, &thread)
 
 	// Seed an accepted Task with a real failed run, then retry that member step.
 	service := project.New(db)
@@ -83,7 +83,7 @@ func TestMemberRetryReauthorizesUnderLivePolicy(t *testing.T) {
 	failed := w.Run{
 		ID: "retry-source-run", WorkspaceID: workspace.ID, ThreadID: thread.ID, TaskID: created.Task.ID,
 		TaskRevision: created.Task.CurrentRevision, BudgetAccountID: created.Budget.ID,
-		Input:  w.RunInput{Message: "重试后写入临时文件", Workflow: "free", Targets: []string{member.ID}},
+		Input:  w.RunInput{Message: "重试后写入临时文件", Targets: []string{member.ID}},
 		Agents: []w.Agent{member}, CoordinatorID: member.ID, Status: "running", CreatedAt: w.Now(),
 	}
 	failedStep := w.Step{ID: "retry-target-step", RunID: failed.ID, AgentID: member.ID, AgentName: member.DisplayName, Role: "responder", Instruction: "write", Status: "failed", Error: "protocol failure"}

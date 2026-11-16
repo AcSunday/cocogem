@@ -121,7 +121,7 @@ func TestLivePermissionFlowDefaultAutonomous(t *testing.T) {
 	member.Executor, member.Model = cli, "default"
 	api.call("PATCH", "/api/v1/agents/"+member.ID, member, map[string]string{"If-Match": fmt.Sprint(member.Revision)}, 200, &member)
 	var thread w.Thread
-	api.call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "真实审批会话", AgentIDs: []string{member.ID}, CoordinatorID: member.ID, Workflow: "free"}, nil, 200, &thread)
+	api.call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "真实审批会话", AgentIDs: []string{member.ID}, CoordinatorID: member.ID}, nil, 200, &thread)
 
 	goal := fmt.Sprintf("按顺序完成：1) 读取项目内文件 %s；2) 读取项目外文件 %s（读取后确认它确实存在）；3) 把最终结果写入 outputs/result.txt，内容为 %q；4) 用 publish_file 交付 outputs/result.txt。不要编造内容，不要访问网络，不要执行部署或安装。", filepath.Join(root, "inside.txt"), outside, expectedResult)
 	var created struct {

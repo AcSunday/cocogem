@@ -99,7 +99,7 @@ func checkLiveCoordinator(t *testing.T, profile liveCoordinatorProfile) {
 	coordinator := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: profile.Name, Handle: "coordinator", Executor: profile.Executor, Model: profile.Model, ThinkingLevel: profile.Thinking, RoleDescription: profile.Description, Capabilities: profile.Capabilities, Revision: 1}
 	worker := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "验收助手", Handle: "fixture-helper", RoleDescription: "只回复给定的验收标记", Executor: "fixture", Model: "fixture", Revision: 1}
 	thread := func(title string, members []string) w.Thread {
-		return w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Title: title, AgentIDs: members, CoordinatorID: coordinator.ID, Workflow: "free", Revision: 1, UpdatedAt: w.Now()}
+		return w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Title: title, AgentIDs: members, CoordinatorID: coordinator.ID, Revision: 1, UpdatedAt: w.Now()}
 	}
 	chatThread := thread("isolated chat", []string{coordinator.ID})
 	taskThread := thread("isolated task", []string{coordinator.ID})
@@ -173,13 +173,7 @@ func checkLiveCoordinator(t *testing.T, profile liveCoordinatorProfile) {
 		}
 	}
 	if os.Getenv("COCOGEM_LIVE_COORDINATOR_PHASE") != "handoff" {
-		input := w.RunInput{Message: "隔离验收：只回复 COCOGEM_COORDINATOR_42，不使用工具、不创建任务。", Workflow: "free", ResearchScope: "given_sources"}
-		var preview RoutingPreview
-		api.call("POST", "/api/v1/threads/"+chatThread.ID+"/routing-preview", input, nil, 200, &preview)
-		if preview.ProposalID == "" {
-			t.Fatal("chat preview did not produce a proposal")
-		}
-		input.ProposalID = preview.ProposalID
+		input := w.RunInput{Message: "隔离验收：只回复 COCOGEM_COORDINATOR_42，不使用工具、不创建任务。", ResearchScope: "given_sources"}
 		var chat w.Run
 		api.call("POST", "/api/v1/threads/"+chatThread.ID+"/runs", input, map[string]string{"Idempotency-Key": w.NewID()}, 202, &chat)
 		wait(chat, "chat")
@@ -254,19 +248,17 @@ func TestLiveRoutingKeepsFailureRecordsOutOfDispatch(t *testing.T) {
 		}
 		t.Run(profile.Name, func(t *testing.T) {
 			t.Parallel()
-			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
-			defer cancel()
 			target := w.Agent{ID: "target", DisplayName: profile.Name, Handle: "target", Executor: profile.Executor, Model: profile.Model, ThinkingLevel: profile.Thinking}
 			coordinator := w.Agent{ID: "coordinator", DisplayName: "验收助手", Handle: "fixture-helper", Executor: "fixture", Model: "fixture"}
 			message := "帮我修一下这个 bug。\n失败成员是" + profile.Name + "，executor=" + profile.Executor + "，model=fixture/model。\n不要修改其他目录。"
-			got, err := workflow.ResolveRouting(ctx, nativecli.Provider{}, w.RunInput{Message: message}, w.Thread{CoordinatorID: coordinator.ID, AgentIDs: []string{target.ID, coordinator.ID}}, []w.Agent{target, coordinator})
+			got, err := workflow.ResolveRouting(w.RunInput{Message: message}, w.Thread{CoordinatorID: coordinator.ID, AgentIDs: []string{target.ID, coordinator.ID}}, []w.Agent{target, coordinator})
 			if err != nil {
 				t.Fatalf("routing failed: %v", err)
 			}
 			if got.Decision == "assign" && slices.Contains(got.Targets, target.ID) {
 				t.Fatalf("the failure-record member was assigned work: %+v", got)
 			}
-			t.Logf("decision=%s workflow=%s targets=%v explanation=%q", got.Decision, got.Workflow, got.Targets, got.Explanation)
+			t.Logf("decision=%s targets=%v explanation=%q", got.Decision, got.Targets, got.Explanation)
 		})
 	}
 }

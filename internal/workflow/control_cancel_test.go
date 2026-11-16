@@ -18,7 +18,7 @@ func TestCancelTaskStopsOwnedNativeExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	run := seedPublicationRun(t, s, "free", "responder")
+	run := seedPublicationRun(t, s, "responder")
 	created, err := project.New(s).CreateTask(t.Context(), project.CreateTaskInput{
 		WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, OwnerMemberID: run.Agents[0].ID,
 		Goal: "停止在途原生执行", SourceMessageID: "control-message", AcceptedBy: "user",
@@ -69,7 +69,7 @@ func TestCancelWorkspaceStopsExecutionBeforePolicyChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	run := seedPublicationRun(t, s, "free", "responder")
+	run := seedPublicationRun(t, s, "responder")
 	started, stopped := make(chan struct{}), make(chan struct{})
 	runner := nativeRunnerFunc(func(ctx context.Context, _ model.Request, _ agent.Execute, _ agent.Observe) error {
 		close(started)

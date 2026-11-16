@@ -119,7 +119,6 @@ test("member profiles: name-colored initials, image avatars and stable identity"
       title: "成员档案验收会话",
       agent_ids: ids,
       coordinator_id: ids[0],
-      workflow: "free",
     },
   );
   await page.goto(`${baseURL}/w/${workspace.id}/t/${thread.id}`);

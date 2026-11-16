@@ -119,8 +119,7 @@ func createProjectJourneyThread(t *testing.T, api *deliveryAPI, workspaceID, tit
 	}
 	var thread w.Thread
 	api.call("POST", "/api/v1/workspaces/"+workspaceID+"/threads", w.Thread{
-		Title: title, AgentIDs: []string{members.Items[0].ID}, CoordinatorID: members.Items[0].ID, Workflow: "free",
-	}, nil, 200, &thread)
+		Title: title, AgentIDs: []string{members.Items[0].ID}, CoordinatorID: members.Items[0].ID}, nil, 200, &thread)
 	// These journeys exercise durable control, not automatic intent detection.
 	var task project.TaskView
 	api.call("POST", "/api/v1/workspaces/"+workspaceID+"/tasks", project.CreateTaskInput{ThreadID: thread.ID, OwnerMemberID: thread.CoordinatorID, Goal: title}, nil, 200, &task)
@@ -130,10 +129,7 @@ func createProjectJourneyThread(t *testing.T, api *deliveryAPI, workspaceID, tit
 
 func submitProjectJourneyRun(t *testing.T, api *deliveryAPI, thread w.Thread, goal, key string) w.Run {
 	t.Helper()
-	input := w.RunInput{Message: goal, Workflow: "free", Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
-	var preview RoutingPreview
-	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	input.ProposalID = preview.ProposalID
+	input := w.RunInput{Message: goal, Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
 	var run w.Run
 	api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": key + "-project-journey"}, 202, &run)
 	deadline := time.Now().Add(10 * time.Second)
@@ -349,10 +345,7 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 	journey := engine.Model.(*projectJourneyModel)
 	journey.questionGoal = "需要用户选择格式的任务"
 	journey.questionAnswer = "用户答案标记：完整报告"
-	input := w.RunInput{Message: journey.questionGoal, Workflow: "free", Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
-	var preview RoutingPreview
-	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	input.ProposalID = preview.ProposalID
+	input := w.RunInput{Message: journey.questionGoal, Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
 	var initial w.Run
 	api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": "question-initial-run"}, 202, &initial)
 	var created project.TaskView
@@ -475,10 +468,7 @@ func TestProjectInterruptStaysPendingUntilNextBoundary(t *testing.T) {
 	journey := engine.Model.(*projectJourneyModel)
 	journey.blockGoal = "需要打断的执行"
 	journey.started, journey.release = make(chan struct{}), make(chan struct{})
-	input := w.RunInput{Message: journey.blockGoal, Workflow: "free", Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
-	var preview RoutingPreview
-	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	input.ProposalID = preview.ProposalID
+	input := w.RunInput{Message: journey.blockGoal, Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
 	var initial w.Run
 	api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": "interrupt-initial-run"}, 202, &initial)
 	select {
@@ -529,10 +519,7 @@ func TestProjectControlReplayAndUnchangedModeDoNotStopNewWork(t *testing.T) {
 	start := func(key string) w.Run {
 		t.Helper()
 		journey.started, journey.release, journey.once = make(chan struct{}), make(chan struct{}), sync.Once{}
-		input := w.RunInput{Message: journey.blockGoal, Workflow: "free", Targets: thread.AgentIDs, ResearchScope: "given_sources"}
-		var preview RoutingPreview
-		api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-		input.ProposalID = preview.ProposalID
+		input := w.RunInput{Message: journey.blockGoal, Targets: thread.AgentIDs, ResearchScope: "given_sources"}
 		var run w.Run
 		api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": key}, 202, &run)
 		select {

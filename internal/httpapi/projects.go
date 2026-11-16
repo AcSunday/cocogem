@@ -92,7 +92,6 @@ func (s *Server) deleteProjectTasks(rw http.ResponseWriter, r *http.Request) {
 		for _, id := range value.ThreadIDs {
 			threads[id] = true
 		}
-		s.dropProposals(func(p proposal) bool { return threads[p.ThreadID] })
 	}
 	respond(rw, r, value, err)
 }

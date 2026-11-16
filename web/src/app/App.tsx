@@ -16,7 +16,6 @@ import {
   type Attempt,
   type BootstrapReply,
   type Event,
-  type Routing,
   type Run,
   type RunInput,
   type RunView,
@@ -33,11 +32,7 @@ import {
 import { AuthScreen } from "../components/AuthScreen";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
-import {
-  Composer,
-  type ComposerAttachment,
-  type WorkflowKey,
-} from "../components/Composer";
+import { Composer, type ComposerAttachment } from "../components/Composer";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
 import { RunSegment } from "../components/RunSegment";
@@ -81,7 +76,6 @@ import {
   nextLiveness,
   seedLiveness,
   threadTitle,
-  workflows,
 } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -252,10 +246,6 @@ function WorkspaceApp({
       return {};
     }
   });
-  const [workflowChoices, setWorkflowChoices] = useState<
-    Record<string, WorkflowKey>
-  >({});
-  const [routing, setRouting] = useState<Routing>();
   const memberRetryKeys = useRef(new Map<string, string>());
   const [tab, setTab] = useState<PanelTab>("artifacts");
   const [source, setSource] = useState<Source>();
@@ -365,14 +355,6 @@ function WorkspaceApp({
     : threadID
       ? []
       : newThreadMembers.slice(0, 4);
-  const workflow =
-    workflowChoices[draftKey] ??
-    (view?.thread.workflow as WorkflowKey | undefined) ??
-    "free";
-  const setWorkflow = (value: WorkflowKey) => {
-    setWorkflowChoices((current) => ({ ...current, [draftKey]: value }));
-    setRouting(undefined);
-  };
   // Existing conversations keep their own coordinator; a new one previews the
   // same default/fallback the server applies when creating it.
   const coordinatorID = threadID
@@ -454,7 +436,6 @@ function WorkspaceApp({
     setSourceLoading(false);
     sourceGeneration.current++;
     setArtifactRef(undefined);
-    setRouting(undefined);
     messageCursorRef.current = "";
     viewCursor.current = "";
     setMessageCursor("");
@@ -978,7 +959,7 @@ function WorkspaceApp({
       const bootstrapped = await api<BootstrapReply>(
         "/api/v1/bootstrap",
         "POST",
-        { workspace_id: workspaceID, title: threadTitle(text), workflow },
+        { workspace_id: workspaceID, title: threadTitle(text) },
         { "Idempotency-Key": key },
       );
       thread = bootstrapped.thread;
@@ -1000,13 +981,11 @@ function WorkspaceApp({
           title: threadTitle(text),
           // The server applies the global default coordinator when omitted.
           agent_ids: newThreadMembers.slice(0, 10).map((agent) => agent.id),
-          workflow,
         },
       );
     }
     currentThread.current = thread.id;
     setTaskID("");
-    setWorkflowChoices((current) => ({ ...current, [thread.id]: workflow }));
     setDrafts((current) => ({
       ...current,
       [thread.id]: current[`new:${workspaceID}`] ?? text,
@@ -1069,7 +1048,6 @@ function WorkspaceApp({
     if (busy) return;
     setBusy(true);
     setError("");
-    setRouting(undefined);
     setSteeringReceipt("");
     try {
       const text = inputOverride?.message ?? draft;
@@ -1101,17 +1079,13 @@ function WorkspaceApp({
         ? structuredClone(inputOverride)
         : {
             message: text,
-            workflow: workflow === "free" ? "" : workflow,
             targets: [],
-            // The server resolves global/session defaults from an empty map.
-            assignments: {},
             source_urls: [],
             source_ids: uploaded.map((item) => item.source?.id ?? item.id),
             artifact_refs: artifactRef
               ? [{ id: artifactRef.id, version: artifactRef.version }]
               : [],
             research_scope: "auto",
-            proposal_id: "",
             retry_of_run_id: "",
           };
       let pending = pendingSubmission.current.get(id);
@@ -1124,15 +1098,6 @@ function WorkspaceApp({
           "有一次提交结果未确认，请先重试原请求；新问题已保留为草稿。",
         );
       if (!pending || pending.threadID !== id) {
-        input.proposal_id = "";
-        const preview = await api<{ proposal_id?: string; routing: Routing }>(
-          `/api/v1/threads/${id}/routing-preview`,
-          "POST",
-          input,
-        );
-        setRouting(preview.routing);
-        if (!preview.proposal_id) return;
-        input.proposal_id = preview.proposal_id;
         pending = {
           input: structuredClone(input),
           key: crypto.randomUUID(),
@@ -1363,9 +1328,7 @@ function WorkspaceApp({
             {view ? (
               <>
                 <span>
-                  {workspace?.name} /{" "}
-                  {workflows[view.thread.workflow as WorkflowKey] ||
-                    workflows.free}
+                  {workspace?.name} / 协作会话
                 </span>
                 <h1>{view.thread.title}</h1>
               </>
@@ -1489,8 +1452,7 @@ function WorkspaceApp({
                       workspace={workspace}
                       members={available.length}
                       onCreate={() => setModal({ kind: "workspace" })}
-                      onPick={(key, sample) => {
-                        setWorkflow(key);
+                      onPick={(sample) => {
                         updateDraft(sample);
                         document.getElementById("composer-input")?.focus();
                       }}
@@ -1505,8 +1467,7 @@ function WorkspaceApp({
                     <Welcome
                       members={available.length}
                       onCreate={() => setModal({ kind: "workspace" })}
-                      onPick={(key, sample) => {
-                        setWorkflow(key);
+                      onPick={(sample) => {
                         updateDraft(sample);
                         document.getElementById("composer-input")?.focus();
                       }}
@@ -1655,8 +1616,6 @@ function WorkspaceApp({
               allAgents={agents}
               draft={draft}
               setDraft={updateDraft}
-              workflow={workflow}
-              setWorkflow={setWorkflow}
               artifactRef={artifactRef}
               clearArtifactRef={() => setArtifactRef(undefined)}
               attachments={attachments}
@@ -1679,7 +1638,6 @@ function WorkspaceApp({
               // inert audit data and must never drive the Composer.
               executionMode={globalSettings.loading && !settings ? undefined : mode}
               onExecutionModeChange={changeExecutionMode}
-              routing={routing}
               error={error}
               onDismissError={() => setError("")}
               // One notice per accepted user turn; retries inside that turn
@@ -1773,7 +1731,6 @@ function WorkspaceApp({
         loadThreads={loadThreads}
         loadGlobalAgents={loadGlobalAgents}
         setView={setView}
-        setWorkflowChoices={setWorkflowChoices}
         setArtifactRef={setArtifactRef}
         setPanelOpen={setPanelOpen}
         setError={setError}

@@ -254,14 +254,8 @@ func runLiveLongTask(t *testing.T, cli string) {
 		ids = append(ids, member.ID)
 	}
 	var thread w.Thread
-	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "真实长任务证据复核", AgentIDs: ids, CoordinatorID: ids[2], Workflow: "research"}, nil, 200, &thread)
-	input := w.RunInput{Message: liveTaskPrompt(), Workflow: "research", ResearchScope: "given_sources", Assignments: map[string]string{"researcher": ids[0], "critic": ids[1], "coordinator": ids[2]}}
-	var preview RoutingPreview
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	if preview.ProposalID == "" {
-		t.Fatalf("routing failed: %+v", preview)
-	}
-	input.ProposalID = preview.ProposalID
+	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "真实长任务证据复核", AgentIDs: ids, CoordinatorID: ids[2]}, nil, 200, &thread)
+	input := w.RunInput{Message: liveTaskPrompt(), ResearchScope: "given_sources"}
 	var (
 		run                 w.Run
 		view                RunView

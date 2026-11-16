@@ -836,22 +836,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v1/threads/{id}/routing-preview": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["routingPreview"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/api/v1/threads/{id}/runs": {
     parameters: {
       query?: never;
@@ -1316,7 +1300,6 @@ export interface components {
     };
     BootstrapInput: {
       title: string;
-      workflow: string;
       workspace_id?: string;
     };
     BootstrapReply: {
@@ -1362,7 +1345,6 @@ export interface components {
         task_id?: string;
         title: string;
         updated_at: string;
-        workflow: string;
         workspace_id: string;
       };
       workspace: {
@@ -1859,17 +1841,12 @@ export interface components {
                 version: number;
               }[]
             | null;
-          assignments: {
-            [key: string]: string;
-          } | null;
           message: string;
-          proposal_id: string;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;
           source_urls: string[] | null;
           targets: string[] | null;
-          workflow: string;
         };
         input_snapshot_digest?: string;
         method?: string;
@@ -1888,35 +1865,11 @@ export interface components {
         reservation_release_reason?: string;
         retry_of_step_id?: string;
         routing: {
-          assignments: {
-            [key: string]: string;
-          } | null;
           clarification: string;
           decision: string;
-          evidence:
-            | {
-                agent_id: string;
-                quote: string;
-              }[]
-            | null;
           explanation: string;
-          input_tokens: number;
-          model_call: boolean;
-          output_tokens: number;
           targets: string[] | null;
-          usage_known: boolean;
-          workflow: string;
         };
-        selected_workflow?: {
-          assignments: {
-            [key: string]: string;
-          } | null;
-          reason?: string;
-          selected_at: string;
-          step_id: string;
-          targets: string[] | null;
-          workflow: string;
-        } | null;
         skill_snapshot?: string;
         skill_versions?: {
           [key: string]: string;
@@ -2783,48 +2736,10 @@ export interface components {
         | null;
     };
     Routing: {
-      assignments: {
-        [key: string]: string;
-      } | null;
       clarification: string;
       decision: string;
-      evidence:
-        | {
-            agent_id: string;
-            quote: string;
-          }[]
-        | null;
       explanation: string;
-      input_tokens: number;
-      model_call: boolean;
-      output_tokens: number;
       targets: string[] | null;
-      usage_known: boolean;
-      workflow: string;
-    };
-    RoutingPreview: {
-      expires_in?: number;
-      proposal_id?: string;
-      routing: {
-        assignments: {
-          [key: string]: string;
-        } | null;
-        clarification: string;
-        decision: string;
-        evidence:
-          | {
-              agent_id: string;
-              quote: string;
-            }[]
-          | null;
-        explanation: string;
-        input_tokens: number;
-        model_call: boolean;
-        output_tokens: number;
-        targets: string[] | null;
-        usage_known: boolean;
-        workflow: string;
-      };
     };
     Run: {
       agents:
@@ -2891,18 +2806,13 @@ export interface components {
               version: number;
             }[]
           | null;
-        assignments: {
-          [key: string]: string;
-        } | null;
         message: string;
-        proposal_id: string;
         /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
         research_scope: string;
         retry_of_run_id: string;
         source_ids: string[] | null;
         source_urls: string[] | null;
         targets: string[] | null;
-        workflow: string;
       };
       input_snapshot_digest?: string;
       method?: string;
@@ -2921,35 +2831,11 @@ export interface components {
       reservation_release_reason?: string;
       retry_of_step_id?: string;
       routing: {
-        assignments: {
-          [key: string]: string;
-        } | null;
         clarification: string;
         decision: string;
-        evidence:
-          | {
-              agent_id: string;
-              quote: string;
-            }[]
-          | null;
         explanation: string;
-        input_tokens: number;
-        model_call: boolean;
-        output_tokens: number;
         targets: string[] | null;
-        usage_known: boolean;
-        workflow: string;
       };
-      selected_workflow?: {
-        assignments: {
-          [key: string]: string;
-        } | null;
-        reason?: string;
-        selected_at: string;
-        step_id: string;
-        targets: string[] | null;
-        workflow: string;
-      } | null;
       skill_snapshot?: string;
       skill_versions?: {
         [key: string]: string;
@@ -2992,18 +2878,13 @@ export interface components {
             version: number;
           }[]
         | null;
-      assignments: {
-        [key: string]: string;
-      } | null;
       message: string;
-      proposal_id: string;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope: string;
       retry_of_run_id: string;
       source_ids: string[] | null;
       source_urls: string[] | null;
       targets: string[] | null;
-      workflow: string;
     };
     RunRequest: {
       artifact_refs?:
@@ -3012,18 +2893,13 @@ export interface components {
             version: number;
           }[]
         | null;
-      assignments?: {
-        [key: string]: string;
-      } | null;
       message: string;
-      proposal_id?: string;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope?: string;
       retry_of_run_id?: string;
       source_ids?: string[] | null;
       source_urls?: string[] | null;
       targets?: string[] | null;
-      workflow?: string;
     };
     RunView: {
       attempts:
@@ -3179,17 +3055,12 @@ export interface components {
                 version: number;
               }[]
             | null;
-          assignments: {
-            [key: string]: string;
-          } | null;
           message: string;
-          proposal_id: string;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;
           source_urls: string[] | null;
           targets: string[] | null;
-          workflow: string;
         };
         input_snapshot_digest?: string;
         method?: string;
@@ -3208,35 +3079,11 @@ export interface components {
         reservation_release_reason?: string;
         retry_of_step_id?: string;
         routing: {
-          assignments: {
-            [key: string]: string;
-          } | null;
           clarification: string;
           decision: string;
-          evidence:
-            | {
-                agent_id: string;
-                quote: string;
-              }[]
-            | null;
           explanation: string;
-          input_tokens: number;
-          model_call: boolean;
-          output_tokens: number;
           targets: string[] | null;
-          usage_known: boolean;
-          workflow: string;
         };
-        selected_workflow?: {
-          assignments: {
-            [key: string]: string;
-          } | null;
-          reason?: string;
-          selected_at: string;
-          step_id: string;
-          targets: string[] | null;
-          workflow: string;
-        } | null;
         skill_snapshot?: string;
         skill_versions?: {
           [key: string]: string;
@@ -3291,6 +3138,7 @@ export interface components {
             id: string;
             instruction: string;
             kind?: string;
+            read_only?: boolean;
             request_id?: string;
             retry_of_step_id?: string;
             review_verdict?: string;
@@ -3305,11 +3153,6 @@ export interface components {
       csrf_token: string;
     };
     Settings: {
-      assignments: {
-        [key: string]: {
-          [key: string]: string;
-        } | null;
-      } | null;
       collaboration_budget?: {
         auto_continuations: number;
         fix_rounds: number;
@@ -3324,13 +3167,6 @@ export interface components {
       revision: number;
     };
     SettingsInput: {
-      assignments?:
-        | ({
-            [key: string]: {
-              [key: string]: string;
-            } | null;
-          } | null)
-        | null;
       collaboration_budget?: {
         auto_continuations: number;
         fix_rounds: number;
@@ -3344,13 +3180,6 @@ export interface components {
       retention_days?: number | null;
     };
     SettingsPatch: {
-      assignments?:
-        | ({
-            [key: string]: {
-              [key: string]: string;
-            } | null;
-          } | null)
-        | null;
       collaboration_budget?: {
         auto_continuations: number;
         fix_rounds: number;
@@ -3464,6 +3293,7 @@ export interface components {
       id: string;
       instruction: string;
       kind?: string;
+      read_only?: boolean;
       request_id?: string;
       retry_of_step_id?: string;
       review_verdict?: string;
@@ -3827,17 +3657,12 @@ export interface components {
                     version: number;
                   }[]
                 | null;
-              assignments: {
-                [key: string]: string;
-              } | null;
               message: string;
-              proposal_id: string;
               research_scope: string;
               retry_of_run_id: string;
               source_ids: string[] | null;
               source_urls: string[] | null;
               targets: string[] | null;
-              workflow: string;
             };
             input_snapshot_digest?: string;
             method?: string;
@@ -3856,35 +3681,11 @@ export interface components {
             reservation_release_reason?: string;
             retry_of_step_id?: string;
             routing: {
-              assignments: {
-                [key: string]: string;
-              } | null;
               clarification: string;
               decision: string;
-              evidence:
-                | {
-                    agent_id: string;
-                    quote: string;
-                  }[]
-                | null;
               explanation: string;
-              input_tokens: number;
-              model_call: boolean;
-              output_tokens: number;
               targets: string[] | null;
-              usage_known: boolean;
-              workflow: string;
             };
-            selected_workflow?: {
-              assignments: {
-                [key: string]: string;
-              } | null;
-              reason?: string;
-              selected_at: string;
-              step_id: string;
-              targets: string[] | null;
-              workflow: string;
-            } | null;
             skill_snapshot?: string;
             skill_versions?: {
               [key: string]: string;
@@ -4235,7 +4036,6 @@ export interface components {
       task_id?: string;
       title: string;
       updated_at: string;
-      workflow: string;
       workspace_id: string;
     };
     ThreadInput: {
@@ -4253,7 +4053,6 @@ export interface components {
       task_id?: string;
       title: string;
       updated_at?: string;
-      workflow?: string;
       workspace_id?: string;
     };
     ThreadList: {
@@ -4270,7 +4069,6 @@ export interface components {
       title: string;
       /** @description Accepted for compatibility; ignored. The server sets the timestamp. */
       updated_at?: string;
-      workflow?: string | null;
       /** @description Accepted for compatibility; ignored. A thread never changes workspace. */
       workspace_id?: string;
     };
@@ -4361,17 +4159,12 @@ export interface components {
                 version: number;
               }[]
             | null;
-          assignments: {
-            [key: string]: string;
-          } | null;
           message: string;
-          proposal_id: string;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;
           source_urls: string[] | null;
           targets: string[] | null;
-          workflow: string;
         };
         input_snapshot_digest?: string;
         method?: string;
@@ -4390,35 +4183,11 @@ export interface components {
         reservation_release_reason?: string;
         retry_of_step_id?: string;
         routing: {
-          assignments: {
-            [key: string]: string;
-          } | null;
           clarification: string;
           decision: string;
-          evidence:
-            | {
-                agent_id: string;
-                quote: string;
-              }[]
-            | null;
           explanation: string;
-          input_tokens: number;
-          model_call: boolean;
-          output_tokens: number;
           targets: string[] | null;
-          usage_known: boolean;
-          workflow: string;
         };
-        selected_workflow?: {
-          assignments: {
-            [key: string]: string;
-          } | null;
-          reason?: string;
-          selected_at: string;
-          step_id: string;
-          targets: string[] | null;
-          workflow: string;
-        } | null;
         skill_snapshot?: string;
         skill_versions?: {
           [key: string]: string;
@@ -4501,7 +4270,6 @@ export interface components {
         task_id?: string;
         title: string;
         updated_at: string;
-        workflow: string;
         workspace_id: string;
       };
     };
@@ -4564,7 +4332,6 @@ export interface components {
         task_id?: string;
         title: string;
         updated_at: string;
-        workflow: string;
         workspace_id: string;
       };
       workspace_name: string;
@@ -4587,7 +4354,6 @@ export interface components {
               task_id?: string;
               title: string;
               updated_at: string;
-              workflow: string;
               workspace_id: string;
             };
             workspace_name: string;
@@ -6934,43 +6700,6 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Thread"];
-        };
-      };
-      /** @description Structured error */
-      default: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Error"];
-        };
-      };
-    };
-  };
-  routingPreview: {
-    parameters: {
-      query?: never;
-      header: {
-        "X-CSRF-Token": string;
-      };
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["RunRequest"];
-      };
-    };
-    responses: {
-      /** @description Success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RoutingPreview"];
         };
       };
       /** @description Structured error */

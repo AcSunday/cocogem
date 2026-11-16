@@ -176,22 +176,8 @@ func (t *Tx) DeleteAgentProfile(agentID string) error {
 	if err != nil {
 		return err
 	}
-	changed := false
 	if settings.DefaultCoordinatorID == agentID {
-		settings.DefaultCoordinatorID, changed = "", true
-	}
-	for workflow, roles := range settings.Assignments {
-		for role, id := range roles {
-			if id == agentID {
-				delete(roles, role)
-				changed = true
-			}
-		}
-		if len(roles) == 0 {
-			delete(settings.Assignments, workflow)
-		}
-	}
-	if changed {
+		settings.DefaultCoordinatorID = ""
 		settings.Revision++
 		if err := t.SaveSettings(settings); err != nil {
 			return err

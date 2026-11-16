@@ -123,7 +123,7 @@ test("composer hint button renders 24×24 with a transparent background", async 
   const workspace = await seedTasks(page, headers);
   await page.goto(`${baseURL}/w/${workspace.id}`);
   const hint = page.getByRole("button", {
-    name: "输入提示：/ 选择协作模式，@ 指定成员",
+    name: "输入提示：@ 指定成员",
   });
   await expect(hint).toBeVisible();
 
@@ -183,7 +183,7 @@ test("long composer text never runs under the hint button", async ({ page }) => 
   await page.goto(`${baseURL}/w/${workspace.id}`);
 
   const hint = page.getByRole("button", {
-    name: "输入提示：/ 选择协作模式，@ 指定成员",
+    name: "输入提示：@ 指定成员",
   });
   const input = page.getByLabel("输入问题");
   await expect(hint).toBeVisible();

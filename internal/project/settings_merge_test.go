@@ -20,12 +20,11 @@ func TestSettingsFieldMergeKeepsUnrelatedFields(t *testing.T) {
 	}
 	// Seed collaboration, defaults and retention.
 	mode := w.ExecutionControlled
-	assignments := map[string]map[string]string{"research": {"coordinator": "owner"}}
 	days := 14
 	budget := w.BudgetPolicy{AutoContinuations: 9, ParallelBranches: 3, WriterBranches: 1, FixRounds: 2, NoProgressFailures: 2}
 	seeded, err := service.UpdateSettings(t.Context(), 1, SettingsPatch{
-		DefaultCoordinatorID: ptrString("owner"), Assignments: &assignments,
-		RetentionDays: &days, CollaborationBudget: &budget, ExecutionMode: &mode,
+		DefaultCoordinatorID: ptrString("owner"),
+		RetentionDays:        &days, CollaborationBudget: &budget, ExecutionMode: &mode,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +41,7 @@ func TestSettingsFieldMergeKeepsUnrelatedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := onlyPermission.Settings
-	if got.DefaultCoordinatorID != "owner" || got.Assignments["research"]["coordinator"] != "owner" || got.RetentionDays != 14 || got.CollaborationBudget.AutoContinuations != 9 {
+	if got.DefaultCoordinatorID != "owner" || got.RetentionDays != 14 || got.CollaborationBudget.AutoContinuations != 9 {
 		t.Fatalf("permission-only patch cleared unrelated fields: %+v", got)
 	}
 	if got.PermissionEpoch != epoch+1 {

@@ -87,7 +87,7 @@ it("keeps the main welcome surface and adds a small linked summary", async () =>
   expect(
     await screen.findByRole("heading", { name: "把问题交给一个团队。" }),
   ).toBeVisible();
-  expect(screen.getByRole("button", { name: /做一次研究协作/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /研究多 Agent 协作的适用场景/ })).toBeVisible();
   expect(screen.getByText("2")).toBeVisible();
   expect(screen.getByText(/需要你/)).toBeVisible();
   await waitFor(() => expect(request).toHaveBeenCalled());
@@ -128,7 +128,7 @@ it("renders no summary card or placeholder on mobile and restores it when widene
   expect(
     screen.queryByRole("button", { name: "编辑项目" }),
   ).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /做一次研究协作/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /研究多 Agent 协作的适用场景/ })).toBeVisible();
   expect(request).not.toHaveBeenCalled();
 
   viewport.set(false);

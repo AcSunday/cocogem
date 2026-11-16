@@ -371,11 +371,9 @@ func (s *Service) EnsureThreadTask(tx *store.Tx, th w.Thread, in w.RunInput, mes
 		if policy.Mode == w.ExecutionFullAccess && !slices.Contains(actions, "execute") {
 			actions = append(actions, "execute")
 		}
-		if engineeringWrites(in) {
-			for _, action := range []string{"write", "run_test"} {
-				if !slices.Contains(actions, action) {
-					actions = append(actions, action)
-				}
+		for _, action := range []string{"write", "run_test"} {
+			if !slices.Contains(actions, action) {
+				actions = append(actions, action)
 			}
 		}
 	}

@@ -45,7 +45,7 @@ func TestFreeFileTaskExposesNativeWriteThroughRealCatalog(t *testing.T) {
 	run := w.Run{
 		ID: "free-native-run", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: created.Task.ID,
 		TaskRevision: created.Task.CurrentRevision, BudgetAccountID: created.Budget.ID,
-		Input:  w.RunInput{Message: "写一个文件到临时目录", Workflow: "free", Targets: []string{member.ID}},
+		Input:  w.RunInput{Message: "写一个文件到临时目录", Targets: []string{member.ID}},
 		Agents: []w.Agent{member}, CoordinatorID: member.ID, Status: "running", CreatedAt: w.Now(),
 	}
 	step := w.Step{ID: "free-native-step", RunID: run.ID, AgentID: member.ID, Role: "responder", Status: "running"}
@@ -103,18 +103,15 @@ func TestFreeFileTaskExposesNativeWriteThroughRealCatalog(t *testing.T) {
 	if !foundHostWrite {
 		t.Fatal("free autonomous responder host catalog lacks write_file")
 	}
-	// Reviewer stays read-only.
-	reviewerAgent := member
-	reviewerAgent.Executor = ""
-	reviewerStep := w.Step{ID: "free-native-review", RunID: run.ID, AgentID: member.ID, Role: "reviewer", Status: "running"}
-	reviewerAllowed := engine.allowedTools(run, reviewerAgent, reviewerStep)
-	if slices.Contains(reviewerAllowed, "write_file") || slices.Contains(reviewerAllowed, "patch_file") {
-		t.Fatalf("reviewer received a write tool: %v", reviewerAllowed)
+	// A read-only step stays read-only: the kernel locks writing per step, not per
+	// hard-coded role name.
+	readOnlyStep := w.Step{ID: "free-native-review", RunID: run.ID, AgentID: member.ID, Role: "reviewer", Status: "running", ReadOnly: true}
+	readOnlyAllowed := engine.allowedTools(run, member, readOnlyStep)
+	if slices.Contains(readOnlyAllowed, "write_file") || slices.Contains(readOnlyAllowed, "patch_file") {
+		t.Fatalf("a read-only step received a write tool: %v", readOnlyAllowed)
 	}
-	if nativecli.NativeExecutionTools("claude", reviewerAllowed, run.Input.ResearchScope, run.EffectiveExecutionMode) != nil {
-		if slices.Contains(nativecli.NativeExecutionTools("claude", reviewerAllowed, run.Input.ResearchScope, run.EffectiveExecutionMode), "Write") {
-			t.Fatal("reviewer received a native write tool")
-		}
+	if native := nativecli.NativeExecutionTools("claude", readOnlyAllowed, run.Input.ResearchScope, run.EffectiveExecutionMode); slices.Contains(native, "Write") || slices.Contains(native, "Edit") {
+		t.Fatalf("a read-only step received a native write tool: %v", native)
 	}
 	_ = prep
 

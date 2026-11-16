@@ -14,7 +14,6 @@ type RunExtra = Omit<Partial<Run>, "input"> & {
 const run = (extra: RunExtra = {}): Run => {
   const { input: inputExtra, ...rest } = extra;
   const input = {
-    workflow: "free",
     retry_of_run_id: "",
     ...inputExtra,
   } as Run["input"];

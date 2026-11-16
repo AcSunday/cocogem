@@ -102,7 +102,7 @@ test("tasks create conversations, chat promotes in place and navigation stays co
   await expect(rail.getByRole("button", { name: "项目首页" })).toHaveAttribute("aria-current", "page");
   const members = await (await page.request.get(`${baseURL}/api/v1/workspaces/${workspace.id}/agents`)).json();
   const member = members.items[0];
-  const chat = await (await page.request.post(`${baseURL}/api/v1/workspaces/${workspace.id}/threads`, { headers, data: { title: "先聊想法", agent_ids: [member.id], coordinator_id: member.id, workflow: "free" } })).json();
+  const chat = await (await page.request.post(`${baseURL}/api/v1/workspaces/${workspace.id}/threads`, { headers, data: { title: "先聊想法", agent_ids: [member.id], coordinator_id: member.id } })).json();
   await page.goto(`${baseURL}/w/${workspace.id}/t/${chat.id}`);
   await page.getByLabel("输入问题").fill("解释一下目标和验收的区别。");
   await page.getByRole("button", { name: "发送", exact: true }).click();

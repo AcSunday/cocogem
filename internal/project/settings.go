@@ -13,11 +13,10 @@ import (
 // collaboration defaults and saving collaboration cannot reset the permission.
 // PermissionEpoch is intentionally absent: it is server-owned.
 type SettingsPatch struct {
-	DefaultCoordinatorID *string                       `json:"default_coordinator_id,omitempty"`
-	Assignments          *map[string]map[string]string `json:"assignments,omitempty"`
-	RetentionDays        *int                          `json:"retention_days,omitempty"`
-	CollaborationBudget  *w.BudgetPolicy               `json:"collaboration_budget,omitempty"`
-	ExecutionMode        *string                       `json:"execution_mode,omitempty"`
+	DefaultCoordinatorID *string         `json:"default_coordinator_id,omitempty"`
+	RetentionDays        *int            `json:"retention_days,omitempty"`
+	CollaborationBudget  *w.BudgetPolicy `json:"collaboration_budget,omitempty"`
+	ExecutionMode        *string         `json:"execution_mode,omitempty"`
 	// RejectEpoch marks a body that tried to set the server-owned epoch.
 	RejectEpoch bool `json:"-"`
 }
@@ -49,9 +48,6 @@ func (s *Service) UpdateSettings(ctx context.Context, expected int, patch Settin
 		if patch.DefaultCoordinatorID != nil {
 			next.DefaultCoordinatorID = *patch.DefaultCoordinatorID
 		}
-		if patch.Assignments != nil {
-			next.Assignments = *patch.Assignments
-		}
 		if patch.RetentionDays != nil {
 			if err := w.ValidateRetentionDays(*patch.RetentionDays); err != nil {
 				return err
@@ -75,14 +71,10 @@ func (s *Service) UpdateSettings(ctx context.Context, expected int, patch Settin
 				change.PermissionMoved = true
 			}
 		}
-		if next.Assignments == nil {
-			next.Assignments = map[string]map[string]string{}
-		}
 		if next.CollaborationBudget.AutoContinuations == 0 {
 			next.CollaborationBudget = w.DefaultBudgetPolicy()
 		}
 		next.RetentionDays = w.EffectiveRetentionDays(next.RetentionDays)
-		next = w.NormalizeSettings(next)
 		agents, err := tx.GlobalAgents()
 		if err != nil {
 			return err

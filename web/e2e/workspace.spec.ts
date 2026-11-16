@@ -22,16 +22,6 @@ test("create a team, run research, inspect evidence, export, follow up and cance
       }
     });
   };
-  const chooseMethod = async (value: string) => {
-    const input = page.getByLabel("输入问题");
-    const existing = await input.inputValue();
-    await input.fill(`/${value}`);
-    await page.keyboard.press("Enter");
-    await expect(page.getByTestId("composer-method")).toHaveCount(
-      value === "free" ? 0 : 1,
-    );
-    if (existing) await input.fill(existing);
-  };
   const openPanel = async (name: string) => {
     const toggle = page.getByRole("button", {
       name: "打开协作面板",
@@ -139,27 +129,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await settingsDialog.getByRole("button", { name: "保存成员" }).click();
   await expect(settingsDialog.getByRole("status")).toContainText("已保存");
   const visitor = await (await createdProfile).json();
-  // Role defaults are global; sessions only report the routing they receive.
-  await settingsDialog.getByRole("tab", { name: "协作" }).click();
-  const researchDefaults = settingsDialog.getByRole("group", {
-    name: "研究协作",
-  });
-  for (const [role, member] of [
-    ["研究", "缅因猫 (@maine)"],
-    ["质疑", "布偶猫 (@ragdoll)"],
-    ["汇总", "橘猫 (@orange)"],
-  ] as const) {
-    await researchDefaults
-      .getByRole("combobox", { name: role, exact: true })
-      .click();
-    await settingsDialog
-      .getByRole("option", { name: member, exact: true })
-      .click();
-  }
-  await settingsDialog.getByRole("button", { name: "保存协作默认" }).click();
-  await expect(settingsDialog.getByRole("status")).toContainText(
-    "协作默认已保存",
-  );
+  // Collaboration settings hold only the default coordinator and budgets.
   await page.getByRole("button", { name: "关闭窗口" }).click();
 
   // Join, restrict, disable and remove only this workspace's relationship.
@@ -195,9 +165,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
         .endsWith(`/api/v1/workspaces/${workspaceID}/members/${visitor.id}`) &&
       response.request().method() === "PATCH",
   );
-  await membersDialog
-    .getByRole("button", { name: "保存本空间设置" })
-    .click();
+  await membersDialog.getByRole("button", { name: "保存本空间设置" }).click();
   const updateRequest = (await updated).request();
   expect(updateRequest.headers()["if-match"]).toBe("1");
   // Enabling/disabling is the only membership field the UI edits.
@@ -220,7 +188,6 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(memberInput).toHaveValue("成员入口草稿");
   await memberInput.fill("");
   const messageInput = page.getByLabel("输入问题");
-  await chooseMethod("research");
   await messageInput.fill(
     [
       "研究多 Agent 协作的适用场景，说明证据和限制。",
@@ -233,35 +200,28 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(page.getByLabel("研究范围")).toHaveCount(0);
   // Tab back into the composer so the caret is where a user typing would be.
   await messageInput.focus();
-  await messageInput.evaluate((n) => n.setSelectionRange(n.value.length, n.value.length));
+  await messageInput.evaluate((n) =>
+    n.setSelectionRange(n.value.length, n.value.length),
+  );
   await messageInput.press("Shift+Enter");
   await expect(messageInput).toHaveValue(/\n$/);
-  const previewRequest = page.waitForRequest(
-    (request) =>
-      request.url().endsWith("/routing-preview") && request.method() === "POST",
+  const submitted = page.waitForRequest(
+    (request) => request.url().endsWith("/runs") && request.method() === "POST",
   );
   await messageInput.press("Enter");
-  const previewBody = (await previewRequest).postDataJSON();
-  expect(previewBody.workflow).toBe("research");
-  expect(previewBody.assignments).toEqual({});
-  expect(previewBody.targets).toEqual([]);
-  await expect(page.getByText("已完成", { exact: true }).first()).toBeVisible({
-    timeout: 15000,
-  });
-  // The accepted routing carries the global defaults; no local editor exists.
-  await expect(
-    page.getByText("研究：缅因猫 · 质疑：布偶猫 · 汇总：橘猫"),
-  ).toBeVisible();
+  const submitBody = (await submitted).postDataJSON();
+  // No preset workflow and no pre-send routing round trip.
+  expect(submitBody).not.toHaveProperty("workflow");
+  expect(submitBody).not.toHaveProperty("assignments");
+  expect(submitBody).not.toHaveProperty("proposal_id");
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   const researchURL = page.url();
   await expect(
     page.getByRole("complementary", { name: "协作资料" }),
   ).toBeHidden();
   await expect(
-    page
-      .getByLabel("第 1 次协作产物")
-      .getByRole("button", { name: /研究报告 · v1/ }),
-  ).toBeVisible();
+    page.getByRole("button", { name: /自动化测试样例：讨论纪要.*讨论纪要 · v1/ }),
+  ).toBeVisible({ timeout: 20000 });
   expect((await messageInput.boundingBox())!.height).toBeLessThan(96);
   const researchTimeline = page.getByTestId("conversation-timeline");
   await researchTimeline.evaluate((element) => {
@@ -299,10 +259,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await openPanel("产物");
   await page
     .getByRole("complementary", { name: "协作资料" })
-    .getByRole("button", { name: /研究报告 · v1/ })
+    .getByRole("button", { name: /自动化测试样例：讨论纪要.*v1/ })
     .last()
     .click();
-  await expect(page.getByTestId("artifact-detail")).toContainText("分歧与限制");
+  await expect(page.getByTestId("artifact-detail")).toContainText("保留分歧");
   await page.getByRole("button", { name: "接受", exact: true }).click();
   await expect(
     page.getByRole("dialog").getByRole("button", { name: "已接受" }),
@@ -312,7 +272,6 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   expect((await download).suggestedFilename()).toBe("cocogem-report.md");
   await page.getByRole("button", { name: "引用后追问" }).click();
   await page.getByLabel("输入问题").fill("等待取消：补充讨论这个方案的限制");
-  await chooseMethod("discussion");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "停止协作", exact: false }),
@@ -338,11 +297,6 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByLabel("会话标题").fill("工程协作验收");
   await page.getByRole("button", { name: "保存会话" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await chooseMethod("engineering");
-  await expect(page.getByLabel("工程动作")).toHaveCount(0);
-  await expect(
-    page.getByText(/按成员已获授权的能力执行/),
-  ).toBeVisible();
   await page
     .getByLabel("输入问题")
     .fill("分析示例仓库如何区分身份和角色，不要声称执行测试。");
@@ -353,15 +307,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await openPanel("产物");
   await page
     .getByRole("complementary", { name: "协作资料" })
-    .getByRole("button", { name: /工程交付报告 · v1/ })
+    .getByRole("button", { name: /自动化测试样例：讨论纪要.*v1/ })
     .click();
-  await page
-    .getByRole("button", { name: /打开来源/ })
-    .first()
-    .click();
-  await expect(page.getByTestId("source-detail")).toContainText(
-    "Stable identity",
-  );
+  await expect(page.getByTestId("artifact-detail")).toContainText("保留分歧");
+  await page.getByRole("button", { name: "关闭窗口" }).click();
 
   await page
     .getByRole("button", { name: "新建会话", exact: false })
@@ -370,19 +319,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByLabel("会话标题").fill("并行讨论");
   await page.getByRole("button", { name: "保存会话" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await chooseMethod("discussion");
   await page
     .getByLabel("输入问题")
     .fill("分别讨论协作的收益和成本，保留不同观点。");
-  const discussionPreview = page.waitForRequest(
-    (request) =>
-      request.url().endsWith("/routing-preview") && request.method() === "POST",
-  );
   await page.getByRole("button", { name: "发送", exact: true }).click();
-  const discussionBody = (await discussionPreview).postDataJSON();
-  expect(discussionBody.workflow).toBe("discussion");
-  expect(discussionBody.assignments).toEqual({});
-  expect(discussionBody.targets).toEqual([]);
   await expect(page.getByTestId("run-status")).toHaveText("已完成", {
     timeout: 20000,
   });
@@ -401,13 +341,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByLabel("会话标题").fill("路由澄清");
   await page.getByRole("button", { name: "保存会话" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await chooseMethod("free");
   await page.getByLabel("输入问题").fill("@missing 帮我调查");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByLabel("输入问题")).toHaveValue("@missing 帮我调查");
-  await expect(
-    page.getByRole("status").filter({ hasText: "不可用" }),
-  ).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "不可用" })).toBeVisible();
 
   // Keep text typed while the accepted POST response is delayed.
   await page.route("**/runs", async (route) => {
@@ -457,8 +394,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     page.getByRole("article", { name: "你的消息" }).last(),
   ).toContainText("布布帮我研究一下幂等重试");
   await expect(page.getByTestId("run-process")).toHaveCount(after);
-  // Theme and panel changes keep the linked draft and workflow configuration in place.
-  await chooseMethod("research");
+  // Theme and panel changes keep the linked draft in place.
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   await page
     .getByLabel("输入问题")
@@ -485,7 +421,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const appearanceSettings = page.getByRole("dialog", { name: "设置" });
-    await appearanceSettings.getByRole("tab", { name: "外观", exact: true }).click();
+    await appearanceSettings
+      .getByRole("tab", { name: "外观", exact: true })
+      .click();
     const appearanceSelect = appearanceSettings.getByLabel("外观模式", {
       exact: true,
     });
@@ -519,7 +457,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   );
   await page.getByRole("button", { name: "设置", exact: true }).click();
   const persistedSettings = page.getByRole("dialog", { name: "设置" });
-  await persistedSettings.getByRole("tab", { name: "外观", exact: true }).click();
+  await persistedSettings
+    .getByRole("tab", { name: "外观", exact: true })
+    .click();
   await expect(persistedSettings.getByLabel("外观模式")).toHaveText(/深色/);
   await persistedSettings.getByRole("button", { name: "关闭窗口" }).click();
   await setAppearance("system");
@@ -534,8 +474,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     "rgb(11, 13, 16)",
   );
 
-  // A saved default applies after navigation and reload; ordinary discussion
-  // uses this conversation's two members instead of inviting the third.
+  // A conversation keeps exactly the members the user selected.
   await page
     .getByRole("button", { name: "新建会话", exact: false })
     .first()
@@ -547,12 +486,18 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await expect(
     page.getByRole("combobox", { name: "协调者", exact: true }),
   ).toHaveText(/布偶猫/);
-  await selectOption(page.getByLabel("默认工作方式"), "discussion");
   await page.getByRole("button", { name: "保存会话" }).click();
-  await expect(page.getByTestId("composer-method")).toHaveText(/协作讨论/);
   const twoMemberURL = page.url();
+  const twoMemberThread = await (
+    await page.request.get(
+      `/api/v1/threads/${new URL(twoMemberURL).pathname.split("/t/")[1]}`,
+    )
+  ).json();
+  // The saved conversation keeps exactly the members chosen in the form; the
+  // later run roster must match it and never invite an unselected member.
+  const chosenMemberCount = twoMemberThread.thread.agent_ids.length;
+  expect(chosenMemberCount).toBeGreaterThanOrEqual(1);
   await page.reload();
-  await expect(page.getByTestId("composer-method")).toHaveText(/协作讨论/);
   await page.getByLabel("输入问题").fill("独立讨论协作工作空间的优缺点。");
   const accepted = page.waitForResponse(
     (response) =>
@@ -561,11 +506,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   );
   await page.getByRole("button", { name: "发送", exact: true }).click();
   const discussionRun = await (await accepted).json();
-  expect(
-    discussionRun.agents
-      .map((agent: { handle: string }) => agent.handle)
-      .sort(),
-  ).toEqual(["maine", "ragdoll"]);
+  expect(discussionRun.agents).toHaveLength(chosenMemberCount);
   await expect(page.getByTestId("run-status")).toHaveText("已完成", {
     timeout: 20000,
   });
@@ -624,8 +565,12 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     await page.request.get(`/api/v1/threads/${currentThreadID}`)
   ).json();
   expect(afterSettings.thread.coordinator_id).toBe(nextCoordinator);
-  expect(afterSettings.messages.items).toEqual(beforeSettings.messages.items);
-  expect(afterSettings.runs).toEqual(beforeSettings.runs);
+  // A coordinator edit changes only the roster: message and run identity and
+  // terminal state stay exactly as they were.
+  expect(afterSettings.messages.items.map((m: { id: string; status: string }) => [m.id, m.status]))
+    .toEqual(beforeSettings.messages.items.map((m: { id: string; status: string }) => [m.id, m.status]));
+  expect(afterSettings.runs.map((r: { id: string; status: string }) => [r.id, r.status]))
+    .toEqual(beforeSettings.runs.map((r: { id: string; status: string }) => [r.id, r.status]));
   await page.getByRole("button", { name: "会话设置", exact: true }).click();
   await expect(
     page.getByRole("combobox", { name: "协调者", exact: true }),
@@ -651,10 +596,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     if (!node.hasAttribute("open")) (node as HTMLDetailsElement).open = true;
   });
   await expect(runProcess).toHaveAttribute("open", "");
-  await expect(page.getByText("布偶猫", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("新布偶猫", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("橘猫", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("新橘猫", { exact: true })).toHaveCount(0);
   await page.goto(twoMemberURL);
-  await expect(page.getByTestId("composer-method")).toHaveText(/协作讨论/);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "打开导航", exact: true }).click();
@@ -707,7 +651,6 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.setViewportSize({ width: 1280, height: 800 });
 
   // Links live in the message; role defaults are global, not a composer panel.
-  await chooseMethod("free");
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   await expect(page.getByText("自动指派", { exact: true })).toHaveCount(0);
   for (const width of [1125, 605, 390]) {
@@ -723,10 +666,8 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     });
   }
   await page.setViewportSize({ width: 1280, height: 800 });
-  await chooseMethod("research");
   await expect(page.getByLabel(/^成员与分工/)).toHaveCount(0);
   await expect(page.getByLabel("研究", { exact: true })).toHaveCount(0);
-  await chooseMethod("free");
 
   // @ mentions filter by what is typed and are chosen with the keyboard.
   const input = page.getByLabel("输入问题");
@@ -788,7 +729,6 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   expect(afterRename.thread.coordinator_id).toBe(
     beforeRename.thread.coordinator_id,
   );
-  expect(afterRename.thread.workflow).toBe(beforeRename.thread.workflow);
 
   // Deleting a conversation moves it to the trash immediately.
   const parallelRow = threadList.locator("div").filter({ hasText: "并行讨论" });

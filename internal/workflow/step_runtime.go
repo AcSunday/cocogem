@@ -280,15 +280,6 @@ func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID stri
 		return result, handoffErr
 	case "get_task":
 		return x.engine.getTask(callCtx, x.run, input)
-	case "choose_workflow":
-		x.mutated.Store(true)
-		out, err := x.engine.chooseWorkflow(callCtx, x.run, x.step, input)
-		if err == nil {
-			x.mu.Lock()
-			x.delegated = true
-			x.mu.Unlock()
-		}
-		return out, err
 	case "submit_review_verdict":
 		x.mutated.Store(true)
 		return x.engine.submitReviewVerdict(callCtx, x.run, x.step, input)
@@ -395,9 +386,6 @@ func (x *stepRuntime) acceptArtifact(callCtx context.Context, input json.RawMess
 	}
 	ensureNativeObservationDisclosure(&artifact, knownSources)
 	if err := ValidateArtifact(artifact, x.required, knownSources); err != nil {
-		return "", err
-	}
-	if err := ValidateEngineeringEvidence(artifact, x.run, knownSources); err != nil {
 		return "", err
 	}
 	// Persist the unpublished payload on the attempt immediately; a process

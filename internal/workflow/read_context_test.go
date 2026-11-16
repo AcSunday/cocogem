@@ -113,11 +113,13 @@ func TestReadContextFrozenScopePagingAndRevocation(t *testing.T) {
 	var researcherArtifact string
 	runner := &testRunner{run: func(ctx context.Context, request model.Request, call int, execute agent.Execute, observe agent.Observe) error {
 		switch {
-		case strings.Contains(request.System, "role=researcher"):
+		case strings.Contains(request.System, "role=responder"):
 			if err := observe("text", map[string]any{"text": longText}); err != nil {
 				return err
 			}
-			return nil
+			payload, _ := json.Marshal(map[string]any{"request_id": "critique", "target_agent_id": run.Agents[1].ID, "role": "critic", "mode": "relay", "task": "独立复核上游结果"})
+			_, err := execute(ctx, "handoff_task", payload)
+			return err
 		case strings.Contains(request.System, "role=critic"):
 			if !containsString(request.RequiredTools, "read_context") {
 				return errors.New("read_context was not required for referenced inputs")
@@ -207,13 +209,6 @@ func TestReadContextFrozenScopePagingAndRevocation(t *testing.T) {
 				return err
 			}
 			return observe("text", map[string]any{"text": "critique completed after paged reads"})
-		case strings.Contains(request.System, "role=coordinator"):
-			if err := observe("text", map[string]any{"text": "coordinator summary"}); err != nil {
-				return err
-			}
-			payload, _ := json.Marshal(map[string]any{"type": "research_report", "title": "Report", "body": "Report body", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-			_, err := execute(ctx, "publish_artifact", payload)
-			return err
 		}
 		return nil
 	}}

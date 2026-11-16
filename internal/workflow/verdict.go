@@ -14,16 +14,23 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-const maxEngineeringRounds = 3
+// maxReworkRounds is the hard anti-ping-pong bound: the same reviewer may ask
+// the same author for changes at most twice before the disagreement must be
+// delivered as-is (or escalated to the coordinator / ask_question).
+const maxReworkRounds = 2
 
 type verdictInput struct {
 	Verdict string `json:"verdict"`
 	Summary string `json:"summary"`
 }
 
+// verdictTools offers the structured review verdict to independent review
+// steps only. A responder or coordinator never reviews itself.
 func (e *Engine) verdictTools(ctx context.Context, run w.Run, step w.Step) []model.Tool {
-	in := effectiveInput(run)
-	if in.Workflow != "engineering" && in.Workflow != "research" && in.Workflow != "discussion" {
+	if step.Role != "reviewer" && step.Role != "critic" {
+		return nil
+	}
+	if len(step.DependsOn) == 0 && step.FromStepID == "" {
 		return nil
 	}
 	var steps []w.Step
@@ -34,12 +41,12 @@ func (e *Engine) verdictTools(ctx context.Context, run w.Run, step w.Step) []mod
 	}); err != nil {
 		return nil
 	}
-	if !canSubmitReviewVerdict(in, step, steps) {
+	if !canSubmitReviewVerdict(step, steps) {
 		return nil
 	}
 	return []model.Tool{{
 		Name:        "submit_review_verdict",
-		Description: "Record the structured independent review or convergence verdict for this stage. Choose 'approved' when the upstream work is verified and needs no further rework round (converging the workflow early without wasted turns), or 'changes_requested' when concrete defects, missing evidence, or unresolved disputes require follow-up.",
+		Description: "Record the structured independent review verdict. Choose 'approved' when the reviewed work is verified and needs no further rework, or 'changes_requested' when concrete defects or missing evidence require one more bounded repair round. After two changes_requested rounds on the same issue the host stops further rework; deliver the remaining issues and disagreements honestly instead.",
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -61,35 +68,19 @@ func (e *Engine) verdictTools(ctx context.Context, run w.Run, step w.Step) []mod
 	}}
 }
 
-func canSubmitReviewVerdict(in w.RunInput, step w.Step, steps []w.Step) bool {
-	idx := slices.IndexFunc(steps, func(s w.Step) bool { return s.ID == step.ID })
-	if idx < 0 {
+func canSubmitReviewVerdict(step w.Step, steps []w.Step) bool {
+	if step.Role != "reviewer" && step.Role != "critic" {
 		return false
 	}
-	switch in.Workflow {
-	case "engineering":
-		if step.Role == "reviewer" {
-			return slices.ContainsFunc(steps[idx+1:], func(s w.Step) bool { return s.Status == "pending" })
-		}
-		if step.Role == "final_reviewer" {
-			return engineeringRoundCount(steps) < maxEngineeringRounds && len(steps)+2 <= maxSteps
-		}
-	case "research":
-		if step.Role == "critic" {
-			return slices.ContainsFunc(steps[idx+1:], func(s w.Step) bool { return s.Status == "pending" && s.Role == "researcher" })
-		}
-	case "discussion":
-		if step.Role == "critic" || step.Role == "synthesizer" {
-			return slices.ContainsFunc(steps[idx+1:], func(s w.Step) bool { return s.Status == "pending" && s.Role == "checker" })
-		}
-	}
-	return false
+	return slices.ContainsFunc(steps, func(s w.Step) bool { return s.ID == step.ID })
 }
 
-func engineeringRoundCount(steps []w.Step) int {
+// reviewRoundCount counts the changes_requested verdicts one reviewer already
+// issued against one author in this run.
+func reviewRoundCount(steps []w.Step, reviewerID, authorID string) int {
 	rounds := 0
 	for _, s := range steps {
-		if s.Role == "engineer" && !s.Converged {
+		if s.AgentID == reviewerID && s.FromAgentID == authorID && s.ReviewVerdict == "changes_requested" {
 			rounds++
 		}
 	}
@@ -110,8 +101,7 @@ func (e *Engine) submitReviewVerdict(ctx context.Context, run w.Run, sender w.St
 		return "", errors.New("summary must be 1 to 2000 characters")
 	}
 
-	convergedEarly := false
-	appendedRound := false
+	reachedLimit := false
 	err := e.Store.Write(ctx, func(tx *store.Tx) error {
 		current, err := tx.Run(run.ID)
 		if err != nil {
@@ -135,207 +125,37 @@ func (e *Engine) submitReviewVerdict(ctx context.Context, run w.Run, sender w.St
 			}
 			return errors.New("a different review verdict was already recorded for this step")
 		}
-		effective := effectiveInput(current)
-		if !canSubmitReviewVerdict(effective, step, steps) {
-			return errors.New("this step does not accept a review verdict")
+		if in.Verdict == "changes_requested" && reviewRoundCount(steps, step.AgentID, step.FromAgentID) >= maxReworkRounds {
+			reachedLimit = true
+			in.Verdict = "approved"
+			in.Summary += "（已达 2 轮返工上限，剩余分歧按现状交付）"
 		}
-
 		step.ReviewVerdict = in.Verdict
 		steps[idx] = step
-
-		switch effective.Workflow {
-		case "engineering":
-			if step.Role == "reviewer" && in.Verdict == "approved" {
-				for i := idx + 1; i < len(steps); i++ {
-					if steps[i].Status != "pending" {
-						continue
-					}
-					steps[i].Status = "skipped"
-					steps[i].Converged = true
-					steps[i].Error = ""
-					if err := tx.SaveStep(steps[i]); err != nil {
-						return err
-					}
-					if err := tx.AppendEvent(run.ID, steps[i].ID, steps[i].AgentID, "step_finished", steps[i]); err != nil {
-						return err
-					}
-					convergedEarly = true
-				}
-			} else if step.Role == "final_reviewer" && in.Verdict == "changes_requested" {
-				if engineeringRoundCount(steps) >= maxEngineeringRounds || len(steps)+2 > maxSteps {
-					return errors.New("maximum engineering review rounds reached; publish the final engineering_report recording remaining issues and disputes")
-				}
-				engineerID := effective.Assignments["engineer"]
-				var engineer w.Agent
-				found := false
-				for _, a := range current.Agents {
-					if a.ID == engineerID && !a.Disabled {
-						engineer = a
-						found = true
-						break
-					}
-				}
-				if !found {
-					return errors.New("assigned engineer is unavailable for another round")
-				}
-				// Demote this step to an intermediate review so it finishes as a
-				// plain critique message instead of forcing premature report publication.
-				step.Role = "reviewer"
-				priorIDs := []string{}
-				for i := 0; i <= idx; i++ {
-					if steps[i].Role == "engineer" || steps[i].Role == "reviewer" || steps[i].Role == "final_reviewer" {
-						priorIDs = append(priorIDs, steps[i].ID)
-					}
-				}
-				rework := w.Step{
-					ID:          w.NewID(),
-					RunID:       run.ID,
-					AgentID:     engineer.ID,
-					AgentName:   engineer.DisplayName,
-					Role:        "engineer",
-					Instruction: "Read the latest reviewer critique in the handoff and address every remaining defect or failing test. Re-run the relevant tests and do not publish an artifact.",
-					DependsOn:   slices.Clone(priorIDs),
-					Status:      "pending",
-				}
-				finalDeps := append(slices.Clone(priorIDs), rework.ID)
-				finalReview := w.Step{
-					ID:          w.NewID(),
-					RunID:       run.ID,
-					AgentID:     step.AgentID,
-					AgentName:   step.AgentName,
-					Role:        "final_reviewer",
-					Instruction: "Independently inspect the updated files, diffs, test evidence and prior review rounds in the handoff. Publish exactly one engineering_report with confirmed, disputed or insufficient_evidence findings, severities, exact file/diff/test source IDs and limitations. Never modify files.",
-					DependsOn:   finalDeps,
-					Status:      "pending",
-				}
-				if err := tx.SaveStep(rework); err != nil {
-					return err
-				}
-				if err := tx.SaveStep(finalReview); err != nil {
-					return err
-				}
-				appendedRound = true
-			}
-
-		case "research":
-			if step.Role == "critic" && in.Verdict == "approved" {
-				skippedIDs := map[string]bool{}
-				for i := idx + 1; i < len(steps); i++ {
-					if steps[i].Status != "pending" {
-						continue
-					}
-					if steps[i].Role == "researcher" || steps[i].Role == "critic" {
-						steps[i].Status = "skipped"
-						steps[i].Converged = true
-						steps[i].Error = ""
-						skippedIDs[steps[i].ID] = true
-						if err := tx.SaveStep(steps[i]); err != nil {
-							return err
-						}
-						if err := tx.AppendEvent(run.ID, steps[i].ID, steps[i].AgentID, "step_finished", steps[i]); err != nil {
-							return err
-						}
-						convergedEarly = true
-					} else if steps[i].Role == "coordinator" && len(skippedIDs) > 0 {
-						steps[i].DependsOn = slices.DeleteFunc(slices.Clone(steps[i].DependsOn), func(id string) bool {
-							return skippedIDs[id]
-						})
-						if err := tx.SaveStep(steps[i]); err != nil {
-							return err
-						}
-					}
-				}
-			}
-
-		case "discussion":
-			if step.Role == "critic" && in.Verdict == "approved" {
-				allCriticsApproved := true
-				for _, s := range steps {
-					if s.Role == "critic" && s.ReviewVerdict != "approved" {
-						allCriticsApproved = false
-						break
-					}
-				}
-				if allCriticsApproved {
-					for i := idx + 1; i < len(steps); i++ {
-						if steps[i].Status != "pending" {
-							continue
-						}
-						if steps[i].Role == "synthesizer" {
-							steps[i].Role = "coordinator"
-							steps[i].Instruction = "Synthesize every independent view and cross-critique in the handoff and publish one final note artifact directly. Because all critics confirmed convergence without disputed misrepresentations, contributor check rounds are skipped."
-							if err := tx.SaveStep(steps[i]); err != nil {
-								return err
-							}
-						} else if steps[i].Role == "checker" || steps[i].Role == "coordinator" {
-							steps[i].Status = "skipped"
-							steps[i].Converged = true
-							steps[i].Error = ""
-							if err := tx.SaveStep(steps[i]); err != nil {
-								return err
-							}
-							if err := tx.AppendEvent(run.ID, steps[i].ID, steps[i].AgentID, "step_finished", steps[i]); err != nil {
-								return err
-							}
-							convergedEarly = true
-						}
-					}
-				}
-			} else if step.Role == "synthesizer" && in.Verdict == "approved" {
-				skippedCheckers := map[string]bool{}
-				for i := idx + 1; i < len(steps); i++ {
-					if steps[i].Status != "pending" {
-						continue
-					}
-					if steps[i].Role == "checker" {
-						steps[i].Status = "skipped"
-						steps[i].Converged = true
-						steps[i].Error = ""
-						skippedCheckers[steps[i].ID] = true
-						if err := tx.SaveStep(steps[i]); err != nil {
-							return err
-						}
-						if err := tx.AppendEvent(run.ID, steps[i].ID, steps[i].AgentID, "step_finished", steps[i]); err != nil {
-							return err
-						}
-						convergedEarly = true
-					} else if steps[i].Role == "coordinator" && len(skippedCheckers) > 0 {
-						steps[i].DependsOn = slices.DeleteFunc(slices.Clone(steps[i].DependsOn), func(id string) bool {
-							return skippedCheckers[id]
-						})
-						if err := tx.SaveStep(steps[i]); err != nil {
-							return err
-						}
-					}
-				}
-			}
-		}
-
 		if err := tx.SaveStep(step); err != nil {
 			return err
 		}
 		return tx.AppendEvent(run.ID, step.ID, step.AgentID, "review_verdict_submitted", map[string]any{
-			"verdict":         in.Verdict,
-			"summary":         in.Summary,
-			"converged_early": convergedEarly,
-			"appended_round":  appendedRound,
+			"verdict":       in.Verdict,
+			"summary":       in.Summary,
+			"rework_limit":  reachedLimit,
+			"rounds_before": reviewRoundCount(steps[:idx], step.AgentID, step.FromAgentID),
 		})
 	})
 	if err != nil {
 		return "", err
 	}
 	instruction := "Verdict recorded. Complete your clear user-facing review summary for this step now."
-	if convergedEarly {
-		instruction = "Verdict recorded and downstream redundant rework rounds skipped. Present your verified review summary clearly now to conclude this stage."
-	} else if appendedRound {
-		instruction = "Verdict recorded and another rework + review round has been scheduled. State the exact remaining defects and test evidence clearly now; do not call publish_artifact in this step."
+	if reachedLimit {
+		instruction = "The two-round rework limit is reached. Record the remaining defects and disagreements in your final reply, do not request another rework round, and deliver the current state honestly."
+	} else if in.Verdict == "approved" {
+		instruction = "Verdict recorded as approved. Present your verified review summary clearly now to conclude this stage."
 	}
 	encoded, err := json.Marshal(map[string]any{
-		"accepted":        true,
-		"verdict":         in.Verdict,
-		"converged_early": convergedEarly,
-		"appended_round":  appendedRound,
-		"instruction":     instruction,
+		"accepted":     true,
+		"verdict":      in.Verdict,
+		"rework_limit": reachedLimit,
+		"instruction":  instruction,
 	})
 	return string(encoded), err
 }

@@ -63,17 +63,9 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err = db.Exec(schema); err != nil {
+	if err = resetStaleSchema(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize schema: %w", err)
-	}
-	if err = migrateExecutionPolicy(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate global execution policy: %w", err)
-	}
-	if err = migrateTaskThreads(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate task conversations: %w", err)
 	}
 	return &Store{db: db, changed: make(chan struct{})}, nil
 }

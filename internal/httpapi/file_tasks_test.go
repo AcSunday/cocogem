@@ -98,7 +98,7 @@ func TestFreeTaskPublishesImmutableDownloadWithoutEngineeringMode(t *testing.T) 
 	member.Tools = tools.AllNames
 	api.call("PATCH", "/api/v1/agents/"+member.ID, member, map[string]string{"If-Match": fmt.Sprint(member.Revision)}, 200, &member)
 	var thread w.Thread
-	api.call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "文件", Workflow: "free", AgentIDs: []string{member.ID}, CoordinatorID: member.ID}, nil, 200, &thread)
+	api.call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "文件", AgentIDs: []string{member.ID}, CoordinatorID: member.ID}, nil, 200, &thread)
 	files := liveSubmitFileTask(t, api, thread, "交付处理后的文件。", "fixture")
 	if len(files) != 1 || !bytes.Equal(files[0].data, []byte{0, 1, 2, 255}) {
 		t.Fatalf("wrong immutable download: %+v", files)

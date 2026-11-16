@@ -6,7 +6,6 @@ import base from "../styles/base.module.css";
 import conversation from "../styles/conversation.module.css";
 import styles from "../styles/project.module.css";
 import { Welcome } from "./Welcome";
-import type { WorkflowKey } from "./Composer";
 
 const cx = scoped(base, conversation, styles);
 
@@ -22,7 +21,7 @@ export function ProjectHome({
   workspace: Workspace;
   members: number;
   onCreate: () => void;
-  onPick: (key: WorkflowKey, sample: string) => void;
+  onPick: (sample: string) => void;
   onOpenTasks: () => void;
   onEditWorkspace: () => void;
 }) {

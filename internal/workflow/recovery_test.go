@@ -190,23 +190,15 @@ func TestGracefulStopSuspendsThenRestartContinues(t *testing.T) {
 	enableExecutor(t, s, &run, "claude")
 	started := make(chan struct{})
 	runner := &testRunner{run: func(ctx context.Context, request model.Request, call int, execute agent.Execute, observe agent.Observe) error {
-		if strings.Contains(request.System, "role=researcher") && call == 1 {
-			if err := observe("text", map[string]any{"text": "partial research result"}); err != nil {
+		if call == 1 {
+			if err := observe("text", map[string]any{"text": "partial result"}); err != nil {
 				return err
 			}
 			close(started)
 			<-ctx.Done()
 			return ctx.Err()
 		}
-		if err := observe("text", map[string]any{"text": "completed " + request.System}); err != nil {
-			return err
-		}
-		if strings.Contains(request.System, "role=coordinator") {
-			payload, _ := json.Marshal(map[string]any{"type": "research_report", "title": "Recovered report", "body": "Recovered body.", "findings": []any{}, "source_ids": []string{}, "limitations": []string{"synthetic test"}})
-			_, err := execute(ctx, "publish_artifact", payload)
-			return err
-		}
-		return nil
+		return observe("text", map[string]any{"text": "completed reply"})
 	}}
 	first := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -280,7 +272,7 @@ func TestGracefulStopSuspendsThenRestartContinues(t *testing.T) {
 	}
 	preserved := false
 	for _, message := range messages {
-		if message.Content == "partial research result" && message.Status == "interrupted" {
+		if message.Content == "partial result" && message.Status == "interrupted" {
 			preserved = true
 		}
 	}
@@ -391,7 +383,7 @@ func TestDuplicateRecoveryDispatchesEachStepOnce(t *testing.T) {
 	if got.Status != "succeeded" {
 		t.Fatalf("run=%+v", got)
 	}
-	if runner.count("researcher") != 2 || runner.count("critic") != 2 || runner.count("coordinator") != 1 {
+	if runner.count("responder") != 1 {
 		t.Fatalf("duplicate dispatch occurred: %+v", runner.calls)
 	}
 }
@@ -408,6 +400,10 @@ func TestCrashWindowDoesNotRepeatCompletedSteps(t *testing.T) {
 	if err := s.Read(t.Context(), func(tx *store.Tx) error { var err error; steps, err = tx.Steps(run.ID); return err }); err != nil {
 		t.Fatal(err)
 	}
+	// The dynamic kernel plans one step per addressed member; add a dependent
+	// sibling so this recovery test still exercises a mid-chain crash window.
+	sibling := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[1].ID, AgentName: run.Agents[1].DisplayName, Role: "reviewer", Instruction: "review the committed result", DependsOn: []string{steps[0].ID}, Status: "pending", Kind: "relay", FromStepID: steps[0].ID}
+	steps = append(steps, sibling)
 	completed := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[0].ID, AgentID: steps[0].AgentID, Status: "completed", Content: "research already committed"}
 	processing := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[1].ID, AgentID: steps[1].AgentID, Status: "processing", Content: "partial critique"}
 	if err := s.Write(t.Context(), func(tx *store.Tx) error {
@@ -417,6 +413,9 @@ func TestCrashWindowDoesNotRepeatCompletedSteps(t *testing.T) {
 		}
 		steps[0].Status = "succeeded"
 		steps[1].Status = "running"
+		if err := tx.SaveStep(steps[1]); err != nil {
+			return err
+		}
 		if err := tx.SaveStep(steps[0]); err != nil {
 			return err
 		}
@@ -443,7 +442,9 @@ func TestCrashWindowDoesNotRepeatCompletedSteps(t *testing.T) {
 	got := awaitRun(t, s, run.ID)
 	cancel()
 	e.Wait()
-	if got.Status != "succeeded" || runner.count("researcher") != 1 || runner.count("critic") != 2 || runner.count("coordinator") != 1 {
+	// The already-committed member must not run again; only the interrupted
+	// sibling resumes.
+	if got.Status != "succeeded" || runner.count("responder") != 0 || runner.count("reviewer") != 1 {
 		t.Fatalf("completed work repeated: run=%+v calls=%+v", got, runner.calls)
 	}
 	var messages []w.Message
@@ -473,7 +474,7 @@ func TestCrashBeforeRunFinishDoesNotRepublish(t *testing.T) {
 	if err := s.Read(t.Context(), func(tx *store.Tx) error { var err error; steps, err = tx.Steps(run.ID); return err }); err != nil {
 		t.Fatal(err)
 	}
-	artifact := w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[2].ID, Type: "research_report", Title: "Committed report", Body: "Body", Feedback: "unreviewed", CreatedAt: w.Now()}
+	artifact := w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[0].ID, Type: "note", Title: "Committed note", Body: "Body", Feedback: "unreviewed", CreatedAt: w.Now()}
 	if err := s.Write(t.Context(), func(tx *store.Tx) error {
 		run.Status = "running"
 		if err := tx.SaveRun(run); err != nil {
@@ -502,7 +503,7 @@ func TestCrashBeforeRunFinishDoesNotRepublish(t *testing.T) {
 	if got.Status != "succeeded" {
 		t.Fatalf("run=%+v", got)
 	}
-	if runner.count("researcher")+runner.count("critic")+runner.count("coordinator") != 0 {
+	if runner.count("responder") != 0 {
 		t.Fatalf("settled run re-executed: %+v", runner.calls)
 	}
 	var artifacts []w.Artifact
@@ -673,7 +674,7 @@ func seedParallelRun(t *testing.T, s *store.Store) w.Run {
 		{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "B", Handle: "cat-b", Model: "default", Executor: "claude", Tools: tools.Names, Revision: 1},
 	}
 	th := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Revision: 1, UpdatedAt: w.Now()}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, Input: w.RunInput{Message: "parallel task", Workflow: "free", Targets: []string{agents[0].ID, agents[1].ID}, ResearchScope: "given_sources"}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, Input: w.RunInput{Message: "parallel task", Targets: []string{agents[0].ID, agents[1].ID}, ResearchScope: "given_sources"}}
 	steps, err := Plan(run.ID, run.Input, agents)
 	if err != nil {
 		t.Fatal(err)
@@ -942,20 +943,12 @@ func TestCLIUpgradeIsRedetectedForRetry(t *testing.T) {
 	enableExecutor(t, s, &run, "claude")
 	started := make(chan struct{})
 	runner := &testRunner{run: func(ctx context.Context, request model.Request, call int, execute agent.Execute, observe agent.Observe) error {
-		if strings.Contains(request.System, "role=researcher") && call == 1 {
+		if call == 1 {
 			close(started)
 			<-ctx.Done()
 			return ctx.Err()
 		}
-		if err := observe("text", map[string]any{"text": "done"}); err != nil {
-			return err
-		}
-		if strings.Contains(request.System, "role=coordinator") {
-			payload, _ := json.Marshal(map[string]any{"type": "research_report", "title": "Upgrade report", "body": "Body", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-			_, err := execute(ctx, "publish_artifact", payload)
-			return err
-		}
-		return nil
+		return observe("text", map[string]any{"text": "done"})
 	}}
 	checkerOne := &staticChecker{}
 	checkerOne.set(agent.AdapterInfo{ID: "claude", Installed: true, Supported: true, Version: "2.0.1", Identity: "program-a", Adapter: "claude-stream-json", Isolation: "enforced"}, nil)
@@ -1011,9 +1004,18 @@ func TestWaitingDependencyDoesNotFailPendingStep(t *testing.T) {
 	defer s.Close()
 	run := seedRun(t, s)
 	enableExecutor(t, s, &run, "claude")
-	// The four upstream steps accumulate more waiting than one step deadline,
-	// so a deadline charged from step creation would fail this run. Each step
-	// still executes well inside its own budget, leaving race-run headroom.
+	// Add a dependent sibling so one step waits for another, which a deadline
+	// charged from creation would fail. Each step still executes well inside its
+	// own budget, leaving race-run headroom.
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		return tx.SaveStep(w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[1].ID, AgentName: run.Agents[1].DisplayName, Role: "reviewer", Instruction: "review", DependsOn: []string{steps[0].ID}, Status: "pending", Kind: "relay", FromStepID: steps[0].ID})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	const stepDelay = time.Second
 	runner := &testRunner{run: func(ctx context.Context, request model.Request, _ int, execute agent.Execute, observe agent.Observe) error {
 		select {
@@ -1022,11 +1024,6 @@ func TestWaitingDependencyDoesNotFailPendingStep(t *testing.T) {
 		case <-time.After(stepDelay):
 		}
 		if err := observe("text", map[string]any{"text": "done"}); err != nil {
-			return err
-		}
-		if strings.Contains(request.System, "role=coordinator") {
-			payload, _ := json.Marshal(map[string]any{"type": "research_report", "title": "Report", "body": "Body", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-			_, err := execute(ctx, "publish_artifact", payload)
 			return err
 		}
 		return nil
@@ -1262,6 +1259,15 @@ func TestRequiredToolFailureKeepsCheckpoint(t *testing.T) {
 	defer s.Close()
 	run := seedRun(t, s)
 	enableExecutor(t, s, &run, "claude")
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		steps, err := tx.Steps(run.ID)
+		if err != nil {
+			return err
+		}
+		return tx.SaveStep(w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[1].ID, AgentName: run.Agents[1].DisplayName, Role: "reviewer", Instruction: "review", DependsOn: []string{steps[0].ID}, Status: "pending", Kind: "relay", FromStepID: steps[0].ID})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	runner := &testRunner{run: func(context.Context, model.Request, int, agent.Execute, agent.Observe) error {
 		return errors.New("required_tools_unavailable: native CLI did not expose read_file")
 	}}
@@ -1657,11 +1663,8 @@ func TestPublishArtifactRetryReplacesStagedContent(t *testing.T) {
 		if err := observe("text", map[string]any{"text": "done"}); err != nil {
 			return err
 		}
-		if !strings.Contains(request.System, "role=coordinator") {
-			return nil
-		}
 		publish := func(body string) error {
-			payload, _ := json.Marshal(map[string]any{"type": "research_report", "title": "Staged report", "body": body, "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
+			payload, _ := json.Marshal(map[string]any{"type": "note", "title": "Staged note", "body": body, "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
 			_, err := execute(ctx, "publish_artifact", payload)
 			return err
 		}

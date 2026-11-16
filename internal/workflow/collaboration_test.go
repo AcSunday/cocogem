@@ -23,20 +23,18 @@ func TestCollaborationTools(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
 		name      string
-		workflow  string
 		members   int
 		skillIDs  []string
 		wantNames []string
 	}{
-		{name: "free collaboration", workflow: "free", members: 3, wantNames: []string{"read_context", "list_sources", "read_skill", "handoff_task", "get_task"}},
-		{name: "implicit free collaboration", members: 2, wantNames: []string{"read_context", "list_sources", "read_skill", "handoff_task", "get_task"}},
-		{name: "fixed workflow", workflow: "research", members: 3, wantNames: []string{"read_context", "list_sources", "read_skill"}},
-		{name: "single member", workflow: "free", members: 1, wantNames: []string{"read_context", "list_sources", "read_skill"}},
-		{name: "skills disabled", workflow: "free", members: 3, skillIDs: []string{}, wantNames: []string{"read_context", "list_sources", "handoff_task", "get_task"}},
+		{name: "multi member collaboration", members: 3, wantNames: []string{"read_context", "list_sources", "read_skill", "handoff_task", "get_task"}},
+		{name: "two members", members: 2, wantNames: []string{"read_context", "list_sources", "read_skill", "handoff_task", "get_task"}},
+		{name: "single member", members: 1, wantNames: []string{"read_context", "list_sources", "read_skill"}},
+		{name: "skills disabled", members: 3, skillIDs: []string{}, wantNames: []string{"read_context", "list_sources", "handoff_task", "get_task"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			run := w.Run{Input: w.RunInput{Workflow: tt.workflow}, Agents: make([]w.Agent, tt.members), Workspace: w.Workspace{SkillIDs: tt.skillIDs}}
+			run := w.Run{Agents: make([]w.Agent, tt.members), Workspace: w.Workspace{SkillIDs: tt.skillIDs}}
 			defs := collaborationTools(run)
 			names := []string{}
 			for _, def := range defs {
@@ -179,7 +177,7 @@ func TestSubmitHandoffIsDurableAndIdempotent(t *testing.T) {
 		t.Fatalf("retry changed receipt: first=%+v second=%+v", first, second)
 	}
 	steps := collaborationSteps(t, e.Store, run.ID)
-	if len(steps) != 7 {
+	if len(steps) != 4 {
 		t.Fatalf("retry duplicated tasks: %+v", steps)
 	}
 	child, continuation := collaborationStep(t, steps, first.TaskID), collaborationStep(t, steps, first.ContinuationID)
@@ -197,7 +195,7 @@ func TestSubmitHandoffIsDurableAndIdempotent(t *testing.T) {
 	if _, err := e.submitHandoff(t.Context(), run, sender, collaborationJSON(t, in)); err == nil {
 		t.Fatal("idempotency collision was accepted")
 	}
-	if len(collaborationSteps(t, e.Store, run.ID)) != 7 || len(collaborationEvents(t, e.Store, run.ID)) != 1 {
+	if len(collaborationSteps(t, e.Store, run.ID)) != 4 || len(collaborationEvents(t, e.Store, run.ID)) != 1 {
 		t.Fatal("rejected collision changed durable state")
 	}
 	// A second independent submission shares the sender's continuation.
@@ -276,7 +274,6 @@ func TestSubmitHandoffRejectsInvalidTargetsAndInput(t *testing.T) {
 			run.Agents = run.Agents[:2]
 			in.TargetAgentID = outside.ID
 		}},
-		{name: "fixed workflow", mutate: func(_ *testing.T, _ *Engine, run *w.Run, _ *w.Step, _ *handoffInput) { run.Input.Workflow = "research" }},
 		{name: "empty request ID", mutate: func(_ *testing.T, _ *Engine, _ *w.Run, _ *w.Step, in *handoffInput) { in.RequestID = " " }},
 		{name: "oversized request ID", mutate: func(_ *testing.T, _ *Engine, _ *w.Run, _ *w.Step, in *handoffInput) {
 			in.RequestID = strings.Repeat("r", 101)
@@ -301,7 +298,7 @@ func TestSubmitHandoffRejectsInvalidTargetsAndInput(t *testing.T) {
 			if result, err := e.submitHandoff(t.Context(), run, sender, collaborationJSON(t, in)); err == nil || result != "" {
 				t.Fatalf("invalid handoff returned %q, %v", result, err)
 			}
-			if len(collaborationSteps(t, e.Store, run.ID)) != 5 || len(collaborationEvents(t, e.Store, run.ID)) != 0 {
+			if len(collaborationSteps(t, e.Store, run.ID)) != 1 || len(collaborationEvents(t, e.Store, run.ID)) != 0 {
 				t.Fatal("rejected request changed durable state")
 			}
 		})
@@ -355,7 +352,7 @@ func TestSubmitHandoffRechecksCurrentGrants(t *testing.T) {
 				if _, err := e.submitHandoff(t.Context(), run, sender, collaborationJSON(t, in)); err == nil {
 					t.Fatalf("handoff survived %s %s", who, change)
 				}
-				if len(collaborationSteps(t, e.Store, run.ID)) != 5 {
+				if len(collaborationSteps(t, e.Store, run.ID)) != 1 {
 					t.Fatal("permission failure left a task behind")
 				}
 			})
@@ -646,7 +643,7 @@ func TestCollaborationContextReportsCurrentAvailabilityAndGrants(t *testing.T) {
 	if err := json.NewDecoder(strings.NewReader(text[start:])).Decode(&roster); err != nil {
 		t.Fatal(err)
 	}
-	if roster.CoordinatorID != sender.AgentID || roster.CurrentStepID != sender.ID || len(roster.Tasks) != 5 || len(roster.Members) != 3 {
+	if roster.CoordinatorID != sender.AgentID || roster.CurrentStepID != sender.ID || len(roster.Tasks) != 1 || len(roster.Members) != 3 {
 		t.Fatalf("incomplete runtime context: %+v", roster)
 	}
 	// The retired workspace tool array no longer hides profile capabilities, so
@@ -1161,7 +1158,7 @@ func collaborationFixture(t *testing.T) (*Engine, w.Run, w.Step) {
 		}
 	})
 	run := seedRun(t, s)
-	run.Input = w.RunInput{Workflow: "free", Message: "Compare the available evidence", Targets: []string{run.Agents[0].ID}}
+	run.Input = w.RunInput{Message: "Compare the available evidence", Targets: []string{run.Agents[0].ID}}
 	run.Status = "running"
 	var sender w.Step
 	collaborationWrite(t, s, func(tx *store.Tx) error {
@@ -1189,7 +1186,15 @@ func collaborationEvidence(t *testing.T, s *store.Store, run w.Run, authorID str
 		}
 	}
 	if stepID == "" {
-		t.Fatal("evidence author missing from seeded steps")
+		// One addressed member per run means a seeded run may have no step for the
+		// author under test; give the author a completed step of its own.
+		author := w.Agent{ID: authorID}
+		if index := slices.IndexFunc(run.Agents, func(a w.Agent) bool { return a.ID == authorID }); index >= 0 {
+			author = run.Agents[index]
+		}
+		stepID = w.NewID()
+		created := w.Step{ID: stepID, RunID: run.ID, AgentID: authorID, AgentName: author.DisplayName, Role: "responder", Instruction: "produce evidence", Status: "succeeded"}
+		collaborationWrite(t, s, func(tx *store.Tx) error { return tx.SaveStep(created) })
 	}
 	m := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: stepID, AgentID: authorID, Role: "assistant", Content: "Evidence-based finding", Status: "completed"}
 	source := w.Source{ID: w.NewID(), WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, RunID: run.ID, Kind: "web", Content: "Captured evidence"}

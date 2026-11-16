@@ -19,7 +19,7 @@ const run = {
     { id: "coordinator", display_name: "本轮协调成员" },
     { id: "researcher", display_name: "本轮研究成员" },
   ],
-} as Run;
+} as unknown as Run;
 const parent: Step = {
   id: "parent",
   run_id: "run",

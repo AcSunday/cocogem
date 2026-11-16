@@ -138,17 +138,6 @@ func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 		return tx.DeleteWorkspace(id)
 	})
 	if err == nil {
-		s.dropProposals(func(p proposal) bool { return threads[p.ThreadID] })
 	}
 	respond(rw, r, DeleteReply{ID: id}, err)
-}
-
-func (s *Server) dropProposals(match func(proposal) bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for key, p := range s.proposals {
-		if match(p) {
-			delete(s.proposals, key)
-		}
-	}
 }
