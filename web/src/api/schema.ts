@@ -2002,6 +2002,8 @@ export interface components {
         write_branch?: boolean;
       };
       task: {
+        active_children_count?: number;
+        attention_children_count?: number;
         budget: {
           active_branches: number;
           active_writers: number;
@@ -2032,6 +2034,12 @@ export interface components {
           updated_at: string;
           used_continuations: number;
         };
+        candidate_verification?: {
+          execution_id: string;
+          path?: string;
+          reason?: string;
+          state: string;
+        } | null;
         completions:
           | {
               candidate_refs: string[] | null;
@@ -2062,6 +2070,8 @@ export interface components {
         last_run_id?: string;
         last_run_started_at?: string;
         last_run_status?: string;
+        open_questions?: number;
+        pending_permissions?: number;
         revision: {
           acceptance:
             | {
@@ -2505,6 +2515,8 @@ export interface components {
         | null;
       tasks:
         | {
+            active_children_count?: number;
+            attention_children_count?: number;
             budget: {
               active_branches: number;
               active_writers: number;
@@ -2535,6 +2547,12 @@ export interface components {
               updated_at: string;
               used_continuations: number;
             };
+            candidate_verification?: {
+              execution_id: string;
+              path?: string;
+              reason?: string;
+              state: string;
+            } | null;
             completions:
               | {
                   candidate_refs: string[] | null;
@@ -2565,6 +2583,8 @@ export interface components {
             last_run_id?: string;
             last_run_started_at?: string;
             last_run_status?: string;
+            open_questions?: number;
+            pending_permissions?: number;
             revision: {
               acceptance:
                 | {
@@ -3504,6 +3524,8 @@ export interface components {
         | null;
       tasks:
         | {
+            active_children_count?: number;
+            attention_children_count?: number;
             budget: {
               active_branches: number;
               active_writers: number;
@@ -3534,6 +3556,12 @@ export interface components {
               updated_at: string;
               used_continuations: number;
             };
+            candidate_verification?: {
+              execution_id: string;
+              path?: string;
+              reason?: string;
+              state: string;
+            } | null;
             completions:
               | {
                   candidate_refs: string[] | null;
@@ -3564,6 +3592,8 @@ export interface components {
             last_run_id?: string;
             last_run_started_at?: string;
             last_run_status?: string;
+            open_questions?: number;
+            pending_permissions?: number;
             revision: {
               acceptance:
                 | {
@@ -3847,6 +3877,8 @@ export interface components {
     TaskList: {
       items:
         | {
+            active_children_count?: number;
+            attention_children_count?: number;
             budget: {
               active_branches: number;
               active_writers: number;
@@ -3877,6 +3909,12 @@ export interface components {
               updated_at: string;
               used_continuations: number;
             };
+            candidate_verification?: {
+              execution_id: string;
+              path?: string;
+              reason?: string;
+              state: string;
+            } | null;
             completions:
               | {
                   candidate_refs: string[] | null;
@@ -3907,6 +3945,8 @@ export interface components {
             last_run_id?: string;
             last_run_started_at?: string;
             last_run_status?: string;
+            open_questions?: number;
+            pending_permissions?: number;
             revision: {
               acceptance:
                 | {
@@ -4015,6 +4055,8 @@ export interface components {
       task_id: string;
     };
     TaskView: {
+      active_children_count?: number;
+      attention_children_count?: number;
       budget: {
         active_branches: number;
         active_writers: number;
@@ -4045,6 +4087,12 @@ export interface components {
         updated_at: string;
         used_continuations: number;
       };
+      candidate_verification?: {
+        execution_id: string;
+        path?: string;
+        reason?: string;
+        state: string;
+      } | null;
       completions:
         | {
             candidate_refs: string[] | null;
@@ -4075,6 +4123,8 @@ export interface components {
       last_run_id?: string;
       last_run_started_at?: string;
       last_run_status?: string;
+      open_questions?: number;
+      pending_permissions?: number;
       revision: {
         acceptance:
           | {

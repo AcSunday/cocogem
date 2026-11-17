@@ -143,7 +143,7 @@ it("filters by project and status, and keeps the view and filters on return", as
     screen.queryByRole("region", { name: "已验收任务" }),
   ).not.toBeInTheDocument();
   expect(
-    screen.getByRole("button", { name: /查看已验收任务/ }),
+    screen.getByRole("button", { name: /已验收 \d+ 项/ }),
   ).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "看板" }));
@@ -161,7 +161,7 @@ it("filters by project and status, and keeps the view and filters on return", as
     screen.queryByRole("region", { name: "待验收任务" }),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /查看已验收任务/ }),
+    screen.queryByRole("button", { name: /已验收 \d+ 项/ }),
   ).not.toBeInTheDocument();
 
   first.unmount();
@@ -257,8 +257,8 @@ it("puts a stopped run in the attention stream with a real next action", async (
   await screen.findByRole("heading", { name: "任务清单" });
   const attention = screen.getByRole("region", { name: "需要你任务" });
   expect(attention).toHaveTextContent("执行已停止");
+  // The compact row prints the real blocking reason on its one blocked line.
   expect(attention).toHaveTextContent("上次执行在完成前停止");
-  expect(attention).toHaveTextContent("处理");
   expect(screen.queryByText(/满足条件后自动继续/)).not.toBeInTheDocument();
 });
 

@@ -226,9 +226,12 @@ export function taskPhase(
   if (view.task.status === "canceled") return "canceled";
 
   const hasQuestion =
+    (view.open_questions ?? 0) > 0 ||
     openQuestions(questions, view.task.id).length > 0 ||
     view.task.waiting_reason === "question";
   if (hasQuestion) return "needs_answer";
+  // A pending authorization is the same "needs you" state as a question.
+  if ((view.pending_permissions ?? 0) > 0) return "needs_answer";
   if (view.task.status === "paused") return "paused";
 
   const reason = view.task.waiting_reason ?? "";
@@ -242,6 +245,11 @@ export function taskPhase(
   if (runStatus === "yielded") return "waiting_other";
   if (view.task.evaluation_status === "needs_revalidation") {
     return "needs_revalidation";
+  }
+  // A parent with unfinished children has not converged: its own success never
+  // means the objective is ready for review.
+  if ((view.active_children_count ?? 0) > 0) {
+    return runStatus === "succeeded" ? "running" : "waiting_other";
   }
   if (runStatus === "succeeded") return "review";
   if (view.task.status === "active") {
@@ -275,17 +283,28 @@ export function taskPhaseMeta(
   const phase = taskPhase(view, questions);
   const question = openQuestions(questions, view.task.id)[0];
   switch (phase) {
-    case "needs_answer":
+    case "needs_answer": {
+      // An authorization request is answered by the approval card, not by a
+      // question answer; the label stays honest about which one it is.
+      const pending = (view.pending_permissions ?? 0) > 0;
       return {
         phase,
         group: "attention",
         column: "waiting",
         label: "需要你",
         tone: "attention",
-        current: question ? `等待你回答：${truncate(question.body, 60)}` : "等待你的回答",
-        next: "回答后继续",
-        action: { kind: "answer", label: "回答问题" },
+        current: pending
+          ? `等待你授权 ${view.pending_permissions} 个操作`
+          : question
+            ? `等待你回答：${truncate(question.body, 60)}`
+            : "等待你的回答",
+        next: pending ? "在会话中批准或拒绝" : "回答后继续",
+        action: {
+          kind: pending ? "open_execution" : "answer",
+          label: pending ? "去审批" : "回答问题",
+        },
       };
+    }
     case "needs_retry": {
       const failed =
         view.last_run_status === "failed" ||

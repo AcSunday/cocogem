@@ -469,3 +469,49 @@ func (t *Tx) SessionsByMember(workspaceID, memberID string) ([]w.ExecutionSessio
 func (t *Tx) ScopeExecutions(scopeID string) ([]w.WorkspaceExecution, error) {
 	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE COALESCE(task_id, thread_id)=? ORDER BY rowid", scopeID)
 }
+
+// AllTaskRevisions lists every accepted goal version in one bounded query so the
+// task board never issues a per-task read.
+func (t *Tx) AllTaskRevisions() ([]w.TaskRevision, error) {
+	return list[w.TaskRevision](t, "SELECT body FROM task_revisions ORDER BY task_id,revision")
+}
+
+// AllBudgetAccounts lists every root ledger in one query.
+func (t *Tx) AllBudgetAccounts() ([]w.BudgetAccount, error) {
+	return list[w.BudgetAccount](t, "SELECT body FROM budget_accounts ORDER BY rowid")
+}
+
+// AllCompletions lists every acceptance judgment in one query.
+func (t *Tx) AllCompletions() ([]w.CompletionRecord, error) {
+	return list[w.CompletionRecord](t, "SELECT body FROM completion_records ORDER BY rowid")
+}
+
+// LatestTaskRuns returns exactly one newest run per task, in a single query.
+func (t *Tx) LatestTaskRuns() ([]w.Run, error) {
+	return list[w.Run](t, `SELECT body FROM runs r1 WHERE r1.task_id<>'' AND NOT EXISTS (
+		SELECT 1 FROM runs r2 WHERE r2.task_id=r1.task_id AND (
+			r2.created_at > r1.created_at OR (r2.created_at = r1.created_at AND r2.id > r1.id)
+		)
+	) ORDER BY r1.task_id`)
+}
+
+// OpenQuestions lists every unresolved question in one query.
+func (t *Tx) OpenQuestions() ([]w.Question, error) {
+	return list[w.Question](t, "SELECT body FROM questions WHERE status='open' ORDER BY task_id,rowid")
+}
+
+// PendingPermissionRequests lists every unsettled permission request in one query.
+func (t *Tx) PendingPermissionRequests() ([]w.ToolPermissionRequest, error) {
+	return list[w.ToolPermissionRequest](t, "SELECT body FROM tool_permission_requests WHERE status='pending' ORDER BY thread_id,created_at")
+}
+
+// UnappliedExecutions lists candidate directories that are still live for a task,
+// used by the board to show an unapplied worktree without an extra request per task.
+func (t *Tx) UnappliedExecutions() ([]w.WorkspaceExecution, error) {
+	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE task_id IS NOT NULL AND status IN ('active','completed','uncertain') ORDER BY task_id")
+}
+
+// OpenQuestionsForTask lists one task's unresolved questions in a bounded query.
+func (t *Tx) OpenQuestionsForTask(taskID string) ([]w.Question, error) {
+	return list[w.Question](t, "SELECT body FROM questions WHERE task_id=? AND status='open' ORDER BY rowid", taskID)
+}

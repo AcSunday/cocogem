@@ -156,7 +156,21 @@ func (s *Service) AskQuestion(ctx context.Context, taskID, blockingScope, body s
 			BlockingScope: blockingScope, Body: body, Options: nonNil(options), Recommended: recommended,
 			Status: "open", CreatedAt: s.now(),
 		}
-		return tx.SaveQuestion(question)
+		if err := tx.SaveQuestion(question); err != nil {
+			return err
+		}
+		// A task-blocking question is an attention state on the task itself, in
+		// the same transaction that records the question. The board, the capsule
+		// and the detail page therefore cannot disagree about who is waiting.
+		if blockingScope == "task" && task.Status != "paused" && task.Status != "canceled" && task.Status != "completed" {
+			task.Status = "waiting"
+			task.WaitingReason = "question"
+			task.UpdatedAt = s.now()
+			if err := tx.SaveTask(task, task.CurrentRevision); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return question, err
 }
@@ -197,7 +211,24 @@ func (s *Service) AnswerQuestion(ctx context.Context, taskID, questionID, answer
 		question.Answer = answer
 		question.AnswerRef = answerRef
 		question.ResolvedAt = s.now()
-		return tx.SaveQuestion(question)
+		if err := tx.SaveQuestion(question); err != nil {
+			return err
+		}
+		// Answering the last task-blocking question clears the attention state.
+		// Other open questions still keep the task waiting.
+		remaining, err := tx.OpenQuestionsForTask(task.ID)
+		if err != nil {
+			return err
+		}
+		if len(remaining) == 0 && task.Status == "waiting" && task.WaitingReason == "question" {
+			task.Status = "ready"
+			task.WaitingReason = ""
+			task.UpdatedAt = s.now()
+			if err := tx.SaveTask(task, task.CurrentRevision); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err == nil && outcomeErr == nil && question.Status == "resolved" {
 		// WakeTask is replay-safe: it retains the answer observation and either

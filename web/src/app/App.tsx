@@ -1492,7 +1492,7 @@ function WorkspaceApp({
                 )}
                 <div className={cx("timeline-inner")}>
                   {view?.thread && <div className={cx("conversation-task-bar")}>
-                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>转为任务</button>}
+                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} refreshKey={runs.map((run) => `${run.id}:${run.status}`).join("|")} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>转为任务</button>}
                   </div>}
                   {view && (messageCursor || view.messages.next_cursor) && (
                     <div
@@ -1791,14 +1791,23 @@ function WorkspaceApp({
   );
 }
 
-function ConversationTask({ taskID, onOpen }: { taskID: string; onOpen: () => void }) {
+/**
+ * The conversation's task capsule. It refreshes immediately whenever this
+ * conversation's SSE run state changes, and keeps a slow fallback so a change
+ * made in another window still lands without a manual reload.
+ */
+function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string; refreshKey?: string; onOpen: () => void }) {
   const [task, setTask] = useState<ProjectTaskView>();
+  const [error, setError] = useState("");
   useEffect(() => {
     let canceled = false;
-    const load = () => { void api<ProjectTaskView>(`/api/v1/tasks/${taskID}`).then((value) => { if (!canceled) setTask(value); }).catch(() => {}); };
+    const load = () => { void api<ProjectTaskView>(`/api/v1/tasks/${taskID}`).then((value) => { if (!canceled) { setTask(value); setError(""); } }).catch((failure) => { if (!canceled) setError(errorText(failure)); }); };
     load();
-    const timer = window.setInterval(load, 5000);
+    const timer = window.setInterval(load, 30000);
     return () => { canceled = true; window.clearInterval(timer); };
-  }, [taskID]);
+  }, [taskID, refreshKey]);
+  if (error) {
+    return <span className={cx("notice")} role="status">关联任务状态暂不可用</span>;
+  }
   return <button className={cx("ghost small")} onClick={onOpen}>{task ? `${taskTitle(task)} · ${taskFocusMeta(task).label}` : "关联任务"} <span>查看任务 →</span></button>;
 }

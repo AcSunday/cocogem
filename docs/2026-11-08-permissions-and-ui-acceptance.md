@@ -145,3 +145,13 @@
 - 跨技能参考层：`library/_shared/references/{claim-grounding,lane-selection,evidence,convergence}.md`，通过 `read_skill(skill_id="_shared")` 读取；`_shared` 不是可启用技能；任一共享文件变更都会改变 `SnapshotHash`。
 - 项目技能：`.agents/skills/<id>/SKILL.md` 只读发现，最多 8 个；符号链接目录、敏感路径、非 `SKILL.md` 资源与同名内置技能均被拒绝；项目技能进入 `CatalogueFor`/`SnapshotHashFor`，编辑后快照变化。
 - 未验证：项目技能在真实第三方仓库约定下的可用性、非 ASCII frontmatter 的边界组合。
+
+## 阶段 6 补充验证（任务与会话状态同步、清单视觉）
+
+- 任务板零 N+1：`TaskBoard()` 在一次读事务内用固定数量批量查询组装任务、最新修订、账本、完成记录、最新 Run、未决问题、待批授权与未应用候选；新增 `pending_permissions`/`open_questions`/`active_children_count`/`attention_children_count`/`candidate_verification` 投影，`TaskView` 不再逐任务读取。
+- 提问状态同步：`AskQuestion(blockingScope="task")` 在同一事务写入 `WaitingReason="question"`；解答最后一个未决问题后恢复 ready，仍有其它问题则保持等待。
+- 父子收敛：进行中的子任务使父任务保持进行中（`taskPhase` 不再因父任务自身 Run 成功而进入待验收）。
+- 平顺重激活：已验收任务的关联会话收到新的推进消息时推进目标修订并重新激活，历史验收记录保留。
+- 前端唯一分类器：删除 `TaskTodoList.tsx` 的重复分类器，列表/看板/详情/会话胶囊共享 `taskPhaseMeta`；待批授权与未决问题统一显示「需要你」，胶囊在 SSE 运行状态变化时即时刷新并保留 30 秒兜底。
+- 清单视觉：删除常态行的「当前/下一步」两行套话，收敛为标题 + 来源/负责人/子任务两行；仅 `attention`/`failed` 行使用 3px 语义左边框并单行直出真实阻塞原因；已验收/已取消默认收进底部「已验收 N 项 ›」抽屉。
+- 未验证：真实供应商长列表下的滚动性能与移动窄屏布局仍只做了本机浏览器检查，未做 iOS/Android 真机验证。

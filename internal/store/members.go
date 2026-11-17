@@ -185,3 +185,9 @@ func (t *Tx) DeleteAgentProfile(agentID string) error {
 	}
 	return t.exec("DELETE FROM global_agents WHERE id=?", agentID)
 }
+
+// AllAgents lists every global member profile in one query so a board or roster
+// never issues a per-workspace read.
+func (t *Tx) AllAgents() ([]w.Agent, error) {
+	return list[w.Agent](t, "SELECT body FROM global_agents ORDER BY rowid")
+}

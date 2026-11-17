@@ -353,7 +353,14 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 	for {
 		created = projectJourneyTask(t, api, thread.ID)
 		if created.Task.Status == "waiting" && created.Task.WaitingReason == "question" {
-			break
+			// The attention state is written atomically with the question, which
+			// is intentionally before the run settles to yielded. Wait for the
+			// durable yield too instead of treating the earlier state as final.
+			var settled RunView
+			api.call("GET", "/api/v1/runs/"+initial.ID, nil, nil, 200, &settled)
+			if settled.Run.Status == "yielded" {
+				break
+			}
 		}
 		var current RunView
 		api.call("GET", "/api/v1/runs/"+initial.ID, nil, nil, 200, &current)

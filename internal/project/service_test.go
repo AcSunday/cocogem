@@ -245,3 +245,153 @@ func TestTaskViewExposesLatestRunFailureForTheTaskBoard(t *testing.T) {
 		t.Fatalf("latest run projection = %+v", view)
 	}
 }
+
+// TestCompletedTaskReactivatedByANewAdvancingMessage is the A23 regression: a
+// follow-up on an accepted task advances a new revision instead of returning a
+// conflict, and the previous acceptance record stays historical.
+func TestCompletedTaskReactivatedByANewAdvancingMessage(t *testing.T) {
+	db, service, th := setup(t)
+	created := create(t, service, th)
+	// Accept the first objective.
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		task := created.Task
+		revision := created.Revision
+		record := w.CompletionRecord{
+			ID: "seed", TaskID: task.ID, TaskRevision: task.CurrentRevision,
+			EvaluationGeneration: task.EvaluationGeneration,
+			InputSnapshotDigest:  revision.Digest, SubjectDigest: "seed-subject",
+			CandidateRefs: []string{"message:seed"}, Results: []w.CriterionResult{},
+			JudgeMemberID: "owner", EvidenceProducer: "user", Validity: "current", CreatedAt: w.Now(),
+		}
+		if err := tx.InsertCompletion(record); err != nil {
+			return err
+		}
+		task.Status = "completed"
+		task.EvaluationStatus = "current"
+		task.UpdatedAt = w.Now()
+		return tx.SaveTask(task, task.CurrentRevision)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The conversation now belongs to the accepted task.
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		var err error
+		th, err = tx.Thread(th.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var view TaskView
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		var err error
+		view, err = service.EnsureThreadTask(tx, th, w.RunInput{Message: "继续推进下一个目标"}, "followup-message", "followup-run")
+		return err
+	}); err != nil {
+		t.Fatalf("follow-up on a completed task was rejected: %v", err)
+	}
+	if view.Task.Status != "ready" || view.Task.CurrentRevision != created.Task.CurrentRevision+1 {
+		t.Fatalf("reactivation = %+v", view.Task)
+	}
+	if view.Task.EvaluationGeneration <= created.Task.EvaluationGeneration {
+		t.Fatal("reactivation did not advance the evaluation generation")
+	}
+	// The earlier acceptance record stays readable as history.
+	if len(view.Completions) == 0 || view.Completions[0].TaskRevision != created.Task.CurrentRevision {
+		t.Fatalf("historical acceptance was lost: %+v", view.Completions)
+	}
+}
+
+// TestTaskBoardUsesABoundedNumberOfQueries is the A22 regression: the global
+// board issues a constant number of queries regardless of task count.
+func TestTaskBoardUsesABoundedNumberOfQueries(t *testing.T) {
+	db, service, th := setup(t)
+	// Ten independent root tasks so a per-task query would scale linearly.
+	for range 10 {
+		parent := w.NewID()
+		if err := db.Write(t.Context(), func(tx *store.Tx) error {
+			task := w.Task{ID: parent, WorkspaceID: th.WorkspaceID, ThreadID: th.ID, RootTaskID: parent, BudgetAccountID: w.NewID(), CurrentRevision: 1, Status: "ready", CreatedAt: w.Now(), UpdatedAt: w.Now()}
+			if err := tx.InsertTask(task); err != nil {
+				return err
+			}
+			if err := tx.InsertBudgetAccount(w.BudgetAccount{ID: task.BudgetAccountID, RootTaskID: task.ID, Revision: 1, Policy: w.DefaultBudgetPolicy(), UpdatedAt: w.Now()}); err != nil {
+				return err
+			}
+			return tx.InsertTaskRevision(w.TaskRevision{TaskID: task.ID, Revision: 1, Goal: "goal", Digest: w.NewID(), CreatedAt: w.Now()})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board, err := service.TaskBoard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(board.Tasks) < 10 {
+		t.Fatalf("board returned %d tasks", len(board.Tasks))
+	}
+}
+
+// TestTaskBoardProjectsAttentionAndCandidatesWithoutPerTaskQueries covers the
+// board's new batch projection: pending authorizations, open questions, active
+// and attention-bearing children, plus one unapplied candidate summary.
+func TestTaskBoardProjectsAttentionAndCandidatesWithoutPerTaskQueries(t *testing.T) {
+	db, service, th := setup(t)
+	root := create(t, service, th)
+	childThread := w.Thread{ID: "child-thread", WorkspaceID: th.WorkspaceID, Title: "child", CoordinatorID: "owner", AgentIDs: []string{"owner"}, Revision: 1, UpdatedAt: w.Now()}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveThread(childThread) }); err != nil {
+		t.Fatal(err)
+	}
+	child, err := service.CreateTask(t.Context(), CreateTaskInput{
+		WorkspaceID: th.WorkspaceID, ParentID: root.Task.ID, ThreadID: childThread.ID,
+		OwnerMemberID: "owner", Goal: "child goal", AllowedActions: []string{"read"},
+		SourceMessageID: "child-source", AcceptedBy: "user",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AskQuestion(t.Context(), child.Task.ID, "task", "选择交付格式", []string{"摘要"}, "摘要"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		run := w.Run{ID: "pending-run", WorkspaceID: th.WorkspaceID, ThreadID: childThread.ID, TaskID: child.Task.ID, TaskRevision: child.Task.CurrentRevision, Status: "running", CreatedAt: w.Now()}
+		if err := tx.InsertRun(run, "pending-key", "pending-hash"); err != nil {
+			return err
+		}
+		return tx.SavePermissionRequest(w.ToolPermissionRequest{
+			ID: "pending-request", ThreadID: childThread.ID, WorkspaceID: th.WorkspaceID, RunID: run.ID,
+			StepID: "step", AttemptID: "attempt", MemberID: "owner", ToolCallID: "call",
+			Origin: w.OriginHost, Action: "write", ToolName: "write_file",
+			NormalizedResourceScope: "/tmp/outside", ArgumentsDigest: "digest",
+			PermissionEpoch: 1, Status: w.PermissionPending, Revision: 1, CreatedAt: w.Now(),
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		return tx.SaveExecution(w.WorkspaceExecution{
+			ID: "candidate", WorkspaceID: th.WorkspaceID, ThreadID: childThread.ID, TaskID: child.Task.ID,
+			Kind: "git_worktree", Path: "/tmp/candidate", CanonicalRoot: "/tmp/project",
+			Status: "completed", LeaseOwner: "owner", LeaseEpoch: 1, CreatedAt: w.Now(), UpdatedAt: w.Now(),
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := service.TaskBoard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range board.Tasks {
+		switch view.Task.ID {
+		case root.Task.ID:
+			if view.ActiveChildren != 1 || view.AttentionChildren != 1 {
+				t.Fatalf("root child projection = %+v", view)
+			}
+		case child.Task.ID:
+			if view.OpenQuestions != 1 || view.PendingPermissions != 1 {
+				t.Fatalf("child attention projection = %+v", view)
+			}
+			if view.CandidateVerification == nil || view.CandidateVerification.ExecutionID != "candidate" {
+				t.Fatalf("candidate projection = %+v", view.CandidateVerification)
+			}
+		}
+	}
+}

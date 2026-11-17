@@ -136,6 +136,8 @@ export function TaskBoardPage({
   const [openFilter, setOpenFilter] = useState<FilterName | "">("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  // Archived work is collapsed by default; the footer drawer opens it in place.
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -536,14 +538,13 @@ export function TaskBoardPage({
               </>
             )}
           </div>
-          <div className={cx("task-focus-line")}>
-            <span className={cx("task-focus-label")}>当前</span>
-            {meta.current}
-          </div>
-          <div className={cx("task-focus-line")}>
-            <span className={cx("task-focus-label")}>下一步</span>
-            {meta.next}
-          </div>
+          {/* Normal rows stay a compact two-line layout. Only an attention or
+              failed row prints its real blocking reason, on one line. */}
+          {(meta.focus === "attention" || meta.tone === "failed") && (
+            <div className={cx("task-focus-blocker")}>
+              {meta.current}
+            </div>
+          )}
         </div>
         <div className={cx("task-focus-side")}>
           <div className={cx("task-focus-side-top")}>
@@ -999,10 +1000,21 @@ export function TaskBoardPage({
           <button
             type="button"
             className={cx("small", "ghost")}
-            onClick={() => update({ status: "completed" })}
+            aria-expanded={drawerOpen}
+            onClick={() => setDrawerOpen((current) => !current)}
           >
-            查看已验收任务 →
+            已验收 {completedCount} 项 {drawerOpen ? "⌄" : "›"}
           </button>
+          {drawerOpen && (
+            <div className={cx("task-focus-drawer")} aria-label="已验收任务">
+              {focused
+                .filter(
+                  ({ meta }) =>
+                    meta.focus === "completed" || meta.focus === "canceled",
+                )
+                .map(({ item }) => row(item))}
+            </div>
+          )}
         </div>
       )}
 

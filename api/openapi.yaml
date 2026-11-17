@@ -3789,6 +3789,12 @@
           "task": {
             "additionalProperties": false,
             "properties": {
+              "active_children_count": {
+                "type": "integer"
+              },
+              "attention_children_count": {
+                "type": "integer"
+              },
               "budget": {
                 "additionalProperties": false,
                 "properties": {
@@ -3906,6 +3912,35 @@
                   "updated_at"
                 ],
                 "type": "object"
+              },
+              "candidate_verification": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "execution_id": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "execution_id",
+                      "state"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "completions": {
                 "items": {
@@ -4041,6 +4076,12 @@
               },
               "last_run_status": {
                 "type": "string"
+              },
+              "open_questions": {
+                "type": "integer"
+              },
+              "pending_permissions": {
+                "type": "integer"
               },
               "revision": {
                 "additionalProperties": false,
@@ -5888,6 +5929,12 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "active_children_count": {
+                  "type": "integer"
+                },
+                "attention_children_count": {
+                  "type": "integer"
+                },
                 "budget": {
                   "additionalProperties": false,
                   "properties": {
@@ -6005,6 +6052,35 @@
                     "updated_at"
                   ],
                   "type": "object"
+                },
+                "candidate_verification": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "execution_id": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "execution_id",
+                        "state"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "completions": {
                   "items": {
@@ -6140,6 +6216,12 @@
                 },
                 "last_run_status": {
                   "type": "string"
+                },
+                "open_questions": {
+                  "type": "integer"
+                },
+                "pending_permissions": {
+                  "type": "integer"
                 },
                 "revision": {
                   "additionalProperties": false,
@@ -10223,6 +10305,12 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "active_children_count": {
+                  "type": "integer"
+                },
+                "attention_children_count": {
+                  "type": "integer"
+                },
                 "budget": {
                   "additionalProperties": false,
                   "properties": {
@@ -10340,6 +10428,35 @@
                     "updated_at"
                   ],
                   "type": "object"
+                },
+                "candidate_verification": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "execution_id": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "execution_id",
+                        "state"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "completions": {
                   "items": {
@@ -10475,6 +10592,12 @@
                 },
                 "last_run_status": {
                   "type": "string"
+                },
+                "open_questions": {
+                  "type": "integer"
+                },
+                "pending_permissions": {
+                  "type": "integer"
                 },
                 "revision": {
                   "additionalProperties": false,
@@ -11720,6 +11843,12 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "active_children_count": {
+                  "type": "integer"
+                },
+                "attention_children_count": {
+                  "type": "integer"
+                },
                 "budget": {
                   "additionalProperties": false,
                   "properties": {
@@ -11837,6 +11966,35 @@
                     "updated_at"
                   ],
                   "type": "object"
+                },
+                "candidate_verification": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "execution_id": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "execution_id",
+                        "state"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "completions": {
                   "items": {
@@ -11972,6 +12130,12 @@
                 },
                 "last_run_status": {
                   "type": "string"
+                },
+                "open_questions": {
+                  "type": "integer"
+                },
+                "pending_permissions": {
+                  "type": "integer"
                 },
                 "revision": {
                   "additionalProperties": false,
@@ -12514,6 +12678,12 @@
       "TaskView": {
         "additionalProperties": false,
         "properties": {
+          "active_children_count": {
+            "type": "integer"
+          },
+          "attention_children_count": {
+            "type": "integer"
+          },
           "budget": {
             "additionalProperties": false,
             "properties": {
@@ -12631,6 +12801,35 @@
               "updated_at"
             ],
             "type": "object"
+          },
+          "candidate_verification": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "execution_id": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "execution_id",
+                  "state"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "completions": {
             "items": {
@@ -12766,6 +12965,12 @@
           },
           "last_run_status": {
             "type": "string"
+          },
+          "open_questions": {
+            "type": "integer"
+          },
+          "pending_permissions": {
+            "type": "integer"
           },
           "revision": {
             "additionalProperties": false,
