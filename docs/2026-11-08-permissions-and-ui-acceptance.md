@@ -155,3 +155,11 @@
 - 前端唯一分类器：删除 `TaskTodoList.tsx` 的重复分类器，列表/看板/详情/会话胶囊共享 `taskPhaseMeta`；待批授权与未决问题统一显示「需要你」，胶囊在 SSE 运行状态变化时即时刷新并保留 30 秒兜底。
 - 清单视觉：删除常态行的「当前/下一步」两行套话，收敛为标题 + 来源/负责人/子任务两行；仅 `attention`/`failed` 行使用 3px 语义左边框并单行直出真实阻塞原因；已验收/已取消默认收进底部「已验收 N 项 ›」抽屉。
 - 未验证：真实供应商长列表下的滚动性能与移动窄屏布局仍只做了本机浏览器检查，未做 iOS/Android 真机验证。
+
+### 阶段 6 真实 CLI 验收发现并修复的回归
+
+- `make probe-cli` 暴露 `TestInstalledCodexAppServerInProjectApproval` 失败：Codex app-server 把每个原生命令包装为 `/bin/zsh -lc "<command>"`，阶段 3 引入的 AST 分类器把整段引号内脚本当成一个超长路径参数，项目内重定向被判为区间外目标并在宿主回调前直接拒绝。
+- 二分定位：`84a9839` 通过，`3d6c299` 起失败；与本机 CLI 版本无关。
+- 修复：`shellast.go` 识别 shell 解释器，递归解析 `-c` 脚本（`-lc`/`-ec` 等聚簇、`-o` 取值、`--` 终止，深度上限 3），对无法静态求值的脚本保留保守 token 扫描；新增 `TestShellASTParsesInterpreterScripts` 与深度上限测试。
+- 复验：`make probe-cli` 全部通过（Claude/Codex/Gemini/Pi/OpenCode），`go test ./internal/nativecli ./internal/tools` 通过。
+- 门禁：`make check-contract`、`make test`、`make build`、`make e2e`（37/37）、`make verify-redesign` 均通过。`make verify-redesign` 在整套 e2e 之后曾出现一次不可复现的 Node 异常退出，随后同序列连续 4 次通过，未定位到稳定复现路径，按偶发记录而不视为已修复缺陷。

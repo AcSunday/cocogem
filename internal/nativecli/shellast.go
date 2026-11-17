@@ -24,6 +24,8 @@ type shellCommand struct {
 	Targets []string
 	// Network reports a public fetch/download command, never a local effect.
 	Network bool
+	// depth bounds nested `sh -c` parsing so a script cannot recurse forever.
+	depth int
 }
 
 // allowedDevices are data sinks a normal command may freely redirect to. They
@@ -40,11 +42,15 @@ func allowedDevice(path string) bool {
 // caller falls back to a conservative token scan so an unparseable command still
 // requests its plausible targets instead of running unbounded.
 func parseShellCommand(command string) (shellCommand, error) {
+	return parseShellCommandDepth(command, 0)
+}
+
+func parseShellCommandDepth(command string, depth int) (shellCommand, error) {
 	f, err := syntax.NewParser(syntax.Variant(syntax.LangPOSIX)).Parse(strings.NewReader(command), "")
 	if err != nil {
 		return shellCommand{}, err
 	}
-	parsed := shellCommand{}
+	parsed := shellCommand{depth: depth}
 	syntax.Walk(f, func(node syntax.Node) bool {
 		switch value := node.(type) {
 		case *syntax.CallExpr:
@@ -69,25 +75,110 @@ func parseShellCommand(command string) (shellCommand, error) {
 	return parsed, nil
 }
 
+// shellInterpreters execute the command string passed to -c. Codex and other
+// adapters wrap every native command as `/bin/zsh -lc "<command>"`, so the
+// quoted script must be parsed as a command instead of being read as one long
+// path argument.
+var shellInterpreters = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true,
+	"mksh": true, "ash": true, "fish": true, "busybox": true,
+}
+
 // collectCall records argv[0] as an executable and every other path-like word as
-// a target.
+// a target. A shell interpreter's -c script is recursively parsed as a command,
+// so its redirects and path arguments are the real targets.
 func (c *shellCommand) collectCall(call *syntax.CallExpr) {
+	if len(call.Args) == 0 {
+		return
+	}
+	name, nameOK := literalWord(call.Args[0])
+	if nameOK && name != "" {
+		c.Executables = appendUnique(c.Executables, name)
+	}
+	scriptIndex := -1
+	if nameOK && shellInterpreters[filepath.Base(name)] {
+		scriptIndex = shellScriptIndex(call.Args[1:])
+	}
 	for index, word := range call.Args {
-		value, ok := literalWord(word)
-		if !ok {
+		if index == 0 {
 			continue
 		}
-		if index == 0 {
-			if value != "" {
-				c.Executables = appendUnique(c.Executables, value)
+		if index-1 == scriptIndex {
+			// A -c script is a command line, never a path; parse it instead.
+			// Its text keeps `//` and other clean-visible characters because it
+			// is a program, not a filesystem path.
+			if script, ok := literalText(word); ok {
+				c.mergeScript(script)
 			}
 			continue
 		}
-		if !pathLikeWord(value) {
+		value, ok := literalWord(word)
+		if !ok || !pathLikeWord(value) {
 			continue
 		}
 		c.Targets = appendUnique(c.Targets, value)
 	}
+}
+
+// shellScriptIndex returns the argv index of a shell's -c script, or -1. A
+// cluster such as -lc or -ec counts as -c, `-o option` consumes its argument,
+// and `--` ends flag parsing.
+func shellScriptIndex(args []*syntax.Word) int {
+	for index := 0; index < len(args); index++ {
+		value, ok := literalWord(args[index])
+		if !ok {
+			return -1
+		}
+		if value == "--" {
+			return -1
+		}
+		if !strings.HasPrefix(value, "-") || value == "-" {
+			return -1
+		}
+		if strings.HasPrefix(value, "--") {
+			continue
+		}
+		letters := strings.TrimPrefix(value, "-")
+		for position, letter := range letters {
+			if letter == 'c' {
+				if index+1 < len(args) {
+					return index + 1
+				}
+				return -1
+			}
+			if letter == 'o' && position == len(letters)-1 {
+				// -o takes the next word as its value; skip it.
+				index++
+				break
+			}
+		}
+	}
+	return -1
+}
+
+// mergeScript folds one nested command string into this command's view. The
+// nesting depth is bounded so `sh -c "sh -c ..."` cannot recurse without end;
+// an unparseable script keeps the conservative token fallback for its targets.
+func (c *shellCommand) mergeScript(script string) {
+	if c.depth >= 3 {
+		return
+	}
+	nested, err := parseShellCommandDepth(script, c.depth+1)
+	if err != nil {
+		for _, token := range shellPathTokens(script) {
+			if pathLikeWord(token) {
+				c.Targets = appendUnique(c.Targets, token)
+			}
+		}
+		return
+	}
+	for _, executable := range nested.Executables {
+		c.Executables = appendUnique(c.Executables, executable)
+	}
+	for _, target := range nested.Targets {
+		c.Targets = appendUnique(c.Targets, target)
+	}
+	c.Network = c.Network || nested.Network
 }
 
 func (c *shellCommand) collectRedirect(redirect *syntax.Redirect) {
@@ -112,8 +203,33 @@ func (c *shellCommand) collectRedirect(redirect *syntax.Redirect) {
 // whose cleaned path differs from the literal is a program expression
 // (`jq '//'`, `awk '/ERR/'`), never a filesystem path.
 func literalWord(word *syntax.Word) (string, bool) {
-	if word == nil || len(word.Parts) == 0 {
+	text, quoted, ok := literalParts(word)
+	if !ok {
 		return "", false
+	}
+	if quoted {
+		// A literal like `//` or `/ERR/` cleans to something else, so it is a
+		// program expression. A quoted path such as `/tmp/a b.txt` cleans to
+		// itself and stays a real target.
+		if filepath.Clean(text) != text {
+			return "", false
+		}
+	}
+	return text, true
+}
+
+// literalText returns the exact literal text of a word, without the path-clean
+// guard: it is used for command strings that are programs rather than paths.
+func literalText(word *syntax.Word) (string, bool) {
+	text, _, ok := literalParts(word)
+	return text, ok
+}
+
+// literalParts returns the exact literal text of a word and whether any part was
+// quoted. It never applies the path-clean guard.
+func literalParts(word *syntax.Word) (string, bool, bool) {
+	if word == nil || len(word.Parts) == 0 {
+		return "", false, false
 	}
 	var out strings.Builder
 	quoted := false
@@ -132,25 +248,16 @@ func literalWord(word *syntax.Word) (string, bool) {
 				if lit, ok := inner.(*syntax.Lit); ok {
 					out.WriteString(lit.Value)
 				} else {
-					return "", false
+					return "", false, false
 				}
 			}
 		default:
 			// Parameter expansion, command substitution and arithmetic are
 			// runtime values; their exact path is not statically knowable.
-			return "", false
+			return "", false, false
 		}
 	}
-	text := out.String()
-	if quoted {
-		// A literal like `//` or `/ERR/` cleans to something else, so it is a
-		// program expression. A quoted path such as `/tmp/a b.txt` cleans to
-		// itself and stays a real target.
-		if filepath.Clean(text) != text {
-			return "", false
-		}
-	}
-	return text, true
+	return out.String(), quoted, true
 }
 
 // pathLikeWord reports whether a word plausibly names a filesystem path. Only

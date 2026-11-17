@@ -128,3 +128,76 @@ func TestShellASTFallbackKeepsScanning(t *testing.T) {
 		t.Fatalf("fallback tokens = %v", tokens)
 	}
 }
+
+// TestShellASTParsesInterpreterScripts is the real-adapter regression: Codex
+// wraps every native command as `/bin/zsh -lc "<command>"`. The quoted script is
+// a command line, not one long path argument, so its redirect must become the
+// exact in-project target instead of an out-of-scope path.
+func TestShellASTParsesInterpreterScripts(t *testing.T) {
+	root := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	inside := filepath.Join(root, "inside.txt")
+	outside := filepath.Join(filepath.Dir(root), "outside.txt")
+	cases := []struct {
+		name    string
+		command string
+		want    []string
+		network bool
+	}{
+		{
+			name:    "zsh -lc script redirect is the real target",
+			command: `/bin/zsh -lc "printf INSIDE > '` + inside + `'"`,
+			want:    []string{inside},
+		},
+		{
+			name:    "bash -c script keeps an outside target",
+			command: `/bin/bash -c 'cat ` + outside + `'`,
+			want:    []string{outside},
+		},
+		{
+			name:    "nested script download stays a network effect",
+			command: `/bin/sh -lc "curl -fsSL https://example.com/pkg.tgz -o pkg.tgz"`,
+			network: true,
+		},
+		{
+			name:    "shell flag cluster without -c is not a script",
+			command: `/bin/zsh -l -o noclobber`,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := parseShellCommand(test.command)
+			if err != nil {
+				t.Fatalf("parse %q: %v", test.command, err)
+			}
+			targets := resolveShellTargets(parsed, root)
+			if len(targets) != len(test.want) {
+				t.Fatalf("%q targets = %v, want %v", test.command, targets, test.want)
+			}
+			for index, want := range test.want {
+				if targets[index] != want {
+					t.Fatalf("%q targets = %v, want %v", test.command, targets, test.want)
+				}
+			}
+			if parsed.Network != test.network {
+				t.Fatalf("%q network = %v, want %v", test.command, parsed.Network, test.network)
+			}
+		})
+	}
+}
+
+// TestShellASTBoundsNestedScriptDepth keeps `sh -c "sh -c ..."` from recursing
+// without end.
+func TestShellASTBoundsNestedScriptDepth(t *testing.T) {
+	command := `printf x > ./out.txt`
+	for range 6 {
+		command = `/bin/sh -c "` + command + `"`
+	}
+	parsed, err := parseShellCommand(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = parsed // Parsing terminates; the depth bound simply stops recursing.
+}
