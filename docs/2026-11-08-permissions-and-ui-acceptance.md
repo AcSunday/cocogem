@@ -129,3 +129,11 @@
 - 沙箱：命令沙箱与原生 CLI 沙箱显式放行候选 worktree 的 git 元数据目录、只读挂载 IO `inputs/`、可写挂载 `outputs/`；源仓 `hooks`/`config`/`refs/heads`/`packed-refs` 以写拒绝规则覆盖。
 - 原生目录：托管会话使用各 CLI 自己的状态目录；不再用临时 `CODEX_HOME`/`CLAUDE_CONFIG_DIR` 覆盖，也不在常规轮次加 `--ephemeral`/`--no-session-persistence`。一次性 reviewer `verify_dir` 保持无痕。用户设置的 CLI 环境变量优先。
 - 未验证：阶段 3 只完成代码与行为测试；真实五家 CLI 的跨轮 `--resume`、OAuth 续期与 prompt cache 命中按阶段 4/6 的真实探针单独验证。Linux `bwrap` 仍未在实机验证，保持失败关闭。
+
+## 阶段 4 补充验证（工程工具链、git_inspect、preview_page、Diff 提示）
+
+- `run_test`：枚举化 argv（`auto|go|npm|pnpm|yarn|pytest|cargo` × `test|typecheck|lint|build`），`filter` 严格字符集并在 `go -run` / `pytest -k` / 包管理器脚本参数中真实生效；`auto` 通过真实 manifest 探测；typecheck/lint/build 输出明确标注"仅支持性证据"。Go 单测过滤实测只运行匹配测试；macOS 真实沙箱仍按既有边界测试；Linux 增加最小无害 `bwrap` 实测探针，受限 AppArmor/userns 报告 `linux_bwrap_userns_unavailable` 并失败关闭，交叉编译不等于验证。
+- `git_inspect`：真实仓库实测 `status/diff/log/show`，外部 diff、textconv 与仓库 hook 均未执行；路径穿越、`--exec` 形式参数、任意 revision 与超限 limit 被拒绝；输出为有界 JSON。
+- `preview_page`：本机 Chrome 真实渲染成功（截图 7.7KB、标题正确）；对另一回环端口与公网的 fetch 被 CDP 拦截器中止且页面标题未变；静态服务只暴露入口所在子树；项目 `TreeDigest` 前后一致；截图注册为 image `Source`；只读轮次的 `command` 模式确定性拒绝。
+- Diff 提示：三层兜底分支触发非阻塞提示；以删除分支为主的清理不触发；注释与普通两分支守卫不误报。
+- 未验证：Linux `bwrap` 完整边界（当前仍失败关闭）、非 Chromium 浏览器内核、真实项目 `mode=command` 预览脚本的多框架组合。

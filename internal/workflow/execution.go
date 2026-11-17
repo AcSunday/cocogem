@@ -184,6 +184,17 @@ func (e *Engine) Candidates(ctx context.Context, threadID string) ([]CandidateVi
 		if err != nil {
 			verdict = execution.CandidateVerification{State: execution.CandidateUnverifiedMutation, Reason: err.Error()}
 		}
+		// The diff-hygiene hint travels with the verdict so a reviewer sees a
+		// stacked-fallback smell beside the exact candidate, without blocking
+		// an otherwise verified change.
+		for _, source := range sources {
+			if source.Kind != "diff" || source.Content == "" {
+				continue
+			}
+			if hints := tools.AnalyzeDiffHygiene(source.Content); len(hints) > 0 {
+				verdict.HygieneHints = append(verdict.HygieneHints, tools.DiffHygieneSummary(hints))
+			}
+		}
 		out = append(out, CandidateView{Execution: item, Verification: verdict})
 	}
 	return out, nil

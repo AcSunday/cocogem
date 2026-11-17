@@ -146,7 +146,8 @@ macOS 上的适配器按各自协议验证，具体版本与覆盖范围见验�
 
 | 工具 | 行为 |
 | --- | --- |
-| list_files / read_file / search_content | 在项目/任务范围内读取，或在批准后读取该次确切外部范围；搜索命中只作导航线索 |
+| list_files / read_file / search_content / git_inspect | 在项目/任务范围内读取，或在批准后读取该次确切外部范围；搜索命中只作导航线索；git_inspect 只读仓库状态/差异/历史，禁用外部 diff 与 hook |
+| preview_page | 从项目内入口渲染页面；CDP 只放行宿主唯一 origin，截图注册为 image 来源，不写项目或候选树 |
 | web_search / fetch_url | 发现公共资料、读取原文并捕获来源；搜索摘要不算已读原文 |
 | read_source / read_context / read_task | 读取已授权快照和同一协作域的任务，支持有界分页，不扩大范围 |
 | publish_file | 发布真实文件快照并返回成果下载入口，不接受仅路径文字冒充交付 |
@@ -196,7 +197,13 @@ CLI 原生工具库存由 CLI 强制限制，解析器再核对调用和结果�
 
 可写步骤使用成员可用的 write_file、patch_file 和 run_test；标为 `ReadOnly` 的步骤（例如多人并行盲答）不提供写入工具。独立复核步骤可以复测，但不会改写作者候选目录。
 
-`run_test` 不启动 shell，只执行固定的 `go test -count=1 ./...` 或 `npm test`，默认 120 秒，上限 600 秒。macOS 使用 deny-default sandbox-exec，限制网络、系统路径、凭据、进程和 AppleEvents；Linux 当前明确阻止未实机验证的沙箱测试，其他不支持的平台也失败关闭。
+`run_test` 不启动 shell，宿主从校验过的枚举组合固定 argv：`toolchain` 支持 `auto | go | npm | pnpm | yarn | pytest | cargo`，`kind` 为 `test | typecheck | lint | build`，`filter` 只接受 `^[A-Za-z0-9_./:-]+$`（用于 `go -run`、`pytest -k` 或包管理器脚本参数），`target` 是项目内相对目录。默认 120 秒，上限 600 秒。只有 `kind=test` 能验证行为；typecheck/lint/build 只是支持性证据并在输出里明确说明。macOS 使用 deny-default sandbox-exec，限制网络、系统路径、凭据、进程和 AppleEvents；Linux 先运行最小无害 `bwrap` 实测探针，受限 AppArmor/userns 主机报告 `linux_bwrap_userns_unavailable` 并失败关闭，不以 `LookPath` 假装沙箱已生效；其他不支持的平台同样失败关闭。
+
+新增确定性只读 `git_inspect`：`status | diff | log | show`，宿主硬编码 `--no-ext-diff --no-textconv -c core.hooksPath=/dev/null` 并禁用外部 diff 与 hook，不联网、不写仓库；`path` 限定仓库内相对路径，`revision` 限定分支/标签/提交，日志有上限。供只读步骤与「仅规划」核对实际变更与历史。
+
+新增 `preview_page`：不接受 URL 或端口，只接受项目内相对入口（`mode=static` 由宿主在 `127.0.0.1:0` 起只读静态服务，仅暴露入口所在子树）或精确预览 argv（`mode=command` 在宿主分配的随机回环端口以独立进程组启动，退出时整组回收）。无头 Chromium 的 CDP 请求拦截器只放行本次唯一 origin 与 `data:/blob:`，其他本机端口、管理端口和公网请求一律中止；截图以 `Source{Kind:"image"}` 注册并返回 `console_errors` 与 AXTree 摘要，项目与候选 worktree 不新增文件、不改 `TreeDigest`。没有可用浏览器内核时返回 `browser_engine_unavailable`，不声称已渲染。只读轮次只能使用 `static` 模式。
+
+候选 diff 增加非阻塞静态提示：单文件净增 ≥3 层兜底控制流分支（连续 `else if`、空值回退或吞错分支）时，在写入观测与候选 verdict 中附加提示，引导检查根因与状态契约；它不改变 `verified` 判定。
 
 测试本身仍能改写允许的工程路径。复核结论引用来源时，文件、diff 与测试记录必须匹配本次 Run 的实际捕获；证据缺失或已过期时只能标记 insufficient_evidence，不能声称变更已验证。
 

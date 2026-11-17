@@ -1563,6 +1563,15 @@
                         "null"
                       ]
                     },
+                    "hygiene_hints": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
                     "reason": {
                       "type": "string"
                     },
@@ -1618,6 +1627,15 @@
             ]
           },
           "diff_source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "hygiene_hints": {
             "items": {
               "type": "string"
             },

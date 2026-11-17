@@ -1494,6 +1494,7 @@ export interface components {
             verification: {
               changed_paths?: string[] | null;
               diff_source_ids?: string[] | null;
+              hygiene_hints?: string[] | null;
               reason?: string;
               state: string;
               test_source_ids?: string[] | null;
@@ -1505,6 +1506,7 @@ export interface components {
     CandidateVerification: {
       changed_paths?: string[] | null;
       diff_source_ids?: string[] | null;
+      hygiene_hints?: string[] | null;
       reason?: string;
       state: string;
       test_source_ids?: string[] | null;

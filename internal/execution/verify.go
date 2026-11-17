@@ -40,6 +40,9 @@ type CandidateVerification struct {
 	TreeDigest string `json:"tree_digest,omitempty"`
 	// Reason explains a non-verified verdict in plain words.
 	Reason string `json:"reason,omitempty"`
+	// HygieneHints are non-blocking observations about the candidate diff,
+	// such as stacked fallback branches. They never change the verdict.
+	HygieneHints []string `json:"hygiene_hints,omitempty"`
 }
 
 // VerifyCandidate computes the settlement verdict for one execution record. It

@@ -27,7 +27,9 @@ const (
 
 type RunTestInput struct {
 	Toolchain      string `json:"toolchain"`
+	Kind           string `json:"kind"`
 	Target         string `json:"target"`
+	Filter         string `json:"filter"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 }
 
@@ -40,6 +42,7 @@ type RunTestInput struct {
 // host write tool); such a run never qualifies as verification.
 type TestResult struct {
 	Toolchain        string
+	Kind             string
 	Target           string
 	Command          string
 	ExitCode         int
@@ -50,24 +53,23 @@ type TestResult struct {
 	WorkspaceSHA256  string
 	WorkspaceChanged bool
 	EvidenceReason   string
+	Filter           string
 	Output           string
 }
 
-// RunTest executes a fixed host test command inside an OS sandbox. It accepts
-// no argv beyond the bounded structure and never invokes a shell.
+// RunTest executes a host-composed test command inside an OS sandbox. It accepts
+// only a validated enum plus a bounded target and filter, never an argv, and
+// never invokes a shell.
 func RunTest(ctx context.Context, root string, in RunTestInput) (TestResult, error) {
 	if err := ctx.Err(); err != nil {
 		return TestResult{}, err
 	}
-	toolchain := strings.TrimSpace(strings.ToLower(in.Toolchain))
-	if toolchain != "go" && toolchain != "npm" {
-		return TestResult{}, errors.New("unsupported toolchain: only go and npm test commands are supported")
+	in, err := normalizeTestInput(in)
+	if err != nil {
+		return TestResult{}, err
 	}
 	timeout := defaultTestTimeout
 	if in.TimeoutSeconds != 0 {
-		if in.TimeoutSeconds < 1 || in.TimeoutSeconds > 600 {
-			return TestResult{}, errors.New("timeout_seconds must be between 1 and 600")
-		}
 		timeout = time.Duration(in.TimeoutSeconds) * time.Second
 	}
 	if root == "" {
@@ -85,6 +87,19 @@ func RunTest(ctx context.Context, root string, in RunTestInput) (TestResult, err
 	if err != nil {
 		return TestResult{}, err
 	}
+	toolchain := in.Toolchain
+	if toolchain == ToolchainAuto {
+		// Resolve auto against the concrete target so a monorepo package with a
+		// different manifest is detected honestly.
+		toolchain, err = detectToolchain(resolvedRoot, relTarget)
+		if err != nil {
+			return TestResult{}, err
+		}
+	}
+	command, err := toolchainCommand(in.Kind, toolchain, in.Filter)
+	if err != nil {
+		return TestResult{}, err
+	}
 	temp, err := os.MkdirTemp("", "cocogem-test-*")
 	if err != nil {
 		return TestResult{}, errors.New("could not create a private test directory")
@@ -93,15 +108,33 @@ func RunTest(ctx context.Context, root string, in RunTestInput) (TestResult, err
 	if resolved, err := filepath.EvalSymlinks(temp); err == nil {
 		temp = resolved
 	}
-	for _, name := range []string{"tmp", "home", "gocache", "gopath", "npm-cache"} {
+	for _, name := range []string{"tmp", "home", "gocache", "gopath", "npm-cache", "cache", "pnpm-home", "yarn-cache", "cargo-home", "rustup-home"} {
 		if err := os.Mkdir(filepath.Join(temp, name), 0700); err != nil {
 			return TestResult{}, errors.New("could not create the private test workspace")
 		}
 	}
-	spec, err := resolveToolchain(ctx, toolchain, temp)
+	// The resolved toolchain command replaces the fixed shape above; the enum
+	// only selects the command family and never the bytes.
+	spec, err := resolveTestToolchain(ctx, toolchain, relTarget, in.Filter, temp)
 	if err != nil {
 		return TestResult{}, err
 	}
+	// The resolver chooses the real executable; the host-composed enum argv
+	// supplies the subcommand, kind and validated filter. A package manager
+	// owns its own entry point, so only its script arguments are appended.
+	switch {
+	case len(spec.Command) == 0:
+		spec.Command = command
+	case toolchain == ToolchainGo || toolchain == ToolchainCargo:
+		spec.Command = append(spec.Command, command...)
+	case toolchain == ToolchainPytest:
+		// spec.Command is the interpreter plus the pytest entry point; the
+		// pytest arguments (including -k filter) come from the enum.
+		spec.Command = append(spec.Command, command...)
+	case toolchain == ToolchainNPM || toolchain == ToolchainPNPM || toolchain == ToolchainYarn:
+		spec.Command = append(spec.Command, command[2:]...)
+	}
+	spec.Display = displayCommand(spec)
 	plan, err := prepareSandbox(ctx, sandboxSpec{Root: resolvedRoot, Temp: temp, Toolchain: spec})
 	if err != nil {
 		return TestResult{}, err
@@ -111,6 +144,8 @@ func RunTest(ctx context.Context, root string, in RunTestInput) (TestResult, err
 	cmd.Dir = absTarget
 	if plan.Env != nil {
 		cmd.Env = plan.Env
+	} else {
+		cmd.Env = spec.Env
 	}
 	output := &boundedBuffer{limit: maxTestOutputBytes}
 	cmd.Stdout, cmd.Stderr = output, output
@@ -154,10 +189,21 @@ func RunTest(ctx context.Context, root string, in RunTestInput) (TestResult, err
 	if canceled {
 		return TestResult{}, ctx.Err()
 	}
-	result := TestResult{Toolchain: toolchain, Target: relTarget, Command: spec.Display, ExitCode: exitCode, Passed: waitErr == nil && exitCode == 0, TimedOut: timedOut, Truncated: output.truncated, DurationMS: duration.Milliseconds()}
+	result := TestResult{
+		Toolchain: toolchain, Kind: in.Kind, Target: relTarget, Filter: in.Filter,
+		Command: displayCommand(spec), ExitCode: exitCode,
+		Passed: waitErr == nil && exitCode == 0, TimedOut: timedOut,
+		Truncated: output.truncated, DurationMS: duration.Milliseconds(),
+	}
 	workspaceAfter, workspaceAfterErr := WorkspaceDigest(resolvedRoot)
 	result.testWorkspaceEvidence(workspaceBefore, workspaceAfter, workspaceBeforeErr, workspaceAfterErr)
-	header := "$ " + spec.Display + "\n(cwd " + relTarget + ", timeout " + timeout.String() + ")\n"
+	header := "$ " + displayCommand(spec) + "\n(cwd " + relTarget + ", timeout " + timeout.String() + ")\n"
+	if in.Filter != "" {
+		header += "filter " + in.Filter + "\n"
+	}
+	if kindNote := kindEvidenceNote(in.Kind); kindNote != "" {
+		header += kindNote + "\n"
+	}
 	if timedOut {
 		header += "test killed after the bounded timeout\n"
 	}
@@ -166,6 +212,16 @@ func RunTest(ctx context.Context, root string, in RunTestInput) (TestResult, err
 	}
 	result.Output = header + output.String()
 	return result, nil
+}
+
+// kindEvidenceNote states what a non-test kind can prove. A typecheck, lint or
+// build run is supporting evidence; only an actual test verifies behaviour.
+func kindEvidenceNote(kind string) string {
+	switch kind {
+	case TestKindTypecheck, TestKindLint, TestKindBuild:
+		return "this kind is supporting evidence only; it does not verify runtime behaviour"
+	}
+	return ""
 }
 
 // testWorkspaceEvidence exposes the workspace digest only when the tree was
@@ -181,92 +237,6 @@ func (r *TestResult) testWorkspaceEvidence(before, after string, beforeErr, afte
 	default:
 		r.WorkspaceSHA256 = after
 	}
-}
-
-type toolchainSpec struct {
-	Command    []string
-	Display    string
-	GoRoot     string
-	GoModCache string
-	NodePath   string
-	NPMRoot    string
-	Env        []string
-}
-
-// resolveToolchain derives exact executable paths and a credential-free
-// environment. Host queries are trusted; the child never inherits os.Environ.
-func resolveToolchain(ctx context.Context, toolchain, temp string) (toolchainSpec, error) {
-	env := commonTestEnv(temp)
-	switch toolchain {
-	case "go":
-		goPath, err := exec.LookPath("go")
-		if err != nil {
-			return toolchainSpec{}, errors.New("go toolchain is unavailable")
-		}
-		goroot, modcache := queryGoEnv(ctx, goPath, temp)
-		goBin := resolveExecutable(goPath)
-		if goroot != "" {
-			if candidate := filepath.Join(goroot, "bin", "go"); isExecutableFile(candidate) {
-				goBin = candidate
-			}
-		}
-		if goroot == "" {
-			// A local go binary without a resolved toolchain still needs its
-			// own tree available to the sandbox.
-			if filepath.Base(filepath.Dir(goBin)) == "bin" {
-				goroot = filepath.Dir(filepath.Dir(goBin))
-			}
-		}
-		if goroot != "" {
-			if resolved, err := filepath.EvalSymlinks(goroot); err == nil {
-				goroot = resolved
-			}
-		}
-		if info, err := os.Stat(modcache); modcache == "" || err != nil || !info.IsDir() {
-			modcache = filepath.Join(temp, "gomodcache")
-			_ = os.Mkdir(modcache, 0700)
-		} else if resolved, err := filepath.EvalSymlinks(modcache); err == nil {
-			modcache = resolved
-		}
-		if goroot != "" {
-			env = append(env, "GOROOT="+goroot)
-		}
-		env = append(env,
-			"GOMODCACHE="+modcache,
-			"GOPATH="+filepath.Join(temp, "gopath"),
-			"GOCACHE="+filepath.Join(temp, "gocache"),
-			"GOENV=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off",
-			"GOFLAGS=-buildvcs=false", "GOWORK=off", "CGO_ENABLED=0", "GOTELEMETRY=off",
-		)
-		env = append(env, "PATH="+strings.Join([]string{filepath.Dir(goBin), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, ":"))
-		return toolchainSpec{Command: []string{goBin, "test", "-count=1", "./..."}, Display: "go test -count=1 ./...", GoRoot: goroot, GoModCache: modcache, Env: env}, nil
-	case "npm":
-		npmPath, err := exec.LookPath("npm")
-		if err != nil {
-			return toolchainSpec{}, errors.New("npm is unavailable; only go test and npm test are supported")
-		}
-		nodePath, err := exec.LookPath("node")
-		if err != nil {
-			return toolchainSpec{}, errors.New("node is unavailable; only go test and npm test are supported")
-		}
-		nodePath = resolveNodeBinary(nodePath)
-		if nodePath == "" {
-			return toolchainSpec{}, errors.New("a native node executable could not be resolved safely")
-		}
-		npmResolved := resolveExecutable(npmPath)
-		command, npmRoot, err := resolveNPMCommand(ctx, npmPath, npmResolved, nodePath, temp)
-		if err != nil {
-			return toolchainSpec{}, err
-		}
-		env = append(env,
-			"PATH="+strings.Join([]string{filepath.Dir(nodePath), filepath.Dir(npmPath), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, ":"),
-			"npm_config_cache="+filepath.Join(temp, "npm-cache"),
-			"npm_config_offline=true", "npm_config_audit=false", "npm_config_fund=false",
-			"npm_config_update_notifier=false", "npm_config_progress=false",
-		)
-		return toolchainSpec{Command: command, Display: "npm test --silent", NodePath: nodePath, NPMRoot: npmRoot, Env: env}, nil
-	}
-	return toolchainSpec{}, errors.New("unsupported toolchain")
 }
 
 // resolveNPMCommand avoids executing an arbitrary PATH shim inside the sandbox.

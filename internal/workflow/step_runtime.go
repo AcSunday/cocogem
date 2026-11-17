@@ -346,7 +346,7 @@ func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID stri
 			// decides what it may reach.
 			workDir = x.stepRoot()
 		}
-		scope := tools.Scope{Root: x.stepRoot(), WorkDir: workDir, ExecutionMode: x.run.EffectiveExecutionMode, Web: x.engine.Web, Capture: x.capture,
+		scope := tools.Scope{Root: x.stepRoot(), WorkDir: workDir, ExecutionMode: x.run.EffectiveExecutionMode, Web: x.engine.Web, Capture: x.capture, ReadOnly: x.step.ReadOnly,
 			// The exchange area is explicit and separate from the code root.
 			IOInputs: joinNonEmpty(x.run.TaskDirectory, "inputs"), IOOutputs: joinNonEmpty(x.run.TaskDirectory, "outputs")}
 		if authorization.approved {

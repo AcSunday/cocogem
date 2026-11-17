@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -103,6 +104,9 @@ func TestDarwinSensitiveRegexMatchesSharedPolicy(t *testing.T) {
 // regression: a read-only analysis turn and a project-local command can use
 // /tmp and loopback, and an out-of-tree write is still denied by the kernel.
 func TestDarwinProfileAllowsPlanOnlyAndLocalLoopback(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the verified sandbox profile is macOS-only")
+	}
 	spec := sandboxSpec{Root: "/tmp/root", Temp: "/tmp/temp"}
 	profile := darwinProfile(spec)
 	if !strings.Contains(profile, `(subpath "/tmp/root")`) {

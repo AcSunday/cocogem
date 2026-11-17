@@ -40,6 +40,8 @@ export const toolLabel = labels({
   list_files: "列出文件",
   read_file: "读取文件",
   search_content: "搜索内容",
+  git_inspect: "仓库检查",
+  preview_page: "页面预览",
   web_search: "在线搜索",
   fetch_url: "读取网页",
   read_source: "重读来源",

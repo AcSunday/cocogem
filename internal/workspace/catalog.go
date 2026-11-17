@@ -9,7 +9,7 @@ package workspace
 // documentation stay accurate.
 func StandardToolCatalog() []string {
 	return []string{
-		"list_files", "read_file", "view_image", "search_content",
+		"list_files", "read_file", "view_image", "search_content", "git_inspect", "preview_page",
 		"web_search", "fetch_url", "read_source", "publish_artifact", "publish_file",
 		"write_file", "patch_file", "run_test", "run_command",
 	}

@@ -117,6 +117,11 @@ export function CandidateBar({
             {verification.reason && (
               <p className={cx("candidate-reason")}>{verification.reason}</p>
             )}
+            {(verification.hygiene_hints ?? []).length > 0 && (
+              <p className={cx("candidate-hygiene")} role="status">
+                {verification.hygiene_hints?.join("；")}
+              </p>
+            )}
             {paths.length > 1 && (
               <details className={cx("candidate-paths")}>
                 <summary>查看 {paths.length} 个变更文件</summary>

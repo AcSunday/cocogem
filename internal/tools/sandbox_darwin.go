@@ -56,6 +56,7 @@ func darwinProfile(spec sandboxSpec) string {
 	readLiterals := append([]string{}, spec.ExtraReads...)
 	readLiterals = append(readLiterals, spec.ExtraWrites...)
 	execPaths := []string{"/bin/sh", "/bin/bash", "/usr/bin/env", spec.Root, spec.Temp, spec.Toolchain.GoRoot, spec.Toolchain.NPMRoot, spec.Toolchain.NodePath}
+	execPaths = append(execPaths, spec.Toolchain.ExecRoots...)
 	if len(spec.Toolchain.Command) > 0 {
 		readPaths = append(readPaths, spec.Toolchain.Command[0])
 		execPaths = append(execPaths, spec.Toolchain.Command[0])

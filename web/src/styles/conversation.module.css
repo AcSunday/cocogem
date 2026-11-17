@@ -1158,3 +1158,12 @@
   border-color: var(--border-strong);
   background: var(--surface);
 }
+
+/* A stacked-fallback smell is a non-blocking observation: it must stay
+ * visually quieter than an unverified mutation. */
+.candidate-hygiene {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}

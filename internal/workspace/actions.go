@@ -4,7 +4,7 @@ package workspace
 // still intersected with role, task and conversation-grant checks by the caller.
 func ActionForTool(name string) string {
 	switch name {
-	case "read_file", "view_image", "list_files", "search_content", "read_source", "list_sources", "read_context", "get_task", "read_skill", "read_task":
+	case "read_file", "view_image", "list_files", "search_content", "git_inspect", "preview_page", "read_source", "list_sources", "read_context", "get_task", "read_skill", "read_task":
 		return "read"
 	case "write_file", "patch_file":
 		return "write"
@@ -20,7 +20,7 @@ func ActionForTool(name string) string {
 		// Publish/deploy/release/install to an external destination is a distinct
 		// class from an ordinary public network read.
 		return "external"
-	case "handoff_task", "choose_workflow", "promote_to_task", "submit_review_verdict", "send_task_message", "delegate_task", "yield_run", "ask_question":
+	case "handoff_task", "promote_to_task", "submit_review_verdict", "send_task_message", "delegate_task", "yield_run", "ask_question":
 		return "collaborate"
 	default:
 		return ""
