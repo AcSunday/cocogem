@@ -2348,9 +2348,11 @@ export interface components {
         | null;
     };
     Info: {
+      category?: string;
       description: string;
       id: string;
       name: string;
+      project?: boolean;
       version: string;
     };
     MemoryList: {
@@ -3438,9 +3440,11 @@ export interface components {
       search_status: string;
       skills?:
         | {
+            category?: string;
             description: string;
             id: string;
             name: string;
+            project?: boolean;
             version: string;
           }[]
         | null;

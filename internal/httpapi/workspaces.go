@@ -37,7 +37,7 @@ func (s *Server) createWorkspace(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, err)
 		return
 	}
-	if _, err := skills.Catalogue(in.SkillIDs); err != nil {
+	if _, err := skills.CatalogueFor(in.Root, in.SkillIDs); err != nil {
 		respond(rw, r, nil, err)
 		return
 	}
@@ -104,7 +104,7 @@ func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
 		ws.Name = in.Name
 		ws.Description = in.Description
 		ws.Root = root
-		if _, err := skills.Catalogue(in.SkillIDs); err != nil {
+		if _, err := skills.CatalogueFor(in.Root, in.SkillIDs); err != nil {
 			return err
 		}
 		ws.SkillIDs = in.SkillIDs

@@ -1,19 +1,25 @@
 ---
 name: task-orchestration
-description: 根据任务和本轮成员名册分配协作角色、管理依赖和选择下一步；用于需要委派、独立复核或多成员汇总的任务。
+category: collaboration
+description: "Use when a task needs delegation, review or synthesis across members. Not for a direct answer one member finishes alone. Output: a lane (solo, relay review, durable parallel task) plus the exact roster and a decidable delivery condition."
 ---
 
 # 编排任务
 
 先确定用户要解决的问题、允许范围和可判定的交付条件，再决定是否需要其他成员。能直接完成的简单任务不必增加交接。
 
-1. 读取平台提供的本轮成员名册、用户指定分工和已有任务结果。根据能力、实际工具权限、已有贡献和当前角色选择执行者；能力描述不能授予工具权限。
-2. 平台没有收到明确收件人或流程时，按任务形态选择最轻量的协作方式：
-   - **日常代码修改 / 修 Bug / 灵活接力协作**：优先使用 `handoff_task(mode="relay")` 进行点对点接力 A2A（例如：协调者在同一轮完成 `promote_to_task` 后直接 `relay` 给执行者 `role="engineer"`；执行者完成修改并通过测试后直接 `relay` 把质疑者 `role="reviewer"` 叫出来独立复核；若质疑者确认无异议则直接输出结论收敛结束，若发现真实问题再 `relay` 回执行者继续修复）。
-   - **需要正式结构化报告或多视角交叉质询**：用户明确要求讨论、深度研究报告、正式工程报告（`engineering_report`），或点名 `choose_workflow` 时，通过 `choose_workflow` 提交真实名册 ID 和角色（内置模式中的复核者/质疑者同样可通过 `submit_review_verdict(verdict="approved")` 在无异议时提前收敛跳过冗余轮次）。文字里的“我选择”不会派发；简单问题直接回答，不额外分类。所选方法若缺成员或缺权限，简短说明不可执行或请用户澄清，不猜成员、不临时扩容。已确定的用户分工和已接受的流程不可被该工具改写。
-3. 把需要协作的工作拆为有明确产出的有限子任务。并行子任务可用 `mode="delegate"` 委派并在汇总步回收；串行执行与复核优先用 `mode="relay"` 直接移交控制权，减少无谓中转。不重复创建已经提交或完成的任务。
-4. 通过本轮允许的 `handoff_task` 工具提交交接；索引启用 `task-handoff` 技能时按需读取。目标必须来自本轮允许成员，使用真实 `agent_id`；需要独立复核时选择不是该项工作作者的成员。已选择方法后按平台生成的计划执行，不再混用交接。
-5. 提交后说明已交接的任务和待返回的结果，结束当前调用，让平台调度。再次被调用时从工作包里的任务 ID、状态和结果继续，不把上次提交回执当作执行结果。
-6. 需要复核或汇总时，按需读取索引中已启用的 `independent-review` 或 `synthesize-results` 技能。保留分歧和失败情况；没有完成的任务不能被描述为已完成，也不能把未启用的技能当成已经加载。
+## 车道
 
-遵守平台提供的剩余步骤、交接深度和预算限制。达到交付条件、能力不足、任务失败或预算不足时形成当前可交付结果并说明限制；不要通过互相转交或创建同义任务绕过边界。
+读取 [共享参考：车道选择](references/../_shared/references/lane-selection.md)（通过 `read_skill`，`skill_id="_shared"`，`resource="references/lane-selection.md"`），按可逆性、影响面、证据可得性、异构性和持续性五个轴判断：
+
+- 局部、可逆、证据充分 → 单人直达。
+- 有风险但边界清楚 → `handoff_task(mode="relay")` 交给执行者，由执行者直接找独立复核者。
+- 跨阶段、可并行、需持续跟踪 → 升级为持久任务，用 `delegate` 并行子任务。
+
+## 名册
+
+只从本轮实际可用的名册里选人，按职责、能力和实际工具授权匹配，不按名字或 CLI 品牌推断角色。用户明确点名的成员优先。没有合适成员时说明缺口，不要虚构一个。
+
+## 交付条件
+
+在交接前写清：要产出什么、如何判定完成、允许改哪些范围、需要什么证据。条件不可判定时先向用户澄清，而不是把模糊目标发出去。

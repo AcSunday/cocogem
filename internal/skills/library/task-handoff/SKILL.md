@@ -1,17 +1,29 @@
 ---
 name: task-handoff
-description: 把一个有明确产出和授权范围的子任务交给本轮其他成员；用于委派研究、分析或复核并向平台提交交接。
+category: collaboration
+description: "Use when handing a bounded subtask to another member. Not for work you can finish yourself or an answered issue. Output: a handoff_task naming target, outcome, scope, evidence and the claim the receiver must verify."
 ---
 
 # 交接任务
 
 读取 [references/contract.md](references/contract.md) 了解交接所需信息和回执语义；以当前 `handoff_task` 工具 schema 为准确字段契约。
 
-1. 从本轮名册选择具有所需能力和权限的成员，遵循用户明确分工。没有合适候选人时报告缺口，不猜成员 ID、不临时扩大成员范围。
-2. 给出具体任务、验收条件、需要消费的已捕获来源或确切产物版本、已知结论和待验证问题。引用只能来自当前工作包允许的范围；不要复制无关会话或隐藏推理。
-3. 通过 `handoff_task` 提交一次：
-   - **接力交接（`mode="relay"`）**：直接把接力棒交给下一位成员（如执行者改完代码跑通测试后直接把质疑者 call 出来复核；质疑者若无异议则不再调 `handoff_task`，直接输出复核结论结束本轮；若有异议则 `mode="relay"` 交回执行者返工）。当前步骤提交的回复和已捕获的 diff/test 来源会自动送达接收者的上游交接包。
-   - **汇总委派（`mode="delegate"` 或省略）**：派发子任务并在子任务结束后回到当前发送者的后续步骤汇总；适用于并行拆分任务。
-4. 保存返回的任务 ID。接收成功后结束当前调用，等待平台调度下一步；提交失败时根据明确错误修正，不能声称任务已经执行。
+## 发球
 
-独立复核的目标不得是被复核工作的作者。在 `delegate` 模式下复核需显式传入被复核工作的 `context_refs`（且不得包含目标复核者自己的历史回复）；在 `relay` 模式下由作者本人将当前步骤工作直接接力给复核者时，平台自动传递本步回复与来源。不要把工具错误换成正文 `@` 作为调用绕过，也不要自行替换用户指定成员。
+一个合格的交接包含：目标结果、允许范围、验收条件、上游证据引用和期望返回形式。缺少任意一项时，接收方无法独立完成，交接就是无效的。
+
+- 目标用结果描述，不用动作清单堆叠。
+- 证据引用确切 ID 或路径，不写"上面那些资料"。
+- 明确这一步是否允许写文件或运行命令。
+
+## 接球
+
+接收方先做接球验真：上游陈述是 T2 候选声明，必须用 T0/T1 独立核验后再执行副作用。方法见 `read_skill(skill_id="_shared", resource="references/claim-grounding.md")`。
+
+发现冲突时写明 `mismatch` 和双方证据，交回协调者；不要把错误前提继续放大。
+
+## 纪律
+
+- 工具成功只表示已接收，不代表队友完成。
+- 同一个问题点最多两轮返工；能自己顺手修的不要打回。
+- 不在正文里用 `@` 期待派发；只有工具调用才会真正派发。

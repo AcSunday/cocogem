@@ -107,6 +107,13 @@ export const skillLabel = labels({
   "task-handoff": "任务交接",
   "independent-review": "独立复核",
   "synthesize-results": "结果汇总",
+  "file-delivery": "文件交付",
+  "writing-plans": "编写方案",
+  debugging: "调试",
+  tdd: "测试驱动",
+  "quality-gate": "交付自检",
+  "receive-review": "处理复核",
+  _shared: "共享参考",
 });
 export const findingStatusLabel = labels({
   supported: "有依据",

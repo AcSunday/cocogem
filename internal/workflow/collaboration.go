@@ -67,7 +67,7 @@ func collaborationTools(run w.Run) []model.Tool {
 
 func enabledSkills(run w.Run) []string {
 	ids := []string{}
-	for _, info := range skills.List() {
+	for _, info := range skills.ListFor(run.Workspace.Root) {
 		if run.SkillVersions != nil {
 			if run.SkillVersions[info.ID] == info.Version {
 				ids = append(ids, info.ID)
@@ -87,10 +87,13 @@ func (e *Engine) readSkill(ctx context.Context, run w.Run, step w.Step, input js
 	if err := tools.Decode(input, &in); err != nil {
 		return "", err
 	}
-	if !slices.Contains(enabledSkills(run), in.SkillID) {
+	// The shared reference layer is readable whenever this run enabled at
+	// least one skill; it is never an enableable skill of its own.
+	shared := in.SkillID == skills.SharedSkillID() && len(enabledSkills(run)) > 0
+	if !shared && !slices.Contains(enabledSkills(run), in.SkillID) {
 		return "", errors.New("skill is not enabled in this run snapshot")
 	}
-	body, err := skills.Read(in.SkillID, in.Resource)
+	body, err := skills.ReadFor(run.Workspace.Root, in.SkillID, in.Resource)
 	if err != nil {
 		return "", err
 	}
@@ -98,7 +101,7 @@ func (e *Engine) readSkill(ctx context.Context, run w.Run, step w.Step, input js
 		in.Resource = "SKILL.md"
 	}
 	version := ""
-	for _, info := range skills.List() {
+	for _, info := range skills.ListFor(run.Workspace.Root) {
 		if info.ID == in.SkillID {
 			version = info.Version
 		}
@@ -222,7 +225,7 @@ func (e *Engine) collaborationContext(ctx context.Context, run w.Run, step w.Ste
 	if err != nil {
 		return "", err
 	}
-	catalogue, err := skills.Catalogue(enabledSkills(run))
+	catalogue, err := skills.CatalogueFor(run.Workspace.Root, enabledSkills(run))
 	if err != nil {
 		return "", err
 	}

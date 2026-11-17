@@ -146,7 +146,7 @@ func (e *Engine) Resume(ctx context.Context, id string) (w.Run, error) {
 		}
 	}
 	if run.SkillSnapshot != "" {
-		hash, err := skills.SnapshotHash(run.Workspace.SkillIDs)
+		hash, err := skills.SnapshotHashFor(run.Workspace.Root, run.Workspace.SkillIDs)
 		if err != nil || hash != run.SkillSnapshot {
 			return run, errors.New("shared skill version changed; start a new run")
 		}

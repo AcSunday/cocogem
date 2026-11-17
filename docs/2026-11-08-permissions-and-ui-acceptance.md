@@ -137,3 +137,11 @@
 - `preview_page`：本机 Chrome 真实渲染成功（截图 7.7KB、标题正确）；对另一回环端口与公网的 fetch 被 CDP 拦截器中止且页面标题未变；静态服务只暴露入口所在子树；项目 `TreeDigest` 前后一致；截图注册为 image `Source`；只读轮次的 `command` 模式确定性拒绝。
 - Diff 提示：三层兜底分支触发非阻塞提示；以删除分支为主的清理不触发；注释与普通两分支守卫不误报。
 - 未验证：Linux `bwrap` 完整边界（当前仍失败关闭）、非 Chromium 浏览器内核、真实项目 `mode=command` 预览脚本的多框架组合。
+
+## 阶段 5 补充验证（共享技能引擎）
+
+- 固定 10 个内置技能：`task-orchestration`、`task-handoff`、`independent-review`、`synthesize-results`、`file-delivery`、`writing-plans`、`debugging`、`tdd`、`quality-gate`、`receive-review`；`library_test.go` 静态校验数量、`Use when / Not for / Output` 标记、240 字符描述上限、90 行正文上限与 bootstrap 索引预算。
+- 受限 frontmatter：支持 `name`、`category`、单行与折叠/字面多行 `description`；未知字段、重复字段、缺失标记和超限均拒绝。
+- 跨技能参考层：`library/_shared/references/{claim-grounding,lane-selection,evidence,convergence}.md`，通过 `read_skill(skill_id="_shared")` 读取；`_shared` 不是可启用技能；任一共享文件变更都会改变 `SnapshotHash`。
+- 项目技能：`.agents/skills/<id>/SKILL.md` 只读发现，最多 8 个；符号链接目录、敏感路径、非 `SKILL.md` 资源与同名内置技能均被拒绝；项目技能进入 `CatalogueFor`/`SnapshotHashFor`，编辑后快照变化。
+- 未验证：项目技能在真实第三方仓库约定下的可用性、非 ASCII frontmatter 的边界组合。

@@ -125,7 +125,9 @@ Cocogem 是面向本地单用户的多 Agent 协作项目空间。它调用本�
 
 平台接收任务不等于任务完成。`delegate` 模式下当前 CLI 调用结束后运行子任务并在收敛后回传发送者；`relay` 模式下直接调度下一位接力成员。独立步骤可并行，嵌套委派会延后消费者；每轮最多 12 次交接、32 步、4 层嵌套委派。运行期间立项/编排步与已完成的中间上游步骤收纳在协作过程抽屉展示。
 
-共享技能唯一源为 `internal/skills/library/`，随程序嵌入。内置 task-orchestration、task-handoff、independent-review、synthesize-results、file-delivery。启动时提供 bootstrap 与索引，正文和参考文件按需读取，不安装到用户 CLI 配置目录。技能只描述运行时角色、能力及方法，不绑定具体成员、handle、CLI 或模型。
+共享技能唯一源为 `internal/skills/library/`，随程序嵌入。固定 10 个内置工程技能：`task-orchestration`、`task-handoff`、`independent-review`、`synthesize-results`、`file-delivery`、`writing-plans`、`debugging`、`tdd`、`quality-gate`、`receive-review`。每条 `description` 必须包含 `Use when` / `Not for` / `Output` 且 ≤240 字符，单篇正文 ≤90 行，`library_test.go` 静态强校验，保证 bootstrap 索引稳定。跨技能方法位于 `library/_shared/references/*.md`，通过 `read_skill(skill_id="_shared")` 读取；任一技能或 `_shared` 内容变化都会改变 `SnapshotHash`。项目可在 `.agents/skills/<id>/SKILL.md` 只读提供最多 8 个项目技能：符号链接越界、敏感路径、同名内置技能均被拒绝，项目技能只读、只接受 `SKILL.md`，并纳入同一快照。
+
+启动时提供 bootstrap 与索引，正文和参考文件按需读取，不安装到用户 CLI 配置目录。技能只描述运行时角色、能力及方法，不绑定具体成员、handle、CLI 或模型。
 
 工作空间技能列表为 null 时默认全部启用，空列表表示全部停用。Run 记录启用项、内容版本与快照摘要；`skill_read` 表示返回了内容，不证明模型遵守了全部说明。
 

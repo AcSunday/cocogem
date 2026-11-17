@@ -139,7 +139,7 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 		// so a queued cancellation or early failure never looks like legacy
 		// history that exposes drafts. Only a successful finish fills it.
 		run = w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Input: in, Routing: route, ExecutionPolicy: policy, Status: "queued", CreatedAt: w.Now(), CoordinatorID: th.CoordinatorID, SkillVersions: map[string]string{}, WriteBranch: writeBranch, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
-		for _, skill := range skills.List() {
+		for _, skill := range skills.ListFor(ws.Root) {
 			if ws.SkillIDs == nil || slices.Contains(ws.SkillIDs, skill.ID) {
 				run.SkillVersions[skill.ID] = skill.Version
 			}
@@ -171,7 +171,7 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 				run.Agents = append(run.Agents, a)
 			}
 		}
-		run.SkillSnapshot, err = skills.SnapshotHash(ws.SkillIDs)
+		run.SkillSnapshot, err = skills.SnapshotHashFor(ws.Root, ws.SkillIDs)
 		if err != nil {
 			return err
 		}

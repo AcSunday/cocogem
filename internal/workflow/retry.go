@@ -229,12 +229,12 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 		if err := tx.ReserveTaskRun(&run); err != nil {
 			return err
 		}
-		for _, skill := range skills.List() {
+		for _, skill := range skills.ListFor(workspace.Root) {
 			if workspace.SkillIDs == nil || slices.Contains(workspace.SkillIDs, skill.ID) {
 				run.SkillVersions[skill.ID] = skill.Version
 			}
 		}
-		run.SkillSnapshot, err = skills.SnapshotHash(workspace.SkillIDs)
+		run.SkillSnapshot, err = skills.SnapshotHashFor(workspace.Root, workspace.SkillIDs)
 		if err != nil {
 			return err
 		}

@@ -5264,6 +5264,9 @@
       "Info": {
         "additionalProperties": false,
         "properties": {
+          "category": {
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -5272,6 +5275,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "project": {
+            "type": "boolean"
           },
           "version": {
             "type": "string"
@@ -9975,6 +9981,9 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "category": {
+                  "type": "string"
+                },
                 "description": {
                   "type": "string"
                 },
@@ -9983,6 +9992,9 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "project": {
+                  "type": "boolean"
                 },
                 "version": {
                   "type": "string"
