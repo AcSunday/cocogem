@@ -75,7 +75,7 @@ func TestNormalizeScopeResolvesSymlinksAndMissingSegments(t *testing.T) {
 // a mode can deny must be requestable, otherwise an outside effect fails with no
 // way for the member to ask.
 func TestRequestableActionsCoverDeniableClasses(t *testing.T) {
-	for _, mode := range []string{ExecutionControlled, ExecutionProjectAutonomous} {
+	for _, mode := range []string{ExecutionWorkspaceAutonomous, ExecutionWorkspaceAutonomous} {
 		for _, action := range []string{"read", "write", "run_test", "execute", "network", "publish_artifact"} {
 			if !containsAction(RequestableActions(mode), action) {
 				t.Fatalf("%s cannot request %q: %v", mode, action, RequestableActions(mode))
@@ -94,4 +94,43 @@ func containsAction(actions []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestDirectoryScopeGrantsStayInsideTheirSubtree is the A12 regression: a
+// directory grant covers a new file in that subtree and any read, but a broader
+// root is refused and a sibling stays outside.
+func TestDirectoryScopeGrantsStayInsideTheirSubtree(t *testing.T) {
+	parent := t.TempDir()
+	ext := filepath.Join(parent, "ext-dir")
+	if err := os.MkdirAll(filepath.Join(ext, "nested"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(ext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := NormalizeScope(resolved, resolved)
+	for _, target := range []string{
+		filepath.Join(resolved, "nested", "new-file.txt"),
+		filepath.Join(resolved, "another.txt"),
+	} {
+		if !ScopeContains(grant, NormalizeScope(resolved, target)) {
+			t.Fatalf("directory grant did not cover %s", target)
+		}
+	}
+	if ScopeContains(grant, NormalizeScope(resolved, filepath.Join(parent, "sibling.txt"))) {
+		t.Fatal("a directory grant covered a sibling outside its subtree")
+	}
+	if !GrantCoversAction("write", "read") || !GrantCoversAction("execute", "write") {
+		t.Fatal("a higher grant level must cover a lower request")
+	}
+	if GrantCoversAction("read", "write") || GrantCoversAction("read", "execute") {
+		t.Fatal("a read grant must not authorize a write or command")
+	}
+	if !BroadDirectoryScope("/") || !BroadDirectoryScope("/Users") || !BroadDirectoryScope("/tmp") {
+		t.Fatal("a system-level directory was not classified as broad")
+	}
+	if BroadDirectoryScope(filepath.Join(parent, "ext-dir")) {
+		t.Fatal("a bounded project subtree was classified as broad")
+	}
 }

@@ -141,11 +141,18 @@ func NativeTools(executor string, allowed []string, scope string) []string {
 }
 
 // NativeExecutionTools maps the mode onto the CLI-owned tool catalog.
-// project_autonomous genuinely opens native read/write/command/image tools
+// workspace_autonomous genuinely opens native read/write/command/image tools
 // inside a real OS boundary; full_access keeps the existing broad behavior.
-func NativeExecutionTools(executor string, allowed []string, scope, mode string) []string {
+//
+// readOnly is the plan-only/parallel-pass lock: a read-only step keeps the CLI's
+// native readers but never receives a native write, edit or shell, so the
+// analysis turn cannot acquire a code effect even before the host gate runs.
+func NativeExecutionTools(executor string, allowed []string, scope, mode string, readOnly bool) []string {
 	out := NativeTools(executor, allowed, scope)
-	if executor == "claude" && (mode == "project_autonomous" || mode == "full_access") {
+	if readOnly {
+		return out
+	}
+	if executor == "claude" && (mode == "workspace_autonomous" || mode == "full_access") {
 		if slices.Contains(allowed, "write_file") {
 			out = append(out, nativeWrite, nativeEdit)
 		}
@@ -153,7 +160,7 @@ func NativeExecutionTools(executor string, allowed []string, scope, mode string)
 			out = append(out, nativeBash)
 		}
 	}
-	if executor == "codex" && (mode == "project_autonomous" || mode == "full_access") {
+	if executor == "codex" && (mode == "workspace_autonomous" || mode == "full_access") {
 		if slices.Contains(allowed, "write_file") {
 			out = append(out, nativeWrite, nativeCodexFile)
 		}
@@ -178,7 +185,7 @@ func sanitizeExecutionNativeTools(executor string, requested []string, root stri
 	switch executor {
 	case "claude":
 		switch mode {
-		case "project_autonomous":
+		case "workspace_autonomous":
 			known = claudeAutonomousNames
 		case "full_access":
 			known = claudeFullAccessNames
@@ -250,7 +257,9 @@ func claudeBidirectionalArgs(configPath, settingsPath string, native []string, r
 		"--disallowedTools", "Agent,Task,TeamCreate,SendMessage",
 		"--disable-slash-commands", "--no-chrome",
 	}
-	if request.SessionStorageRoot == "" {
+	if !managedNativeSession(request) {
+		// No ledger key or a disposable reviewer run: never persist into the
+		// user's native history list.
 		args = append(args, "--no-session-persistence")
 	} else if request.SessionMode == "resume" {
 		args = append(args, "--resume", request.SessionID)
@@ -287,7 +296,9 @@ func claudeExecutionArgs(configPath, settingsPath string, native []string, reque
 	if request.TrustedExecution && fullAccess {
 		args = append(args, "--disallowedTools", "Agent,Task,TeamCreate,SendMessage")
 	}
-	if request.SessionStorageRoot == "" {
+	if !managedNativeSession(request) {
+		// No ledger key or a disposable reviewer run: never persist into the
+		// user's native history list.
 		args = append(args, "--no-session-persistence")
 	} else if request.SessionMode == "resume" {
 		args = append(args, "--resume", request.SessionID)

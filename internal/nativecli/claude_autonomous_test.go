@@ -76,7 +76,7 @@ func runClaudeAutonomous(t *testing.T, args claudeAutonomousFixture) error {
 		Messages:             []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Perform one fixture operation."}}}},
 		NativeTools:          []string{"Read", "Write", "Edit", "Bash"},
 		WorkspaceRoot:        args.root,
-		ExecutionMode:        firstString(args.mode, "project_autonomous"),
+		ExecutionMode:        firstString(args.mode, "workspace_autonomous"),
 		FirstResponseTimeout: 60 * time.Second,
 		StallTimeout:         60 * time.Second,
 		StallAction:          "stop",

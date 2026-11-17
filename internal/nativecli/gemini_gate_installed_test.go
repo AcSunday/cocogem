@@ -89,7 +89,7 @@ func installedGeminiRequest(t *testing.T, root, endpoint string, decide func(mod
 	request := testRequest()
 	request.Executor = "gemini"
 	request.Model = "gemini-2.5-pro"
-	request.ExecutionMode = "project_autonomous"
+	request.ExecutionMode = "workspace_autonomous"
 	request.WorkspaceRoot = root
 	request.Tools = nil
 	request.RequiredTools = nil
@@ -162,7 +162,7 @@ func TestInstalledGeminiGateUsesUserConnectionAndTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := model.Request{
-		Executor: "gemini", Model: "gemini-3.8-flash", ExecutionMode: "project_autonomous", WorkspaceRoot: t.TempDir(),
+		Executor: "gemini", Model: "gemini-3.8-flash", ExecutionMode: "workspace_autonomous", WorkspaceRoot: t.TempDir(),
 		System: "SYNTHETIC_SYSTEM_INSTRUCTION", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "SYNTHETIC_USER_TASK"}}}},
 		FirstResponseTimeout: 30 * time.Second, StallTimeout: 30 * time.Second, StallAction: "stop",
 		AuthorizeNative: func(context.Context, model.NativePermissionRequest) (model.NativePermissionDecision, error) {

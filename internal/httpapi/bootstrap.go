@@ -62,7 +62,7 @@ func (s *Server) bootstrap(rw http.ResponseWriter, r *http.Request) {
 		}
 		workspaceID := strings.TrimSpace(in.WorkspaceID)
 		if workspaceID == "" {
-			out.Workspace = w.Workspace{ID: w.NewID(), Name: "未命名项目", Root: "", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionControlled}
+			out.Workspace = w.Workspace{ID: w.NewID(), Name: "未命名项目", Root: "", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionWorkspaceAutonomous}
 			if err := tx.SaveWorkspace(out.Workspace); err != nil {
 				return err
 			}

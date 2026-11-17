@@ -89,12 +89,22 @@ func prepareCodexAppServer(request model.Request, workdir string, gate *bridge, 
 		return nil, nil, errors.New("write scoped Codex model catalog")
 	}
 	quoted := func(value string) string { raw, _ := json.Marshal(value); return string(raw) }
-	if request.ExecutionMode == "project_autonomous" {
+	if request.ExecutionMode == "workspace_autonomous" {
 		if err := os.WriteFile(filepath.Join(workdir, "config.toml"), []byte(codexPermissionProfile(profile, roots, hardlinkDenies)), 0600); err != nil {
 			return nil, nil, errors.New("write scoped Codex permission profile")
 		}
 	}
-	if err := snapshotCodexAuth(workdir); err != nil {
+	if managedNativeSession(request) && !request.EphemeralSession {
+		// Keep the user's own Codex home for a managed session: OAuth refresh,
+		// prompt cache and the user's own history all live there. The scoped MCP
+		// config still arrives through single-invocation flags, so this never
+		// mutates the user's global Codex settings.
+		if state := nativeStateRoot("codex"); state != "" {
+			env = mergeEnv(env, map[string]string{"CODEX_HOME": state})
+		}
+	} else if err := snapshotCodexAuth(workdir); err != nil {
+		// A disposable run stays in the private workdir; its login snapshot is
+		// copied there and never points at the user's real home.
 		return nil, nil, err
 	}
 	args := []string{"app-server", "--stdio", "--strict-config"}
@@ -117,7 +127,7 @@ func prepareCodexAppServer(request model.Request, workdir string, gate *bridge, 
 		args = append(args, "-c", fmt.Sprintf("features.%s=%t", feature, enabled))
 	}
 	features["image_generation"] = false
-	if request.ExecutionMode == "project_autonomous" && threadConfig != nil {
+	if request.ExecutionMode == "workspace_autonomous" && threadConfig != nil {
 		toolConfig := map[string]any{}
 		for _, tool := range request.Tools {
 			toolConfig[tool.Name] = map[string]any{"approval_mode": "approve"}
@@ -155,7 +165,11 @@ func prepareCodexAppServer(request model.Request, workdir string, gate *bridge, 
 		env = map[string]string{}
 	}
 	env["COCOGEM_MCP_TOKEN"] = gate.token
-	env["CODEX_HOME"] = workdir
+	if _, set := env["CODEX_HOME"]; !set {
+		// A disposable or unmanaged run stays in the private workdir; a managed
+		// session already chose the user's own Codex home above.
+		env["CODEX_HOME"] = workdir
+	}
 	return args, env, nil
 }
 

@@ -319,8 +319,8 @@ func TestPermissionEpochChangeInvalidatesResumableSession(t *testing.T) {
 	// Permission tightened and later restored: the live epoch is now 5.
 	tightened := base
 	tightened.run.PermissionEpoch = live.PermissionEpoch + 1
-	tightened.run.EffectiveExecutionMode = w.ExecutionControlled
-	tightened.run.RequestedExecutionMode = w.ExecutionControlled
+	tightened.run.EffectiveExecutionMode = w.ExecutionWorkspaceAutonomous
+	tightened.run.RequestedExecutionMode = w.ExecutionWorkspaceAutonomous
 	restored := base
 	restored.run.PermissionEpoch = live.PermissionEpoch + 2
 	restored.run.EffectiveExecutionMode = w.ExecutionFullAccess

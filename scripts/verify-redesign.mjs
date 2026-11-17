@@ -94,7 +94,7 @@ try {
   await page.getByRole('button', { name: '设置', exact: true }).click();
   const budgetSettings = page.getByRole('dialog', { name: '设置' });
   await budgetSettings.getByRole('tab', { name: '权限', exact: true }).click();
-  await budgetSettings.getByRole('radio', { name: /项目内自主/ }).waitFor();
+  await budgetSettings.getByRole('radio', { name: /沙箱自主/ }).waitFor();
   await budgetSettings.getByRole('tab', { name: '协作', exact: true }).click();
   await budgetSettings.getByLabel(/^自动续办次数/).fill('24');
   const savedDefaults = page.waitForResponse(response => response.url().endsWith('/api/v1/settings') && response.request().method() === 'PATCH');

@@ -19,7 +19,7 @@ import (
 //
 // provider.go should dispatch here when
 //
-//	request.Executor == "gemini" && request.ExecutionMode == "project_autonomous" && request.AuthorizeNative != nil
+//	request.Executor == "gemini" && request.ExecutionMode == "workspace_autonomous" && request.AuthorizeNative != nil
 //
 // and fall back to the existing print path for full_access or a nil callback.
 func (p Provider) RunGeminiNative(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
@@ -41,7 +41,7 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 	if request.AuthorizeNative == nil {
 		return errors.New("project-autonomous native execution requires the host approval callback")
 	}
-	if request.ExecutionMode != "project_autonomous" {
+	if request.ExecutionMode != "workspace_autonomous" {
 		return errors.New("the gated native path is only for project_autonomous")
 	}
 	adapterInfo, err := p.Check(ctx, adapter)

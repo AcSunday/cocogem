@@ -561,6 +561,9 @@ func TestProjectControlReplayAndUnchangedModeDoNotStopNewWork(t *testing.T) {
 	if w.Terminal(current.Run.Status) || current.Run.Status == "canceling" {
 		t.Fatalf("replayed pause or unchanged mode stopped new work: %+v", current.Run)
 	}
-	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionControlled)}, map[string]string{"If-Match": fmt.Sprint(currentSettings.Revision + 1)}, 200, nil)
+	// A real tier change (not a replay of the current value) advances the epoch
+	// and ends the blocked run; the two-tier policy has full access as the
+	// other side of that boundary.
+	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionFullAccess)}, map[string]string{"If-Match": fmt.Sprint(currentSettings.Revision + 1)}, 200, nil)
 	awaitStop(second.ID)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -43,6 +44,13 @@ func (x *stepRuntime) nativeAuthorizer() func(context.Context, model.NativePermi
 			return model.NativePermissionDecision{Allow: false, Scope: model.NativeScopeDeny, Reason: "this step's role does not permit that operation"}, nil
 		}
 		scope := x.nativeScope(action, request.Resource, request.Input)
+		// The host, not the adapter, grades the target. A sensitive credential
+		// path is never auto-allowed and never gains a conversation grant; it
+		// needs one explicit high-risk approval for that exact call.
+		risk := request.Risk
+		if risk == "" && tools.SensitivePath(scope) {
+			risk = "sensitive_path"
+		}
 		arguments := request.Input
 		if len(arguments) == 0 {
 			arguments = []byte("null")
@@ -52,7 +60,7 @@ func (x *stepRuntime) nativeAuthorizer() func(context.Context, model.NativePermi
 		admission := project.AccessRequest{
 			Run: run, StepID: x.step.ID, Attempt: x.attemptSnapshot().ID,
 			CallID: callID, Name: nativeAccessName(action, name), Arguments: arguments, Scope: scope,
-			Risk: request.Risk,
+			Risk: risk,
 		}
 		decision, err := service.CheckToolAccess(ctx, admission)
 		if err != nil {
@@ -92,7 +100,7 @@ func (x *stepRuntime) nativeAuthorizer() func(context.Context, model.NativePermi
 			StepID: x.step.ID, AttemptID: x.attemptSnapshot().ID, MemberID: x.agent.ID, MemberName: x.agent.DisplayName,
 			ToolCallID: callID, Origin: w.OriginNative, Adapter: request.Adapter,
 			Action: action, ToolName: nativeAccessName(action, name), NormalizedResourceScope: scope,
-			Arguments: arguments, Reason: reason, Risk: nativeRiskReason(request),
+			Arguments: arguments, Reason: reason, Risk: risk,
 		})
 		if err != nil {
 			return deny, err

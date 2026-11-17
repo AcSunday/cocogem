@@ -26,7 +26,7 @@ const settings = (overrides: Partial<Settings> = {}): Settings => ({
     fix_rounds: 3,
     no_progress_failures: 2,
   },
-  execution_mode: "project_autonomous",
+  execution_mode: "workspace_autonomous",
   permission_epoch: 4,
   ...overrides,
 });
@@ -108,7 +108,7 @@ it("patches only the permission field so collaboration defaults survive", async 
 });
 
 it("saving the collaboration budget never overwrites the permission", async () => {
-  const api = server(settings({ execution_mode: "controlled", permission_epoch: 7 }));
+  const api = server(settings({ execution_mode: "workspace_autonomous", permission_epoch: 7 }));
   vi.stubGlobal("fetch", api.fetch);
   const { result } = renderHook(() => useGlobalSettings());
   await waitFor(() => expect(result.current.settings).toBeDefined());
@@ -124,7 +124,7 @@ it("saving the collaboration budget never overwrites the permission", async () =
     }),
   );
   expect(api.calls[0].body).not.toHaveProperty("execution_mode");
-  expect(api.current.execution_mode).toBe("controlled");
+  expect(api.current.execution_mode).toBe("workspace_autonomous");
   expect(api.current.permission_epoch).toBe(7);
   expect(api.current.default_coordinator_id).toBe("coordinator");
 });
@@ -138,11 +138,11 @@ it("merges one narrow patch instead of resending a stale whole object", async ()
   api.external({ retention_days: 30 });
   // This page only changes the permission; the first attempt is rejected by
   // CAS, the hook re-reads and resends exactly its own field.
-  await act(() => result.current.patch({ execution_mode: "controlled" }));
+  await act(() => result.current.patch({ execution_mode: "workspace_autonomous" }));
   expect(api.calls.map((call) => call.ifMatch)).toEqual(["3", "4"]);
   expect(api.calls.every((call) => Object.keys(call.body).length === 1)).toBe(true);
   expect(api.current.retention_days).toBe(30);
-  expect(api.current.execution_mode).toBe("controlled");
+  expect(api.current.execution_mode).toBe("workspace_autonomous");
   expect(result.current.settings?.revision).toBe(5);
 });
 
@@ -164,7 +164,7 @@ it("keeps the previous value and surfaces the real error when saving fails", asy
   await expect(
     act(() => result.current.patch({ execution_mode: "full_access" })),
   ).rejects.toThrow();
-  expect(result.current.settings?.execution_mode).toBe("project_autonomous");
+  expect(result.current.settings?.execution_mode).toBe("workspace_autonomous");
 });
 
 it("re-reads from the server when another window broadcasts a newer revision", async () => {
@@ -175,7 +175,7 @@ it("re-reads from the server when another window broadcasts a newer revision", a
   await act(async () => {
     await Promise.resolve();
   });
-  expect(result.current.settings?.execution_mode).toBe("project_autonomous");
+  expect(result.current.settings?.execution_mode).toBe("workspace_autonomous");
   // The other window stores the new permission server-side and announces it.
   api.external({ execution_mode: "full_access", permission_epoch: 5 });
   window.localStorage.setItem(
@@ -206,26 +206,26 @@ it("converges within 2s while another window is visible", async () => {
   await act(async () => {
     await Promise.resolve();
   });
-  expect(result.current.settings?.execution_mode).toBe("project_autonomous");
+  expect(result.current.settings?.execution_mode).toBe("workspace_autonomous");
   // No broadcast at all: the bounded interval must still refresh.
-  api.external({ execution_mode: "controlled", permission_epoch: 5 });
+  api.external({ execution_mode: "workspace_autonomous", permission_epoch: 5 });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(2000);
     await Promise.resolve();
     await Promise.resolve();
   });
-  expect(result.current.settings?.execution_mode).toBe("controlled");
+  expect(result.current.settings?.execution_mode).toBe("workspace_autonomous");
 });
 
 it("defensively defaults an older record to project_autonomous", () => {
-  expect(executionModeOf(undefined)).toBe("project_autonomous");
+  expect(executionModeOf(undefined)).toBe("workspace_autonomous");
   expect(executionModeOf({ revision: 1, default_coordinator_id: "" }))
-    .toBe("project_autonomous");
-  expect(executionModeOf(settings({ execution_mode: "controlled" }))).toBe(
-    "controlled",
+    .toBe("workspace_autonomous");
+  expect(executionModeOf(settings({ execution_mode: "workspace_autonomous" }))).toBe(
+    "workspace_autonomous",
   );
   expect(executionModeOf(settings({ execution_mode: "legacy_guess" }))).toBe(
-    "project_autonomous",
+    "workspace_autonomous",
   );
 });
 
@@ -304,7 +304,7 @@ it("a held PATCH that resolves after a newer save never rolls the state back", a
   });
   // Another window saves r5 (controlled) and this page applies it first.
   await act(async () => {
-    result.current.apply({ ...settings(), execution_mode: "controlled", revision: 5 });
+    result.current.apply({ ...settings(), execution_mode: "workspace_autonomous", revision: 5 });
     await Promise.resolve();
   });
   expect(result.current.settings?.revision).toBe(5);
@@ -315,7 +315,7 @@ it("a held PATCH that resolves after a newer save never rolls the state back", a
   });
   // The stale save result must not regress the mode to its own r4 answer.
   expect(result.current.settings?.revision).toBe(5);
-  expect(result.current.settings?.execution_mode).toBe("controlled");
+  expect(result.current.settings?.execution_mode).toBe("workspace_autonomous");
 });
 
 it("does not silently overwrite a same-field change from another window", async () => {
@@ -333,10 +333,11 @@ it("does not silently overwrite a same-field change from another window", async 
   vi.stubGlobal("fetch", api.fetch);
   const { result } = renderHook(() => useGlobalSettings());
   await waitFor(() => expect(result.current.settings?.revision).toBe(3));
-  // Another window picks controlled before this page saves its own choice.
-  api.external({ execution_mode: "controlled", permission_epoch: 5 });
+  // Another window picks full access before this page saves the autonomous
+  // tier; retrying would silently overwrite the newer user choice.
+  api.external({ execution_mode: "full_access", permission_epoch: 5 });
   await expect(
-    act(() => result.current.patch({ execution_mode: "full_access" })),
+    act(() => result.current.patch({ execution_mode: "workspace_autonomous" })),
   ).rejects.toBeInstanceOf(SettingsConflictError);
   // Exactly one PATCH was attempted: no silent retry over the newer choice.
   expect(api.calls).toHaveLength(1);
@@ -344,8 +345,8 @@ it("does not silently overwrite a same-field change from another window", async 
   await act(async () => {
     await result.current.refresh();
   });
-  expect(api.current.execution_mode).toBe("controlled");
-  expect(result.current.settings?.execution_mode).toBe("controlled");
+  expect(api.current.execution_mode).toBe("full_access");
+  expect(result.current.settings?.execution_mode).toBe("full_access");
 });
 
 it("still merges a narrow non-conflicting patch after a CAS conflict", async () => {

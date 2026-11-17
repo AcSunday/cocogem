@@ -42,7 +42,7 @@ async function seed(page: Page, headers: Record<string, string>) {
 const permissionTab = (page: Page) =>
   page.getByRole("dialog", { name: "设置" }).getByRole("tab", { name: "权限", exact: true });
 
-test("the permission page shows three modes and no runtime internals", async ({
+test("the permission page shows the two tiers and no runtime internals", async ({
   page,
 }) => {
   const headers = await signIn(page);
@@ -55,7 +55,7 @@ test("the permission page shows three modes and no runtime internals", async ({
   await expect(permissionTab(page)).toBeVisible();
   await permissionTab(page).click();
   const panel = settings.getByRole("tabpanel", { name: "权限" });
-  for (const name of ["受控", "项目内自主", "完全访问"]) {
+  for (const name of ["沙箱自主", "完全访问"]) {
     await expect(
       panel.getByRole("radio", { name: new RegExp(name) }),
     ).toBeVisible();
@@ -149,7 +149,11 @@ test("changing the permission in one window reaches another within 2 seconds", a
   await expect
     .poll(() => modeB.getAttribute("value"), { timeout: 4000 })
     .toBe(startA);
-  expect(startA).not.toBe("controlled");
+  // Pick the opposite tier of the stored value, so this is always a real
+  // transition even when an earlier test already changed the shared setting.
+  const target =
+    startA === "full_access" ? "workspace_autonomous" : "full_access";
+  const targetLabel = target === "full_access" ? "完全访问" : "沙箱自主";
 
   // Change it from window A through the settings page.
   await pageA.getByRole("button", { name: "设置", exact: true }).click();
@@ -158,17 +162,21 @@ test("changing the permission in one window reaches another within 2 seconds", a
   const panelA = settingsA.getByRole("tabpanel", { name: "权限" });
   // The radio is controlled by the async save, so click and await the result
   // instead of asserting the DOM state synchronously.
-  await panelA.getByRole("radio", { name: /受控/ }).click();
-  await expect(panelA.getByText(/已切换为受控/)).toBeVisible({ timeout: 5000 });
-  await expect(panelA.getByRole("radio", { name: /受控/ })).toBeChecked();
+  await panelA.getByRole("radio", { name: new RegExp(targetLabel) }).click();
+  await expect(
+    panelA.getByText(new RegExp(`已切换为${targetLabel}`)),
+  ).toBeVisible({ timeout: 5000 });
+  await expect(
+    panelA.getByRole("radio", { name: new RegExp(targetLabel) }),
+  ).toBeChecked();
 
   // Both windows converge within the 2-second bound.
   await expect
     .poll(() => modeA.getAttribute("value"), { timeout: 2000 })
-    .toBe("controlled");
+    .toBe(target);
   await expect
     .poll(() => modeB.getAttribute("value"), { timeout: 2000 })
-    .toBe("controlled");
+    .toBe(target);
 
   await first.close();
   await second.close();

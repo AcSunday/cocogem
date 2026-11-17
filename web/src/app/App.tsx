@@ -349,6 +349,9 @@ function WorkspaceApp({
     [permissions],
   );
   const mode = executionModeOf(settings);
+  // The plan-only switch is a per-turn lock, not a permission mode: it resets
+  // after a successful send and never touches the global epoch.
+  const [planOnly, setPlanOnly] = useState(false);
   const active = runs.some((run) => !terminal(run.status));
   const available = agents.filter((agent) => !agent.disabled);
   const newThreadMembers = [...available].sort(
@@ -1098,6 +1101,7 @@ function WorkspaceApp({
               : [],
             research_scope: "auto",
             retry_of_run_id: "",
+            plan_only: planOnly,
           };
       let pending = pendingSubmission.current.get(id);
       if (
@@ -1134,6 +1138,7 @@ function WorkspaceApp({
       setEvents([]);
       setLivenessByRun({});
       setSeededRunID("");
+      setPlanOnly(false);
       setArtifactRef(undefined);
       messageCursorRef.current = "";
       viewCursor.current = "";
@@ -1679,6 +1684,8 @@ function WorkspaceApp({
               // inert audit data and must never drive the Composer.
               executionMode={globalSettings.loading && !settings ? undefined : mode}
               onExecutionModeChange={changeExecutionMode}
+              planOnly={planOnly}
+              onPlanOnlyChange={setPlanOnly}
               error={error}
               onDismissError={() => setError("")}
               // One notice per accepted user turn; retries inside that turn

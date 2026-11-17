@@ -84,7 +84,7 @@ func piGateRequest(t *testing.T, root, endpoint string, decide func(model.Native
 	request.Model = "default"
 	request.Tools = nil
 	request.RequiredTools = nil
-	request.ExecutionMode = "project_autonomous"
+	request.ExecutionMode = "workspace_autonomous"
 	request.WorkspaceRoot = root
 	request.FirstResponseTimeout = 90 * time.Second
 	request.StallTimeout = 90 * time.Second

@@ -47,7 +47,7 @@ func TestWorkspacePolicyRoutesAreRetired(t *testing.T) {
 	if updated.ExecutionMode != w.ExecutionFullAccess || updated.PermissionEpoch != settings.PermissionEpoch+1 {
 		t.Fatalf("global permission change = %+v", updated)
 	}
-	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionControlled)}, map[string]string{"If-Match": fmt.Sprint(settings.Revision)}, 412, nil)
+	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionWorkspaceAutonomous)}, map[string]string{"If-Match": fmt.Sprint(settings.Revision)}, 412, nil)
 }
 
 func TestProjectInboxHTTPReceiptAndEvidenceBoundary(t *testing.T) {

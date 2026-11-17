@@ -517,6 +517,9 @@ type sandboxSpec struct {
 	// ExtraReads are exact outside roots a command may read but never write,
 	// such as this scope's read-only attachment inputs.
 	ExtraReads []string
+	// DenyWrites are exact paths that stay denied even when a parent subtree is
+	// writable, such as the source repository's hooks and branch refs.
+	DenyWrites []string
 }
 
 type sandboxPlan struct {

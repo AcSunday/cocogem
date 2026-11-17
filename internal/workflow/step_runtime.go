@@ -327,6 +327,12 @@ func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID stri
 			return "", errors.New("URL is outside the selected given-source research scope")
 		}
 	}
+	if x.step.ReadOnly && (name == "write_file" || name == "patch_file" || name == "run_command") {
+		// A read-only turn never asks and never runs an effect. It returns a
+		// deterministic refusal so the model can continue with read evidence
+		// instead of waiting for a prompt the user should not have to answer.
+		return "", errors.New("read_only_step: this step is analysis-only; file writes and side-effecting commands are refused, use read evidence and an implementation plan instead")
+	}
 	if name != "publish_artifact" {
 		if slices.Contains([]string{"write_file", "patch_file", "run_test", "run_command"}, name) {
 			x.mutated.Store(true)
@@ -336,10 +342,9 @@ func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID stri
 		// exchange area and never the command root for code work.
 		workDir := ""
 		if slices.Contains(x.allowed, "run_command") {
-			switch x.run.EffectiveExecutionMode {
-			case w.ExecutionFullAccess, w.ExecutionProjectAutonomous:
-				workDir = x.stepRoot()
-			}
+			// Both tiers start the command in the step root; the OS boundary
+			// decides what it may reach.
+			workDir = x.stepRoot()
 		}
 		scope := tools.Scope{Root: x.stepRoot(), WorkDir: workDir, ExecutionMode: x.run.EffectiveExecutionMode, Web: x.engine.Web, Capture: x.capture,
 			// The exchange area is explicit and separate from the code root.

@@ -181,7 +181,7 @@ it("changes the project execution mode before the coordinator chip", async () =>
   const change = vi.fn().mockResolvedValue(undefined);
   render(
     <Example
-      executionMode="controlled"
+      executionMode="workspace_autonomous"
       onExecutionModeChange={change}
       coordinator={{ name: "布偶猫", fallback: false }}
     />,
@@ -377,7 +377,7 @@ it("offers a member-specific retry above the input and preserves a draft when di
 
 it("lets users dismiss a failed execution-mode change and try again", async () => {
   const change = vi.fn().mockRejectedValue(new Error("权限模式保存失败"));
-  render(<Example executionMode="controlled" onExecutionModeChange={change} />);
+  render(<Example executionMode="workspace_autonomous" onExecutionModeChange={change} />);
   const user = userEvent.setup();
   await chooseOption(user, screen.getByRole("combobox", { name: "权限模式" }), "full_access");
   expect(await screen.findByRole("alert")).toHaveTextContent("权限模式保存失败");
@@ -571,12 +571,12 @@ it("flips and clamps the tooltip so the composer edge cannot clip it", async () 
 it("shows only the permission select value without a visible 权限 prefix", () => {
   render(
     <Example
-      executionMode="controlled"
+      executionMode="workspace_autonomous"
       onExecutionModeChange={() => {}}
     />,
   );
   const mode = screen.getByRole("combobox", { name: "权限模式" });
-  expect(mode).toHaveTextContent("受控");
+  expect(mode).toHaveTextContent("沙箱自主");
   expect(mode.querySelector("svg")).toBeInTheDocument();
   expect(screen.queryByText("权限")).not.toBeInTheDocument();
 });

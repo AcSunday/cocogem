@@ -19,7 +19,7 @@ func TestSettingsPersistAcrossReopen(t *testing.T) {
 		if err != nil || value.Revision != 1 || value.DefaultCoordinatorID != "" || value.RetentionDays != w.DefaultRetentionDays {
 			t.Fatalf("unset settings: %+v, %v", value, err)
 		}
-		if value.ExecutionMode != w.ExecutionProjectAutonomous || value.PermissionEpoch != 1 {
+		if value.ExecutionMode != w.ExecutionWorkspaceAutonomous || value.PermissionEpoch != 1 {
 			t.Fatalf("unset execution policy: %+v", value)
 		}
 		return nil
@@ -31,7 +31,7 @@ func TestSettingsPersistAcrossReopen(t *testing.T) {
 		DefaultCoordinatorID: "agent-a",
 		RetentionDays:        w.DefaultRetentionDays,
 		CollaborationBudget:  w.DefaultBudgetPolicy(),
-		ExecutionMode:        w.ExecutionControlled,
+		ExecutionMode:        w.ExecutionWorkspaceAutonomous,
 		PermissionEpoch:      3,
 	}
 	if err := s.Write(t.Context(), func(tx *Tx) error { return tx.SaveSettings(want) }); err != nil {

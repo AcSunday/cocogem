@@ -23,7 +23,7 @@ import (
 
 func seedMultiMemberRun(t *testing.T, db *store.Store, root string, targets []string, taskIntake bool) (w.Run, []w.Agent) {
 	t.Helper()
-	ws := w.Workspace{ID: w.NewID(), Name: "a2a-project", Root: root, Revision: 1, ExecutionMode: w.ExecutionProjectAutonomous}
+	ws := w.Workspace{ID: w.NewID(), Name: "a2a-project", Root: root, Revision: 1, ExecutionMode: w.ExecutionWorkspaceAutonomous}
 	members := []w.Agent{
 		{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "协调者", Handle: "coord", Model: "default", Executor: "claude", Tools: w.StandardToolCatalog(), Revision: 1},
 		{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "执行者", Handle: "exec", Model: "default", Executor: "claude", Tools: w.StandardToolCatalog(), Revision: 1},
@@ -113,7 +113,7 @@ func TestSessionResumePreservesReviewerHandoffAcrossRounds(t *testing.T) {
 	run, members := seedMultiMemberRun(t, db, root, nil, false)
 	attachSessionTask(t, db, &run)
 	service := project.New(db)
-	if _, err := setGlobalMode(t, db, service, w.ExecutionProjectAutonomous); err != nil {
+	if _, err := setGlobalMode(t, db, service, w.ExecutionWorkspaceAutonomous); err != nil {
 		t.Fatal(err)
 	}
 
@@ -215,7 +215,7 @@ func TestSingleTurnPromoteAndRelayA2AConvergesInOneRound(t *testing.T) {
 
 	run, members := seedMultiMemberRun(t, db, root, nil, true)
 	service := project.New(db)
-	if _, err := setGlobalMode(t, db, service, w.ExecutionProjectAutonomous); err != nil {
+	if _, err := setGlobalMode(t, db, service, w.ExecutionWorkspaceAutonomous); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
@@ -337,7 +337,7 @@ func TestRelayA2APingPongWhenReviewerRequestsChanges(t *testing.T) {
 	run, members := seedMultiMemberRun(t, db, root, nil, false)
 	attachSessionTask(t, db, &run)
 	service := project.New(db)
-	if _, err := setGlobalMode(t, db, service, w.ExecutionProjectAutonomous); err != nil {
+	if _, err := setGlobalMode(t, db, service, w.ExecutionWorkspaceAutonomous); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
@@ -442,7 +442,7 @@ func TestReviewerApprovalConvergesWithoutAnotherRound(t *testing.T) {
 	defer db.Close()
 	run, members := seedMultiMemberRun(t, db, root, nil, false)
 	service := project.New(db)
-	if _, err := setGlobalMode(t, db, service, w.ExecutionProjectAutonomous); err != nil {
+	if _, err := setGlobalMode(t, db, service, w.ExecutionWorkspaceAutonomous); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
@@ -525,7 +525,7 @@ func TestReworkLimitStopsTheThirdRelayRound(t *testing.T) {
 	defer db.Close()
 	run, members := seedMultiMemberRun(t, db, root, nil, false)
 	service := project.New(db)
-	if _, err := setGlobalMode(t, db, service, w.ExecutionProjectAutonomous); err != nil {
+	if _, err := setGlobalMode(t, db, service, w.ExecutionWorkspaceAutonomous); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {

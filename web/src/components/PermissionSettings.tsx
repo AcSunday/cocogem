@@ -23,9 +23,8 @@ const cx = scoped(base, controls, settingsStyles);
 
 /** One-line user-facing boundary per mode; never shows epoch/grant internals. */
 export const modeSummaries: Record<ExecutionMode, string> = {
-  controlled: executionModes[0].summary,
-  project_autonomous: executionModes[1].summary,
-  full_access: executionModes[2].summary,
+  workspace_autonomous: executionModes[0].summary,
+  full_access: executionModes[1].summary,
 };
 
 /**
@@ -64,11 +63,9 @@ export function PermissionSettings({
     try {
       await onExecutionMode(mode);
       setSaved(
-        mode === "controlled"
-          ? "已切换为受控；后续派发和工具准入使用新边界。"
-          : mode === "full_access"
-            ? "已切换为完全访问；新执行使用原生能力。"
-            : "已切换为项目内自主；新执行在项目内自主、项目外申请。",
+        mode === "full_access"
+          ? "已切换为完全访问；新执行使用原生能力。"
+          : "已切换为沙箱自主；工作台内零弹窗，越界才申请。",
       );
     } catch (failure) {
       setSaveError(errorText(failure));

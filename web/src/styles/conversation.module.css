@@ -1134,3 +1134,27 @@
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+
+/* Plan-only turn switch: a per-turn read-only lock, never a permission mode. */
+.plan-only-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.plan-only-chip[aria-pressed="true"] {
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.plan-only-chip:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}

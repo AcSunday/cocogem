@@ -11,7 +11,7 @@ import (
 func runningTaskFixture(t *testing.T, db *store.Store) (*Service, w.Thread, TaskView, w.Run) {
 	t.Helper()
 	service := New(db)
-	ws := w.Workspace{ID: "wake-ws", Name: "wake", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionControlled}
+	ws := w.Workspace{ID: "wake-ws", Name: "wake", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionWorkspaceAutonomous}
 	th := w.Thread{ID: "wake-thread", WorkspaceID: ws.ID, CoordinatorID: "owner", AgentIDs: []string{"owner"}, Revision: 1, UpdatedAt: w.Now()}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {

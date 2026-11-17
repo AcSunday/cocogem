@@ -46,7 +46,7 @@ func (m *mockEgress) count() int {
 func externalJourney(t *testing.T, egress tools.Egress) (*hostApprovalJourney, *stepRuntime, *mockEgress) {
 	t.Helper()
 	db, service, th, member, root := newFreeTaskFixture(t)
-	mode := w.ExecutionControlled
+	mode := w.ExecutionWorkspaceAutonomous
 	var current w.Settings
 	if err := db.Read(t.Context(), func(tx *store.Tx) error {
 		var err error

@@ -101,7 +101,7 @@ it("keeps workspace details without any permission or budget editor", async () =
         revision: 1,
         created_at: "",
         skill_ids: [],
-        execution_mode: "controlled",
+        execution_mode: "workspace_autonomous",
       }}
       system={system}
       close={() => {}}

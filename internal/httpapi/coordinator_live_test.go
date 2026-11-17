@@ -137,7 +137,7 @@ func checkLiveCoordinator(t *testing.T, profile liveCoordinatorProfile) {
 	api := newDeliveryAPIWithModel(t, area, db, engine, provider)
 	var settings w.Settings
 	api.call("GET", "/api/v1/settings", nil, nil, 200, &settings)
-	if settings.ExecutionMode != w.ExecutionProjectAutonomous {
+	if settings.ExecutionMode != w.ExecutionWorkspaceAutonomous {
 		t.Fatalf("expected project-autonomous execution, got %q", settings.ExecutionMode)
 	}
 	wait := func(run w.Run, phase string) []w.Step {

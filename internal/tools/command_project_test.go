@@ -29,7 +29,7 @@ func TestProjectAutonomousCommandBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := Scope{Root: root, WorkDir: work, ExecutionMode: w.ExecutionProjectAutonomous}
+	scope := Scope{Root: root, WorkDir: work, ExecutionMode: w.ExecutionWorkspaceAutonomous}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestProjectAutonomousApprovedOutsideWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := Scope{Root: root, WorkDir: work, ExecutionMode: w.ExecutionProjectAutonomous, ApprovedRoots: []string{outside}}
+	scope := Scope{Root: root, WorkDir: work, ExecutionMode: w.ExecutionWorkspaceAutonomous, ApprovedRoots: []string{outside}}
 	if _, err := ExecuteCommand(context.Background(), raw, scope); err != nil {
 		t.Fatalf("approved outside write failed: %v", err)
 	}
@@ -81,14 +81,15 @@ func TestProjectAutonomousApprovedOutsideWrite(t *testing.T) {
 	}
 }
 
-// TestControlledCommandRequiresApprovalOrFullAccess proves controlled mode never
-// silently executes a command.
-func TestControlledCommandRequiresApprovalOrFullAccess(t *testing.T) {
+// TestUnknownModeCommandRequiresApproval is the fail-closed regression: an
+// unknown or legacy mode never silently executes a command. The autonomous tier
+// itself is covered by the sandbox boundary tests.
+func TestUnknownModeCommandRequiresApproval(t *testing.T) {
 	root := t.TempDir()
 	raw, _ := json.Marshal(map[string]any{"argv": []string{"/bin/echo", "hi"}})
-	scope := Scope{Root: root, WorkDir: root, ExecutionMode: w.ExecutionControlled}
+	scope := Scope{Root: root, WorkDir: root, ExecutionMode: "legacy_controlled"}
 	if _, err := ExecuteCommand(context.Background(), raw, scope); err == nil {
-		t.Fatal("controlled mode executed a command without approval")
+		t.Fatal("an unknown mode executed a command without approval")
 	}
 }
 
@@ -121,7 +122,7 @@ func TestProjectCommandReadsIOInputsAndWritesOnlyOutputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := Scope{
-		Root: root, WorkDir: root, ExecutionMode: w.ExecutionProjectAutonomous,
+		Root: root, WorkDir: root, ExecutionMode: w.ExecutionWorkspaceAutonomous,
 		IOInputs: inputs, IOOutputs: outputs,
 	}
 	// Reading the attachment and writing the deliverable both succeed. The

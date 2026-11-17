@@ -31,7 +31,7 @@ const settings = {
     fix_rounds: 3,
     no_progress_failures: 2,
   },
-  execution_mode: "project_autonomous",
+  execution_mode: "workspace_autonomous",
   permission_epoch: 9,
 } satisfies Settings;
 
@@ -49,9 +49,8 @@ it("describes a permission change in plain language, never internal epochs", () 
     expect(text).not.toContain(internal);
   // The plain consequence is stated instead.
   expect(text).toContain("之前额外允许的操作和本会话持续授权都会失效");
-  // The three user-facing mode names remain.
-  expect(screen.getByText("受控")).toBeVisible();
-  expect(screen.getByText("项目内自主")).toBeVisible();
+  // The two user-facing two-tier mode names remain.
+  expect(screen.getByText("沙箱自主")).toBeVisible();
   expect(screen.getByText("完全访问")).toBeVisible();
 });
 

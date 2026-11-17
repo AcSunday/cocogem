@@ -15,7 +15,7 @@ func setup(t *testing.T) (*store.Store, *Service, w.Thread) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	ws := w.Workspace{ID: "ws", Name: "项目", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionControlled}
+	ws := w.Workspace{ID: "ws", Name: "项目", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionWorkspaceAutonomous}
 	th := w.Thread{ID: "th", WorkspaceID: ws.ID, Title: "任务", CoordinatorID: "owner", AgentIDs: []string{"owner"}, Revision: 1, UpdatedAt: w.Now()}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {
@@ -78,7 +78,7 @@ func TestTaskRevisionKeepsHistoryAndRejectsStaleCompletion(t *testing.T) {
 func TestTaskBoardSpansWorkspaces(t *testing.T) {
 	db, service, th := setup(t)
 	create(t, service, th)
-	secondWS := w.Workspace{ID: "ws-two", Name: "第二个项目", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionControlled}
+	secondWS := w.Workspace{ID: "ws-two", Name: "第二个项目", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionWorkspaceAutonomous}
 	secondThread := w.Thread{ID: "th-two", WorkspaceID: secondWS.ID, Title: "另一任务", CoordinatorID: "owner", AgentIDs: []string{"owner"}, Revision: 1, UpdatedAt: w.Now()}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(secondWS); err != nil {

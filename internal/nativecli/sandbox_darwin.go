@@ -26,6 +26,7 @@ type nativeSandbox struct {
 	writeRoots   []string
 	readRoots    []string
 	readOnlyDirs []string
+	denyWrites   []string
 	proxyURL     string
 	proxyAddr    string
 	caPath       string
@@ -109,6 +110,15 @@ func (s *nativeSandbox) addRoots(roots ...string) {
 // attachments live in a read-only exchange area, so a native command can inspect
 // an original but can never tamper with it, and the deny rule is emitted last so
 // it overrides the task directory's write allow.
+func (s *nativeSandbox) addDenyWrites(paths ...string) {
+	for _, path := range paths {
+		if path == "" || !filepath.IsAbs(path) {
+			continue
+		}
+		s.denyWrites = appendUnique(s.denyWrites, path)
+	}
+}
+
 func (s *nativeSandbox) addReadOnlyRoot(root string) {
 	if s == nil || root == "" {
 		return
@@ -215,6 +225,9 @@ func (s *nativeSandbox) profile(name string, approvedRead, approvedWrite []strin
 		rules.WriteString("(deny file-write* (subpath \"/\"))\n")
 	}
 	for _, path := range s.readOnlyDirs {
+		fmt.Fprintf(&rules, "(deny file-write* (literal %s) (subpath %s))\n", seatbeltQuote(path), seatbeltQuote(path))
+	}
+	for _, path := range s.denyWrites {
 		fmt.Fprintf(&rules, "(deny file-write* (literal %s) (subpath %s))\n", seatbeltQuote(path), seatbeltQuote(path))
 	}
 	for _, path := range s.denyPaths {

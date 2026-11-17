@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -227,4 +228,46 @@ func ActionForNativeTool(name string) string {
 	default:
 		return "read"
 	}
+}
+
+// ActionLevel orders the capability classes for directory-scope grants: a
+// read grant never authorizes a write or command, while a write/execute grant
+// also covers reads inside the approved subtree.
+func ActionLevel(action string) int {
+	switch action {
+	case "read", "native_read", "network":
+		return 1
+	case "write", "run_test", "publish_artifact", "external", "execute", "native_write", "native_execute":
+		return 2
+	}
+	return 0
+}
+
+// GrantCoversAction reports whether one granted action level covers the
+// requested action. An unknown action is never covered.
+func GrantCoversAction(granted, requested string) bool {
+	grantedLevel, requestedLevel := ActionLevel(granted), ActionLevel(requested)
+	return grantedLevel > 0 && requestedLevel > 0 && grantedLevel >= requestedLevel
+}
+
+// BroadDirectoryScopes are roots a directory grant must never name: a click on
+// "the containing directory" is only meaningful for a bounded subtree.
+func BroadDirectoryScope(path string) bool {
+	if path == "" || path == "/" {
+		return true
+	}
+	cleaned := filepath.Clean(path)
+	if cleaned == "/" || cleaned == "/tmp" || cleaned == "/private/tmp" || cleaned == "/Users" || cleaned == "/home" {
+		return true
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" && cleaned == home {
+		return true
+	}
+	// A first-level directory (/Users/<name>) is the user's whole home, which
+	// is equally broad; a real project subtree is deeper.
+	parent := filepath.Dir(cleaned)
+	if parent == "/" || parent == "/Users" || parent == "/home" || parent == "/tmp" || parent == "/private/tmp" {
+		return true
+	}
+	return false
 }

@@ -18,6 +18,7 @@ type nativeSandbox struct {
 	writeRoots   []string
 	readRoots    []string
 	readOnlyDirs []string
+	denyWrites   []string
 	proxyURL     string
 	proxyAddr    string
 	caPath       string
@@ -34,6 +35,8 @@ func newNativeSandbox(string) (*nativeSandbox, error) {
 func (s *nativeSandbox) addRoots(...string) {}
 
 func (s *nativeSandbox) addReadOnlyRoot(string) {}
+
+func (s *nativeSandbox) addDenyWrites(...string) {}
 
 func (s *nativeSandbox) env() map[string]string { return nil }
 

@@ -98,3 +98,23 @@ func TestDarwinSensitiveRegexMatchesSharedPolicy(t *testing.T) {
 		t.Fatal("sandbox regex root is not escaped")
 	}
 }
+
+// TestDarwinProfileAllowsPlanOnlyAndLocalLoopback is the A09/A10 sandbox
+// regression: a read-only analysis turn and a project-local command can use
+// /tmp and loopback, and an out-of-tree write is still denied by the kernel.
+func TestDarwinProfileAllowsPlanOnlyAndLocalLoopback(t *testing.T) {
+	spec := sandboxSpec{Root: "/tmp/root", Temp: "/tmp/temp"}
+	profile := darwinProfile(spec)
+	if !strings.Contains(profile, `(subpath "/tmp/root")`) {
+		t.Fatal("the project root is not readable")
+	}
+	if !strings.Contains(profile, `(subpath "/tmp/temp")`) {
+		t.Fatal("the private temp dir is not writable")
+	}
+	// A host-owned egress proxy loopback is already scoped by the native
+	// sandbox, not by this profile; here the invariant is that /tmp is not a
+	// blanket write allow.
+	if strings.Contains(profile, `(allow file-write* (subpath "/tmp"))`) {
+		t.Fatal("all of /tmp was writable instead of the private temp dir")
+	}
+}

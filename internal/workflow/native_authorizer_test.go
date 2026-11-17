@@ -124,11 +124,13 @@ func TestNativeAuthorizerRejectsStalePolicyEpoch(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	controlled := w.ExecutionControlled
-	if _, err := j.service.UpdateSettings(t.Context(), current.Revision, project.SettingsPatch{ExecutionMode: &controlled}); err != nil {
+	// The two-tier policy only has one real boundary change: autonomous to full
+	// access. Switching to full access and back bumps the epoch twice, so the
+	// Run's frozen epoch is two behind the live policy.
+	full := w.ExecutionFullAccess
+	if _, err := j.service.UpdateSettings(t.Context(), current.Revision, project.SettingsPatch{ExecutionMode: &full}); err != nil {
 		t.Fatal(err)
 	}
-	// Bump again so the Run's frozen epoch is two behind.
 	if err := j.db.Read(t.Context(), func(tx *store.Tx) error {
 		var err error
 		current, err = tx.Settings()
@@ -136,8 +138,8 @@ func TestNativeAuthorizerRejectsStalePolicyEpoch(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	projectAutonomous := w.ExecutionProjectAutonomous
-	if _, err := j.service.UpdateSettings(t.Context(), current.Revision, project.SettingsPatch{ExecutionMode: &projectAutonomous}); err != nil {
+	autonomous := w.ExecutionWorkspaceAutonomous
+	if _, err := j.service.UpdateSettings(t.Context(), current.Revision, project.SettingsPatch{ExecutionMode: &autonomous}); err != nil {
 		t.Fatal(err)
 	}
 	input, err := json.Marshal(map[string]any{"file_path": j.outside})
@@ -292,7 +294,7 @@ func TestFreeFileTaskAutonomousNativeWriteRuns(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	mode := w.ExecutionProjectAutonomous
+	mode := w.ExecutionWorkspaceAutonomous
 	if _, err := service.UpdateSettings(t.Context(), current.Revision, project.SettingsPatch{ExecutionMode: &mode}); err != nil {
 		t.Fatal(err)
 	}
@@ -380,13 +382,15 @@ func TestFreeFileTaskAutonomousNativeWriteRuns(t *testing.T) {
 	_ = service2
 }
 
-// TestControlledFreeTaskCanRequestCommand proves a controlled free task that never
-// named "execute" can still ask for one concrete command (mode-level requestable
-// capability), while an in-project file write stays governed by the task ceiling.
-func TestControlledFreeTaskCanRequestCommand(t *testing.T) {
+// TestAutonomousFreeTaskCanRequestOutsideCommand proves a free task that never
+// named "execute" can still ask for one concrete command outside the workspace
+// (mode-level requestable capability), while an in-project file write stays
+// governed by the task ceiling.
+func TestAutonomousFreeTaskCanRequestOutsideCommand(t *testing.T) {
 	db, service, th, member, root := newFreeTaskFixture(t)
-	// The controlled mode is the one where a command always needs a decision.
-	mode := w.ExecutionControlled
+	// The autonomous tier runs workspace-scoped commands without a prompt, so an
+	// outside target is the case that still needs a decision.
+	mode := w.ExecutionWorkspaceAutonomous
 	var current w.Settings
 	if err := db.Read(t.Context(), func(tx *store.Tx) error {
 		var err error
@@ -430,18 +434,19 @@ func TestControlledFreeTaskCanRequestCommand(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	outside := filepath.Join(filepath.Dir(root), "outside-target.txt")
 	decision, err := service.CheckToolAccess(t.Context(), project.AccessRequest{
 		Run: run, StepID: "s", Attempt: "a", CallID: "cmd-call",
-		Name: "run_command", Arguments: json.RawMessage(`{"argv":["/bin/echo","hi"]}`), Scope: w.NormalizeScope(root, root),
+		Name: "run_command", Arguments: json.RawMessage(`{"argv":["/bin/echo","hi"]}`), Scope: w.NormalizeScope(root, outside),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if decision.Allowed {
-		t.Fatal("controlled mode auto-ran a command")
+		t.Fatal("an outside command was auto-run")
 	}
 	if !decision.Requestable {
-		t.Fatalf("controlled free task could not request a command: %+v", decision)
+		t.Fatalf("an autonomous free task could not request a command: %+v", decision)
 	}
 }
 

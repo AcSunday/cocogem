@@ -140,3 +140,23 @@ func TestUnknownArtifactRequiredTypeRejected(t *testing.T) {
 		t.Fatalf("mismatched required type accepted: %v", err)
 	}
 }
+
+// TestPlanOnlyTurnsTheSingleRecipientStepReadOnly is the A09 regression: an
+// explicit plan-only turn inspects and proposes without acquiring the write
+// candidate, and it never changes the global mode or the epoch.
+func TestPlanOnlyTurnsTheSingleRecipientStepReadOnly(t *testing.T) {
+	steps, err := Plan("run", w.RunInput{Message: "先给方案，别改代码", Targets: []string{"one"}, PlanOnly: true}, planAgents())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 1 || !steps[0].ReadOnly {
+		t.Fatalf("plan-only plan = %+v", steps)
+	}
+	if !strings.Contains(steps[0].Instruction, "read-only") {
+		t.Fatalf("plan-only instruction must state the read-only boundary: %q", steps[0].Instruction)
+	}
+	_, err = Plan("run", w.RunInput{Message: "实现它", Targets: []string{"one"}}, planAgents())
+	if err != nil {
+		t.Fatal(err)
+	}
+}

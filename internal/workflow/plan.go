@@ -32,7 +32,9 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 	}
 	seen := map[string]bool{}
 	out := make([]w.Step, 0, len(in.Targets))
-	readOnly := len(in.Targets) > 1
+	// Multi-recipient fan-out and an explicit Plan-Only turn are both read-only:
+	// they inspect the bound project and cannot modify it.
+	readOnly := len(in.Targets) > 1 || in.PlanOnly
 	for _, id := range in.Targets {
 		if seen[id] {
 			return nil, errors.New("duplicate recipient")
@@ -43,8 +45,10 @@ func Plan(runID string, in w.RunInput, agents []w.Agent) ([]w.Step, error) {
 			return nil, fmt.Errorf("selected member %s is unavailable", id)
 		}
 		instruction := "Answer the user's task directly. Use the tools enabled for this step, cite captured sources, and state limitations honestly."
-		if readOnly {
+		if len(in.Targets) > 1 {
 			instruction = "Give your own independent answer to the original user task. Other addressed members are answering in parallel: you cannot see their replies and must not assume or restate them. This pass is read-only; do not modify files or run side-effecting commands. Use read-only evidence and state assumptions, tradeoffs and uncertainties."
+		} else if in.PlanOnly {
+			instruction = "This turn is analysis-only (仅规划). Inspect the code and evidence, then answer with findings, a concrete implementation plan and the risks. This pass is read-only: file writes and side-effecting commands are refused by the host, so do not attempt them; base the plan on read evidence and name what still needs verification."
 		}
 		out = append(out, w.Step{ID: w.NewID(), RunID: runID, AgentID: id, AgentName: a.DisplayName, Role: "responder", Instruction: instruction, Status: "pending", ReadOnly: readOnly})
 	}

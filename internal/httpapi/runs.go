@@ -127,7 +127,9 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 			return w.ErrConflict
 		}
 		in.Targets = route.Targets
-		writeBranch := ws.Root != ""
+		// A Plan-Only turn never derives a write candidate; it reads the bound
+		// project or its current unapplied candidate and cannot modify either.
+		writeBranch := ws.Root != "" && !in.PlanOnly
 		var policy *w.ExecutionPolicy
 		if s.engine != nil {
 			limits := s.engine.Limits

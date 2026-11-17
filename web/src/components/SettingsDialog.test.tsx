@@ -33,7 +33,7 @@ const savedSettings = (value: SettingsInput): Settings => ({
   default_coordinator_id: value.default_coordinator_id ?? "",
   retention_days: value.retention_days ?? undefined,
   // Saving collaboration must never move the permission boundary.
-  execution_mode: "project_autonomous",
+  execution_mode: "workspace_autonomous",
   permission_epoch: 1,
 });
 

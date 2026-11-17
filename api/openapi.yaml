@@ -3460,6 +3460,9 @@
                   "message": {
                     "type": "string"
                   },
+                  "plan_only": {
+                    "type": "boolean"
+                  },
                   "research_scope": {
                     "type": "string"
                   },
@@ -7673,6 +7676,9 @@
               "message": {
                 "type": "string"
               },
+              "plan_only": {
+                "type": "boolean"
+              },
               "research_scope": {
                 "description": "auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior.",
                 "type": "string"
@@ -8007,6 +8013,9 @@
           "message": {
             "type": "string"
           },
+          "plan_only": {
+            "type": "boolean"
+          },
           "research_scope": {
             "description": "auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior.",
             "type": "string"
@@ -8080,6 +8089,9 @@
           },
           "message": {
             "type": "string"
+          },
+          "plan_only": {
+            "type": "boolean"
           },
           "research_scope": {
             "description": "auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior.",
@@ -8762,6 +8774,9 @@
                   },
                   "message": {
                     "type": "string"
+                  },
+                  "plan_only": {
+                    "type": "boolean"
                   },
                   "research_scope": {
                     "type": "string"
@@ -11294,6 +11309,9 @@
                     "message": {
                       "type": "string"
                     },
+                    "plan_only": {
+                      "type": "boolean"
+                    },
                     "research_scope": {
                       "type": "string"
                     },
@@ -13529,6 +13547,9 @@
                     },
                     "message": {
                       "type": "string"
+                    },
+                    "plan_only": {
+                      "type": "boolean"
                     },
                     "research_scope": {
                       "type": "string"

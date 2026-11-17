@@ -15,6 +15,7 @@ import (
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -152,7 +153,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	if observe == nil || execute == nil {
 		return errors.New("native CLI requires execution and observation handlers")
 	}
-	if request.ExecutionMode == "project_autonomous" && request.AuthorizeNative != nil {
+	if request.ExecutionMode == "workspace_autonomous" && request.AuthorizeNative != nil {
 		switch request.Executor {
 		case "gemini":
 			return p.RunGeminiNative(ctx, request, execute, observe)
@@ -248,7 +249,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	}
 	// Every runtime file (MCP config, settings, model catalog, CODEX_HOME and
 	// Gemini policies) lives under .cocogem. Managed mode preserves only this
-	// server-owned directory; controlled mode removes it after the invocation.
+	// server-owned directory; the autonomous run removes it after the invocation.
 	workdir := filepath.Join(base, ".cocogem")
 	if err := os.MkdirAll(workdir, 0700); err != nil {
 		return errors.New("create isolated CLI directory")
@@ -273,16 +274,16 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		time.AfterFunc(30*time.Second, func() { _ = os.Remove(tokenFile) })
 	}
 	fullAccess := request.ExecutionMode == "full_access"
-	interactive := request.Executor == "claude" && (request.ExecutionMode == "project_autonomous" || request.ExecutionMode == "full_access" && request.AuthorizeNative != nil)
-	boundary := (request.Executor == "claude" || request.Executor == "opencode") && request.ExecutionMode == "project_autonomous"
-	codexAppServer := request.Executor == "codex" && (request.ExecutionMode == "project_autonomous" || request.ExecutionMode == "full_access") && request.AuthorizeNative != nil
+	interactive := request.Executor == "claude" && (request.ExecutionMode == "workspace_autonomous" || request.ExecutionMode == "full_access" && request.AuthorizeNative != nil)
+	boundary := (request.Executor == "claude" || request.Executor == "opencode") && request.ExecutionMode == "workspace_autonomous"
+	codexAppServer := request.Executor == "codex" && (request.ExecutionMode == "workspace_autonomous" || request.ExecutionMode == "full_access") && request.AuthorizeNative != nil
 	var sandbox *nativeSandbox
 	var approver *nativeApprover
 	var dangerous []string
 	var codexRoots []string
 	codexProfile := ""
 	codexThreadConfig := map[string]any{}
-	if codexAppServer && request.ExecutionMode == "project_autonomous" && !codexNamedProfileSupported(adapter.Version) {
+	if codexAppServer && request.ExecutionMode == "workspace_autonomous" && !codexNamedProfileSupported(adapter.Version) {
 		// The old exec-json baseline proves only read-only execution. Named
 		// filesystem profiles and their explicit deny semantics need the newer
 		// app-server protocol; an unknown version must not fall back to a broad
@@ -293,7 +294,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			return err
 		}
 	}
-	if codexAppServer && request.ExecutionMode == "project_autonomous" {
+	if codexAppServer && request.ExecutionMode == "workspace_autonomous" {
 		// view_image reads through the named sandbox profile but produces no
 		// per-call host approval, so it cannot satisfy live role/epoch
 		// revalidation. Keep the exact host file tools available instead.
@@ -333,6 +334,12 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			sandbox.addRoots(request.WorkspaceRoot, request.WorkingDirectory)
 			// Uploaded originals stay readable but never writable.
 			sandbox.addReadOnlyRoot(request.IOInputs)
+			// A candidate worktree may lock its own git index, but the source
+			// repository's hooks, config and branch refs stay write-denied.
+			if gitDir, _ := tools.WorktreeMeta(request.WorkspaceRoot); gitDir != "" {
+				sandbox.addRoots(gitDir)
+				sandbox.addDenyWrites(tools.GitMetadataDenies(request.WorkspaceRoot)...)
+			}
 			proxy, proxyErr := newEgressProxy(func(host, method string) {
 				_ = gate.notice("native_egress_blocked", "sandboxed command attempted "+method+" "+host+"; arbitrary external writes are not authorized")
 			})
@@ -366,8 +373,14 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			}
 		}
 	}
-	if codexAppServer && request.ExecutionMode == "project_autonomous" {
+	if codexAppServer && request.ExecutionMode == "workspace_autonomous" {
 		codexRoots = codexNativeRoots(request.WorkspaceRoot, request.WorkingDirectory)
+		if gitDir, _ := tools.WorktreeMeta(request.WorkspaceRoot); gitDir != "" {
+			// The candidate's own git index is writable; hooks/config/refs of the
+			// source repository are added as explicit denies below.
+			codexRoots = codexNativeRoots(append(codexRoots, gitDir)...)
+			dangerous = append(dangerous, tools.GitMetadataDenies(request.WorkspaceRoot)...)
+		}
 		if configInsideRoot(request.WorkspaceRoot, workdir) || configInsideRoot(request.WorkingDirectory, workdir) {
 			codexAppServer = false
 			request.NativeTools = withoutNativeFileEffectTools(request.NativeTools)
@@ -406,9 +419,9 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			}
 		}
 	}
-	if !interactive && request.ExecutionMode == "project_autonomous" && request.Executor == "claude" {
+	if !interactive && request.ExecutionMode == "workspace_autonomous" && request.Executor == "claude" {
 		// Keep read-only native tools only when the OS boundary is unavailable.
-		files, web = sanitizeExecutionNativeTools(request.Executor, request.NativeTools, request.WorkspaceRoot, "controlled")
+		files, web = sanitizeExecutionNativeTools(request.Executor, request.NativeTools, request.WorkspaceRoot, "workspace_autonomous")
 	}
 	if gate.trustedNative && request.Executor == "claude" {
 		files = []string{nativeRead, nativeGlob, nativeGrep, nativeBash, nativeWrite, nativeEdit}
@@ -462,7 +475,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		gate.approver = approver
 		gate.nativeBoundary = true
 	}
-	if request.Executor == "opencode" && (request.ExecutionMode == "project_autonomous" || request.ExecutionMode == "full_access") && request.AuthorizeNative != nil && (sandbox != nil || request.ExecutionMode == "full_access") {
+	if request.Executor == "opencode" && (request.ExecutionMode == "workspace_autonomous" || request.ExecutionMode == "full_access") && request.AuthorizeNative != nil && (sandbox != nil || request.ExecutionMode == "full_access") {
 		approver = newNativeApprover(gate, live, request, adapter.ID, sandbox)
 		approver.setDangerousPaths(dangerous)
 		gate.nativeBoundary = true
@@ -581,10 +594,16 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	} else {
 		args = claudeExecutionArgs(configPath, settingsPath, nativeNames, request)
 	}
-	if request.Executor == "claude" && managed {
-		// Persistent sessions belong to Cocogem, not to the user's interactive
-		// terminal. Reusing that config root could resume an unrelated session.
+	if request.Executor == "claude" && !managedNativeSession(request) {
+		// A disposable run must not appear in the user's native history list.
+		// The scoped MCP settings still come from this private config dir; only
+		// the resumable state root is the CLI's own home when a session is
+		// managed. A plan-only non-managed turn keeps the user's own root too,
+		// because its read-only evidence should remain inspectable.
 		options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": configDir})
+	}
+	if nativeState := nativeStateRoot(request.Executor); nativeState != "" && request.Executor == "claude" && managedNativeSession(request) && !request.EphemeralSession {
+		options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": nativeState})
 	}
 	if request.Executor == "claude" && request.ThinkingLevel != "" {
 		args = append(args, "--effort", request.ThinkingLevel)

@@ -295,7 +295,7 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 				break
 			}
 			// Outside the gated adapter a CLI-native tool outside the MCP server
-			// is still a protocol violation (the controlled policy denies it).
+			// is still a protocol violation (the autonomous policy denies it).
 			if gateAliasesFor(gate) == nil && !gate.trustedNative {
 				return newFailure(FailureProtocol, "native CLI requested an unapproved native tool: %s", safeToken(event.ToolName))
 			}

@@ -51,6 +51,10 @@ func darwinProfile(spec sandboxSpec) string {
 	// The scope's attachment inputs are an explicit read-only allow; they are
 	// never a write root, so a delivered file can never be silently replaced.
 	readPaths = append(readPaths, spec.ExtraReads...)
+	// An approved scope may name one exact file, not only a directory subtree.
+	// `subpath` alone would deny that file itself.
+	readLiterals := append([]string{}, spec.ExtraReads...)
+	readLiterals = append(readLiterals, spec.ExtraWrites...)
 	execPaths := []string{"/bin/sh", "/bin/bash", "/usr/bin/env", spec.Root, spec.Temp, spec.Toolchain.GoRoot, spec.Toolchain.NPMRoot, spec.Toolchain.NodePath}
 	if len(spec.Toolchain.Command) > 0 {
 		readPaths = append(readPaths, spec.Toolchain.Command[0])
@@ -65,15 +69,33 @@ func darwinProfile(spec sandboxSpec) string {
 	for _, path := range uniqueExistingPaths(readPaths) {
 		out.WriteString(" (subpath " + sbplString(path) + ")")
 	}
+	for _, path := range uniqueExistingPaths(readLiterals) {
+		out.WriteString(" (literal " + sbplString(path) + ")")
+	}
 	out.WriteString(")\n")
 	out.WriteString("(allow file-write*")
 	// Writing devices other than /dev/null is neither needed nor allowed.
 	for _, path := range append([]string{spec.Root, spec.Temp}, spec.ExtraWrites...) {
-		if path != "" {
-			out.WriteString(" (subpath " + sbplString(path) + ")")
+		if path == "" {
+			continue
+		}
+		out.WriteString(" (subpath " + sbplString(path) + ")")
+		// An approved exact file is writable by itself; a directory scope is
+		// already covered by the subpath rule above.
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			out.WriteString(" (literal " + sbplString(path) + ")")
 		}
 	}
 	out.WriteString(" (literal \"/dev/null\"))\n")
+	// A denylist emitted after the write allows overrides them; a source repo's
+	// hooks, config and branch refs must never be rewritten by a command.
+	for _, path := range spec.DenyWrites {
+		if path == "" {
+			continue
+		}
+		out.WriteString("(deny file-write* (literal " + sbplString(path) + ")")
+		out.WriteString(" (subpath " + sbplString(path) + "))\n")
+	}
 	// Scoped process execution is the boundary that keeps test code away from
 	// osascript, launchctl and other system tools. Shells stay available because
 	// npm lifecycle scripts and Go test helpers legitimately spawn them.

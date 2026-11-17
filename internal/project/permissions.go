@@ -160,6 +160,12 @@ func (s *Service) decideInTx(tx *store.Tx, id string, expected int, in DecisionI
 	if !w.ValidDecision(in.Decision) {
 		return request, errorf("invalid_request", "decision must be allow_once, allow_conversation or deny")
 	}
+	// A sensitive credential target is a one-time, per-call risk acknowledgement.
+	// It never becomes a lasting conversation grant, because "the same directory"
+	// for a secret file would authorize every secret beside it.
+	if request.Risk == "sensitive_path" && in.Decision == w.DecisionAllowConversation {
+		return request, errorf("invalid_request", "a sensitive-path request can only be allowed once; a conversation grant is not available")
+	}
 	if len(in.RequestID) < 8 || len(in.RequestID) > 100 {
 		return request, errorf("invalid_request", "a request_id of 8–100 characters is required for idempotent decisions")
 	}
@@ -201,6 +207,12 @@ func (s *Service) decideInTx(tx *store.Tx, id string, expected int, in DecisionI
 		return request, err
 	}
 	if in.Decision == w.DecisionAllowConversation {
+		// A conversation grant is a bounded subtree decision. Refuse to store a
+		// broad root (/, $HOME, /Users, a top-level /tmp child) as a lasting
+		// permission; the exact one-time allowance still covers this operation.
+		if w.BroadDirectoryScope(request.NormalizedResourceScope) {
+			return request, errorf("invalid_request", "a conversation grant must name a bounded directory subtree, not a system-level root")
+		}
 		grant := w.ConversationGrant{
 			ID: w.NewID(), ThreadID: request.ThreadID, Action: request.Action,
 			ToolMatcher: request.ToolName, NormalizedResourceScope: request.NormalizedResourceScope,
@@ -437,15 +449,15 @@ func (s *Service) CheckToolAccess(ctx context.Context, in AccessRequest) (Access
 			return errorf("authority_revoked", "the permission mode changed after this execution started; finish or restart it under the current policy")
 		}
 		// The frozen Run action list is the task/role ceiling. It is separate
-		// from the live global mode: a controlled task that explicitly allows an
-		// effect still needs the effect to be requestable even though
-		// ModeActions(controlled) does not name it. An action the task itself
-		// never admitted is a hard role ceiling and can never be escalated.
+		// from the live global mode: a task that explicitly allows an effect
+		// still needs the effect to be requestable even though ModeActions does
+		// not name it. An action the task itself never admitted is a hard role
+		// ceiling and can never be escalated.
 		taskAdmits := slices.Contains(in.Run.GrantActions, action)
 		if !taskAdmits && action != "execute" {
 			// The task/role ceiling blocks file/test scope escalation. Command
-			// execution is a mode-level capability: a controlled free task that
-			// never named "execute" must still be able to ask for one concrete
+			// execution is a mode-level capability: a free task that never
+			// named "execute" must still be able to ask for one concrete
 			// command instead of being permanently unable to request it.
 			return nil
 		}
@@ -479,15 +491,16 @@ func (s *Service) CheckToolAccess(ctx context.Context, in AccessRequest) (Access
 			decision.Request = &held
 			return nil
 		}
-		// 3. An active conversation grant for this exact tool, action and scope.
-		// A risky target still needs a decision that acknowledged the risk.
+		// 3. An active conversation grant whose action level covers this request
+		// and whose physical scope contains the target. A directory grant is
+		// reusable for every new file and every covered tool inside its subtree;
+		// a read grant never admits a write or command. A risky target still
+		// needs a decision that acknowledged the risk.
 		if !needsDecision && in.Risk == "" {
-			grant, err := tx.ActiveConversationGrant(in.Run.ThreadID, in.Name, action, requestedScope, policy.Epoch)
-			if err == nil {
+			if grant, err := s.grantCoversTarget(tx, in.Run.ThreadID, action, requestedScope, policy.Epoch); err == nil {
 				decision.Allowed, decision.GrantID = true, grant.ID
 				return nil
-			}
-			if !errors.Is(err, store.ErrNotFound) {
+			} else if !errors.Is(err, store.ErrNotFound) {
 				return err
 			}
 		}
@@ -555,7 +568,7 @@ func (s *Service) insideProjectBoundary(run w.Run, action, name, scope string) b
 	switch run.EffectiveExecutionMode {
 	case w.ExecutionFullAccess:
 		return true
-	case w.ExecutionProjectAutonomous:
+	case w.ExecutionWorkspaceAutonomous:
 		switch action {
 		case "collaborate":
 			return true
@@ -563,17 +576,16 @@ func (s *Service) insideProjectBoundary(run w.Run, action, name, scope string) b
 			return scope == "network:public" || strings.HasPrefix(scope, "http://") || strings.HasPrefix(scope, "https://")
 		case "publish_artifact":
 			return isLocalPublish(name)
-		case "read", "write", "run_test":
-			return s.scopeInsideProject(run, scope)
-		case "execute":
+		case "read", "write", "run_test", "execute":
+			// Reading, writing and testing are admitted inside the workspace;
+			// a command's exact target decides, so `git push` still requests.
 			return s.scopeInsideProject(run, scope)
 		}
+		// An external publish/deploy is never inside the workspace boundary.
 		return false
 	default:
-		// The controlled mode keeps the existing standard host template: in-project
-		// reads, writes and tests are admitted subject to the role/task checks
-		// above; anything outside the project, and every command, needs an
-		// approval. That is the "受控规则 + 不足时申请" contract.
+		// An unknown or legacy mode is treated as the default autonomous
+		// boundary, never as an implicit full-access grant.
 		switch action {
 		case "collaborate":
 			return true
@@ -581,10 +593,9 @@ func (s *Service) insideProjectBoundary(run w.Run, action, name, scope string) b
 			return scope == "network:public" || strings.HasPrefix(scope, "http://") || strings.HasPrefix(scope, "https://")
 		case "publish_artifact":
 			return isLocalPublish(name)
-		case "read", "write", "run_test":
+		case "read", "write", "run_test", "execute":
 			return s.scopeInsideProject(run, scope)
 		}
-		// An external publish/deploy is never inside the project boundary.
 		return false
 	}
 }
@@ -897,4 +908,49 @@ func (s *Service) RevokeThreadGrants(ctx context.Context, threadID string) error
 	return s.store.Write(ctx, func(tx *store.Tx) error {
 		return tx.RevokeConversationGrantsForThread(threadID, s.now())
 	})
+}
+
+// grantCoversTarget finds an active conversation grant whose action level covers
+// the request and whose physical scope contains the exact target. A grant is a
+// bounded subtree decision, not an exact-file token: an approved directory admits
+// every new file inside it, and a read grant never admits a write.
+func (s *Service) grantCoversTarget(tx *store.Tx, threadID, action, target string, epoch int) (w.ConversationGrant, error) {
+	grantedLevel := w.ActionLevel(action)
+	if grantedLevel == 0 {
+		return w.ConversationGrant{}, store.ErrNotFound
+	}
+	grants, err := tx.ThreadConversationGrants(threadID)
+	if err != nil {
+		return w.ConversationGrant{}, err
+	}
+	requested := target
+	if target == "" || target == "network:public" || strings.HasPrefix(target, "external:") || strings.HasPrefix(target, "http") {
+		requested = ""
+	} else {
+		requested = w.NormalizeScope(target, target)
+	}
+	for _, grant := range grants {
+		if grant.Status != "active" || grant.PermissionEpoch != epoch {
+			continue
+		}
+		if !w.GrantCoversAction(grant.Action, action) {
+			continue
+		}
+		// A network/外部 grant is bound to its exact synthetic scope; only a
+		// filesystem grant is subtree-based.
+		scope := grant.NormalizedResourceScope
+		if scope == "" {
+			continue
+		}
+		if scope == requested && requested != "" {
+			return grant, nil
+		}
+		if requested == "" || strings.HasPrefix(scope, "external:") || strings.HasPrefix(scope, "network:") {
+			continue
+		}
+		if w.ScopeContains(w.NormalizeScope(scope, scope), requested) {
+			return grant, nil
+		}
+	}
+	return w.ConversationGrant{}, store.ErrNotFound
 }

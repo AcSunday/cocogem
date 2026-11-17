@@ -23,7 +23,7 @@ import (
 // directory. A reviewer step must stay read-only.
 func TestFreeFileTaskExposesNativeWriteThroughRealCatalog(t *testing.T) {
 	db, service, th, member, root := newFreeTaskFixture(t)
-	mode := w.ExecutionProjectAutonomous
+	mode := w.ExecutionWorkspaceAutonomous
 	var current w.Settings
 	if err := db.Read(t.Context(), func(tx *store.Tx) error {
 		var err error
@@ -81,7 +81,7 @@ func TestFreeFileTaskExposesNativeWriteThroughRealCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	native := nativecli.NativeExecutionTools(member.Executor, allowed, run.Input.ResearchScope, run.EffectiveExecutionMode)
+	native := nativecli.NativeExecutionTools(member.Executor, allowed, run.Input.ResearchScope, run.EffectiveExecutionMode, step.ReadOnly)
 	if len(native) == 0 {
 		t.Fatalf("free autonomous responder exposes no native tools (allowed=%v)", allowed)
 	}
@@ -110,7 +110,7 @@ func TestFreeFileTaskExposesNativeWriteThroughRealCatalog(t *testing.T) {
 	if slices.Contains(readOnlyAllowed, "write_file") || slices.Contains(readOnlyAllowed, "patch_file") {
 		t.Fatalf("a read-only step received a write tool: %v", readOnlyAllowed)
 	}
-	if native := nativecli.NativeExecutionTools("claude", readOnlyAllowed, run.Input.ResearchScope, run.EffectiveExecutionMode); slices.Contains(native, "Write") || slices.Contains(native, "Edit") {
+	if native := nativecli.NativeExecutionTools("claude", readOnlyAllowed, run.Input.ResearchScope, run.EffectiveExecutionMode, true); slices.Contains(native, "Write") || slices.Contains(native, "Edit") || slices.Contains(native, "Bash") {
 		t.Fatalf("a read-only step received a native write tool: %v", native)
 	}
 	_ = prep

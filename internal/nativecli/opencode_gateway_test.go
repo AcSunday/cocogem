@@ -67,7 +67,7 @@ func TestOpenCodeGatewayUsesSelectedProvider(t *testing.T) {
 				}
 			})
 			dir := t.TempDir()
-			args, _, err := (Provider{}).prepareOpenCode(t.Context(), model.Request{ExecutionMode: "project_autonomous", ThinkingLevel: "max"}, dir, gate, "", &plan)
+			args, _, err := (Provider{}).prepareOpenCode(t.Context(), model.Request{ExecutionMode: "workspace_autonomous", ThinkingLevel: "max"}, dir, gate, "", &plan)
 			if err != nil {
 				t.Fatalf("prepare selected provider: %v", err)
 			}
@@ -154,7 +154,7 @@ func TestInstalledOpenCodeProjectAutonomousProviderOptions(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	request := model.Request{
-		Executor: "opencode", Model: "selected/fixture", ExecutionMode: "project_autonomous", WorkspaceRoot: t.TempDir(),
+		Executor: "opencode", Model: "selected/fixture", ExecutionMode: "workspace_autonomous", WorkspaceRoot: t.TempDir(),
 		System: "Reply without tools.", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Synthetic provider test."}}}},
 		FirstResponseTimeout: 30 * time.Second, StallTimeout: 30 * time.Second, StallAction: "stop",
 	}
@@ -205,7 +205,7 @@ func TestOpenCodeGatewayRejectsMissingSelectedEndpoint(t *testing.T) {
 				}
 			})
 			dir := t.TempDir()
-			_, _, err := (Provider{}).prepareOpenCode(t.Context(), model.Request{ExecutionMode: "project_autonomous"}, dir, gate, "", &plan)
+			_, _, err := (Provider{}).prepareOpenCode(t.Context(), model.Request{ExecutionMode: "workspace_autonomous"}, dir, gate, "", &plan)
 			if err == nil || !strings.Contains(err.Error(), "OpenCode model endpoint is not available for the loopback gateway") {
 				t.Fatalf("missing selected endpoint must fail closed, got %v", err)
 			}

@@ -1935,6 +1935,7 @@ export interface components {
               }[]
             | null;
           message: string;
+          plan_only?: boolean;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;
@@ -2902,6 +2903,7 @@ export interface components {
             }[]
           | null;
         message: string;
+        plan_only?: boolean;
         /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
         research_scope: string;
         retry_of_run_id: string;
@@ -2974,6 +2976,7 @@ export interface components {
           }[]
         | null;
       message: string;
+      plan_only?: boolean;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope: string;
       retry_of_run_id: string;
@@ -2989,6 +2992,7 @@ export interface components {
           }[]
         | null;
       message: string;
+      plan_only?: boolean;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope?: string;
       retry_of_run_id?: string;
@@ -3151,6 +3155,7 @@ export interface components {
               }[]
             | null;
           message: string;
+          plan_only?: boolean;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;
@@ -3753,6 +3758,7 @@ export interface components {
                   }[]
                 | null;
               message: string;
+              plan_only?: boolean;
               research_scope: string;
               retry_of_run_id: string;
               source_ids: string[] | null;
@@ -4255,6 +4261,7 @@ export interface components {
               }[]
             | null;
           message: string;
+          plan_only?: boolean;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;

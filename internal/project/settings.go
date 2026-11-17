@@ -63,7 +63,7 @@ func (s *Service) UpdateSettings(ctx context.Context, expected int, patch Settin
 		next = w.NormalizeExecutionMode(next)
 		if patch.ExecutionMode != nil {
 			if !w.ValidExecutionMode(*patch.ExecutionMode) {
-				return errorf("invalid_request", "execution_mode must be controlled, project_autonomous or full_access")
+				return errorf("invalid_request", "execution_mode must be workspace_autonomous or full_access")
 			}
 			if *patch.ExecutionMode != current.ExecutionMode {
 				next.ExecutionMode = *patch.ExecutionMode

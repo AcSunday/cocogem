@@ -25,7 +25,7 @@ func TestOpenDiscardsAnEarlierSchemaBaseline(t *testing.T) {
 		"CREATE TABLE settings(id TEXT PRIMARY KEY, revision INTEGER NOT NULL, body TEXT NOT NULL)",
 		"CREATE TABLE threads(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, updated_at TEXT NOT NULL, revision INTEGER NOT NULL, body TEXT NOT NULL)",
 		`INSERT INTO schema_meta(key,value) VALUES('schema_baseline','legacy-preset-workflows')`,
-		`INSERT INTO settings(id,revision,body) VALUES('global',4,'{"revision":4,"assignments":{"research":{"critic":"old"}},"execution_mode":"project_autonomous"}')`,
+		`INSERT INTO settings(id,revision,body) VALUES('global',4,'{"revision":4,"assignments":{"research":{"critic":"old"}},"execution_mode":"workspace_autonomous"}')`,
 		`INSERT INTO threads(id,workspace_id,updated_at,revision,body) VALUES('old-thread','old-ws','2026-10-01T00:00:00Z',1,'{"id":"old-thread","workspace_id":"old-ws"}')`,
 	} {
 		if _, err := legacy.Exec(statement); err != nil {

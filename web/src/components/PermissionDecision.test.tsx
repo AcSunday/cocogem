@@ -1,7 +1,8 @@
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { APIError, type ToolPermissionRequest } from "../api/client";
 import {
+  PermissionDecision,
   resetDecisionKeys,
   resetDecisionState,
   submitPermissionDecision,
@@ -150,4 +151,56 @@ it("a decided request cannot be replayed with a different choice", async () => {
   await expect(
     submitPermissionDecision(permission("decided"), "deny"),
   ).rejects.toThrow(/已过期、已决定或与先前的选择冲突/);
+});
+
+it("renders a sensitive-path request as a one-shot risk acknowledgement", () => {
+  const request: ToolPermissionRequest = {
+    id: "sensitive",
+    request_id: "",
+    thread_id: "thread",
+    workspace_id: "ws",
+    run_id: "run",
+    step_id: "step",
+    attempt_id: "attempt",
+    member_id: "member",
+    member_name: "布偶猫",
+    tool_call_id: "call",
+    origin: "native",
+    adapter: "claude",
+    action: "read",
+    tool_name: "Read",
+    normalized_resource_scope: "/Users/someone/.ssh/id_ed25519",
+    arguments_digest: "digest",
+    reason: "读取凭据",
+    permission_epoch: 1,
+    risk: "sensitive_path",
+    status: "pending",
+    revision: 1,
+    created_at: "",
+  };
+  render(
+    <PermissionDecision
+      prompt={{
+        requestID: "sensitive",
+        label: "高敏凭据读取",
+        target: "",
+        activityKey: "s",
+        toolCallID: "call",
+        memberID: "member",
+        memberName: "布偶猫",
+        toolName: "Read",
+        scope: "/Users/someone/.ssh/id_ed25519",
+        reason: "读取凭据",
+      }}
+      request={request}
+      onDecide={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "这是高敏凭据路径，只能「仅本次允许」",
+  );
+  expect(
+    screen.getByRole("button", { name: "本会话持续允许" }),
+  ).toBeDisabled();
+  expect(screen.getByRole("button", { name: "仅本次允许" })).toBeEnabled();
 });

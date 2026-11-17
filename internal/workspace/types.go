@@ -168,7 +168,7 @@ type Settings struct {
 }
 
 // DefaultExecutionMode is the new-install and one-time migration default.
-const DefaultExecutionMode = ExecutionProjectAutonomous
+const DefaultExecutionMode = ExecutionWorkspaceAutonomous
 
 // NormalizeExecutionMode applies the confirmed default to a record that has no
 // stored mode (new database or a database upgraded before the migration marker).
@@ -214,6 +214,11 @@ type RunInput struct {
 	ArtifactRefs  []ArtifactRef `json:"artifact_refs"`
 	ResearchScope string        `json:"research_scope"`
 	RetryOfRunID  string        `json:"retry_of_run_id"`
+	// PlanOnly marks one user turn as analysis-only: the run reads the bound
+	// project and its tools but never derives a write candidate, never writes
+	// files and never runs a side-effecting command. It does not change the
+	// global mode, the permission epoch or any other running work.
+	PlanOnly bool `json:"plan_only,omitempty"`
 }
 
 // ArtifactRef identifies an immutable version, not whichever version is newest.

@@ -117,3 +117,15 @@
 - 上下文与续接：真实增量（已确认引用账本）、头 40%/尾 60% 截断、人工继续放行 uncertain、检查点摘要注入均由 `internal/workflow` 行为测试覆盖。
 - 生命周期：软删冻结候选、永久删除/Purge/删空间回收、换根 409 与 session seal、撤销只封存 DB 行不触碰用户 CLI 目录，均由 Go 测试覆盖。
 - 未验证：真实大仓 worktree 性能、非 macOS 的 `git worktree`/副本边界、五家 CLI 在各自原生目录中的真实跨轮续聊（按计划留到阶段 3/4/6 的真实 CLI 探针）。
+
+## 阶段 3 补充验证（两档权限、仅规划、AST 与原生目录会话）
+
+本节只记录阶段 3 的实际验证范围；真实五家 CLI 的跨轮续聊探针仍按计划单独执行。
+
+- 两档权限：旧 `controlled`/`project_autonomous` 归并为默认 `workspace_autonomous`，与 `full_access` 一起成为唯一两个生效值；Settings PATCH 拒绝其它值，未改变的模式不推进 `permission_epoch`，真实切换在同一事务内推进 epoch 并使旧请求/持续授权失效。Composer 与 Settings → 权限显示同一份全局值；Historic `controlled` 记录按防御性默认映射到 `workspace_autonomous`，不会静默升级为完全访问。
+- 仅规划：`RunInput.PlanOnly` 使该轮不派生候选 worktree，单成员步骤自动 `Step.ReadOnly`，原生 `Write/Edit/Bash` 被移除，宿主写文件与副作用命令返回确定性 `read_only_step` 拒绝而不是弹审批卡；全局模式与 epoch 不变。多成员并行扇出仍自动只读。
+- 授权层：`ConversationGrant` 从精确文件匹配升级为动作层级 + 物理目录子树；批准目录后该子树内新文件与覆盖动作复用授权，读授权不放开写/执行；`/`、`$HOME`、`/Users`、顶层 `/tmp` 被拒绝存为持续授权。高敏凭据路径可「仅本次允许」但不能建持续授权，UI 同时禁用「本会话持续允许」。
+- AST：`internal/nativecli` 引入 `mvdan.cc/sh/v3/syntax` 提取命令与重定向目标；`2>/dev/null`、`jq '//'`、awk 正则与解释器路径不再成为审批范围；解析失败的残损命令回退到保守扫描。宿主 `run_command` 的审批范围同样使用 AST 目标；直接 argv 调用使用路径参数扫描。
+- 沙箱：命令沙箱与原生 CLI 沙箱显式放行候选 worktree 的 git 元数据目录、只读挂载 IO `inputs/`、可写挂载 `outputs/`；源仓 `hooks`/`config`/`refs/heads`/`packed-refs` 以写拒绝规则覆盖。
+- 原生目录：托管会话使用各 CLI 自己的状态目录；不再用临时 `CODEX_HOME`/`CLAUDE_CONFIG_DIR` 覆盖，也不在常规轮次加 `--ephemeral`/`--no-session-persistence`。一次性 reviewer `verify_dir` 保持无痕。用户设置的 CLI 环境变量优先。
+- 未验证：阶段 3 只完成代码与行为测试；真实五家 CLI 的跨轮 `--resume`、OAuth 续期与 prompt cache 命中按阶段 4/6 的真实探针单独验证。Linux `bwrap` 仍未在实机验证，保持失败关闭。

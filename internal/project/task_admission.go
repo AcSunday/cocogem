@@ -14,7 +14,7 @@ func TaskActions(mode string, in w.RunInput) []string {
 	// capability is recorded so the request can be made, not auto-run.
 	actions := []string{"read", "publish_artifact", "collaborate", "network", "external"}
 	switch mode {
-	case w.ExecutionProjectAutonomous, w.ExecutionFullAccess:
+	case w.ExecutionWorkspaceAutonomous, w.ExecutionFullAccess:
 		// Workspace-internal read/write/test and workspace-scoped commands are
 		// autonomous; the workspace boundary is enforced at execution time, not
 		// by withholding the capability from the task.

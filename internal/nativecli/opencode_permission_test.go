@@ -89,7 +89,7 @@ func TestInstalledOpenCodePermissionRoundTrip(t *testing.T) {
 			request := model.Request{
 				Executor: "opencode", Model: "cocogem-probe/cocogem-probe", System: "Run the supplied tool.",
 				Messages:             []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Run one fixture command."}}}},
-				ExecutionMode:        firstString(tc.mode, "project_autonomous"),
+				ExecutionMode:        firstString(tc.mode, "workspace_autonomous"),
 				WorkspaceRoot:        root,
 				FirstResponseTimeout: 40 * time.Second,
 				StallTimeout:         40 * time.Second,

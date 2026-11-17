@@ -423,8 +423,8 @@ func TestIntakeChatToolsStayReadOnlyWithoutApproval(t *testing.T) {
 	// global policy, effective mode is the deliberate read-only projection.
 	run := j.run
 	run.TaskID, run.TaskRevision, run.TaskIntake = "", 0, true
-	run.RequestedExecutionMode = w.ExecutionProjectAutonomous
-	run.EffectiveExecutionMode = w.ExecutionControlled
+	run.RequestedExecutionMode = w.ExecutionWorkspaceAutonomous
+	run.EffectiveExecutionMode = w.ExecutionWorkspaceAutonomous
 	// Intake's ceiling is the read-only catalog the runtime authorization
 	// already froze for it.
 	run.GrantActions = []string{"read", "network", "collaborate", "publish_artifact"}
@@ -467,12 +467,13 @@ func TestIntakeChatToolsStayReadOnlyWithoutApproval(t *testing.T) {
 	}
 }
 
-// A06: controlled commands need a decision and a verified OS sandbox. A one-time
-// approval cannot be reused, including when the sandbox is unavailable.
-func TestControlledCommandApprovalHonorsSandboxAvailability(t *testing.T) {
+// A06: a command that leaves the workspace needs a decision and a verified OS
+// sandbox. A one-time approval cannot be reused, including when the sandbox is
+// unavailable.
+func TestOutsideCommandApprovalHonorsSandboxAvailability(t *testing.T) {
 	j := newHostApprovalJourney(t)
 	j.startClicker(t)
-	mode := w.ExecutionControlled
+	mode := w.ExecutionWorkspaceAutonomous
 	var current w.Settings
 	if err := j.db.Read(t.Context(), func(tx *store.Tx) error {
 		var err error
@@ -500,21 +501,34 @@ func TestControlledCommandApprovalHonorsSandboxAvailability(t *testing.T) {
 		t.Fatal(err)
 	}
 	j.runtime.allowed = w.StandardToolCatalog()
-	marker := filepath.Join(j.root, "command-marker.txt")
+	// The target is outside the bound workspace, so it is exactly the case that
+	// still requires a decision in the autonomous tier. Appending to an existing
+	// file proves the effect without needing a directory-create permission.
+	marker := filepath.Join(filepath.Dir(j.outside), "command-marker.txt")
+	if err := os.WriteFile(marker, []byte("before"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	command := func() json.RawMessage {
-		argv := []any{"/usr/bin/touch", marker}
+		argv := []any{"/bin/sh", "-c", "printf 'after' >> " + marker}
 		raw, err := json.Marshal(map[string]any{"argv": argv, "cwd": ".", "timeout_seconds": 20})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return raw
 	}
+	markerBytes := func() string {
+		data, err := os.ReadFile(marker)
+		if err != nil {
+			t.Fatalf("read command marker: %v", err)
+		}
+		return string(data)
+	}
 	// Denial: no marker, no effect.
 	j.queueDecision(w.DecisionDeny)
 	if _, err := j.runtime.executeTool(agent.WithToolCall(t.Context(), "cmd-deny"), "run_command", command()); err == nil {
 		t.Fatal("a denied command executed")
 	}
-	if _, err := os.Stat(marker); err == nil {
+	if markerBytes() != "before" {
 		t.Fatal("denied command produced its marker")
 	}
 	// Approval executes only when the platform has a verified sandbox.
@@ -524,18 +538,18 @@ func TestControlledCommandApprovalHonorsSandboxAvailability(t *testing.T) {
 		if err != nil {
 			t.Fatalf("approved command failed: %v", err)
 		}
-		if _, err := os.Stat(marker); err != nil {
-			t.Fatalf("approved command produced no marker: %v", err)
+		if markerBytes() != "beforeafter" {
+			t.Fatalf("approved command produced no marker: %q", markerBytes())
 		}
-		if err := os.Remove(marker); err != nil {
+		if err := os.WriteFile(marker, []byte("before"), 0600); err != nil {
 			t.Fatal(err)
 		}
 	} else {
 		if !errors.Is(err, tools.ErrSandboxUnavailable) {
 			t.Fatalf("approved command without a verified sandbox = %v", err)
 		}
-		if _, err := os.Stat(marker); !os.IsNotExist(err) {
-			t.Fatalf("command produced an effect without a verified sandbox: %v", err)
+		if markerBytes() != "before" {
+			t.Fatalf("command produced an effect without a verified sandbox: %q", markerBytes())
 		}
 	}
 	// The one-time approval is spent, so the identical command asks again.
@@ -543,7 +557,7 @@ func TestControlledCommandApprovalHonorsSandboxAvailability(t *testing.T) {
 	if _, err := j.runtime.executeTool(agent.WithToolCall(t.Context(), "cmd-replay"), "run_command", command()); err == nil || !strings.Contains(err.Error(), "permission_denied") {
 		t.Fatalf("a second command did not require a new decision: %v", err)
 	}
-	if _, err := os.Stat(marker); err == nil {
+	if markerBytes() != "before" {
 		t.Fatal("replayed command produced a second effect")
 	}
 }

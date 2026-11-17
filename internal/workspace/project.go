@@ -7,17 +7,19 @@ import (
 	"strings"
 )
 
-// Project execution modes are stable API values. Full access is an explicit
-// trust decision, not an isolation guarantee.
+// Execution modes are stable API values. The two-tier policy is the only
+// effective permission boundary: workspace_autonomous is the default and keeps
+// every host effect inside the workspace, /tmp and the toolchain boundary, while
+// full_access is an explicit trust decision for the user's own machine and is
+// never an isolation guarantee.
 const (
-	ExecutionControlled        = "controlled"
-	ExecutionProjectAutonomous = "project_autonomous"
-	ExecutionFullAccess        = "full_access"
+	ExecutionWorkspaceAutonomous = "workspace_autonomous"
+	ExecutionFullAccess          = "full_access"
 )
 
 // ValidExecutionMode rejects implicit privilege upgrades and unknown modes.
 func ValidExecutionMode(mode string) bool {
-	return slices.Contains([]string{ExecutionControlled, ExecutionProjectAutonomous, ExecutionFullAccess}, mode)
+	return mode == ExecutionWorkspaceAutonomous || mode == ExecutionFullAccess
 }
 
 // BudgetPolicy is resolved when a root task is created. Later setting changes

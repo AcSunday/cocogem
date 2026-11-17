@@ -87,6 +87,13 @@ func executeProjectCommand(ctx context.Context, raw json.RawMessage, scope Scope
 		}
 	}
 	spec := sandboxSpec{Root: absWork, Temp: temp, Toolchain: toolchainSpec{Command: in.Argv, Display: strings.Join(in.Argv, " "), Env: env}}
+	// A linked worktree's per-worktree git dir must be readable and writable so
+	// git status/add/diff can lock the index, while hooks, config, refs/heads and
+	// packed-refs stay write-denied in the source repository.
+	if worktreeGit, _ := WorktreeMeta(absWork); worktreeGit != "" {
+		spec.ExtraWrites = append(spec.ExtraWrites, worktreeGit)
+		spec.DenyWrites = append(spec.DenyWrites, GitMetadataDenies(absWork)...)
+	}
 	// Attachment inputs are read-only; collected deliverables are a separate
 	// writable root. Neither one widens the code root.
 	if ioInputs != "" {

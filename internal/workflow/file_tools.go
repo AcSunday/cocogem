@@ -23,7 +23,7 @@ import (
 // produced real files in its task directory. The file tools are already bounded
 // to that directory by the host and the CLI sandbox.
 func (x *stepRuntime) collectsAutonomousOutputs() bool {
-	if x.run.EffectiveExecutionMode != w.ExecutionProjectAutonomous || x.run.TaskDirectory == "" {
+	if x.run.EffectiveExecutionMode != w.ExecutionWorkspaceAutonomous || x.run.TaskDirectory == "" {
 		return false
 	}
 	return slices.Contains(x.allowed, "publish_file") || slices.Contains(x.allowed, "write_file")

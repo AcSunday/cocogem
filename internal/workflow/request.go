@@ -325,11 +325,11 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 	if run.TaskDirectory != "" {
 		fmt.Fprintf(&contextText, "\nCurrent date and time: %s (host UTC).\nPersistent file exchange directory: %s (read-only inputs/ and writable outputs/; COCOGEM_IO_INPUTS and COCOGEM_IO_OUTPUTS name the same absolute paths)\nBound input project directory: %s\nCode edits and commands run in the step working root, which is the candidate worktree for an author and the verification copy for a reviewer, never the file exchange directory. Uploaded originals are under inputs/ with source-ID-prefixed filenames; inspect that absolute directory when attachments are supplied. Keep originals intact. Save final deliverable files under outputs/; keep scripts and intermediates elsewhere. The host captures outputs/ on successful final delivery, so this directory is reserved for files intended for the user. Other members of this Run share the exchange directory. Never place exported documents in the code tree: a generated file there would pollute the candidate diff and is not a delivery. Prefer publish_file for explicit final delivery. Never change factual values, dates or citations merely because they look unusual; preserve unverified facts and identify the verification gap.\n", w.Now(), run.TaskDirectory, run.ProjectRoot())
 	}
-	native := nativecli.NativeExecutionTools(a.Executor, allowed, in.ResearchScope, run.EffectiveExecutionMode)
+	native := nativecli.NativeExecutionTools(a.Executor, allowed, in.ResearchScope, run.EffectiveExecutionMode, step.ReadOnly)
 	if run.TaskIntake && run.TaskID == "" {
 		native = nil
 	}
-	if run.TaskID != "" && run.EffectiveExecutionMode != w.ExecutionControlled {
+	if run.TaskID != "" {
 		native = slices.DeleteFunc(native, func(name string) bool {
 			action := "native_read"
 			switch name {
@@ -432,7 +432,12 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 	}
 	request.SessionMode = attempt.SessionMode
 	request.SessionID = attempt.SessionID
-	if attempt.ExecutionSessionRef != "" && e.NativeSessionRoot != "" && run.EffectiveExecutionMode != w.ExecutionControlled && slices.Contains(adapter.Capabilities, "session_resume_ack=supported") && (a.Executor == "claude" || a.Executor == "opencode") {
+	// A reviewer's sandbox is destroyed after the review, so its native run must
+	// stay ephemeral: a dead directory must never enter the CLI's own history.
+	request.EphemeralSession = step.Role == "reviewer" || step.Role == "critic"
+	if attempt.ExecutionSessionRef != "" && e.NativeSessionRoot != "" && slices.Contains(adapter.Capabilities, "session_resume_ack=supported") && (a.Executor == "claude" || a.Executor == "opencode") {
+		// The ledger key names the Cocogem session row that may reuse this native
+		// session. The CLI's actual session files stay in its own home directory.
 		request.SessionStorageRoot = filepath.Join(e.NativeSessionRoot, attempt.ExecutionSessionRef)
 	}
 	if attempt.SessionMode == "resume" {

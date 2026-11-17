@@ -47,6 +47,8 @@ export function Composer({
   coordinator,
   executionMode,
   onExecutionModeChange,
+  planOnly = false,
+  onPlanOnlyChange,
   routing,
   error,
   onDismissError,
@@ -74,6 +76,9 @@ export function Composer({
   coordinator?: { name: string; fallback: boolean };
   executionMode?: string;
   onExecutionModeChange?: (mode: string) => Promise<void> | void;
+  /** This turn is analysis-only; it never writes or changes the global mode. */
+  planOnly?: boolean;
+  onPlanOnlyChange?: (value: boolean) => void;
   routing?: Routing;
   error?: string;
   onDismissError?: () => void;
@@ -554,11 +559,22 @@ export function Composer({
                 disabled={disabled || modeSaving}
                 onChange={(selected) => void changeMode(selected)}
               >
-                <option value="controlled">受控</option>
-                <option value="project_autonomous">项目内自主</option>
+                <option value="workspace_autonomous">沙箱自主</option>
                 <option value="full_access">完全访问</option>
               </Select>
             </span>
+          )}
+          {onPlanOnlyChange && (
+            <button
+              type="button"
+              className={cx("plan-only-chip")}
+              aria-pressed={planOnly}
+              disabled={disabled || busy}
+              title="本轮只读取证据并给出方案；不改代码、不运行有副作用的命令，也不改变全局权限"
+              onClick={() => onPlanOnlyChange(!planOnly)}
+            >
+              仅规划
+            </button>
           )}
           {coordinator && (
             <span

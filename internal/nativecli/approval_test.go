@@ -16,7 +16,7 @@ func TestNativeApproverCallsHostForInsideProjectCalls(t *testing.T) {
 	root := t.TempDir()
 	var calls atomic.Int32
 	approver := newNativeApprover(nil, nil, model.Request{
-		ExecutionMode: "project_autonomous", WorkspaceRoot: root,
+		ExecutionMode: "workspace_autonomous", WorkspaceRoot: root,
 		AuthorizeNative: func(context.Context, model.NativePermissionRequest) (model.NativePermissionDecision, error) {
 			calls.Add(1)
 			return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: root}, nil
@@ -35,7 +35,7 @@ func TestNativeApproverCallsHostForInsideProjectCalls(t *testing.T) {
 func TestNativeApproverHonorsHostDenialInsideProject(t *testing.T) {
 	root := t.TempDir()
 	approver := newNativeApprover(nil, nil, model.Request{
-		ExecutionMode: "project_autonomous", WorkspaceRoot: root,
+		ExecutionMode: "workspace_autonomous", WorkspaceRoot: root,
 		AuthorizeNative: func(context.Context, model.NativePermissionRequest) (model.NativePermissionDecision, error) {
 			return model.NativePermissionDecision{Allow: false, Scope: model.NativeScopeDeny, Reason: "role tightened"}, nil
 		},
@@ -50,7 +50,7 @@ func TestNativeApproverHonorsHostDenialInsideProject(t *testing.T) {
 }
 
 func TestNativeApproverRequiresHostCallbackForProjectAutonomous(t *testing.T) {
-	approver := newNativeApprover(nil, nil, model.Request{ExecutionMode: "project_autonomous", WorkspaceRoot: t.TempDir()}, "claude", nil)
+	approver := newNativeApprover(nil, nil, model.Request{ExecutionMode: "workspace_autonomous", WorkspaceRoot: t.TempDir()}, "claude", nil)
 	_, err := approver.authorize(context.Background(), "call-1", "Read", json.RawMessage(`{"file_path":"`+t.TempDir()+`/x"}`), "")
 	if err == nil {
 		t.Fatal("a project-autonomous native effect ran without a host callback")
@@ -101,7 +101,7 @@ func TestNativeApproverHardlinkTargetIsRefused(t *testing.T) {
 	}
 	var calls atomic.Int32
 	approver := newNativeApprover(nil, nil, model.Request{
-		ExecutionMode: "project_autonomous", WorkspaceRoot: root,
+		ExecutionMode: "workspace_autonomous", WorkspaceRoot: root,
 		AuthorizeNative: func(context.Context, model.NativePermissionRequest) (model.NativePermissionDecision, error) {
 			calls.Add(1)
 			return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: root}, nil
@@ -121,7 +121,7 @@ func TestNativeApproverHardlinkTargetIsRefused(t *testing.T) {
 func TestNativeApproverExternalEffectUsesExactURL(t *testing.T) {
 	var seen model.NativePermissionRequest
 	approver := newNativeApprover(nil, nil, model.Request{
-		ExecutionMode: "project_autonomous", WorkspaceRoot: t.TempDir(),
+		ExecutionMode: "workspace_autonomous", WorkspaceRoot: t.TempDir(),
 		AuthorizeNative: func(_ context.Context, request model.NativePermissionRequest) (model.NativePermissionDecision, error) {
 			seen = request
 			return model.NativePermissionDecision{Allow: false, Scope: model.NativeScopeDeny}, nil

@@ -27,7 +27,7 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 	}
 	// Visibility is bound to the global permission epoch frozen on this Run.
 	// Retired workspace grants are history: their epoch must not keep an old
-	// session alive after a full_access -> controlled -> full_access round trip.
+	// session alive after a full_access -> workspace_autonomous -> full_access round trip.
 	visibilityEpoch := max(1, in.run.PermissionEpoch)
 	exposed := make([]string, 0, len(in.sources))
 	for _, source := range in.sources {
@@ -67,8 +67,10 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 	slices.Sort(grantActions)
 	adapterCapabilities := slices.Clone(in.adapter.Capabilities)
 	slices.Sort(adapterCapabilities)
-	managed := in.run.EffectiveExecutionMode != "" && in.run.EffectiveExecutionMode != w.ExecutionControlled &&
-		slices.Contains(in.adapter.Capabilities, "session_resume_ack=supported")
+	// Both tiers now share the managed-session protocol: the adapter must prove
+	// resume support, and the run's mode no longer decides whether continuity
+	// exists at all.
+	managed := slices.Contains(in.adapter.Capabilities, "session_resume_ack=supported")
 	if managed {
 		contextProtocol = "contextplan/v1;delta-v1"
 	}

@@ -301,6 +301,11 @@ export function PermissionDecision({
           )}
         </dl>
       )}
+      {request?.risk === "sensitive_path" && !readonly && (
+        <p className={styles.risk} role="alert">
+          这是高敏凭据路径，只能「仅本次允许」。系统不会保存为会话持续授权。
+        </p>
+      )}
       {readonly ? (
         <p className={styles.decided} role="status">
           {settled}
@@ -315,15 +320,26 @@ export function PermissionDecision({
           >
             {busy === "allow_once" ? "正在允许…" : "仅本次允许"}
           </button>
-          <button
-            type="button"
-            className={styles.secondary}
-            disabled={!!busy}
-            onClick={() => void decide("allow_conversation")}
-            title="本会话内所有成员可对同一工具与范围使用此授权"
-          >
-            {busy === "allow_conversation" ? "正在允许…" : "本会话持续允许"}
-          </button>
+          {request?.risk === "sensitive_path" ? (
+            <button
+              type="button"
+              className={styles.secondary}
+              disabled
+              title="高敏凭据路径禁止建立会话持续授权"
+            >
+              本会话持续允许
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={styles.secondary}
+              disabled={!!busy}
+              onClick={() => void decide("allow_conversation")}
+              title="本会话内所有成员可对同一工具与范围使用此授权"
+            >
+              {busy === "allow_conversation" ? "正在允许…" : "本会话持续允许"}
+            </button>
+          )}
           <button
             type="button"
             className={styles.danger}
@@ -335,7 +351,7 @@ export function PermissionDecision({
         </div>
       )}
       <p className={styles.note}>
-        本会话持续允许对同会话所有成员共享，但只限本次申请的工具、动作与范围。
+        本会话持续允许对同会话所有成员共享，但只限本次申请的工具、动作与范围；高敏凭据路径只能一次一授权。
       </p>
       {error && (
         <p className={styles.error} role="alert">

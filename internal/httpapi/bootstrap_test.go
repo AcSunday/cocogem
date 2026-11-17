@@ -24,7 +24,7 @@ func TestBootstrapFirstInputIsAtomicAndReplayable(t *testing.T) {
 	if first.Workspace.ID != replay.Workspace.ID || first.Thread.ID != replay.Thread.ID {
 		t.Fatalf("bootstrap replay created new identities: %+v / %+v", first, replay)
 	}
-	if first.Workspace.Name != "未命名项目" || first.Workspace.Root != "" || first.Workspace.ExecutionMode != w.ExecutionControlled {
+	if first.Workspace.Name != "未命名项目" || first.Workspace.Root != "" || first.Workspace.ExecutionMode != w.ExecutionWorkspaceAutonomous {
 		t.Fatalf("unsafe or blocking first project: %+v", first.Workspace)
 	}
 	if first.Thread.Title != input.Title || first.Thread.CoordinatorID == "" || len(first.Agents) == 0 {

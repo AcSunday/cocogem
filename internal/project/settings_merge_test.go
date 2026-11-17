@@ -19,7 +19,7 @@ func TestSettingsFieldMergeKeepsUnrelatedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Seed collaboration, defaults and retention.
-	mode := w.ExecutionControlled
+	mode := w.ExecutionWorkspaceAutonomous
 	days := 14
 	budget := w.BudgetPolicy{AutoContinuations: 9, ParallelBranches: 3, WriterBranches: 1, FixRounds: 2, NoProgressFailures: 2}
 	seeded, err := service.UpdateSettings(t.Context(), 1, SettingsPatch{
@@ -30,13 +30,15 @@ func TestSettingsFieldMergeKeepsUnrelatedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	current := seeded.Settings
-	if current.ExecutionMode != w.ExecutionControlled {
+	if current.ExecutionMode != w.ExecutionWorkspaceAutonomous {
 		t.Fatalf("seed = %+v", current)
 	}
 	epoch := current.PermissionEpoch
-	// 1. Only the permission changes: unrelated fields survive.
-	autonomous := w.ExecutionProjectAutonomous
-	onlyPermission, err := service.UpdateSettings(t.Context(), current.Revision, SettingsPatch{ExecutionMode: &autonomous})
+	// 1. Only the permission changes: unrelated fields survive. The two-tier
+	// policy means the real transition is autonomous -> full access.
+	autonomous := w.ExecutionWorkspaceAutonomous
+	full := w.ExecutionFullAccess
+	onlyPermission, err := service.UpdateSettings(t.Context(), current.Revision, SettingsPatch{ExecutionMode: &full})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,14 +58,14 @@ func TestSettingsFieldMergeKeepsUnrelatedFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if onlyBudget.Settings.ExecutionMode != w.ExecutionProjectAutonomous || onlyBudget.Settings.PermissionEpoch != got.PermissionEpoch {
+	if onlyBudget.Settings.ExecutionMode != w.ExecutionFullAccess || onlyBudget.Settings.PermissionEpoch != got.PermissionEpoch {
 		t.Fatalf("collaboration save reset the permission: %+v", onlyBudget.Settings)
 	}
 	if onlyBudget.PermissionMoved {
 		t.Fatal("collaboration save reported a permission move")
 	}
 	// 3. Re-saving the same mode does not advance the epoch and is not a move.
-	same, err := service.UpdateSettings(t.Context(), onlyBudget.Settings.Revision, SettingsPatch{ExecutionMode: &autonomous})
+	same, err := service.UpdateSettings(t.Context(), onlyBudget.Settings.Revision, SettingsPatch{ExecutionMode: &full})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,7 @@ func TestSettingsFieldMergeKeepsUnrelatedFields(t *testing.T) {
 		t.Fatalf("unchanged mode advanced the epoch: %+v", same)
 	}
 	// 4. A stale revision conflicts.
-	if _, err := service.UpdateSettings(t.Context(), 1, SettingsPatch{ExecutionMode: &mode}); !IsCode(err, "revision_conflict") {
+	if _, err := service.UpdateSettings(t.Context(), 1, SettingsPatch{ExecutionMode: &autonomous}); !IsCode(err, "revision_conflict") {
 		t.Fatalf("stale revision error = %v", err)
 	}
 	// 5. The client cannot set the server-owned epoch.
@@ -119,7 +121,7 @@ func TestPermissionEpochBumpExpiresPendingRequestsAndGrants(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	mode := w.ExecutionControlled
+	mode := w.ExecutionFullAccess
 	change, err := service.UpdateSettings(t.Context(), current.Revision, SettingsPatch{ExecutionMode: &mode})
 	if err != nil {
 		t.Fatal(err)

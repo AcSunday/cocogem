@@ -152,12 +152,13 @@ func body(v any) string {
 	return string(b)
 }
 
-// Workspaces lists workspaces in creation order. Missing modes are legacy controlled projects.
+// Workspaces lists workspaces in creation order. Missing modes fall back to the
+// default workspace-autonomous boundary, never to full access.
 func (t *Tx) Workspaces() ([]w.Workspace, error) {
 	values, err := list[w.Workspace](t, "SELECT body FROM workspaces ORDER BY rowid")
 	for i := range values {
 		if values[i].ExecutionMode == "" {
-			values[i].ExecutionMode = w.ExecutionControlled
+			values[i].ExecutionMode = w.ExecutionWorkspaceAutonomous
 		}
 	}
 	return values, err
@@ -167,7 +168,7 @@ func (t *Tx) Workspaces() ([]w.Workspace, error) {
 func (t *Tx) Workspace(id string) (w.Workspace, error) {
 	value, err := get[w.Workspace](t, "SELECT body FROM workspaces WHERE id=?", id)
 	if value.ExecutionMode == "" {
-		value.ExecutionMode = w.ExecutionControlled
+		value.ExecutionMode = w.ExecutionWorkspaceAutonomous
 	}
 	return value, err
 }
@@ -175,7 +176,7 @@ func (t *Tx) Workspace(id string) (w.Workspace, error) {
 // SaveWorkspace creates or replaces a workspace in the current transaction.
 func (t *Tx) SaveWorkspace(v w.Workspace) error {
 	if v.ExecutionMode == "" {
-		v.ExecutionMode = w.ExecutionControlled
+		v.ExecutionMode = w.ExecutionWorkspaceAutonomous
 	}
 	return t.exec("INSERT INTO workspaces(id,revision,body) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body", v.ID, v.Revision, body(v))
 }

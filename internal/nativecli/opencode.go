@@ -54,7 +54,7 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 		for _, action := range []string{"bash", "shell", "edit", "write", "read", "webfetch", "websearch", "glob", "grep", "list", "patch", "apply_patch", "view_image"} {
 			permissions = append(permissions, map[string]any{"action": action, "resource": "*", "effect": "allow"})
 		}
-	} else if (request.ExecutionMode == "project_autonomous" || request.ExecutionMode == "full_access") && !gate.trustedNative {
+	} else if (request.ExecutionMode == "workspace_autonomous" || request.ExecutionMode == "full_access") && !gate.trustedNative {
 		for _, action := range []string{"bash", "shell", "edit", "write", "read", "webfetch", "websearch", "glob", "grep", "list", "patch", "apply_patch", "view_image"} {
 			permissions = append(permissions, map[string]any{"action": action, "resource": "*", "effect": "ask"})
 		}
@@ -71,7 +71,7 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 	for _, tool := range request.Tools {
 		policies = append(policies, map[string]any{"action": "tool.use", "resource": "cocogem_" + tool.Name + ":*", "effect": "allow"})
 	}
-	if gate.trustedNative || request.ExecutionMode == "project_autonomous" || request.ExecutionMode == "full_access" && gate.approver != nil {
+	if gate.trustedNative || request.ExecutionMode == "workspace_autonomous" || request.ExecutionMode == "full_access" && gate.approver != nil {
 		policies = []any{map[string]any{"action": "tool.use", "resource": "*", "effect": "allow"}}
 	}
 	config["policies"] = policies
@@ -91,7 +91,7 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 		plugins = append([]string{pluginDir}, plugins...)
 	}
 	config["plugins"] = plugins
-	if request.ExecutionMode == "project_autonomous" && gate.sandbox != nil && gate.modelGateway == nil {
+	if request.ExecutionMode == "workspace_autonomous" && gate.sandbox != nil && gate.modelGateway == nil {
 		gateway, err := openCodeModelGateway(config, plan.openCodeModel)
 		if err != nil {
 			return nil, nil, err
