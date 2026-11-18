@@ -62,6 +62,25 @@ func newDeliveryAPIWithModel(t *testing.T, root string, db *store.Store, engine 
 // header overrides the session token so tests can prove the mutation gate.
 func (a *deliveryAPI) call(method, path string, input any, headers map[string]string, status int, target any) []byte {
 	a.t.Helper()
+	raw, got := a.do(method, path, input, headers)
+	if got != status {
+		a.t.Fatalf("%s %s: status=%d body=%s", method, path, got, raw)
+	}
+	if target != nil && json.Unmarshal(raw, target) != nil {
+		a.t.Fatalf("invalid API response: %s", raw)
+	}
+	return raw
+}
+
+// callStatus returns the status code so a journey can observe an optimistic
+// concurrency conflict instead of failing on it.
+func (a *deliveryAPI) callStatus(method, path string, input any, headers map[string]string) ([]byte, int) {
+	a.t.Helper()
+	return a.do(method, path, input, headers)
+}
+
+func (a *deliveryAPI) do(method, path string, input any, headers map[string]string) ([]byte, int) {
+	a.t.Helper()
 	body := []byte("{}")
 	if input != nil {
 		encoded, err := json.Marshal(input)
@@ -93,13 +112,10 @@ func (a *deliveryAPI) call(method, path string, input any, headers map[string]st
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
-	if err != nil || resp.StatusCode != status {
-		a.t.Fatalf("%s %s: status=%d body=%s err=%v", method, path, resp.StatusCode, raw, err)
+	if err != nil {
+		a.t.Fatalf("%s %s: read body: %v", method, path, err)
 	}
-	if target != nil && json.Unmarshal(raw, target) != nil {
-		a.t.Fatalf("invalid API response: %s", raw)
-	}
-	return raw
+	return raw, resp.StatusCode
 }
 
 func (a *deliveryAPI) unauthenticated(path string) int {

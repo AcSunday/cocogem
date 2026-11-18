@@ -148,6 +148,28 @@ func submitProjectJourneyRun(t *testing.T, api *deliveryAPI, thread w.Thread, go
 	return w.Run{}
 }
 
+// adjustBudget applies one policy change against the current budget revision.
+// A yielded run settles its account concurrently with the PATCH, so a 409 is the
+// designed optimistic-concurrency answer and the caller simply reloads and
+// retries with the revision it just read.
+func adjustBudget(t *testing.T, api *deliveryAPI, threadID, taskID string, policy w.BudgetPolicy) {
+	t.Helper()
+	for attempt := 0; attempt < 20; attempt++ {
+		current := projectJourneyTask(t, api, threadID)
+		raw, status := api.callStatus("PATCH", "/api/v1/tasks/"+taskID+"/budget",
+			TaskBudgetInput{Policy: policy}, map[string]string{"If-Match": fmt.Sprint(current.Budget.Revision)})
+		switch status {
+		case 200:
+			return
+		case 409:
+			time.Sleep(10 * time.Millisecond)
+		default:
+			t.Fatalf("budget patch: status=%d body=%s", status, raw)
+		}
+	}
+	t.Fatal("budget patch kept conflicting with a settling account")
+}
+
 func projectJourneyTask(t *testing.T, api *deliveryAPI, threadID string) project.TaskView {
 	t.Helper()
 	var thread ThreadView
@@ -255,8 +277,7 @@ func TestProjectBudgetPauseAndResumeHTTPJourney(t *testing.T) {
 	root := projectJourneyTask(t, api, thread.ID)
 	adjustDecimal := func(policy w.BudgetPolicy) {
 		t.Helper()
-		current := projectJourneyTask(t, api, thread.ID)
-		api.call("PATCH", "/api/v1/tasks/"+root.Task.ID+"/budget", TaskBudgetInput{Policy: policy}, map[string]string{"If-Match": fmt.Sprint(current.Budget.Revision)}, 200, nil)
+		adjustBudget(t, api, thread.ID, root.Task.ID, policy)
 	}
 	policy := root.Budget.Policy
 	policy.AutoContinuations, policy.ParallelBranches, policy.WriterBranches = 2, 1, 1
@@ -391,6 +412,7 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 	if yielded.Run.Status != "yielded" {
 		t.Fatalf("question run did not yield: %+v", yielded.Run)
 	}
+	created = projectJourneyTask(t, api, thread.ID)
 	var questions QuestionList
 	api.call("GET", "/api/v1/tasks/"+created.Task.ID+"/questions", nil, nil, 200, &questions)
 	if len(questions.Items) != 1 || questions.Items[0].Status != "open" || questions.Items[0].TaskRevision != 1 {
@@ -398,7 +420,7 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 	}
 	policy := created.Budget.Policy
 	policy.AutoContinuations = 1
-	api.call("PATCH", "/api/v1/tasks/"+created.Task.ID+"/budget", TaskBudgetInput{Policy: policy}, map[string]string{"If-Match": fmt.Sprint(created.Budget.Revision)}, 200, nil)
+	adjustBudget(t, api, thread.ID, created.Task.ID, policy)
 	// Consume the sole continuation through a real child Run before answering.
 	// The subsequent answer must remain durable without bypassing this account.
 	var child project.DelegationView
@@ -443,7 +465,7 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 		t.Fatalf("budget-exhausted continuation = %+v", continuation.Run)
 	}
 	policy.AutoContinuations = 2
-	api.call("PATCH", "/api/v1/tasks/"+created.Task.ID+"/budget", TaskBudgetInput{Policy: policy}, map[string]string{"If-Match": fmt.Sprint(created.Budget.Revision)}, 200, nil)
+	adjustBudget(t, api, thread.ID, created.Task.ID, policy)
 	deadline = time.Now().Add(5 * time.Second)
 	for {
 		api.call("GET", "/api/v1/runs/"+continuation.Run.ID, nil, nil, 200, &continuation)
