@@ -163,3 +163,10 @@
 - 修复：`shellast.go` 识别 shell 解释器，递归解析 `-c` 脚本（`-lc`/`-ec` 等聚簇、`-o` 取值、`--` 终止，深度上限 3），对无法静态求值的脚本保留保守 token 扫描；新增 `TestShellASTParsesInterpreterScripts` 与深度上限测试。
 - 复验：`make probe-cli` 全部通过（Claude/Codex/Gemini/Pi/OpenCode），`go test ./internal/nativecli ./internal/tools` 通过。
 - 门禁：`make check-contract`、`make test`、`make build`、`make e2e`（37/37）、`make verify-redesign` 均通过。`make verify-redesign` 在整套 e2e 之后曾出现一次不可复现的 Node 异常退出，随后同序列连续 4 次通过，未定位到稳定复现路径，按偶发记录而不视为已修复缺陷。
+
+### CI 环境暴露并修复的三处问题
+
+- `test (stable, ubuntu-latest)`：间接依赖 `github.com/go-json-experiment/json` 的旧伪版本引用当前标准库已不存在的符号。升级到 `v1.27.2`（其 `go.mod` 仍声明 1.26）；`1.26.x` 与 `stable` 两套工具链的 `-race -shuffle=on` 全量测试均通过。
+- `preview_page` 被通用工具注册表统一限制在 20s，冷启动浏览器在负载较高的 Linux runner 上耗尽预算后报 `css.EnableParams: context deadline exceeded`。现在注册表让 `run_test`/`run_command`/`preview_page` 各自使用经过校验的显式超时（`toolBudget`），浏览器冷启动另有独立上限，不再占用页面渲染预算。
+- `TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney` 在预算账本并发落定时对 `If-Match` 读到过期 revision 而得 409。409 是设计行为，测试改为重新读取当前 revision 后重试，并连续重复运行验证。
+- 修复后四个矩阵组合（1.26.x / stable × ubuntu / macOS）全部通过。
