@@ -3,6 +3,8 @@ module github.com/AcSunday/cocogem
 go 1.26.10
 
 require (
+	github.com/chromedp/cdproto v0.0.0-20250403032234-65de8f5d025b
+	github.com/chromedp/chromedp v0.13.6
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	golang.org/x/net v0.62.0
@@ -11,17 +13,13 @@ require (
 )
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20250403032234-65de8f5d025b // indirect
-	github.com/chromedp/chromedp v0.13.6 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/go-json-experiment/json v0.0.0-20260213210345-44df1a37e875 // indirect
+	github.com/go-json-experiment/json v1.27.2 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/josharian/intern v1.0.0 // indirect
-	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
