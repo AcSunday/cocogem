@@ -33,7 +33,9 @@ type PreviewInput struct {
 	// Viewport is a bounded width/height for the screenshot.
 	Width  int `json:"width"`
 	Height int `json:"height"`
-	// TimeoutSeconds bounds the whole probe, including the browser start.
+	// TimeoutSeconds bounds the page render (navigation, readiness and capture).
+	// A cold browser start gets its own bounded allowance on top of it so a slow
+	// machine cannot spend the render budget before a page target exists.
 	TimeoutSeconds int `json:"timeout_seconds"`
 }
 
@@ -59,7 +61,11 @@ const (
 	previewHeightDefault = 800
 	previewMaxDimension  = 2560
 	previewTimeout       = 45 * time.Second
-	previewMaxScreenshot = 16 << 20
+	// previewStartupAllowance bounds a cold browser start on top of the render
+	// budget, so a slow runner cannot spend the caller's timeout before a page
+	// target exists.
+	previewStartupAllowance = 120 * time.Second
+	previewMaxScreenshot    = 16 << 20
 )
 
 // browserEngine resolves a Chromium-family binary without accepting a model

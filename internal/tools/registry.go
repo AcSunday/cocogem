@@ -98,6 +98,17 @@ type WebClient interface {
 	Search(context.Context, string) ([]w.Source, error)
 }
 
+// toolBudget is the generic read-tool budget. Tools that validate and apply
+// their own bounded timeout return 0 so the registry never silently truncates
+// them: run_test, run_command and preview_page all declare an explicit limit.
+func toolBudget(name string) time.Duration {
+	switch name {
+	case "run_test", "run_command", "preview_page":
+		return 0
+	}
+	return 20 * time.Second
+}
+
 // Scope limits a tool call to its workspace and exact evidence capture callback.
 type Scope struct {
 	Root          string
@@ -126,8 +137,11 @@ type Scope struct {
 	ReadOnly bool
 }
 
-// Execute returns a JSON observation for a registered host operation. run_test
-// applies its own bounded timeout instead of the short read-tool budget.
+// Execute returns a JSON observation for a registered host operation. run_test,
+// run_command and preview_page apply their own bounded timeout instead of the
+// short read-tool budget: a browser cold start plus a real page render cannot
+// fit in the generic budget on a loaded machine, and preview_page already
+// validates and applies its own 1–120 second timeout.
 func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope) (string, error) {
 	if len(scope.ApprovedRoots) > 0 && rebindApprovedTarget(name, &raw, &scope) {
 		// The scope now points at exactly the approved location.
@@ -160,9 +174,9 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 			}
 		}
 	}
-	if name != "run_test" && name != "run_command" {
+	if budget := toolBudget(name); budget > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 20*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, budget)
 		defer cancel()
 	}
 	var result any

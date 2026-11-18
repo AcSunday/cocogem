@@ -77,15 +77,19 @@ func RunPreview(ctx context.Context, root string, in PreviewInput) (PreviewResul
 		}
 		defer stopPreviewCommand(previewCmd)
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	_ = probeCtx
+	// A cold Chrome start (process launch, target creation, domain enablement)
+	// is not part of the page-render budget the caller asked for: a loaded CI
+	// runner can take tens of seconds before the first page exists, and charging
+	// that to the render timeout made an otherwise healthy probe fail with a
+	// CDP deadline error instead of rendering.
+	hardCtx, hardCancel := context.WithTimeout(ctx, timeout+previewStartupAllowance)
+	defer hardCancel()
 	profile, profileErr := os.MkdirTemp("", "cocogem-preview-profile-*")
 	if profileErr != nil {
 		return PreviewResult{}, errors.New("a private browser profile could not be created")
 	}
 	defer os.RemoveAll(profile)
-	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(probeCtx,
+	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(hardCtx,
 		chromedp.ExecPath(engine),
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
@@ -107,11 +111,20 @@ func RunPreview(ctx context.Context, root string, in PreviewInput) (PreviewResul
 	browserCtx, browserCancel := chromedp.NewContext(allocatorCtx)
 	defer browserCancel()
 
+	// Force the lazy target setup here, inside the startup allowance, so the
+	// render budget below starts counting only when a page target exists. A
+	// failure here is reported as a start failure, not as a render timeout.
+	if err := chromedp.Run(browserCtx); err != nil {
+		return PreviewResult{}, fmt.Errorf("the browser could not start: %w", err)
+	}
+	probeCtx, probeCancel := context.WithTimeout(browserCtx, timeout)
+	defer probeCancel()
+
 	probeOrigin := PreviewOrigin(origin)
 	// The interceptor is enabled before navigation. Every paused request is
 	// continued only when it targets the exact probe origin; data/blob assets
 	// are allowed for inline images, and anything else is aborted.
-	if err := chromedp.Run(browserCtx, fetch.Enable().WithPatterns([]*fetch.RequestPattern{{
+	if err := chromedp.Run(probeCtx, fetch.Enable().WithPatterns([]*fetch.RequestPattern{{
 		URLPattern: "*", RequestStage: fetch.RequestStageRequest,
 	}})); err != nil {
 		return PreviewResult{}, fmt.Errorf("the browser request interceptor could not start: %w", err)
@@ -141,7 +154,7 @@ func RunPreview(ctx context.Context, root string, in PreviewInput) (PreviewResul
 	var title string
 	var screenshot []byte
 	var axRaw []byte
-	runErr := chromedp.Run(browserCtx,
+	runErr := chromedp.Run(probeCtx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			if err := chromedp.EmulateViewport(int64(width), int64(height)).Do(ctx); err != nil {
 				return err

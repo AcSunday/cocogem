@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestPreviewStaticServerServesOnlyTheEntrySubtree is the SSRF/scope regression:
@@ -121,5 +122,18 @@ func TestPreviewCommandModeIsRefusedInAReadOnlyTurn(t *testing.T) {
 	raw := []byte(`{"mode":"command","argv":["/bin/sh","-c","true"]}`)
 	if _, err := Execute(context.Background(), "preview_page", raw, scope); err == nil || !strings.Contains(err.Error(), "read_only_step") {
 		t.Fatalf("a read-only command preview was accepted: %v", err)
+	}
+}
+
+// TestPreviewTimeoutBudgetSeparatesStartupFromRender is the CI regression: a
+// cold browser start must not consume the caller's render budget, because a
+// loaded runner then failed the whole probe with a CDP deadline error before
+// any page existed.
+func TestPreviewTimeoutBudgetSeparatesStartupFromRender(t *testing.T) {
+	if previewStartupAllowance < 60*time.Second {
+		t.Fatalf("startup allowance = %s; a loaded runner needs a real cold-start margin", previewStartupAllowance)
+	}
+	if previewTimeout < 30*time.Second {
+		t.Fatalf("render budget = %s", previewTimeout)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -58,6 +59,22 @@ func TestEngineeringToolsAreOptInOnly(t *testing.T) {
 	for _, name := range AllNames {
 		if !slices.Contains(Names, name) && !slices.Contains(EngineeringNames, name) && name != "run_command" {
 			t.Fatalf("%s is outside the complete vocabulary", name)
+		}
+	}
+}
+
+// TestToolBudgetLeavesSelfBoundedToolsAlone is the CI regression: preview_page
+// declares and validates its own 1-120 second timeout, so a generic 20 second
+// registry budget truncated a healthy browser probe with a CDP deadline error.
+func TestToolBudgetLeavesSelfBoundedToolsAlone(t *testing.T) {
+	for _, name := range []string{"run_test", "run_command", "preview_page"} {
+		if budget := toolBudget(name); budget != 0 {
+			t.Fatalf("%s received a generic %s budget", name, budget)
+		}
+	}
+	for _, name := range []string{"read_file", "list_files", "search_content", "view_image"} {
+		if budget := toolBudget(name); budget != 20*time.Second {
+			t.Fatalf("%s generic budget = %s", name, budget)
 		}
 	}
 }
