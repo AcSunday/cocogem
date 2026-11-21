@@ -101,6 +101,31 @@ func (e *Engine) promoteTask(ctx context.Context, run w.Run, sender w.Step, raw 
 		}
 		current.TaskID, current.TaskRevision, current.BudgetAccountID = view.Task.ID, view.Task.CurrentRevision, view.Budget.ID
 		current.TaskPromotionStepID, current.TaskPromotionDigest = origin.ID, project.Digest(in)
+		if current.Workspace.Root != "" && !current.Input.PlanOnly && len(current.Input.Targets) <= 1 {
+			current.WriteBranch = true
+		}
+		// Attach task_id to existing thread executions and sessions so the
+		// promoted task inherits continuity cleanly instead of orphaning rows.
+		if existingExecs, execErr := tx.ThreadExecutions(th.ID); execErr == nil {
+			for _, execItem := range existingExecs {
+				if execItem.TaskID == "" {
+					execItem.TaskID = view.Task.ID
+					if err := tx.SaveExecution(execItem); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		if existingSessions, sessErr := tx.Sessions(th.ID); sessErr == nil {
+			for _, sess := range existingSessions {
+				if sess.TaskID == "" {
+					sess.TaskID = view.Task.ID
+					if err := tx.SaveSession(sess); err != nil {
+						return err
+					}
+				}
+			}
+		}
 		if err := service.EnsureRunAuthorization(tx, &current, messageID); err != nil {
 			return err
 		}
@@ -143,7 +168,7 @@ func (e *Engine) promoteTask(ctx context.Context, run w.Run, sender w.Step, raw 
 	}
 	instruction := "Finish this invocation now. The host continues the accepted objective in a fresh execution step in this same conversation."
 	if len(run.Agents) > 1 {
-		instruction = "Task promoted. If teammates should execute or review this work, call handoff_task (prefer mode='relay' for peer-to-peer execution and review) or choose_workflow right now in this same invocation, then finish. Only finish without dispatching if you will execute the entire task yourself in the next step."
+		instruction = "Task promoted. If teammates should execute or review this work, call handoff_task (prefer mode='relay' for peer-to-peer execution and review) right now in this same invocation, then finish. Only finish without dispatching if you will execute the entire task yourself in the next step."
 	}
 	encoded, err := json.Marshal(map[string]any{"task_id": taskID, "accepted": true, "instruction": instruction})
 	return string(encoded), err

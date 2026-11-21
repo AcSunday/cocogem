@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/store"
@@ -128,25 +127,12 @@ func (m *Manager) VerifyCandidate(ctx context.Context, id string, sources []w.So
 }
 
 // changedPaths lists the workspace-relative paths that differ from the derived
-// snapshot, honoring the candidate kind.
+// snapshot, honoring the candidate kind (and surviving agent git commits).
 func (m *Manager) changedPaths(ctx context.Context, candidate w.WorkspaceExecution) ([]string, error) {
 	if candidate.Kind == "git_worktree" {
-		tracked, err := m.gitBinary(ctx, candidate.Path, "diff", "--name-only", "-z", "--no-ext-diff", "HEAD")
-		if err != nil {
-			return nil, err
-		}
-		untracked, err := m.gitBinary(ctx, candidate.Path, "ls-files", "-z", "--others", "--exclude-standard")
-		if err != nil {
-			return nil, err
-		}
-		out := append(splitNUL(tracked), splitNUL(untracked)...)
-		return dedupe(out), nil
+		return m.worktreeChangedPaths(ctx, candidate)
 	}
-	changed, err := diffTrees(candidate.Path, candidate.CanonicalRoot)
-	if err != nil {
-		return nil, err
-	}
-	return dedupe(changed), nil
+	return m.copyChangedPaths(candidate)
 }
 
 func dedupe(values []string) []string {
@@ -162,10 +148,10 @@ func dedupe(values []string) []string {
 	return out
 }
 
-// VerifyTree is the reviewer sandbox: an independent detached worktree derived
-// from the author's exact candidate tree. It is created before dispatch and
-// destroyed after the review, and the author's candidate digest is asserted
-// unchanged afterwards.
+// VerifyTree is the reviewer sandbox: an independent detached worktree (or
+// bounded file copy for non-git projects) derived from the author's exact
+// candidate tree. Uncommitted changes stay as working-tree diffs so `git diff`
+// and `git_inspect` show the author's changes directly.
 func (m *Manager) VerifyTree(ctx context.Context, authorID, stepID string) (w.WorkspaceExecution, error) {
 	var author w.WorkspaceExecution
 	if err := m.store.Read(ctx, func(tx *store.Tx) error {
@@ -178,101 +164,100 @@ func (m *Manager) VerifyTree(ctx context.Context, authorID, stepID string) (w.Wo
 	if author.Path == "" {
 		return w.WorkspaceExecution{}, errors.New("author candidate is unavailable")
 	}
-	if author.Kind != "git_worktree" {
-		return w.WorkspaceExecution{}, fmt.Errorf("%w: independent verification requires a git candidate", w.ErrConflict)
+	return m.verifyFromRoot(ctx, author.Path, author.CanonicalRoot, author.WorkspaceID, author.ThreadID, author.TaskID, author.OwnerMemberID, author.Kind == "git_worktree", stepID)
+}
+
+// VerifyDirectRoot materializes a disposable reviewer sandbox from a bound
+// project root directly (used when independent review runs on an ordinary
+// direct-write conversation without a Candidate worktree).
+func (m *Manager) VerifyDirectRoot(ctx context.Context, root, workspaceID, threadID, taskID, ownerMemberID, stepID string) (w.WorkspaceExecution, error) {
+	if root == "" {
+		return w.WorkspaceExecution{}, errors.New("source directory is unavailable for independent review")
 	}
-	before, err := m.digestTree(author.Path)
+	resolved, err := canonical(root)
 	if err != nil {
 		return w.WorkspaceExecution{}, err
 	}
-	// The reviewed digest is the author's exact current tree; the reviewer only
-	// needs the bytes that exist right now, and DestroyVerifyTree asserts they
-	// never changed while the review ran.
+	isGit := isGitWorktree(ctx, resolved)
+	return m.verifyFromRoot(ctx, resolved, resolved, workspaceID, threadID, taskID, ownerMemberID, isGit, stepID)
+}
+
+func (m *Manager) verifyFromRoot(ctx context.Context, sourcePath, canonicalRoot, workspaceID, threadID, taskID, ownerMemberID string, isGit bool, stepID string) (w.WorkspaceExecution, error) {
+	before, err := m.digestTree(sourcePath)
+	if err != nil {
+		return w.WorkspaceExecution{}, err
+	}
 	path := filepath.Join(m.base, "verify-"+stepID)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		return w.WorkspaceExecution{}, errors.New("verification directory already exists")
 	}
-	// A stash commit freezes the author's exact tracked state (including
-	// uncommitted edits) so the reviewer sees the reviewed bytes, not the
-	// author's later changes.
-	tree, err := m.git(ctx, author.Path, "stash", "create")
-	if err != nil {
-		return w.WorkspaceExecution{}, fmt.Errorf("freeze author tree: %w", err)
-	}
-	if tree == "" {
-		// A clean author tree is reviewable at HEAD.
-		tree = "HEAD"
-	}
-	if _, err := m.git(ctx, author.CanonicalRoot, "worktree", "add", "--detach", "--quiet", "--", path, tree); err != nil {
-		return w.WorkspaceExecution{}, fmt.Errorf("derive verification worktree: %w", err)
-	}
-	// Untracked author files are not part of a stash commit; copy them so the
-	// reviewer can read every file the author actually has.
-	if err := m.copyUntracked(ctx, author.Path, path); err != nil {
-		_, _ = m.git(ctx, author.CanonicalRoot, "worktree", "remove", "--force", "--", path)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return w.WorkspaceExecution{}, err
 	}
+	baseRev := ""
+	if isGit {
+		headRev, err := m.git(ctx, sourcePath, "rev-parse", "HEAD")
+		if err != nil {
+			return w.WorkspaceExecution{}, fmt.Errorf("read reviewed HEAD: %w", err)
+		}
+		baseRev = headRev
+		if _, err := m.git(ctx, canonicalRoot, "worktree", "add", "--detach", "--quiet", "--", path, headRev); err != nil {
+			return w.WorkspaceExecution{}, fmt.Errorf("derive verification worktree: %w", err)
+		}
+		// Replay uncommitted tracked & untracked changes as working-tree diffs so
+		// `git status`, `git diff`, and `git_inspect` show the author's edits.
+		if err := m.syncDirtyWorkspace(ctx, sourcePath, path); err != nil {
+			_, _ = m.git(ctx, canonicalRoot, "worktree", "remove", "--force", "--", path)
+			return w.WorkspaceExecution{}, err
+		}
+	} else {
+		if err := copyTree(ctx, sourcePath, path); err != nil {
+			_ = os.RemoveAll(path)
+			return w.WorkspaceExecution{}, err
+		}
+	}
 	verification := w.WorkspaceExecution{
-		ID: w.NewID(), WorkspaceID: author.WorkspaceID, ThreadID: author.ThreadID,
-		TaskID: author.TaskID, Kind: "verify_dir", Path: path, CanonicalRoot: author.CanonicalRoot,
-		BaseRevision: author.BaseRevision, TreeDigest: before, OwnerMemberID: author.OwnerMemberID,
+		ID: w.NewID(), WorkspaceID: workspaceID, ThreadID: threadID,
+		TaskID: taskID, Kind: "verify_dir", Path: path, CanonicalRoot: canonicalRoot,
+		BaseRevision: baseRev, TreeDigest: before, OwnerMemberID: ownerMemberID,
 		LeaseOwner: m.owner, LeaseEpoch: 1, Status: "active",
 		Observation: "independent verification copy; destroyed after review",
 		CreatedAt:   m.now().UTC().Format(time.RFC3339Nano), UpdatedAt: m.now().UTC().Format(time.RFC3339Nano),
 	}
-	// The verification directory is not a lease: it is a disposable copy keyed
-	// by step identity and never persisted as a candidate scope.
 	return verification, nil
 }
 
-// copyUntracked copies the non-ignored, non-sensitive untracked files of source
-// into target without replaying tracked diffs.
-func (m *Manager) copyUntracked(ctx context.Context, source, target string) error {
-	untracked, err := m.gitBinary(ctx, source, "ls-files", "-z", "--others", "--exclude-standard")
-	if err != nil {
-		return fmt.Errorf("list untracked files: %w", err)
-	}
-	files, size := 0, int64(0)
-	for _, name := range strings.Split(string(untracked), "\x00") {
-		if name == "" || !filepath.IsLocal(name) {
-			continue
+// DestroyVerifyTree removes a verification worktree (or copy) and asserts the
+// reviewed tree is byte-identical to the reviewed digest.
+func (m *Manager) DestroyVerifyTree(ctx context.Context, verification w.WorkspaceExecution, authorID string) error {
+	if verification.BaseRevision != "" && verification.CanonicalRoot != "" {
+		if _, err := m.git(ctx, verification.CanonicalRoot, "worktree", "remove", "--force", "--", verification.Path); err != nil {
+			if removeErr := os.RemoveAll(verification.Path); removeErr != nil {
+				return errors.Join(err, removeErr)
+			}
 		}
-		info, err := os.Lstat(filepath.Join(source, name))
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		files++
-		size += info.Size()
-		if files > 20000 || size > 512<<20 || info.Size() > 32<<20 {
-			return errors.New("untracked source files exceed isolated copy limits")
-		}
-		if err := copyRegularFile(filepath.Join(source, name), filepath.Join(target, name), info); err != nil {
+		_, _ = m.git(ctx, verification.CanonicalRoot, "worktree", "prune", "--expire", "now")
+	} else {
+		if err := os.RemoveAll(verification.Path); err != nil {
 			return err
 		}
 	}
-	return nil
-}
-
-// DestroyVerifyTree removes a verification worktree and asserts the author
-// candidate is byte-identical to the reviewed digest.
-func (m *Manager) DestroyVerifyTree(ctx context.Context, verification w.WorkspaceExecution, authorID string) error {
-	if _, err := m.git(ctx, verification.CanonicalRoot, "worktree", "remove", "--force", "--", verification.Path); err != nil {
-		if removeErr := os.RemoveAll(verification.Path); removeErr != nil {
-			return errors.Join(err, removeErr)
+	reviewedPath := verification.CanonicalRoot
+	if authorID != "" {
+		var author w.WorkspaceExecution
+		if err := m.store.Read(ctx, func(tx *store.Tx) error {
+			var err error
+			author, err = tx.Execution(authorID)
+			return err
+		}); err != nil {
+			return err
 		}
+		reviewedPath = author.Path
 	}
-	if _, err := m.git(ctx, verification.CanonicalRoot, "worktree", "prune", "--expire", "now"); err != nil {
-		return err
+	if reviewedPath == "" {
+		return nil
 	}
-	var author w.WorkspaceExecution
-	if err := m.store.Read(ctx, func(tx *store.Tx) error {
-		var err error
-		author, err = tx.Execution(authorID)
-		return err
-	}); err != nil {
-		return err
-	}
-	after, err := m.digestTree(author.Path)
+	after, err := m.digestTree(reviewedPath)
 	if err != nil {
 		return err
 	}

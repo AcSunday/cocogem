@@ -184,20 +184,41 @@ func (e *Engine) Candidates(ctx context.Context, threadID string) ([]CandidateVi
 		if err != nil {
 			verdict = execution.CandidateVerification{State: execution.CandidateUnverifiedMutation, Reason: err.Error()}
 		}
-		// The diff-hygiene hint travels with the verdict so a reviewer sees a
-		// stacked-fallback smell beside the exact candidate, without blocking
-		// an otherwise verified change.
-		for _, source := range sources {
-			if source.Kind != "diff" || source.Content == "" {
-				continue
-			}
-			if hints := tools.AnalyzeDiffHygiene(source.Content); len(hints) > 0 {
+		// Analyze the candidate's live cumulative diff (covering both host tools
+		// and native CLI edits) so stale historical thread diffs never leak here.
+		if liveDiff, diffErr := e.Executions.CandidateDiff(ctx, item.ID); diffErr == nil && liveDiff != "" {
+			if hints := tools.AnalyzeDiffHygiene(liveDiff); len(hints) > 0 {
 				verdict.HygieneHints = append(verdict.HygieneHints, tools.DiffHygieneSummary(hints))
 			}
 		}
 		out = append(out, CandidateView{Execution: item, Verification: verdict})
 	}
 	return out, nil
+}
+
+// CandidateDiff returns the live unified diff of one unapplied candidate.
+func (e *Engine) CandidateDiff(ctx context.Context, threadID, executionID string) (string, error) {
+	if e.Executions == nil {
+		return "", errors.New("execution isolation is unavailable")
+	}
+	item, err := e.candidateOfThread(ctx, threadID, executionID)
+	if err != nil {
+		return "", err
+	}
+	return e.Executions.CandidateDiff(ctx, item.ID)
+}
+
+// ExportCandidateBranch exports one unapplied candidate as a local Git branch
+// in the bound repository without switching the user's current branch.
+func (e *Engine) ExportCandidateBranch(ctx context.Context, threadID, executionID string) (string, error) {
+	if e.Executions == nil {
+		return "", errors.New("execution isolation is unavailable")
+	}
+	item, err := e.candidateOfThread(ctx, threadID, executionID)
+	if err != nil {
+		return "", err
+	}
+	return e.Executions.ExportBranch(ctx, item.ID)
 }
 
 // ApplyCandidate writes one candidate back to the bound project. It refuses to

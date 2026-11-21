@@ -158,6 +158,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs/{id}/messages/{messageID}/content", s.messageContent)
 	mux.HandleFunc("GET /api/v1/sources/{id}", s.source)
 	mux.HandleFunc("GET /api/v1/threads/{id}/candidates", s.threadCandidates)
+	mux.HandleFunc("GET /api/v1/threads/{id}/candidates/{executionID}/diff", s.candidateDiff)
+	mux.HandleFunc("POST /api/v1/threads/{id}/candidates/{executionID}/export-branch", s.exportCandidateBranch)
 	mux.HandleFunc("POST /api/v1/threads/{id}/candidates/{executionID}/apply", s.applyCandidate)
 	mux.HandleFunc("POST /api/v1/threads/{id}/candidates/{executionID}/discard", s.discardCandidate)
 	mux.HandleFunc("GET /api/v1/threads/{id}/artifacts", s.artifacts)

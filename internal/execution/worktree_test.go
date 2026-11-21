@@ -241,3 +241,98 @@ func TestVerifyCandidateNeedsACoveringTest(t *testing.T) {
 	}
 	_ = errors.Is
 }
+
+func TestCandidateAgentCommitSurvivesDiffApplyAndExportBranch(t *testing.T) {
+	db, project, run, runGit := gitExecutionFixture(t)
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	candidate, err := manager.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an agent editing and running `git commit` inside its worktree.
+	if err := os.WriteFile(filepath.Join(candidate.Path, "main.txt"), []byte("committed by agent\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(candidate.Path, "add", "main.txt")
+	runGit(candidate.Path, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "agent commit")
+
+	diff, err := manager.CandidateDiff(t.Context(), candidate.ID)
+	if err != nil {
+		t.Fatalf("CandidateDiff after agent git commit: %v", err)
+	}
+	if !strings.Contains(diff, "committed by agent") {
+		t.Fatalf("CandidateDiff missed committed change: %q", diff)
+	}
+	branch, err := manager.ExportBranch(t.Context(), candidate.ID)
+	if err != nil {
+		t.Fatalf("ExportBranch: %v", err)
+	}
+	if !strings.HasPrefix(branch, "cocogem/cand-") {
+		t.Fatalf("unexpected exported branch name: %q", branch)
+	}
+	if _, err := manager.Apply(t.Context(), candidate.ID); err != nil {
+		t.Fatalf("Apply after agent git commit: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(project, "main.txt"))
+	if err != nil || string(data) != "committed by agent\n" {
+		t.Fatalf("project file after Apply = %q, %v", data, err)
+	}
+}
+
+func TestParallelNonOverlappingCandidatesApplyCleanlyAndExternalDeleteConflicts(t *testing.T) {
+	db, project, runA, runGit := gitExecutionFixture(t)
+	if err := os.WriteFile(filepath.Join(project, "a.txt"), []byte("a0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "b.txt"), []byte("b0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(project, "add", "a.txt", "b.txt")
+	runGit(project, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "seed a and b")
+
+	threadB := w.Thread{ID: "thread-b", WorkspaceID: runA.WorkspaceID, Title: "b", Revision: 1, UpdatedAt: w.Now()}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveThread(threadB) }); err != nil {
+		t.Fatal(err)
+	}
+	runB := runA
+	runB.ID = "run-b"
+	runB.ThreadID = threadB.ID
+
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	candA, err := manager.Prepare(t.Context(), runA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candB, err := manager.Prepare(t.Context(), runB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candA.Path, "a.txt"), []byte("a1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candB.Path, "b.txt"), []byte("b1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Apply(t.Context(), candA.ID); err != nil {
+		t.Fatalf("apply A: %v", err)
+	}
+	// Candidate B edited b.txt only; applying A (a.txt) must not falsely conflict B!
+	if _, err := manager.Apply(t.Context(), candB.ID); err != nil {
+		t.Fatalf("non-overlapping parallel candidate B falsely conflicted: %v", err)
+	}
+
+	// Now verify external deletion of an affected file triggers ErrApplyConflict.
+	candC, err := manager.Prepare(t.Context(), runA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candC.Path, "a.txt"), []byte("a2\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(project, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Apply(t.Context(), candC.ID); !errors.Is(err, ErrApplyConflict) {
+		t.Fatalf("external deletion apply error = %v, want ErrApplyConflict", err)
+	}
+}

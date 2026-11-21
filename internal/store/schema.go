@@ -24,7 +24,11 @@ func resetStaleSchema(db *sql.DB) error {
 		var baseline string
 		err := db.QueryRowContext(context.Background(), "SELECT value FROM schema_meta WHERE key='schema_baseline'").Scan(&baseline)
 		switch {
-		case err == sql.ErrNoRows || baseline != schemaBaseline:
+		case err == nil && baseline == schemaBaseline:
+			// Current baseline is already installed.
+		case err == nil && baseline != schemaBaseline,
+			err == sql.ErrNoRows,
+			err != nil && strings.Contains(err.Error(), "no such table"):
 			// Foreign keys are enabled by the connection pragma, so the drop order
 			// does not matter for a full wipe; disable them to be explicit.
 			if _, err := db.ExecContext(context.Background(), "PRAGMA foreign_keys=OFF"); err != nil {
@@ -36,7 +40,8 @@ func resetStaleSchema(db *sql.DB) error {
 			if _, err := db.ExecContext(context.Background(), "PRAGMA foreign_keys=ON"); err != nil {
 				return err
 			}
-		case err != nil:
+		default:
+			// Never wipe a live database on transient or I/O errors such as SQLITE_BUSY.
 			return err
 		}
 	}

@@ -383,6 +383,16 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 			if err := validateContextRefs(tx, current, sender, in); err != nil {
 				return err
 			}
+			if in.Role == "reviewer" || in.Role == "critic" {
+				for _, prior := range steps {
+					if prior.ID == sender.ID || prior.Status != "succeeded" {
+						continue
+					}
+					if prior.AgentID == target.ID && prior.Role != "reviewer" && prior.Role != "critic" && prior.Role != "coordinator" {
+						return errors.New("independent review cannot use a target reviewer who authored work in this run; choose a different member")
+					}
+				}
+			}
 			deps := slices.Clone(sender.DependsOn)
 			if !slices.Contains(deps, sender.ID) {
 				deps = append(deps, sender.ID)
@@ -435,6 +445,16 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 		}
 		if err := validateContextRefs(tx, current, sender, in); err != nil {
 			return err
+		}
+		if in.Role == "reviewer" || in.Role == "critic" {
+			for _, prior := range steps {
+				if prior.ID == sender.ID || prior.Status != "succeeded" {
+					continue
+				}
+				if prior.AgentID == target.ID && prior.Role != "reviewer" && prior.Role != "critic" && prior.Role != "coordinator" {
+					return errors.New("independent review cannot use a target reviewer who authored work in this run; choose a different member")
+				}
+			}
 		}
 		child = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: target.ID, AgentName: target.DisplayName, Role: in.Role, Instruction: in.Task, DependsOn: []string{sender.ID}, Status: "pending", Kind: "handoff", FromStepID: sender.ID, FromAgentID: sender.AgentID, FromAttemptID: currentAttempt, RequestID: in.RequestID, ContextRefs: slices.Clone(in.ContextRefs), Depth: sender.Depth + 1}
 		handoffContinuationPrompt := "根据返回的任务结果继续完成用户原始目标。如实处理失败和分歧；只有确实需要时才从当前名册选择后续复核者，否则交付结果。不要重复已完成的委派，也不要为确认收到而创建新任务。"

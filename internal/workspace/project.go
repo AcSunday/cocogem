@@ -336,6 +336,11 @@ type WorkspaceExecution struct {
 	Path          string `json:"path"`
 	CanonicalRoot string `json:"canonical_root"`
 	BaseRevision  string `json:"base_revision"`
+	// BaseSnapshotOID is an unreferenced git commit capturing the exact derived
+	// tree (HEAD + dirty tracked + untracked files) when the worktree was created,
+	// so live diffs and affected-file conflict checks stay exact even if the agent
+	// commits inside the candidate worktree.
+	BaseSnapshotOID string `json:"base_snapshot_oid,omitempty"`
 	// BaseTreeDigest is the affected workspace snapshot taken when the candidate
 	// was materialized. Apply compares it with the live source tree so an
 	// external edit can never be silently overwritten.

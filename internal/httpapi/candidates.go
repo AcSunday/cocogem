@@ -47,6 +47,49 @@ func (s *Server) applyCandidate(rw http.ResponseWriter, r *http.Request) {
 	respond(rw, r, result, nil)
 }
 
+// CandidateDiffReply returns the bounded live unified diff of one candidate.
+type CandidateDiffReply struct {
+	ID   string `json:"id"`
+	Diff string `json:"diff"`
+}
+
+// CandidateBranchReply returns the local Git branch created for one candidate.
+type CandidateBranchReply struct {
+	ID     string `json:"id"`
+	Branch string `json:"branch"`
+}
+
+// candidateDiff reads the live unified diff of an unapplied candidate before Apply.
+func (s *Server) candidateDiff(rw http.ResponseWriter, r *http.Request) {
+	if err := s.visibleThreadRead(r, r.PathValue("id")); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	execID := r.PathValue("executionID")
+	diff, err := s.engine.CandidateDiff(r.Context(), r.PathValue("id"), execID)
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	respond(rw, r, CandidateDiffReply{ID: execID, Diff: diff}, nil)
+}
+
+// exportCandidateBranch creates a local Git branch pointing at the candidate
+// snapshot so the user can merge or cherry-pick when Apply reports a 409 conflict.
+func (s *Server) exportCandidateBranch(rw http.ResponseWriter, r *http.Request) {
+	if err := s.visibleThreadRead(r, r.PathValue("id")); err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	execID := r.PathValue("executionID")
+	branch, err := s.engine.ExportCandidateBranch(r.Context(), r.PathValue("id"), execID)
+	if err != nil {
+		respond(rw, r, nil, err)
+		return
+	}
+	respond(rw, r, CandidateBranchReply{ID: execID, Branch: branch}, nil)
+}
+
 // discardCandidate destroys one candidate without touching the bound project.
 func (s *Server) discardCandidate(rw http.ResponseWriter, r *http.Request) {
 	if err := s.visibleThreadRead(r, r.PathValue("id")); err != nil {

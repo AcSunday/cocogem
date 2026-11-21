@@ -127,9 +127,11 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 			return w.ErrConflict
 		}
 		in.Targets = route.Targets
-		// A Plan-Only turn never derives a write candidate; it reads the bound
-		// project or its current unapplied candidate and cannot modify either.
-		writeBranch := ws.Root != "" && !in.PlanOnly
+		// Ordinary single-member chats write directly to the bound project without
+		// creating a Task or deriving a Candidate worktree. Only durable Tasks
+		// (and parallel subtasks) use isolated Candidate worktrees; Plan-Only and
+		// parallel multi-member passes stay read-only.
+		writeBranch := ws.Root != "" && !in.PlanOnly && len(in.Targets) <= 1 && th.TaskID != ""
 		var policy *w.ExecutionPolicy
 		if s.engine != nil {
 			limits := s.engine.Limits
@@ -182,7 +184,7 @@ func (s *Server) queueRunInTx(tx *store.Tx, th w.Thread, in w.RunInput, route w.
 		}
 		messageID := w.NewID()
 		var task project.TaskView
-		if th.TaskID != "" || writeBranch {
+		if th.TaskID != "" {
 			task, err = s.projects.BindRunTask(tx, th, in, messageID, run.ID)
 			if err != nil {
 				return err

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -84,20 +85,23 @@ func (s *Server) updateWorkspace(rw http.ResponseWriter, r *http.Request) {
 			}
 			// An unapplied candidate belongs to the previous repository. Refusing
 			// the rebind keeps the user from writing that work into a new project.
+			allCandidates, err := tx.Executions(ws.ID)
+			if err != nil {
+				return err
+			}
+			for _, candidate := range allCandidates {
+				if candidate.Kind == "verify_dir" {
+					continue
+				}
+				if candidate.Status == "active" || candidate.Status == "completed" || candidate.Status == "uncertain" {
+					return &RequestError{409, "candidate_pending", "该工作空间仍有未应用或未丢弃的候选变更，请先在对应会话中选择应用或丢弃后再更换项目目录"}
+				}
+			}
 			list, err := tx.ThreadsAny(ws.ID)
 			if err != nil {
 				return err
 			}
 			for _, thread := range list {
-				candidates, err := tx.ThreadExecutions(thread.ID)
-				if err != nil {
-					return err
-				}
-				for _, candidate := range candidates {
-					if candidate.Status == "active" || candidate.Status == "completed" || candidate.Status == "uncertain" {
-						return &RequestError{409, "candidate_pending", "该工作空间仍有未应用或未丢弃的候选变更，请先在对应会话中选择应用或丢弃后再更换项目目录"}
-					}
-				}
 				sealedThreads = append(sealedThreads, thread.ID)
 			}
 		}
@@ -147,9 +151,14 @@ func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	threads := map[string]bool{}
+	var (
+		candidates []w.WorkspaceExecution
+		ioScopes   []string
+		roots      []string
+	)
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
-		if _, err := tx.Workspace(id); err != nil {
+		ws, err := tx.Workspace(id)
+		if err != nil {
 			return err
 		}
 		active, err := tx.Active()
@@ -159,22 +168,48 @@ func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 		if slices.ContainsFunc(active, func(run w.Run) bool { return run.WorkspaceID == id }) {
 			return errRunActive
 		}
+		candidates, err = tx.Executions(id)
+		if err != nil {
+			return err
+		}
+		seenRoot := map[string]bool{}
+		addRoot := func(root string) {
+			if root != "" && !seenRoot[root] {
+				seenRoot[root] = true
+				roots = append(roots, root)
+			}
+		}
+		addRoot(ws.Root)
+		for _, item := range candidates {
+			addRoot(item.CanonicalRoot)
+		}
+		seenScope := map[string]bool{}
+		addScope := func(scope string) {
+			if scope != "" && !seenScope[scope] {
+				seenScope[scope] = true
+				ioScopes = append(ioScopes, scope)
+			}
+		}
 		list, err := tx.ThreadsAny(id)
 		if err != nil {
 			return err
 		}
 		for _, th := range list {
-			threads[th.ID] = true
+			addScope(th.ID)
+			addScope(th.TaskID)
+		}
+		tasks, err := tx.Tasks(id)
+		if err != nil {
+			return err
+		}
+		for _, task := range tasks {
+			addScope(task.ID)
 		}
 		return tx.DeleteWorkspace(id)
 	})
-	if err == nil {
-	}
 	if err == nil && s.engine != nil {
-		for threadID := range threads {
-			if releaseErr := s.engine.ReleaseThreadExecutions(r.Context(), threadID, nil); releaseErr != nil {
-				slog.Error("release workspace thread executions failed", "thread", threadID, "error", releaseErr)
-			}
+		if releaseErr := s.engine.ReleaseDeletedTaskExecutions(context.WithoutCancel(r.Context()), candidates, ioScopes, roots); releaseErr != nil {
+			slog.Error("release workspace executions failed", "workspace", id, "error", releaseErr)
 		}
 	}
 	respond(rw, r, DeleteReply{ID: id}, err)

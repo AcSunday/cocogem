@@ -153,7 +153,7 @@ func (t *Tx) PendingGrants() ([]w.Grant, error) {
 
 // SaveExecution creates or updates an execution directory projection.
 func (t *Tx) SaveExecution(v w.WorkspaceExecution) error {
-	return t.exec("INSERT INTO workspace_executions(id,workspace_id,thread_id,task_id,canonical_root,lease_epoch,lease_expires_at,status,body) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET lease_epoch=excluded.lease_epoch,lease_expires_at=excluded.lease_expires_at,status=excluded.status,body=excluded.body", v.ID, v.WorkspaceID, nullable(v.ThreadID), nullable(v.TaskID), v.CanonicalRoot, v.LeaseEpoch, v.LeaseExpiresAt, v.Status, body(v))
+	return t.exec("INSERT INTO workspace_executions(id,workspace_id,thread_id,task_id,canonical_root,lease_epoch,lease_expires_at,status,body) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id,task_id=excluded.task_id,lease_epoch=excluded.lease_epoch,lease_expires_at=excluded.lease_expires_at,status=excluded.status,body=excluded.body", v.ID, v.WorkspaceID, nullable(v.ThreadID), nullable(v.TaskID), v.CanonicalRoot, v.LeaseEpoch, v.LeaseExpiresAt, v.Status, body(v))
 }
 
 // AcquireExecution atomically rejects a second live candidate for the same
@@ -202,7 +202,7 @@ func (t *Tx) Executions(workspaceID string) ([]w.WorkspaceExecution, error) {
 
 // SaveSession persists a disposable native execution cache and its exposure.
 func (t *Tx) SaveSession(v w.ExecutionSession) error {
-	return t.exec("INSERT INTO execution_sessions(id,thread_id,task_id,member_id,fingerprint,visibility_epoch,status,body) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET visibility_epoch=excluded.visibility_epoch,status=excluded.status,body=excluded.body", v.ID, nullable(v.ThreadID), nullable(v.TaskID), v.MemberID, v.Fingerprint, v.VisibilityEpoch, v.Status, body(v))
+	return t.exec("INSERT INTO execution_sessions(id,thread_id,task_id,member_id,fingerprint,visibility_epoch,status,body) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id,task_id=excluded.task_id,visibility_epoch=excluded.visibility_epoch,status=excluded.status,body=excluded.body", v.ID, nullable(v.ThreadID), nullable(v.TaskID), v.MemberID, v.Fingerprint, v.VisibilityEpoch, v.Status, body(v))
 }
 
 // Session reads one managed native session.
@@ -452,7 +452,7 @@ func (t *Tx) TaskRuns(taskID string) ([]w.Run, error) {
 // SealThreadSessions retires every managed native session of one conversation so
 // a rebound project never resumes cross-repository context.
 func (t *Tx) SealThreadSessions(threadID string) error {
-	return t.exec("UPDATE execution_sessions SET body=json_set(body,'$.status','sealed') WHERE thread_id=?", threadID)
+	return t.exec("UPDATE execution_sessions SET status='sealed',body=json_set(body,'$.status','sealed','$.acknowledgement','sealed') WHERE thread_id=?", threadID)
 }
 
 // SessionsByMember lists every managed native session of one member across the
@@ -508,7 +508,7 @@ func (t *Tx) PendingPermissionRequests() ([]w.ToolPermissionRequest, error) {
 // UnappliedExecutions lists candidate directories that are still live for a task,
 // used by the board to show an unapplied worktree without an extra request per task.
 func (t *Tx) UnappliedExecutions() ([]w.WorkspaceExecution, error) {
-	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE task_id IS NOT NULL AND status IN ('active','completed','uncertain') ORDER BY task_id")
+	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE task_id IS NOT NULL AND status IN ('active','completed','uncertain') AND COALESCE(json_extract(body,'$.kind'),'')<>'verify_dir' ORDER BY task_id")
 }
 
 // OpenQuestionsForTask lists one task's unresolved questions in a bounded query.

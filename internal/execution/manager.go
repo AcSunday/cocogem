@@ -25,12 +25,13 @@ import (
 
 const leaseTTL = 2 * time.Minute
 
-// gitEnvironment keeps every worktree command hermetic: no system config, no
-// credential prompt, and no repository hook can run.
+// gitEnvironment keeps every worktree command hermetic: no system or global
+// user config (e.g. diff.noprefix), no credential prompt, and no hooks can run.
 func gitEnvironment() []string {
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
 		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_TERMINAL_PROMPT=0",
 	}
 }
@@ -265,11 +266,52 @@ func (m *Manager) materializeWorktree(ctx context.Context, root string, candidat
 		_, _ = m.git(ctx, root, "worktree", "remove", "--force", "--", candidate.Path)
 		return err
 	}
+	snapshotOID, err := m.snapshotWorktreeCommit(ctx, candidate.Path, base)
+	if err != nil {
+		_, _ = m.git(ctx, root, "worktree", "remove", "--force", "--", candidate.Path)
+		return fmt.Errorf("snapshot candidate baseline: %w", err)
+	}
+	candidate.BaseSnapshotOID = snapshotOID
 	candidate.BaseTreeDigest, err = m.digestTree(candidate.Path)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// snapshotWorktreeCommit captures the exact current working tree (tracked +
+// non-ignored untracked files) as an unreferenced git commit using a temporary
+// GIT_INDEX_FILE, without mutating HEAD or the worktree's own index.
+func (m *Manager) snapshotWorktreeCommit(ctx context.Context, dir, parentOID string) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "cocogem-git-index-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmpDir)
+	indexPath := filepath.Join(tmpDir, "index")
+	runWithIndex := func(args ...string) (string, error) {
+		full := append([]string{"-c", "core.hooksPath=/dev/null", "-c", "user.name=Cocogem", "-c", "user.email=cocogem@local.invalid"}, args...)
+		cmd := exec.CommandContext(ctx, "git", full...)
+		cmd.Dir = dir
+		cmd.Env = append(gitEnvironment(), "GIT_INDEX_FILE="+indexPath)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	if _, err := runWithIndex("add", "-A"); err != nil {
+		return "", err
+	}
+	treeOID, err := runWithIndex("write-tree")
+	if err != nil {
+		return "", err
+	}
+	commitArgs := []string{"commit-tree", treeOID, "-m", "cocogem candidate snapshot"}
+	if parentOID != "" {
+		commitArgs = []string{"commit-tree", treeOID, "-p", parentOID, "-m", "cocogem candidate snapshot"}
+	}
+	return runWithIndex(commitArgs...)
 }
 
 // syncDirtyWorkspace replays the user's uncommitted tracked changes and copies
@@ -504,14 +546,31 @@ var ErrApplyConflict = errors.New("execution: the project changed after this can
 // worktree so the next write derives a clean candidate from the live tree.
 func (m *Manager) Apply(ctx context.Context, id string) (w.WorkspaceExecution, error) {
 	var candidate w.WorkspaceExecution
+	var running bool
 	if err := m.store.Read(ctx, func(tx *store.Tx) error {
 		var err error
 		candidate, err = tx.Execution(id)
-		return err
+		if err != nil {
+			return err
+		}
+		activeRuns, err := tx.Active()
+		if err != nil {
+			return err
+		}
+		for _, r := range activeRuns {
+			if r.ExecutionRef == candidate.ID {
+				running = true
+				break
+			}
+		}
+		return nil
 	}); err != nil {
 		return candidate, err
 	}
-	if candidate.Status != "completed" && candidate.Status != "active" {
+	if running {
+		return candidate, fmt.Errorf("%w: candidate is locked while a run is active", w.ErrConflict)
+	}
+	if candidate.Status != "completed" && candidate.Status != "active" && candidate.Status != "uncertain" {
 		return candidate, fmt.Errorf("%w: candidate is not applicable", w.ErrConflict)
 	}
 	if candidate.Kind == "git_worktree" {
@@ -520,55 +579,182 @@ func (m *Manager) Apply(ctx context.Context, id string) (w.WorkspaceExecution, e
 	return m.applyCopy(ctx, candidate)
 }
 
-func (m *Manager) applyWorktree(ctx context.Context, candidate w.WorkspaceExecution) (w.WorkspaceExecution, error) {
-	changed, err := m.gitBinary(ctx, candidate.Path, "diff", "--name-only", "--no-ext-diff", "-z", "HEAD")
-	if err != nil {
-		return candidate, fmt.Errorf("list candidate changes: %w", err)
+// candidateBaseRef returns the authoritative baseline commit for diffing and
+// conflict checks, preferring BaseSnapshotOID over BaseRevision and HEAD.
+func candidateBaseRef(candidate w.WorkspaceExecution) string {
+	if candidate.BaseSnapshotOID != "" {
+		return candidate.BaseSnapshotOID
 	}
-	untracked, err := m.gitBinary(ctx, candidate.Path, "ls-files", "-z", "--others", "--exclude-standard")
-	if err != nil {
-		return candidate, fmt.Errorf("list candidate additions: %w", err)
+	if candidate.BaseRevision != "" {
+		return candidate.BaseRevision
 	}
-	conflicts := []string{}
-	for _, name := range append(splitNUL(changed), splitNUL(untracked)...) {
-		source, sourceErr := os.Stat(filepath.Join(candidate.CanonicalRoot, name))
-		if sourceErr != nil && !os.IsNotExist(sourceErr) {
-			return candidate, sourceErr
+	return "HEAD"
+}
+
+// worktreeChangedPaths returns all workspace-relative paths modified, added, or
+// deleted between the candidate's baseline snapshot and its current working tree
+// (surviving any git commits made inside the candidate worktree).
+func (m *Manager) worktreeChangedPaths(ctx context.Context, candidate w.WorkspaceExecution) ([]string, error) {
+	baseRef := candidateBaseRef(candidate)
+	currentOID, err := m.snapshotWorktreeCommit(ctx, candidate.Path, baseRef)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot candidate tree: %w", err)
+	}
+	changed, err := m.gitBinary(ctx, candidate.Path, "diff", "--name-only", "--no-ext-diff", "-z", baseRef, currentOID)
+	if err != nil {
+		return nil, fmt.Errorf("list candidate changes: %w", err)
+	}
+	return dedupe(splitNUL(changed)), nil
+}
+
+// CandidateDiff returns a bounded unified diff of the candidate against its
+// derived baseline so users can review changes before clicking Apply.
+func (m *Manager) CandidateDiff(ctx context.Context, id string) (string, error) {
+	var candidate w.WorkspaceExecution
+	if err := m.store.Read(ctx, func(tx *store.Tx) error {
+		var err error
+		candidate, err = tx.Execution(id)
+		return err
+	}); err != nil {
+		return "", err
+	}
+	if candidate.Path == "" {
+		return "", nil
+	}
+	if candidate.Kind == "git_worktree" {
+		baseRef := candidateBaseRef(candidate)
+		currentOID, err := m.snapshotWorktreeCommit(ctx, candidate.Path, baseRef)
+		if err != nil {
+			return "", fmt.Errorf("snapshot candidate diff: %w", err)
 		}
-		// The candidate carried the user's dirty state into its base digest, so a
-		// file whose project copy still matches that baseline is safe to replace.
-		if sourceErr == nil && candidate.BaseTreeDigest != "" {
-			current, err := tools.WorkspaceDigest(candidate.CanonicalRoot)
-			if err == nil && current != candidate.BaseTreeDigest && !m.fileUnchangedSinceBase(ctx, candidate, name, source) {
-				conflicts = append(conflicts, name)
-			}
+		raw, err := m.gitBinary(ctx, candidate.Path, "diff", "--no-ext-diff", "--no-color", baseRef, currentOID)
+		if err != nil {
+			return "", fmt.Errorf("read candidate diff: %w", err)
+		}
+		const maxDiff = 256 << 10
+		if len(raw) > maxDiff {
+			return string(raw[:maxDiff]) + "\n... (diff truncated at 256 KiB)\n", nil
+		}
+		return string(raw), nil
+	}
+	changed, err := m.copyChangedPaths(candidate)
+	if err != nil {
+		return "", err
+	}
+	var out strings.Builder
+	for _, name := range changed {
+		out.WriteString("diff --git a/" + name + " b/" + name + "\n")
+		candPath := filepath.Join(candidate.Path, name)
+		if _, err := os.Lstat(candPath); os.IsNotExist(err) {
+			out.WriteString("deleted file: " + name + "\n")
+		} else if _, existed := candidate.BaseFiles[name]; !existed {
+			out.WriteString("new file: " + name + "\n")
+		} else {
+			out.WriteString("modified file: " + name + "\n")
+		}
+	}
+	return out.String(), nil
+}
+
+// ExportBranch creates a local Git branch (`cocogem/cand-<shortID>`) in the
+// source repository pointing at the candidate's exact snapshot without switching
+// the user's current branch or touching their working tree. This provides a
+// safe escape hatch whenever Apply reports a 409 conflict.
+func (m *Manager) ExportBranch(ctx context.Context, id string) (string, error) {
+	var candidate w.WorkspaceExecution
+	if err := m.store.Read(ctx, func(tx *store.Tx) error {
+		var err error
+		candidate, err = tx.Execution(id)
+		return err
+	}); err != nil {
+		return "", err
+	}
+	if candidate.Kind != "git_worktree" {
+		return "", fmt.Errorf("%w: exporting a git branch requires a git worktree candidate", w.ErrConflict)
+	}
+	if candidate.Status != "completed" && candidate.Status != "active" && candidate.Status != "uncertain" {
+		return "", fmt.Errorf("%w: candidate is no longer active", w.ErrConflict)
+	}
+	baseRef := candidateBaseRef(candidate)
+	commitOID, err := m.snapshotWorktreeCommit(ctx, candidate.Path, baseRef)
+	if err != nil {
+		return "", fmt.Errorf("snapshot candidate for export: %w", err)
+	}
+	shortID := candidate.ID
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+	branch := "cocogem/cand-" + shortID
+	if _, err := m.git(ctx, candidate.CanonicalRoot, "branch", "-f", branch, commitOID); err != nil {
+		return "", fmt.Errorf("create local branch %s: %w", branch, err)
+	}
+	return branch, nil
+}
+
+func (m *Manager) applyWorktree(ctx context.Context, candidate w.WorkspaceExecution) (w.WorkspaceExecution, error) {
+	names, err := m.worktreeChangedPaths(ctx, candidate)
+	if err != nil {
+		return candidate, err
+	}
+	baseRef := candidateBaseRef(candidate)
+	conflicts := []string{}
+	for _, name := range names {
+		if !filepath.IsLocal(name) {
+			continue
+		}
+		if !m.worktreeTargetUnchanged(ctx, candidate, baseRef, name) {
+			conflicts = append(conflicts, name)
 		}
 	}
 	if len(conflicts) > 0 {
 		return candidate, fmt.Errorf("%w: %s", ErrApplyConflict, strings.Join(conflicts, ", "))
 	}
-	if err := m.copyCandidateFiles(candidate, append(splitNUL(changed), splitNUL(untracked)...)); err != nil {
+	if err := m.copyCandidateFilesAtomic(candidate, names); err != nil {
 		return candidate, err
 	}
 	return m.settle(ctx, candidate, "applied", true)
 }
 
-// fileUnchangedSinceBase reports whether one project file still matches the
-// candidate's own recorded version for that path, which means no external edit
-// happened after the candidate was derived.
-func (m *Manager) fileUnchangedSinceBase(ctx context.Context, candidate w.WorkspaceExecution, name string, source os.FileInfo) bool {
-	tracked, err := m.gitBinary(ctx, candidate.Path, "show", "HEAD:"+filepath.ToSlash(name))
-	if err != nil {
+// worktreeTargetUnchanged checks whether the live file at CanonicalRoot/<name>
+// still matches the candidate's derived baseline (BaseSnapshotOID). Unrelated
+// files edited in CanonicalRoot (or applied by another parallel child task) are
+// never compared, while external edits AND external deletions of affected files
+// are accurately detected as conflicts.
+func (m *Manager) worktreeTargetUnchanged(ctx context.Context, candidate w.WorkspaceExecution, baseRef, name string) bool {
+	baseBytes, baseErr := m.gitBinary(ctx, candidate.Path, "show", baseRef+":"+filepath.ToSlash(name))
+	existedInBase := baseErr == nil
+
+	targetPath := filepath.Join(candidate.CanonicalRoot, name)
+	projectBytes, readErr := os.ReadFile(targetPath)
+	if os.IsNotExist(readErr) {
+		// Safe only if the file did not exist in the baseline either (candidate
+		// created a brand-new file). If it existed in baseline, the user deleted
+		// it externally — flag as conflict instead of silently resurrecting.
+		return !existedInBase
+	}
+	if readErr != nil {
 		return false
 	}
-	project, err := os.ReadFile(filepath.Join(candidate.CanonicalRoot, name))
-	if err != nil {
-		return false
+	if !existedInBase {
+		// Candidate created a new file, and a file now exists at that path in the
+		// project: safe only if the bytes already match the candidate.
+		candBytes, candErr := os.ReadFile(filepath.Join(candidate.Path, name))
+		return candErr == nil && string(projectBytes) == string(candBytes)
 	}
-	return string(project) == string(tracked) && source.Size() == int64(len(project))
+	return string(projectBytes) == string(baseBytes)
 }
 
-func (m *Manager) copyCandidateFiles(candidate w.WorkspaceExecution, names []string) error {
+// copyCandidateFilesAtomic validates all paths first and stages writes via
+// temporary files + os.Rename so a mid-loop validation/I/O error does not leave
+// the user's repository half-mutated.
+func (m *Manager) copyCandidateFilesAtomic(candidate w.WorkspaceExecution, names []string) error {
+	type plannedWrite struct {
+		source string
+		target string
+		mode   os.FileMode
+		remove bool
+	}
+	plan := make([]plannedWrite, 0, len(names))
 	for _, name := range names {
 		if !filepath.IsLocal(name) {
 			continue
@@ -577,25 +763,97 @@ func (m *Manager) copyCandidateFiles(candidate w.WorkspaceExecution, names []str
 		target := filepath.Join(candidate.CanonicalRoot, name)
 		info, err := os.Lstat(source)
 		if os.IsNotExist(err) {
-			// A deleted file is applied by removing the project copy.
-			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-				return err
-			}
+			plan = append(plan, plannedWrite{target: target, remove: true})
 			continue
 		}
 		if err != nil || !info.Mode().IsRegular() {
 			return fmt.Errorf("candidate file %s is not a regular file", name)
 		}
-		if err := copyRegularFile(source, target, info); err != nil {
+		plan = append(plan, plannedWrite{source: source, target: target, mode: info.Mode().Perm() & 0777})
+	}
+	// Stage all file contents into temporary sibling files before renaming.
+	type stagedFile struct {
+		tmp    string
+		target string
+	}
+	staged := make([]stagedFile, 0, len(plan))
+	cleanupStaged := func() {
+		for _, s := range staged {
+			_ = os.Remove(s.tmp)
+		}
+	}
+	for _, item := range plan {
+		if item.remove {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(item.target), 0700); err != nil {
+			cleanupStaged()
 			return err
+		}
+		tmpFile, err := os.CreateTemp(filepath.Dir(item.target), ".cocogem-apply-*")
+		if err != nil {
+			cleanupStaged()
+			return err
+		}
+		tmpName := tmpFile.Name()
+		input, err := os.Open(item.source)
+		if err != nil {
+			tmpFile.Close()
+			_ = os.Remove(tmpName)
+			cleanupStaged()
+			return err
+		}
+		_, copyErr := io.Copy(tmpFile, input)
+		chmodErr := tmpFile.Chmod(item.mode)
+		closeErr := errors.Join(input.Close(), tmpFile.Close())
+		if err := errors.Join(copyErr, chmodErr, closeErr); err != nil {
+			_ = os.Remove(tmpName)
+			cleanupStaged()
+			return err
+		}
+		staged = append(staged, stagedFile{tmp: tmpName, target: item.target})
+	}
+	for _, s := range staged {
+		if err := os.Rename(s.tmp, s.target); err != nil {
+			cleanupStaged()
+			return err
+		}
+	}
+	for _, item := range plan {
+		if item.remove {
+			if err := os.Remove(item.target); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
+// copyChangedPaths lists files added, modified, or deleted in a file_copy
+// candidate relative to candidate.BaseFiles (ignoring unrelated user edits in
+// CanonicalRoot).
+func (m *Manager) copyChangedPaths(candidate w.WorkspaceExecution) ([]string, error) {
+	current, err := digestFiles(candidate.Path)
+	if err != nil {
+		return nil, err
+	}
+	changed := []string{}
+	for name, digest := range current {
+		if base, ok := candidate.BaseFiles[name]; !ok || base != digest {
+			changed = append(changed, name)
+		}
+	}
+	for name := range candidate.BaseFiles {
+		if _, ok := current[name]; !ok {
+			changed = append(changed, name)
+		}
+	}
+	return dedupe(changed), nil
+}
+
 // applyCopy writes a bounded file-copy candidate back to a non-git directory.
 func (m *Manager) applyCopy(ctx context.Context, candidate w.WorkspaceExecution) (w.WorkspaceExecution, error) {
-	changed, err := diffTrees(candidate.Path, candidate.CanonicalRoot)
+	changed, err := m.copyChangedPaths(candidate)
 	if err != nil {
 		return candidate, err
 	}
@@ -624,24 +882,8 @@ func (m *Manager) applyCopy(ctx context.Context, candidate w.WorkspaceExecution)
 	if len(conflicts) > 0 {
 		return candidate, fmt.Errorf("%w: %s", ErrApplyConflict, strings.Join(conflicts, ", "))
 	}
-	for _, name := range changed {
-		if !filepath.IsLocal(name) {
-			continue
-		}
-		source, target := filepath.Join(candidate.Path, name), filepath.Join(candidate.CanonicalRoot, name)
-		info, err := os.Lstat(source)
-		if os.IsNotExist(err) {
-			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
-				return candidate, err
-			}
-			continue
-		}
-		if err != nil || !info.Mode().IsRegular() {
-			return candidate, fmt.Errorf("candidate file %s is not a regular file", name)
-		}
-		if err := copyRegularFile(source, target, info); err != nil {
-			return candidate, err
-		}
+	if err := m.copyCandidateFilesAtomic(candidate, changed); err != nil {
+		return candidate, err
 	}
 	return m.settle(ctx, candidate, "applied", true)
 }
@@ -741,18 +983,35 @@ func (m *Manager) Prune(ctx context.Context) error {
 		if known[filepath.Clean(full)] {
 			continue
 		}
+		// Inspect the orphan worktree's .git pointer before deleting it so we can
+		// prune the source repository even when no active candidates remain there.
+		if _, commonGit := tools.WorktreeMeta(full); commonGit != "" {
+			if filepath.Base(commonGit) == ".git" {
+				roots[filepath.Dir(commonGit)] = true
+			}
+		}
 		if err := os.RemoveAll(full); err != nil {
 			return err
 		}
 	}
-	// Prune stale metadata in every repository that still has a live candidate.
+	// Prune stale metadata in every repository that still has a live candidate or
+	// bound workspace root.
 	if err := m.store.Read(ctx, func(tx *store.Tx) error {
 		all, err := tx.ActiveExecutions()
 		if err != nil {
 			return err
 		}
 		for _, item := range all {
-			roots[item.CanonicalRoot] = true
+			if item.CanonicalRoot != "" {
+				roots[item.CanonicalRoot] = true
+			}
+		}
+		if workspaces, err := tx.Workspaces(); err == nil {
+			for _, ws := range workspaces {
+				if ws.Root != "" {
+					roots[ws.Root] = true
+				}
+			}
 		}
 		return nil
 	}); err != nil {

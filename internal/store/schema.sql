@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL 
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_run_per_thread ON runs(thread_id) WHERE status IN ('queued','running','canceling');
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_run_per_task ON runs(task_id) WHERE task_id<>'' AND status IN ('queued','running','canceling');
 CREATE INDEX IF NOT EXISTS queue_order ON runs(status,created_at,id);
+CREATE INDEX IF NOT EXISTS runs_by_task ON runs(task_id,created_at,id);
+CREATE INDEX IF NOT EXISTS runs_by_thread ON runs(thread_id,created_at,id);
 CREATE TABLE IF NOT EXISTS steps(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','failed','canceled','skipped','interrupted','yielded')), position INTEGER NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
 CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), run_id TEXT NOT NULL REFERENCES runs(id), position INTEGER NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)));
 CREATE INDEX IF NOT EXISTS message_order ON messages(thread_id,position);

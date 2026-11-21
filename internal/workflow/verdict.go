@@ -126,9 +126,10 @@ func (e *Engine) submitReviewVerdict(ctx context.Context, run w.Run, sender w.St
 			return errors.New("a different review verdict was already recorded for this step")
 		}
 		if in.Verdict == "changes_requested" && reviewRoundCount(steps, step.AgentID, step.FromAgentID) >= maxReworkRounds {
+			// Record the disagreement honestly instead of rewriting it to approved;
+			// the anti-ping-pong valve in collaboration.go blocks a 3rd rework relay.
 			reachedLimit = true
-			in.Verdict = "approved"
-			in.Summary += "（已达 2 轮返工上限，剩余分歧按现状交付）"
+			in.Summary += "（已达 2 轮返工上限，保留分歧按现状交付）"
 		}
 		step.ReviewVerdict = in.Verdict
 		steps[idx] = step

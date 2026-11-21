@@ -179,7 +179,7 @@ func (x *stepRuntime) executeTool(callCtx context.Context, name string, input js
 		x.mu.Unlock()
 		return "", errors.New("finish the invocation after yield_run; no further tools are admitted")
 	}
-	if x.taskPromoted && !slices.Contains([]string{"promote_to_task", "choose_workflow", "handoff_task", "read_skill", "get_task", "read_context", "list_sources"}, name) {
+	if x.taskPromoted && !slices.Contains([]string{"promote_to_task", "handoff_task", "read_skill", "get_task", "read_context", "list_sources"}, name) {
 		x.mu.Unlock()
 		return "", errors.New("finish the intake invocation after task promotion; execution continues in a fresh step")
 	}
@@ -231,6 +231,15 @@ func (x *stepRuntime) authorizeCall(callCtx context.Context, callID, name string
 	}); permissionErr != nil {
 		return callAuthorization{}, permissionErr
 	}
+	// Enforce per-turn Plan-Only / parallel-pass read-only lock BEFORE requesting
+	// any permission so a read-only turn never pops an approval card and returns
+	// a deterministic read_only_step refusal immediately.
+	if x.step.ReadOnly && isReadOnlyForbiddenTool(name, input) {
+		return callAuthorization{}, errors.New("read_only_step: this step is analysis-only; file writes, test execution and side-effecting commands are refused, use read evidence and an implementation plan instead")
+	}
+	if !x.toolAllowedForRole(name) {
+		return callAuthorization{}, errors.New("tool is not granted for this step's role and engineering action")
+	}
 	// The live permission boundary decides whether this concrete effect may run,
 	// needs a user decision, or must be refused. It runs before any side effect.
 	// request_tool_access is the request path itself and never needs admission.
@@ -239,12 +248,22 @@ func (x *stepRuntime) authorizeCall(callCtx context.Context, callID, name string
 		if err != nil {
 			return callAuthorization{}, err
 		}
-		if !x.toolAllowedForRole(name) {
-			return callAuthorization{}, errors.New("tool is not granted for this step's role and engineering action")
-		}
 		return callAuthorization{admission: admission, scope: scope, approved: approved}, nil
 	}
 	return callAuthorization{}, nil
+}
+
+func isReadOnlyForbiddenTool(name string, input json.RawMessage) bool {
+	switch name {
+	case "write_file", "patch_file", "run_command", "run_test":
+		return true
+	case "preview_page":
+		var in struct {
+			Mode string `json:"mode"`
+		}
+		return json.Unmarshal(input, &in) == nil && strings.EqualFold(strings.TrimSpace(in.Mode), "command")
+	}
+	return false
 }
 
 // toolAllowedForRole reports whether this step's role/engineering ceiling lists
@@ -352,10 +371,15 @@ func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID stri
 		if authorization.approved {
 			// A human decision authorized this exact call. A command runs under the
 			// sandbox with the approved target; a file tool may resolve an outside
-			// path only under the approved scope.
+			// or explicitly approved sensitive path only under the approved scope.
 			scope.ApprovedCommand = true
-			if authorization.scope != "" && !x.scopeInsideProject(authorization.scope) {
-				scope.ApprovedRoots = []string{authorization.scope}
+			if authorization.scope != "" {
+				if tools.SensitivePath(authorization.scope) {
+					scope.AllowSensitive = true
+				}
+				if !x.scopeInsideProject(authorization.scope) || tools.SensitivePath(authorization.scope) {
+					scope.ApprovedRoots = []string{authorization.scope}
+				}
 			}
 		}
 		return tools.Execute(callCtx, name, input, scope)

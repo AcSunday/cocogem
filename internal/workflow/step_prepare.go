@@ -44,16 +44,26 @@ func isIndependentReview(step w.Step) bool {
 }
 
 // prepareReviewSandbox materializes the reviewer's isolated copy of the author's
-// exact candidate tree before any child process starts.
+// exact candidate tree (or direct-write project tree) before any child process starts.
 func (e *Engine) prepareReviewSandbox(ctx context.Context, run w.Run, step w.Step) (*w.WorkspaceExecution, error) {
-	if e.Executions == nil || !isIndependentReview(step) || run.ExecutionRef == "" {
+	if e.Executions == nil || !isIndependentReview(step) {
 		return nil, nil
 	}
-	verification, err := e.Executions.VerifyTree(ctx, run.ExecutionRef, step.ID)
-	if err != nil {
-		return nil, err
+	if run.ExecutionRef != "" {
+		verification, err := e.Executions.VerifyTree(ctx, run.ExecutionRef, step.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &verification, nil
 	}
-	return &verification, nil
+	if run.Workspace.Root != "" {
+		verification, err := e.Executions.VerifyDirectRoot(ctx, run.Workspace.Root, run.WorkspaceID, run.ThreadID, run.TaskID, step.FromAgentID, step.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &verification, nil
+	}
+	return nil, nil
 }
 
 func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step, history, all []w.Message, sourceSnapshot []w.Source) stepPreparation {
@@ -332,10 +342,28 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 	// starts, so a review can never read the author's live tree.
 	verifyDir, sandboxErr := e.prepareReviewSandbox(ctx, run, step)
 	if sandboxErr != nil {
+		now := w.Now()
 		step.Status = "failed"
 		step.FailureKind = failureUnknown
 		step.Error = sandboxErr.Error()
-		if saveErr := e.saveStep(context.WithoutCancel(ctx), step, "step_finished"); saveErr != nil {
+		attempt.Status = "failed"
+		attempt.FailureKind = failureUnknown
+		attempt.Error = sandboxErr.Error()
+		attempt.FinishedAt = now
+		message.Status = "failed"
+		if saveErr := e.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
+			if err := tx.SaveAttempt(attempt); err != nil {
+				return err
+			}
+			if err := tx.SaveMessage(message); err != nil {
+				return err
+			}
+			if err := tx.SaveStep(step); err != nil {
+				return err
+			}
+			_ = tx.AppendEvent(run.ID, step.ID, a.ID, "attempt_finished", attempt)
+			return tx.AppendEvent(run.ID, step.ID, a.ID, "step_finished", step)
+		}); saveErr != nil {
 			e.report(saveErr)
 		}
 		return stepPreparation{step: step, stopped: true}

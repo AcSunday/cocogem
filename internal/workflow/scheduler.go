@@ -227,20 +227,27 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		return
 	}
 	run = prepared
-	if run.ExecutionRef != "" {
-		defer func() {
+	activeExecRef := run.ExecutionRef
+	var stopHeartbeat func()
+	defer func() {
+		if stopHeartbeat != nil {
+			stopHeartbeat()
+		}
+		if activeExecRef != "" && e.Executions != nil {
 			finishCtx, stop := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
 			defer stop()
-			if err := e.Executions.Finish(finishCtx, run.ExecutionRef); err != nil {
+			if err := e.Executions.Finish(finishCtx, activeExecRef); err != nil {
 				e.report(err)
 			}
-		}()
-		stopHeartbeat, err := e.Executions.Heartbeat(parent, run.ExecutionRef, e.report)
-		if err != nil {
-			e.finish(parent, run, "failed", err)
+		}
+	}()
+	if activeExecRef != "" {
+		var hbErr error
+		stopHeartbeat, hbErr = e.Executions.Heartbeat(parent, activeExecRef, e.report)
+		if hbErr != nil {
+			e.finish(parent, run, "failed", hbErr)
 			return
 		}
-		defer stopHeartbeat()
 	}
 	if parent.Err() != nil {
 		e.suspend(parent, run)
@@ -280,10 +287,21 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		// A planning step may have selected a workflow and persisted it while
 		// this loop was running; later steps must see the effective plan input.
 		run = current
-		if run.TaskID != "" && run.TaskDirectory == "" && e.Executions != nil {
+		// If promote_to_task upgraded this run mid-flight into a durable code task,
+		// materialize its Candidate worktree immediately for the continuation step.
+		if run.TaskID != "" && (run.TaskDirectory == "" || (run.WriteBranch && run.ExecutionRef == "")) && e.Executions != nil {
 			run, err = e.prepareExecution(ctx, run)
 			if err != nil {
 				break
+			}
+			if run.ExecutionRef != "" && activeExecRef == "" {
+				activeExecRef = run.ExecutionRef
+				if hb, hbErr := e.Executions.Heartbeat(parent, activeExecRef, e.report); hbErr == nil {
+					stopHeartbeat = hb
+				} else {
+					err = hbErr
+					break
+				}
 			}
 		}
 		ready := []int{}
