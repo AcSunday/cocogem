@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { Agent } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import {
   activityDecisionKey,
   missingFinishLabel,
@@ -63,6 +64,7 @@ export function PendingToolAuthorization({
   agents?: Agent[];
   permissionSlot?: PermissionSlot;
 }) {
+  useLanguage();
   const entries = groups.flatMap((group) =>
     unresolvedPermissionActivities(group.activities).map((activity) => ({
       group,
@@ -71,7 +73,10 @@ export function PendingToolAuthorization({
   );
   if (!entries.length) return null;
   return (
-    <section className={styles.pendingLayer} aria-label="待处理授权">
+    <section
+      className={styles.pendingLayer}
+      aria-label={t("待处理授权", "Pending approvals")}
+    >
       {entries.map(({ group, activity }) => {
         const memberName = memberDisplayName(group.memberID, agents);
         const prompt = permissionPromptOf(group, activity, memberName);
@@ -85,12 +90,16 @@ export function PendingToolAuthorization({
             <Icon name="info" size={14} />
             <div className={styles.permissionBody}>
               <span className={styles.permissionTitle}>
-                等待授权 · {activity.label}
-                {activity.target ? `（${activity.target}）` : ""}
+                {t("等待授权", "Awaiting approval")} · {activity.label}
+                {activity.target
+                  ? t(`（${activity.target}）`, ` (${activity.target})`)
+                  : ""}
               </span>
               <small className={styles.permissionDetail}>
                 {[
-                  memberName ? `成员 ${memberName}` : "",
+                  memberName
+                    ? t(`成员 ${memberName}`, `Member ${memberName}`)
+                    : "",
                   prompt.scope,
                   prompt.reason,
                 ]
@@ -101,7 +110,9 @@ export function PendingToolAuthorization({
             {permissionSlot ? (
               permissionSlot(prompt)
             ) : (
-              <span className={styles.permissionHint}>批准后才会执行</span>
+              <span className={styles.permissionHint}>
+                {t("批准后才会执行", "Runs only after approval")}
+              </span>
             )}
           </div>
         );
@@ -148,7 +159,9 @@ function ActivityItem({ activity }: { activity: ToolActivity }) {
             {activity.output}
           </pre>
           {activity.outputTruncated && (
-            <p className={styles.hint}>输出已截断。</p>
+            <p className={styles.hint}>
+              {t("输出已截断。", "Output truncated.")}
+            </p>
           )}
         </>
       )}
@@ -169,6 +182,7 @@ export function ToolActivityBlock({
   group: ToolActivityGroup;
   onHistory?: (activity: ToolActivity) => void;
 }) {
+  useLanguage();
   const decision = activityDecisionKey(group);
   const [open, setOpen] = useState(
     () => readActivityDecision(decision) ?? false,
@@ -219,7 +233,7 @@ export function ToolActivityBlock({
             className={styles.history}
             onClick={() => onHistory(unknown)}
           >
-            查看历史
+            {t("查看历史", "View history")}
           </button>
         )}
       </div>
@@ -252,16 +266,24 @@ export function MemberToolActivity({
   onHistory?: (activity: ToolActivity) => void;
   showMember?: boolean;
 }) {
+  useLanguage();
   if (!groups.length) return null;
   return (
-    <div className={styles.timeline} aria-label="工具活动">
+    <div
+      className={styles.timeline}
+      aria-label={t("工具活动", "Tool activity")}
+    >
       {groups.map((group) => {
         const name = memberDisplayName(group.memberID, agents);
         return (
           <section
             key={group.key}
             className={styles.group}
-            aria-label={name ? `${name}的工具活动` : "工具活动"}
+            aria-label={
+              name
+                ? t(`${name}的工具活动`, `${name}'s tool activity`)
+                : t("工具活动", "Tool activity")
+            }
           >
             {showMember && name && (
               <small className={styles.member}>{name}</small>

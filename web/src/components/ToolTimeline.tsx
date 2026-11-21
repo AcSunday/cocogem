@@ -1,4 +1,5 @@
 import type { Agent, Artifact, Event, Message, Source } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -103,14 +104,17 @@ function ToolRecord({
               <button
                 type="button"
                 className={cx("ghost small")}
-                aria-label="查看这次工具调用的历史记录"
+                aria-label={t(
+                  "查看这次工具调用的历史记录",
+                  "View history for this tool call",
+                )}
                 onClick={(click) => {
                   click.preventDefault();
                   click.stopPropagation();
                   onHistory(Math.max(0, activity.seq - 1));
                 }}
               >
-                查看历史
+                {t("查看历史", "View history")}
               </button>
             )}
           </>
@@ -123,16 +127,20 @@ function ToolRecord({
         )}
       </summary>
       {activity.missingStart && (
-        <p className={cx("muted")}>调用开始记录不在当前页。</p>
+        <p className={cx("muted")}>
+          {t("调用开始记录不在当前页。", "Call start record is on an earlier page.")}
+        </p>
       )}
-      <h4>调用参数</h4>
+      <h4>{t("调用参数", "Arguments")}</h4>
       <pre className={cx("pre")}>{JSON.stringify(activity.input, null, 2)}</pre>
       {activity.output && (
         <>
-          <h4>工具观察结果</h4>
+          <h4>{t("工具观察结果", "Tool output")}</h4>
           <pre className={cx("pre")}>{activity.output}</pre>
           {activity.outputTruncated && (
-            <p className={cx("muted")}>输出已截断。</p>
+            <p className={cx("muted")}>
+              {t("输出已截断。", "Output truncated.")}
+            </p>
           )}
         </>
       )}
@@ -157,9 +165,10 @@ export function ToolTimeline({
   onHistory?: (after?: number) => void;
   mode?: "live" | "history";
 }) {
+  useLanguage();
   const member = (id: string) => {
     const agent = agents.find((agent) => agent.id === id);
-    return agent ? memberLabel(agent) : "成员";
+    return agent ? memberLabel(agent) : t("成员", "Member");
   };
   // One projection for both the live body and on-demand history: the pairing
   // key is run + step + attempt + tool_call_id, so a retried native-1 never
@@ -186,7 +195,12 @@ export function ToolTimeline({
             <div className={cx("tool-group-head")}>
               <strong>{member(group.agentID)}</strong>
               {usage && (
-                <small title="输入 / 输出 tokens；供应商未提供时为未知">
+                <small
+                  title={t(
+                    "输入 / 输出 tokens；供应商未提供时为未知",
+                    "Input / output tokens; unknown when not reported by provider",
+                  )}
+                >
                   {usage}
                 </small>
               )}
@@ -216,10 +230,18 @@ export function ToolTimeline({
                 const input = data(event);
                 return (
                   <p className={cx("muted")} key={event.seq}>
-                    {livenessLabel(String(input.state)) || "执行状态"} · 已{" "}
-                    {String(input.silence_seconds)} 秒
+                    {livenessLabel(String(input.state)) ||
+                      t("执行状态", "Execution state")}{" "}
+                    ·{" "}
+                    {t(
+                      `已 ${String(input.silence_seconds)} 秒`,
+                      `${String(input.silence_seconds)}s elapsed`,
+                    )}
                     {input.last_event_type
-                      ? ` · 最后事件 ${String(input.last_event_type)}`
+                      ? t(
+                          ` · 最后事件 ${String(input.last_event_type)}`,
+                          ` · Last event ${String(input.last_event_type)}`,
+                        )
                       : ""}
                   </p>
                 );
@@ -227,13 +249,16 @@ export function ToolTimeline({
               if (event.type === "step_waiting")
                 return (
                   <p className={cx("muted")} key={event.seq}>
-                    等待上游成员完成
+                    {t("等待上游成员完成", "Waiting for upstream member")}
                   </p>
                 );
               if (event.type === "cli_changed")
                 return (
                   <p className={cx("muted")} key={event.seq}>
-                    检测到 CLI 程序变化，已重新检查兼容性。
+                    {t(
+                      "检测到 CLI 程序变化，已重新检查兼容性。",
+                      "Detected a CLI binary change and re-verified compatibility.",
+                    )}
                   </p>
                 );
               if (event.type === "native_notice") {
@@ -284,38 +309,46 @@ function HandoffRecord({
   return (
     <details className={cx("tool-record")}>
       <summary>
-        <span>收到工作包</span>
+        <span>{t("收到工作包", "Received handoff package")}</span>
         <small>
-          {input.messages?.length ?? 0} 条上游回复 ·{" "}
-          {input.source_ids?.length ?? 0} 个来源
+          {t(
+            `${input.messages?.length ?? 0} 条上游回复 · ${input.source_ids?.length ?? 0} 个来源`,
+            `${input.messages?.length ?? 0} upstream repl${(input.messages?.length ?? 0) === 1 ? "y" : "ies"} · ${input.source_ids?.length ?? 0} source${(input.source_ids?.length ?? 0) === 1 ? "" : "s"}`,
+          )}
         </small>
       </summary>
       <p>{input.instruction}</p>
       {input.original_task && (
         <>
-          <h4>原始问题</h4>
+          <h4>{t("原始问题", "Original prompt")}</h4>
           <Markdown text={input.original_task} />
         </>
       )}
-      {(input.messages?.length ?? 0) > 0 && <h4>上游成员回复</h4>}
+      {(input.messages?.length ?? 0) > 0 && (
+        <h4>{t("上游成员回复", "Upstream member replies")}</h4>
+      )}
       {input.messages?.map((message) => (
         <section key={message.id}>
           <strong>{message.agent_name}</strong>
           <Markdown text={message.content} />
         </section>
       ))}
-      {(input.artifacts?.length ?? 0) > 0 && <h4>参考产物</h4>}
+      {(input.artifacts?.length ?? 0) > 0 && (
+        <h4>{t("参考产物", "Referenced deliverables")}</h4>
+      )}
       {input.artifacts?.map((artifact) => (
         <p key={`${artifact.id}:${artifact.version}`}>
           {artifact.title} · v{artifact.version}
         </p>
       ))}
-      {(input.source_ids?.length ?? 0) > 0 && <h4>可用来源</h4>}
+      {(input.source_ids?.length ?? 0) > 0 && (
+        <h4>{t("可用来源", "Available sources")}</h4>
+      )}
       <div className={cx("source-links")}>
         {input.source_ids?.map((id) => {
           const title =
             sources.find((source) => source.id === id)?.title ||
-            `来源 ${id.slice(0, 8)}`;
+            t(`来源 ${id.slice(0, 8)}`, `Source ${id.slice(0, 8)}`);
           return onSource ? (
             <button
               key={id}
@@ -329,7 +362,12 @@ function HandoffRecord({
           );
         })}
       </div>
-      <p className={cx("muted")}>表示输入已准备，尚不表示成员已理解。</p>
+      <p className={cx("muted")}>
+        {t(
+          "已将上述上下文移交给该成员。",
+          "The context above was handed off to this member.",
+        )}
+      </p>
     </details>
   );
 }

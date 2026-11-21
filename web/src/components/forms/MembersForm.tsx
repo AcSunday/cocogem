@@ -15,6 +15,7 @@ import panels from "../../styles/panels.module.css";
 import members from "../../styles/member-editor.module.css";
 import settings from "../../styles/settings.module.css";
 import { errorText } from "../../lib/presentation";
+import { t, useLanguage } from "../../lib/i18n";
 import { Avatar, memberImage } from "../Avatar";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Icon } from "../Icon";
@@ -140,6 +141,7 @@ export function MembersForm({
   save: (value: Agent) => Promise<Agent>;
   remove?: (agent: Agent) => Promise<void>;
 }) {
+  useLanguage();
   const executor =
     system.executors?.find((item) => item.installed && item.supported !== false)
       ?.id ?? "claude";
@@ -196,7 +198,10 @@ export function MembersForm({
       onBack={() => setEditing(null)}
     />
   ) : (
-    <div className={cx("member-list")} aria-label="成员列表">
+    <div
+      className={cx("member-list")}
+      aria-label={t("成员列表", "Member list")}
+    >
       {profiles.map((agent) => (
         <div className={cx("member-row")} key={agent.id}>
           <button
@@ -206,16 +211,18 @@ export function MembersForm({
           >
             <Avatar name={agent.display_name} avatar={agent.avatar} />
             <span className={cx("member-info")}>
-              <strong>{agent.display_name || "未命名成员"}</strong>
+              <strong>
+                {agent.display_name || t("未命名成员", "Unnamed member")}
+              </strong>
               <span className={cx("member-handle")}>
-                @{agent.handle || "未设置"}
+                @{agent.handle || t("未设置", "unset")}
               </span>
               <small>
-                {agent.role_description || "未填写职责"}
+                {agent.role_description || t("未填写职责", "No role description")}
                 {catalog && !global
                   ? agents.some((item) => item.id === agent.id)
-                    ? " · 已加入"
-                    : " · 未加入"
+                    ? t(" · 已加入", " · Joined")
+                    : t(" · 未加入", " · Not joined")
                   : ""}
               </small>
             </span>
@@ -224,8 +231,11 @@ export function MembersForm({
             <button
               type="button"
               className={cx("member-delete")}
-              aria-label={`删除成员 ${agent.display_name || "未命名成员"}`}
-              title="删除成员"
+              aria-label={t(
+                `删除成员 ${agent.display_name || "未命名成员"}`,
+                `Delete member ${agent.display_name || "Unnamed member"}`,
+              )}
+              title={t("删除成员", "Delete member")}
               onClick={() => setDeleting(agent)}
             >
               <Icon name="trash" size={15} />
@@ -238,7 +248,7 @@ export function MembersForm({
         className={cx("member-card add-member")}
         onClick={() => setEditing({ key: "new", agent: blank() })}
       >
-        ＋ 新成员
+        {t("＋ 新成员", "＋ New member")}
       </button>
     </div>
   );
@@ -247,14 +257,18 @@ export function MembersForm({
       {embedded ? (
         body
       ) : (
-        <Modal title="成员与称呼" close={close} wide>
+        <Modal
+          title={t("成员与称呼", "Members & Handles")}
+          close={close}
+          wide
+        >
           {body}
         </Modal>
       )}
       {deleting && remove && (
         <ConfirmDialog
-          title="删除成员"
-          action="确认删除"
+          title={t("删除成员", "Delete Member")}
+          action={t("确认删除", "Confirm delete")}
           close={() => setDeleting(undefined)}
           confirm={async () => {
             await remove(deleting);
@@ -269,11 +283,16 @@ export function MembersForm({
           }}
         >
           <p>
-            删除成员「{deleting.display_name || "未命名成员"}」？
+            {t(
+              `删除成员「${deleting.display_name || "未命名成员"}」？`,
+              `Delete member “${deleting.display_name || "Unnamed member"}”?`,
+            )}
           </p>
           <p className={cx("muted")}>
-            该成员的全局档案和所有工作空间关系会被移除；历史消息、Run
-            快照和已完成任务记录保留不变。此操作无法撤销。
+            {t(
+              "该成员的全局档案和所有工作空间关系会被移除；历史消息、Run 快照和已完成任务记录保留不变。此操作无法撤销。",
+              "This removes the member's global profile and project links; historical messages, run snapshots, and completed task records are preserved. This action cannot be undone.",
+            )}
           </p>
         </ConfirmDialog>
       )}
@@ -409,24 +428,41 @@ function MemberEditor({
     setAvatarError("");
     if (!file) return;
     if (file.type !== "image/png" && file.type !== "image/jpeg") {
-      setAvatarError("仅支持 PNG 或 JPEG 图片。");
+      setAvatarError(
+        t("仅支持 PNG 或 JPEG 图片。", "Only PNG or JPEG images are supported."),
+      );
       return;
     }
     if (file.size > avatarMaxBytes) {
-      setAvatarError("头像不能超过 512 KiB。");
+      setAvatarError(
+        t("头像不能超过 512 KiB。", "Avatar cannot exceed 512 KiB."),
+      );
       return;
     }
     const reader = new FileReader();
-    reader.onerror = () => setAvatarError("读取头像失败，请重试。");
+    reader.onerror = () =>
+      setAvatarError(
+        t("读取头像失败，请重试。", "Failed to read avatar image; please try again."),
+      );
     reader.onload = () => {
       const uri = typeof reader.result === "string" ? reader.result : "";
       const size = memberImage(uri) ? avatarPixelSize(uri) : null;
       if (!size) {
-        setAvatarError("头像文件不是有效的 PNG 或 JPEG 图片。");
+        setAvatarError(
+          t(
+            "头像文件不是有效的 PNG 或 JPEG 图片。",
+            "The selected file is not a valid PNG or JPEG image.",
+          ),
+        );
         return;
       }
       if (size.width > avatarMaxDimension || size.height > avatarMaxDimension) {
-        setAvatarError("头像尺寸不能超过 2048×2048 像素。");
+        setAvatarError(
+          t(
+            "头像尺寸不能超过 2048×2048 像素。",
+            "Avatar dimensions cannot exceed 2048×2048 pixels.",
+          ),
+        );
         return;
       }
       update({ avatar: uri });
@@ -438,22 +474,30 @@ function MemberEditor({
     if (!contextValid) {
       setVerifyState({
         key: verifyKey,
-        error:
+        error: t(
           "上下文预算必须是不小于 1024 的整数（tokens），或留空跟随执行 CLI 默认。",
+          "Context budget must be an integer >= 1024 tokens, or left blank to use the CLI default.",
+        ),
       });
       return;
     }
     if (!levelValid) {
       setVerifyState({
         key: verifyKey,
-        error: "当前模型不支持此思考级别，请重新选择。",
+        error: t(
+          "当前模型不支持此思考级别，请重新选择。",
+          "The current model does not support this thinking level; please choose another.",
+        ),
       });
       return;
     }
     if (geminiNeedsModel && value.thinking_level) {
       setVerifyState({
         key: verifyKey,
-        error: "Gemini 选择思考等级前必须填写明确的模型。",
+        error: t(
+          "Gemini 选择思考等级前必须填写明确的模型。",
+          "Specify an explicit model before selecting a thinking level for Gemini.",
+        ),
       });
       return;
     }
@@ -474,31 +518,47 @@ function MemberEditor({
   const submit = () => {
     setError("");
     if (!value.display_name.trim()) {
-      setError("请填写显示名。");
+      setError(t("请填写显示名。", "Please enter a display name."));
       return;
     }
     if (!handlePattern.test(value.handle)) {
       setError(
-        "Handle 需以小写字母开头，只能包含小写字母、数字或连字符，长度为 2–32。",
+        t(
+          "Handle 需以小写字母开头，只能包含小写字母、数字或连字符，长度为 2–32。",
+          "Handle must start with a lowercase letter, contain only lowercase letters, numbers, or hyphens, and be 2–32 characters long.",
+        ),
       );
       return;
     }
     if (!value.executor) {
-      setError("请选择执行 CLI。");
+      setError(t("请选择执行 CLI。", "Please select a local CLI."));
       return;
     }
     if (!contextValid) {
       setError(
-        "上下文预算必须是不小于 1024 的整数（tokens），或留空跟随执行 CLI 默认。",
+        t(
+          "上下文预算必须是不小于 1024 的整数（tokens），或留空跟随执行 CLI 默认。",
+          "Context budget must be an integer >= 1024 tokens, or left blank to use the CLI default.",
+        ),
       );
       return;
     }
     if (!levelValid) {
-      setError("当前模型不支持此思考级别，请重新选择。");
+      setError(
+        t(
+          "当前模型不支持此思考级别，请重新选择。",
+          "The current model does not support this thinking level; please choose another.",
+        ),
+      );
       return;
     }
     if (geminiNeedsModel && value.thinking_level) {
-      setError("Gemini 选择思考等级前必须填写明确的模型。");
+      setError(
+        t(
+          "Gemini 选择思考等级前必须填写明确的模型。",
+          "Specify an explicit model before selecting a thinking level for Gemini.",
+        ),
+      );
       return;
     }
     setSaving(true);
@@ -531,9 +591,13 @@ function MemberEditor({
           onClick={onBack}
           disabled={saving}
         >
-          ← 返回列表
+          {t("← 返回列表", "← Back to list")}
         </button>
-        <h3>{value.id ? "编辑成员" : "新建成员"}</h3>
+        <h3>
+          {value.id
+            ? t("编辑成员", "Edit member")
+            : t("新建成员", "New member")}
+        </h3>
       </div>
       <form
         className={cx("member-editor")}
@@ -543,13 +607,20 @@ function MemberEditor({
         }}
       >
         <section className={cx("member-section")}>
-          <h3>{catalog ? "全局成员档案" : "成员档案"}</h3>
+          <h3>
+            {catalog
+              ? t("全局成员档案", "Global member profile")
+              : t("成员档案", "Member profile")}
+          </h3>
           {catalog && (
             <p className={cx("member-note")}>
-              档案在所有工作空间共享；是否加入、是否启用按工作空间管理，执行边界由全局权限设置决定。
+              {t(
+                "档案在所有工作空间共享；是否加入、是否启用按工作空间管理，执行边界由全局权限设置决定。",
+                "Profiles are shared across all projects; joining and enabling are managed per project, while tool boundaries follow global permission settings.",
+              )}
             </p>
           )}
-          <label htmlFor={field("name")}>显示名</label>
+          <label htmlFor={field("name")}>{t("显示名", "Display name")}</label>
           <input
             id={field("name")}
             required
@@ -561,11 +632,16 @@ function MemberEditor({
             id={field("handle")}
             required
             pattern="[a-z][a-z0-9-]{1,31}"
-            title="以小写字母开头，只能包含小写字母、数字或连字符，长度为 2–32。"
+            title={t(
+              "以小写字母开头，只能包含小写字母、数字或连字符，长度为 2–32。",
+              "Start with a lowercase letter; use only lowercase letters, numbers, or hyphens (2–32 characters).",
+            )}
             value={value.handle}
             onChange={(event) => update({ handle: event.target.value })}
           />
-          <label htmlFor={field("aliases")}>别名（用逗号分隔）</label>
+          <label htmlFor={field("aliases")}>
+            {t("别名（用逗号分隔）", "Aliases (comma-separated)")}
+          </label>
           <input
             id={field("aliases")}
             value={aliases}
@@ -574,7 +650,7 @@ function MemberEditor({
               setAliases(event.target.value);
             }}
           />
-          <label htmlFor={field("role")}>职责</label>
+          <label htmlFor={field("role")}>{t("职责", "Role description")}</label>
           <textarea
             id={field("role")}
             value={value.role_description}
@@ -585,7 +661,7 @@ function MemberEditor({
           {catalog && (
             <>
               <label htmlFor={field("capabilities")}>
-                能力标签（用逗号分隔）
+                {t("能力标签（用逗号分隔）", "Capability tags (comma-separated)")}
               </label>
               <input
                 id={field("capabilities")}
@@ -597,23 +673,25 @@ function MemberEditor({
               />
             </>
           )}
-          <span className={cx("field-label")}>头像</span>
+          <span className={cx("field-label")}>{t("头像", "Avatar")}</span>
           <div className={cx("avatar-field")}>
             <span className={cx("avatar-preview")}>
               <Avatar
-                name={value.display_name || "新成员"}
+                name={value.display_name || t("新成员", "New member")}
                 avatar={value.avatar}
               />
             </span>
             <div className={cx("avatar-controls")}>
               <div className={cx("avatar-actions")}>
                 <label className={cx("avatar-upload")}>
-                  {value.avatar ? "替换头像" : "上传头像"}
+                  {value.avatar
+                    ? t("替换头像", "Replace avatar")
+                    : t("上传头像", "Upload avatar")}
                   <input
                     className={cx("sr-only")}
                     type="file"
                     accept="image/png,image/jpeg"
-                    aria-label="上传头像"
+                    aria-label={t("上传头像", "Upload avatar")}
                     onChange={(event) => {
                       uploadAvatar(event.target.files?.[0]);
                       event.target.value = "";
@@ -626,12 +704,15 @@ function MemberEditor({
                     className={cx("avatar-remove")}
                     onClick={() => update({ avatar: "" })}
                   >
-                    移除头像
+                    {t("移除头像", "Remove avatar")}
                   </button>
                 )}
               </div>
               <small>
-                PNG/JPEG，最大 512 KiB、2048×2048 像素；留空显示名称首字。
+                {t(
+                  "PNG/JPEG，最大 512 KiB、2048×2048 像素；留空显示名称首字。",
+                  "PNG or JPEG, up to 512 KiB and 2048×2048 px; leave blank to show the name's initial.",
+                )}
               </small>
               {avatarError && (
                 <p role="alert" className={cx("error")}>
@@ -642,8 +723,10 @@ function MemberEditor({
           </div>
         </section>
         <section className={cx("member-section")}>
-          <h3>执行与模型</h3>
-          <label htmlFor={field("executor")}>执行 CLI</label>
+          <h3>{t("执行与模型", "CLI & model")}</h3>
+          <label htmlFor={field("executor")}>
+            {t("执行 CLI", "Execution CLI")}
+          </label>
           <Select
             id={field("executor")}
             required
@@ -656,44 +739,53 @@ function MemberEditor({
               })
             }
           >
-            <option value="">请选择本机 CLI</option>
+            <option value="">
+              {t("请选择本机 CLI", "Select a local CLI")}
+            </option>
             {executors.map((id) => {
               const info = system.executors?.find((item) => item.id === id);
               return (
                 <option key={id} value={id}>
                   {id} ·{" "}
                   {!info?.installed
-                    ? "未检测到"
+                    ? t("未检测到", "Not detected")
                     : info.supported === false
-                      ? "当前版本不支持"
-                      : "已安装"}
+                      ? t("当前版本不支持", "Unsupported version")
+                      : t("已安装", "Installed")}
                 </option>
               );
             })}
           </Select>
           {!value.executor && (
             <p role="status" className={cx("member-note")}>
-              此成员尚未绑定本机 CLI。请选择执行 CLI；原 API
-              模型配置不会自动沿用。
+              {t(
+                "此成员尚未绑定本机 CLI。请选择执行 CLI；原 API 模型配置不会自动沿用。",
+                "This member is not bound to a local CLI yet. Please select an execution CLI.",
+              )}
             </p>
           )}
           {executorInfo?.reason && (
             <p role="status" className={cx("member-note")}>
               {executorInfo.supported === false
-                ? "此 CLI 当前不可执行："
-                : "说明："}
+                ? t("此 CLI 当前不可执行：", "This CLI cannot be run: ")
+                : t("说明：", "Note: ")}
               {executorInfo.reason}
             </p>
           )}
-          <label htmlFor={field("model")}>模型（留空使用 CLI 默认）</label>
+          <label htmlFor={field("model")}>
+            {t("模型（留空使用 CLI 默认）", "Model (leave blank for CLI default)")}
+          </label>
           <div className={cx("verify-row")}>
             <input
               id={field("model")}
               value={value.model === "default" ? "" : value.model}
               placeholder={
                 value.executor === "opencode"
-                  ? "provider/model 或 provider/model#variant"
-                  : "CLI 默认模型"
+                  ? t(
+                      "provider/model 或 provider/model#variant",
+                      "provider/model or provider/model#variant",
+                    )
+                  : t("CLI 默认模型", "CLI default model")
               }
               onChange={(event) =>
                 update({
@@ -713,15 +805,20 @@ function MemberEditor({
               disabled={!value.executor || verifying}
               onClick={verify}
             >
-              {verifying ? "验证中…" : "验证模型连接"}
+              {verifying
+                ? t("验证中…", "Verifying…")
+                : t("验证模型连接", "Verify connection")}
             </button>
           </div>
           <small>
-            验证会复用本机 CLI
-            的供应商与登录配置，不需要额外登录或密钥；模型留空时按 CLI
-            默认模型验证。
+            {t(
+              "验证会复用本机 CLI 的供应商与登录配置，不需要额外登录或密钥；模型留空时按 CLI 默认模型验证。",
+              "Verification reuses your local CLI's provider and login configuration without extra keys; leaving model blank verifies the CLI's default model.",
+            )}
           </small>
-          <label htmlFor={field("context")}>上下文预算（tokens）</label>
+          <label htmlFor={field("context")}>
+            {t("上下文预算（tokens）", "Context budget (tokens)")}
+          </label>
           <input
             id={field("context")}
             type="number"
@@ -731,8 +828,11 @@ function MemberEditor({
             value={contextSize}
             placeholder={
               value.executor
-                ? `跟随 ${value.executor} 默认`
-                : "跟随执行 CLI 默认"
+                ? t(
+                    `跟随 ${value.executor} 默认`,
+                    `Follow ${value.executor} default`,
+                  )
+                : t("跟随执行 CLI 默认", "Follow CLI default")
             }
             aria-describedby={field("context-hint")}
             onChange={(event) => {
@@ -741,11 +841,13 @@ function MemberEditor({
             }}
           />
           <small id={field("context-hint")}>
-            留空时由所选 CLI 按其配置的上下文窗口处理；填写估算 token
-            数后，Cocogem 会按该值限制本成员的输入大小。
+            {t(
+              "留空时由所选 CLI 按其默认上下文窗口处理；填写 token 数后，会按该值限制发给此成员的单次输入大小。",
+              "Leave blank to use the CLI's default context window; enter a token count to cap the initial prompt size sent to this member.",
+            )}
           </small>
           <label htmlFor={field("thinking")}>
-            思考等级（留空保持 CLI 默认）
+            {t("思考等级（留空保持 CLI 默认）", "Thinking level (leave blank for CLI default)")}
           </label>
           <Select
             id={field("thinking")}
@@ -758,12 +860,13 @@ function MemberEditor({
             }
             onChange={(thinking) => update({ thinking_level: thinking })}
           >
-            <option value="">保持 CLI 默认</option>
+            <option value="">{t("保持 CLI 默认", "Keep CLI default")}</option>
             {openCode &&
               value.thinking_level &&
               !levels.includes(value.thinking_level) && (
                 <option value={value.thinking_level}>
-                  {value.thinking_level}（待校验）
+                  {value.thinking_level}
+                  {t("（待校验）", " (unverified)")}
                 </option>
               )}
             {levels.map((level) => (
@@ -774,23 +877,44 @@ function MemberEditor({
           </Select>
           {geminiNeedsModel && (
             <small>
-              Gemini 选择思考等级前必须填写明确模型，不能留空使用默认。
+              {t(
+                "Gemini 选择思考等级前必须填写明确模型，不能留空使用默认。",
+                "Specify an explicit model before choosing a thinking level for Gemini.",
+              )}
             </small>
           )}
           <small>
             {value.executor === "opencode"
               ? variantLoading
-                ? "正在读取当前模型支持的思考级别…"
+                ? t(
+                    "正在读取当前模型支持的思考级别…",
+                    "Loading supported thinking levels for this model…",
+                  )
                 : variantError
-                  ? `无法读取思考级别：${variantError}`
+                  ? t(
+                      `无法读取思考级别：${variantError}`,
+                      `Could not load thinking levels: ${variantError}`,
+                    )
                   : levels.length
-                    ? "按当前模型提供的变体选择，留空沿用本机或模型标识中的配置。"
-                    : "当前模型未声明可选思考变体，沿用本机配置。"
-              : "留空时沿用 CLI 已有的思考等级配置。"}
+                    ? t(
+                        "按当前模型提供的变体选择，留空沿用本机或模型标识中的配置。",
+                        "Choose from variants supported by this model, or leave blank to use your local configuration.",
+                      )
+                    : t(
+                        "当前模型未声明可选思考变体，沿用本机配置。",
+                        "This model declares no thinking variants; using local configuration.",
+                      )
+              : t(
+                  "留空时沿用 CLI 已有的思考等级配置。",
+                  "Leave blank to keep the CLI's existing thinking level setting.",
+                )}
           </small>
           {verified && (
             <p role="status" className={cx("verify-ok")}>
-              已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。
+              {t(
+                "已验证当前执行 CLI、模型、上下文预算（tokens）和思考等级。",
+                "Verified the current CLI, model, context budget, and thinking level.",
+              )}
             </p>
           )}
           {verifyError && (
@@ -800,17 +924,24 @@ function MemberEditor({
           )}
         </section>
         <section className={cx("member-section")}>
-          <legend>{catalog ? "启用状态" : "成员状态"}</legend>
+          <legend>
+            {catalog ? t("启用状态", "Status") : t("成员状态", "Member status")}
+          </legend>
           <label className={cx("check-label")}>
             <input
               type="checkbox"
               checked={value.disabled}
               onChange={(event) => update({ disabled: event.target.checked })}
             />
-            {catalog ? "在所有工作空间停用此成员" : "停用此成员"}
+            {catalog
+              ? t("在所有工作空间停用此成员", "Disable this member across all projects")
+              : t("停用此成员", "Disable this member")}
           </label>
           <small>
-            工具授权由全局权限模式统一决定，不再按成员配置；停用后该成员不参与任何工作空间的执行。
+            {t(
+              "工具授权由全局权限模式统一决定，不再按成员配置；停用后该成员不参与任何工作空间的执行。",
+              "Tool permissions follow the global permission mode; when disabled, this member will not participate in runs in any project.",
+            )}
           </small>
         </section>
         {error && (
@@ -818,10 +949,16 @@ function MemberEditor({
             {error}
           </p>
         )}
-        {saved && <p role="status">已保存，可以继续编辑此成员。</p>}
+        {saved && (
+          <p role="status">
+            {t("已保存，可以继续编辑此成员。", "Saved. You can continue editing this member.")}
+          </p>
+        )}
         <div className={cx("form-actions")}>
           <button className={cx("primary")} disabled={saved || saving}>
-            {saving ? "保存中…" : "保存成员"}
+            {saving
+              ? t("保存中…", "Saving…")
+              : t("保存成员", "Save member")}
           </button>
         </div>
       </form>
@@ -877,7 +1014,7 @@ function WorkspaceMembershipForm({
       }}
     >
       <fieldset disabled={busy}>
-        <legend>本工作空间成员</legend>
+        <legend>{t("本工作空间成员", "Project membership")}</legend>
         <label className={cx("check-label")}>
           <input
             type="checkbox"
@@ -887,29 +1024,46 @@ function WorkspaceMembershipForm({
               setSaved(false);
             }}
           />
-          在本工作空间启用
+          {t("在本工作空间启用", "Enabled in this project")}
         </label>
       </fieldset>
       <p className={cx("member-note")}>
         {agent.disabled
-          ? "该成员已在全局停用，加入本空间也不会执行。"
-          : "成员的工具与命令边界由设置中的全局权限决定；此处只管理是否加入与是否启用。"}
-        移出仅撤销本空间访问，保留全局档案与历史记录。
+          ? t(
+              "该成员已在全局停用，加入本空间也不会执行。",
+              "This member is globally disabled and will not run even if added to this project.",
+            )
+          : t(
+              "成员的工具与命令边界由设置中的全局权限决定；此处只管理是否加入与是否启用。",
+              "Tool and command boundaries follow the global permission mode; manage project membership and enabled state here.",
+            )}
+        {t(
+          "移出仅撤销本空间访问，保留全局档案与历史记录。",
+          " Removing only unlinks this project while preserving the global profile and history.",
+        )}
       </p>
       {error && (
         <p role="alert" className={cx("error")}>
           {error}
         </p>
       )}
-      {saved && <p role="status">本空间成员设置已保存。</p>}
+      {saved && (
+        <p role="status">
+          {t("本空间成员设置已保存。", "Project member settings saved.")}
+        </p>
+      )}
       <div className={cx("form-actions")}>
         {membership && (
           <button type="button" disabled={busy} onClick={() => submit(unlink)}>
-            移出本工作空间
+            {t("移出本工作空间", "Remove from project")}
           </button>
         )}
         <button className={cx("primary")} disabled={busy}>
-          {busy ? "保存中…" : membership ? "保存本空间设置" : "加入本工作空间"}
+          {busy
+            ? t("保存中…", "Saving…")
+            : membership
+              ? t("保存本空间设置", "Save project settings")
+              : t("加入本工作空间", "Add to project")}
         </button>
       </div>
     </form>

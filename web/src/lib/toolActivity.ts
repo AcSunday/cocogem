@@ -1,4 +1,5 @@
 import type { Event } from "../api/client";
+import { isEnglish, t } from "./i18n";
 import { toolLabel } from "./presentation";
 
 /**
@@ -148,7 +149,7 @@ export function normalizeToolStatus(value: unknown): ToolActivityStatus | "" {
   return STATUS[String(value ?? "").trim().toLowerCase()] ?? "";
 }
 
-const STATUS_LABEL: Record<ToolActivityStatus, string> = {
+const STATUS_LABEL_ZH: Record<ToolActivityStatus, string> = {
   queued: "排队中",
   running: "执行中",
   awaiting_permission: "等待授权",
@@ -159,8 +160,19 @@ const STATUS_LABEL: Record<ToolActivityStatus, string> = {
   unknown: "结果未知",
 };
 
+const STATUS_LABEL_EN: Record<ToolActivityStatus, string> = {
+  queued: "Queued",
+  running: "Running",
+  awaiting_permission: "Awaiting approval",
+  succeeded: "Done",
+  failed: "Failed",
+  denied: "Denied",
+  canceled: "Stopped",
+  unknown: "Outcome unknown",
+};
+
 export const toolStatusLabel = (status: ToolActivityStatus) =>
-  STATUS_LABEL[status];
+  isEnglish() ? STATUS_LABEL_EN[status] : STATUS_LABEL_ZH[status];
 
 export function normalizeOrigin(value: unknown): ToolActivityOrigin {
   return String(value ?? "").trim().toLowerCase() === "native"
@@ -222,7 +234,7 @@ function boundedOutput(value: unknown): string {
   if (value === undefined || value === null) return "";
   const output = String(value);
   return output.length > OUTPUT_LIMIT
-    ? `${output.slice(0, OUTPUT_LIMIT)}\n…（输出已截断）`
+    ? `${output.slice(0, OUTPUT_LIMIT)}\n${t("…（输出已截断）", "…(output truncated)")}`
     : output;
 }
 
@@ -264,7 +276,7 @@ const CATEGORY: Record<string, string> = {
   list_sources: "sources",
 };
 
-const PHRASE: Record<string, (count: number) => string> = {
+const PHRASE_ZH: Record<string, (count: number) => string> = {
   read: (count) => `读取 ${count} 个文件`,
   list: (count) => `列出 ${count} 个目录`,
   search: (count) => `搜索 ${count} 次内容`,
@@ -284,6 +296,26 @@ const PHRASE: Record<string, (count: number) => string> = {
   sources: (count) => `列出 ${count} 次来源`,
 };
 
+const PHRASE_EN: Record<string, (count: number) => string> = {
+  read: (count) => `Read ${count} file${count === 1 ? "" : "s"}`,
+  list: (count) => `List ${count} director${count === 1 ? "y" : "ies"}`,
+  search: (count) => `Search content ${count} time${count === 1 ? "" : "s"}`,
+  web_search: (count) => `Web search ${count} time${count === 1 ? "" : "s"}`,
+  web_fetch: (count) => `Fetch ${count} web page${count === 1 ? "" : "s"}`,
+  test: () => "Run tests",
+  command: (count) => `Run ${count} command${count === 1 ? "" : "s"}`,
+  write: (count) => `Write ${count} file${count === 1 ? "" : "s"}`,
+  patch: (count) => `Modify ${count} file${count === 1 ? "" : "s"}`,
+  artifact: (count) => `Publish ${count} deliverable${count === 1 ? "" : "s"}`,
+  deliver: (count) => `Deliver ${count} file${count === 1 ? "" : "s"}`,
+  image: (count) => `View ${count} image${count === 1 ? "" : "s"}`,
+  handoff: (count) => `Hand off ${count} time${count === 1 ? "" : "s"}`,
+  task: (count) => `Inspect task ${count} time${count === 1 ? "" : "s"}`,
+  skill: (count) => `Load ${count} skill${count === 1 ? "" : "s"}`,
+  source: (count) => `Re-read ${count} source${count === 1 ? "" : "s"}`,
+  sources: (count) => `List sources ${count} time${count === 1 ? "" : "s"}`,
+};
+
 function toolKey(name: string) {
   return name.trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
@@ -298,9 +330,9 @@ export function activityPhrase(
   label: string,
   count: number,
 ): string {
-  const phrase = PHRASE[category(name)];
+  const phrase = (isEnglish() ? PHRASE_EN : PHRASE_ZH)[category(name)];
   if (phrase) return phrase(count);
-  const shown = label || toolLabel(name) || "工具调用";
+  const shown = label || toolLabel(name) || t("工具调用", "Tool call");
   return count > 1 ? `${shown} ×${count}` : shown;
 }
 
@@ -320,7 +352,10 @@ export function unresolvedPermissionActivities(
 export function summarizeActivities(items: ToolActivity[]): string {
   if (!items.length) return "";
   const pending = unresolvedPermissionActivities(items).length;
-  if (pending) return pending > 1 ? `等待授权 · ${pending} 项` : "等待授权";
+  if (pending)
+    return pending > 1
+      ? t(`等待授权 · ${pending} 项`, `Awaiting approval · ${pending} items`)
+      : t("等待授权", "Awaiting approval");
   const counts = new Map<string, { count: number; sample: ToolActivity }>();
   for (const item of items) {
     const key = category(item.name);
@@ -337,7 +372,10 @@ export function summarizeActivities(items: ToolActivity[]): string {
       entry.count,
     );
   } else {
-    phrase = `${items.length} 个工具调用`;
+    phrase = t(
+      `${items.length} 个工具调用`,
+      `${items.length} tool calls`,
+    );
   }
   const failed = items.filter((item) => item.status === "failed").length;
   const denied = items.filter((item) => item.status === "denied").length;
@@ -346,13 +384,13 @@ export function summarizeActivities(items: ToolActivity[]): string {
   ).length;
   const unknown = items.filter((item) => item.status === "unknown").length;
   const suffix = failed
-    ? ` · ${failed} 个失败`
+    ? t(` · ${failed} 个失败`, ` · ${failed} failed`)
     : denied
-      ? ` · ${denied} 个已拒绝`
+      ? t(` · ${denied} 个已拒绝`, ` · ${denied} denied`)
       : running
-        ? " · 执行中"
+        ? t(" · 执行中", " · Running")
         : unknown
-          ? ` · ${unknown} 个结果未知`
+          ? t(` · ${unknown} 个结果未知`, ` · ${unknown} unknown`)
           : "";
   return `${phrase}${suffix}`;
 }
@@ -397,7 +435,7 @@ function buildActivity(
   const memberID = pairing.memberID || source.agent_id || "";
   const name =
     text(startData.name) || text(awaitingData.name) || text(finishData.name);
-  const label = toolLabel(name) || "工具调用";
+  const label = toolLabel(name) || t("工具调用", "Tool call");
   const toolCallID =
     text(startData.tool_call_id) ||
     text(awaitingData.tool_call_id) ||
@@ -703,13 +741,19 @@ export function projectToolActivity(
 export function missingFinishLabel(activity: ToolActivity): string {
   switch (activity.unknownReason) {
     case "window_evicted":
-      return "完成记录不在当前页";
+      return t("完成记录不在当前页", "Completion record is on another page");
     case "attempt_ended":
-      return "未收到完成记录 · 尝试已结束";
+      return t(
+        "未收到完成记录 · 尝试已结束",
+        "No completion record · Attempt ended",
+      );
     case "run_ended":
-      return "未收到完成记录 · 运行已结束";
+      return t(
+        "未收到完成记录 · 运行已结束",
+        "No completion record · Run ended",
+      );
     default:
-      return "未收到完成记录";
+      return t("未收到完成记录", "No completion record received");
   }
 }
 

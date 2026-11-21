@@ -7,6 +7,7 @@ import type {
   Step,
 } from "../api/client";
 import { statusText } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import {
   attemptReasonLabel,
   attemptStatusLabel,
@@ -48,10 +49,15 @@ export function CollaborationTasks({
   onSource?: (id: string) => void;
   onArtifact?: (artifact: Artifact) => void;
 }) {
+  useLanguage();
   const member = (id: string) =>
-    run.agents?.find((agent) => agent.id === id)?.display_name ?? "成员";
+    run.agents?.find((agent) => agent.id === id)?.display_name ??
+    t("成员", "Member");
   return (
-    <ol className={cx("collaboration-tasks")} aria-label="协作任务">
+    <ol
+      className={cx("collaboration-tasks")}
+      aria-label={t("协作任务", "Collaboration steps")}
+    >
       {steps.map((step) => {
         const upstream = (step.depends_on ?? [])
           .map((id) => steps.find((item) => item.id === id))
@@ -59,7 +65,9 @@ export function CollaborationTasks({
         const from =
           step.kind !== "continuation" && step.from_agent_id
             ? member(step.from_agent_id)
-            : [...new Set(upstream.map((item) => item.agent_name))].join("、");
+            : [...new Set(upstream.map((item) => item.agent_name))].join(
+                t("、", ", "),
+              );
         const result = messages.filter(
           (message) => message.step_id === step.id,
         );
@@ -81,30 +89,39 @@ export function CollaborationTasks({
                 </span>
                 <span className={cx("role-chip")}>
                   {step.kind === "continuation"
-                    ? "结果回传"
+                    ? t("结果回传", "Result return")
                     : step.kind === "relay"
-                      ? `接力 · ${roleLabel(step.role) || "协作"}`
-                      : roleLabel(step.role) || "任务交接"}
+                      ? t(
+                          `接力 · ${roleLabel(step.role) || "协作"}`,
+                          `Relay · ${roleLabel(step.role) || "Collaborate"}`,
+                        )
+                      : roleLabel(step.role) || t("任务交接", "Task handoff")}
                 </span>
                 {step.review_verdict && (
                   <span className={cx("role-chip")}>
-                    {step.review_verdict === "approved" ? "复核通过" : "请求修改"}
+                    {step.review_verdict === "approved"
+                      ? t("复核通过", "Approved")
+                      : t("请求修改", "Changes requested")}
                   </span>
                 )}
                 <span className={cx(`status ${step.status}`)}>
                   {waiting
                     ? step.kind === "continuation"
-                      ? "等待结果"
-                      : "等待上游"
+                      ? t("等待结果", "Waiting for results")
+                      : t("等待上游", "Waiting for upstream")
                     : step.status === "pending"
-                      ? "等待调度"
+                      ? t("等待调度", "Queued")
                       : step.status === "skipped" && step.converged
-                        ? "已收敛跳过"
+                        ? t("已收敛跳过", "Converged (skipped)")
                         : statusText[step.status] || step.status}
                 </span>
                 {stepAttempts.length > 0 && (
                   <small className={cx("muted")}>
-                    {stepAttempts.length} 次尝试 ·{" "}
+                    {t(
+                      `${stepAttempts.length} 次尝试`,
+                      `${stepAttempts.length} attempt${stepAttempts.length === 1 ? "" : "s"}`,
+                    )}{" "}
+                    ·{" "}
                     {attemptStatusLabel(
                       stepAttempts[stepAttempts.length - 1].status,
                     ) ||
@@ -116,24 +133,32 @@ export function CollaborationTasks({
                 {(step.started_at || step.deadline_at) && (
                   <p className={cx("muted")}>
                     {step.started_at
-                      ? `开始：${formatDateTime(step.started_at)}`
-                      : "尚未开始"}
+                      ? t(
+                          `开始：${formatDateTime(step.started_at)}`,
+                          `Started: ${formatDateTime(step.started_at)}`,
+                        )
+                      : t("尚未开始", "Not started")}
                     {step.deadline_at
-                      ? ` · 截止：${formatDateTime(step.deadline_at)}`
+                      ? t(
+                          ` · 截止：${formatDateTime(step.deadline_at)}`,
+                          ` · Deadline: ${formatDateTime(step.deadline_at)}`,
+                        )
                       : ""}
                   </p>
                 )}
                 {step.instruction && (
                   <>
                     <h4>
-                      {step.kind === "continuation" ? "继续处理" : "任务说明"}
+                      {step.kind === "continuation"
+                        ? t("继续处理", "Continuation")
+                        : t("任务说明", "Instructions")}
                     </h4>
                     <Markdown text={step.instruction} />
                   </>
                 )}
                 {!!step.context_refs?.length && (
                   <>
-                    <h4>交接依据</h4>
+                    <h4>{t("交接依据", "Handoff context")}</h4>
                     <ul className={cx("task-references")}>
                       {step.context_refs.map((ref) => (
                         <li key={ref}>
@@ -152,7 +177,7 @@ export function CollaborationTasks({
                 )}
                 {stepAttempts.length > 0 && (
                   <>
-                    <h4>执行尝试</h4>
+                    <h4>{t("执行尝试", "Execution attempts")}</h4>
                     <ul className={cx("task-references")}>
                       {stepAttempts.map((attempt) => (
                         <li key={attempt.id}>
@@ -160,7 +185,7 @@ export function CollaborationTasks({
                             {attemptStatusLabel(attempt.status) ||
                               attempt.status}
                           </span>{" "}
-                          第 {attempt.number} 次
+                          {t(`第 ${attempt.number} 次`, `Attempt #${attempt.number}`)}
                           {attempt.reason
                             ? ` · ${attemptReasonLabel(attempt.reason) || attempt.reason}`
                             : ""}
@@ -173,7 +198,10 @@ export function CollaborationTasks({
                               ? ` · ${attempt.executor}`
                               : ""}
                           {attempt.resolved_model
-                            ? ` · 模型 ${attempt.resolved_model}`
+                            ? t(
+                                ` · 模型 ${attempt.resolved_model}`,
+                                ` · Model ${attempt.resolved_model}`,
+                              )
                             : ""}
                           <span className={cx("muted")}>
                             {" "}
@@ -183,17 +211,21 @@ export function CollaborationTasks({
                             attempt.liveness_warning && (
                               <span className={cx("muted")}>
                                 {" "}
-                                · 告警：
+                                · {t("告警：", "Alert: ")}
                                 {livenessLabel(
                                   attempt.liveness_warning.state,
                                 ) || attempt.liveness_warning.state}
-                                {" · 已 "}
-                                {attempt.liveness_warning.silence_seconds} 秒
+                                {" · "}
+                                {t(
+                                  `已 ${attempt.liveness_warning.silence_seconds} 秒`,
+                                  `${attempt.liveness_warning.silence_seconds}s elapsed`,
+                                )}
                               </span>
                             )}
                           {attempt.connection_identity ? (
                             <small title={attempt.connection_identity}>
-                              {" "}· 连接{" "}
+                              {" "}
+                              · {t("连接", "Conn")}{" "}
                               {attempt.connection_identity.slice(0, 8)}
                             </small>
                           ) : null}
@@ -218,8 +250,8 @@ export function CollaborationTasks({
                   <section key={message.id}>
                     <h4>
                       {message.status === "processing"
-                        ? "正在回复"
-                        : "处理结果"}
+                        ? t("正在回复", "Replying")
+                        : t("处理结果", "Output")}
                     </h4>
                     <Markdown text={message.content} />
                   </section>
@@ -265,16 +297,16 @@ function TaskReference({
         className={cx("small")}
         onClick={() => onSource(source.id)}
       >
-        来源：{source.title}
+        {t(`来源：${source.title}`, `Source: ${source.title}`)}
       </button>
     ) : (
-      <span>来源：{source.title}</span>
+      <span>{t(`来源：${source.title}`, `Source: ${source.title}`)}</span>
     );
   const message = messages.find((item) => item.id === reference);
   if (message)
     return (
       <blockquote>
-        <strong>{message.agent_name || "用户"}</strong>
+        <strong>{message.agent_name || t("用户", "User")}</strong>
         <Markdown text={message.content} />
       </blockquote>
     );
@@ -295,5 +327,9 @@ function TaskReference({
         {artifact.title} · v{artifact.version}
       </span>
     );
-  return <span className={cx("muted")}>引用内容暂不可用</span>;
+  return (
+    <span className={cx("muted")}>
+      {t("引用内容暂不可用", "Referenced content unavailable")}
+    </span>
+  );
 }

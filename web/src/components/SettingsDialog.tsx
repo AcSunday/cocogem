@@ -25,12 +25,13 @@ import {
   errorText,
   executionPolicyRows,
   formatDateTime,
-  legacyPolicyNote,
+  getLegacyPolicyNote,
+  getPolicyNote,
   limitLabel,
-  policyNote,
   runMethod,
   skillLabel,
 } from "../lib/presentation";
+import { type Language, t, useLanguage } from "../lib/i18n";
 import { MembersSettings } from "./forms/MembersSettings";
 import {
   CollaborationBudget,
@@ -106,15 +107,17 @@ export function SettingsDialog({
   permissionThreadID?: string;
   permissionThreadTitle?: string;
 }) {
+  useLanguage();
   const tabs: [SettingsTab, string, IconName][] = [];
-  if (saveAgent) tabs.push(["members", "成员", "users"]);
+  if (saveAgent) tabs.push(["members", t("成员", "Members"), "users"]);
   if (executionMode && onExecutionModeChange)
-    tabs.push(["permission", "权限", "tools"]);
-  if (settings && saveSettings) tabs.push(["collaboration", "协作", "layers"]);
+    tabs.push(["permission", t("权限", "Permissions"), "tools"]);
+  if (settings && saveSettings)
+    tabs.push(["collaboration", t("协作", "Collaboration"), "layers"]);
   if (appearance && onAppearance)
-    tabs.push(["appearance", "外观", "appearance"]);
-  tabs.push(["service", "服务", "settings"]);
-  tabs.push(["trash", "回收站", "trash"]);
+    tabs.push(["appearance", t("外观", "Appearance"), "appearance"]);
+  tabs.push(["service", t("服务", "Service"), "settings"]);
+  tabs.push(["trash", t("回收站", "Trash"), "trash"]);
   const [tab, setTab] = useState<SettingsTab>(tabs[0][0]);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -150,12 +153,12 @@ export function SettingsDialog({
   };
 
   return (
-    <Modal title="设置" close={close} wide>
+    <Modal title={t("设置", "Settings")} close={close} wide>
       <div className={cx("settings-container")}>
         <div
           className={cx("settings-tabs")}
           role="tablist"
-          aria-label="设置分类"
+          aria-label={t("设置分类", "Settings categories")}
           aria-orientation="vertical"
         >
           {tabs.map(([key, label, icon], index) => (
@@ -265,15 +268,30 @@ function AppearanceSettings({
   appearance: Appearance;
   onChange: (value: Appearance) => void;
 }) {
+  const [language, setLanguage] = useLanguage();
   return (
     <section aria-labelledby="settings-appearance">
-      <h2 id="settings-appearance">外观</h2>
+      <h2 id="settings-appearance">{t("外观", "Appearance")}</h2>
       <p className={cx("muted")}>
-        只影响当前浏览器。浅色、深色、暖色和跟随系统都保留相同的语义与焦点样式。
+        {t(
+          "这些偏好仅保存在当前浏览器中，可随时切换界面语言与主题模式。",
+          "These preferences are saved in your current browser. Switch language or theme anytime.",
+        )}
       </p>
       <label className={cx("settings-appearance-select")}>
-        外观模式
+        {t("外观模式", "Appearance mode")}
         <AppearanceSelect value={appearance} onChange={onChange} />
+      </label>
+      <label className={cx("settings-appearance-select")}>
+        {t("界面语言", "Language")}
+        <Select
+          aria-label={t("界面语言", "Language")}
+          value={language}
+          onChange={(selected) => setLanguage(selected as Language)}
+        >
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </Select>
       </label>
     </section>
   );
@@ -289,6 +307,7 @@ function CollaborationSettings({
   settings: Settings;
   save: (value: SettingsInput) => Promise<Settings>;
 }) {
+  useLanguage();
   const [value, setValue] = useState<SettingsInput>(() => editable(settings));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -307,7 +326,7 @@ function CollaborationSettings({
   };
   const memberOptions = (current: string) => [
     <option key="" value="">
-      使用会话可用成员
+      {t("使用会话可用成员", "Use available conversation member")}
     </option>,
     ...enabled.map((agent) => (
       <option key={agent.id} value={agent.id}>
@@ -317,7 +336,10 @@ function CollaborationSettings({
     ...(current && !enabled.some((agent) => agent.id === current)
       ? [
           <option key="unavailable" value={current}>
-            原成员已停用或不存在，保存时清除
+            {t(
+              "原成员已停用或不存在，保存时清除",
+              "Previous member is disabled or missing (cleared on save)",
+            )}
           </option>,
         ]
       : []),
@@ -341,12 +363,15 @@ function CollaborationSettings({
         }}
       >
         <section className={cx("settings-section")}>
-          <h3>默认分工</h3>
+          <h3>{t("默认分工", "Default coordination")}</h3>
           <p>
-            默认协调者在创建会话与解析分工时使用。显式选择优先；成员未加入当前空间、已停用或不具备该角色所需能力时，回退到本会话可用成员，不会自动加入空间或授予权限。
+            {t(
+              "新建会话和安排任务时默认由该成员协调（直接 @ 指定成员时以你的指定为准）。若默认协调者不在当前空间或已停用，会自动改用当前会话中的可用成员。",
+              "Used when creating conversations and coordinating tasks (explicit @mentions always take precedence). If the default coordinator is not in the current project or is disabled, an available member in the conversation is used instead.",
+            )}
           </p>
           <label>
-            默认协调者
+            {t("默认协调者", "Default coordinator")}
             <Select
               value={value.default_coordinator_id ?? ""}
               onChange={(selected) => {
@@ -359,19 +384,31 @@ function CollaborationSettings({
           </label>
         </section>
         <section className={cx("settings-section")}>
-          <h3>协作方式</h3>
+          <h3>{t("协作方式", "How collaboration works")}</h3>
           <p>
-            会话统一运行在单一动态协作内核上：显式提及或 Composer 选择的成员直接执行，未指定时由协调者决定分工。不再有预设流程或固定角色槽位。
+            {t(
+              "所有会话统一采用单一动态协作内核：你用 @ 指定的成员会直接执行，未指定时由协调者按需安排分工，无需手动选择固定流程。",
+              "All conversations run on a single dynamic collaboration kernel: members you @mention execute directly, and otherwise the coordinator assigns work as needed without rigid preset workflows.",
+            )}
           </p>
           {error && (
             <p role="alert" className={cx("error")}>
               {error}
             </p>
           )}
-          {saved && <p role="status">协作默认已保存，新会话会使用这些选择。</p>}
+          {saved && (
+            <p role="status">
+              {t(
+                "协作默认已保存，新会话会使用这些选择。",
+                "Collaboration defaults saved; new conversations will use these settings.",
+              )}
+            </p>
+          )}
           <div className={cx("form-actions")}>
             <button className={cx("primary")} disabled={saving}>
-              {saving ? "保存中…" : "保存协作默认"}
+              {saving
+                ? t("保存中…", "Saving…")
+                : t("保存协作默认", "Save collaboration defaults")}
             </button>
           </div>
         </section>
@@ -397,6 +434,7 @@ function ServiceSettings({
   setSystem: (value: System) => void;
   lock: () => Promise<void>;
 }) {
+  useLanguage();
   const [executor, setExecutor] = useState(
     system.executors?.find((item) => item.installed && item.supported !== false)
       ?.id ?? "claude",
@@ -412,14 +450,16 @@ function ServiceSettings({
   return (
     <>
       <section className={cx("settings-section")}>
-        <h3>服务状态</h3>
+        <h3>{t("服务状态", "Service status")}</h3>
         <p>
-          成员调用本机 Claude、Codex、Gemini、Pi 或 OpenCode
-          CLI，复用本机的模型、供应商与认证配置。网页不会读取凭证。
+          {t(
+            "成员直接调用本机安装的 Claude、Codex、Gemini、Pi 或 OpenCode CLI，复用你本机已配置好的模型与登录认证，网页端不会读取或保存你的密钥。",
+            "Members invoke your locally installed Claude, Codex, Gemini, Pi, or OpenCode CLI, reusing your local model, provider, and auth configuration. The web UI never reads or stores your credentials.",
+          )}
         </p>
         <div className={cx("settings-grid")}>
           <div className={cx("settings-card")}>
-            <h4>执行限制</h4>
+            <h4>{t("执行限制", "Execution limits")}</h4>
             <ul>
               {Object.entries(system.limits ?? {})
                 .map(
@@ -429,11 +469,16 @@ function ServiceSettings({
                 .map(([name, label]) => (
                   <li key={name}>{label}</li>
                 ))}
-              <li>同一时间处理一轮协作，其余按顺序排队；可停止当前协作。</li>
+              <li>
+                {t(
+                  "同一时间处理一轮协作，其余按顺序排队；可停止当前协作。",
+                  "Processes one collaboration round at a time and queues additional runs in order; active runs can be stopped anytime.",
+                )}
+              </li>
             </ul>
           </div>
           <div className={cx("settings-card")}>
-            <h4>本机 CLI</h4>
+            <h4>{t("本机 CLI", "Local CLIs")}</h4>
             <div className={cx("service-executors")}>
               {system.executors?.map((item) => {
                 const runnable = item.installed && item.supported !== false;
@@ -447,40 +492,68 @@ function ServiceSettings({
                         )}
                       >
                         {runnable
-                          ? "可执行"
+                          ? t("可执行", "Ready")
                           : item.installed
-                            ? "不可执行"
-                            : "未安装"}
+                            ? t("不可执行", "Not runnable")
+                            : t("未安装", "Not installed")}
                       </span>
                     </div>
                     <p>
                       {item.installed
-                        ? `已安装 · ${item.version || "版本未知"}`
-                        : "未检测到可执行文件"}
-                      {item.adapter ? ` · 调用方式 ${item.adapter}` : ""}
+                        ? t(
+                            `已安装 · ${item.version || "版本未知"}`,
+                            `Installed · ${item.version || "Unknown version"}`,
+                          )
+                        : t("未检测到可执行文件", "Executable not found")}
+                      {item.adapter
+                        ? t(
+                            ` · 调用方式 ${item.adapter}`,
+                            ` · Adapter ${item.adapter}`,
+                          )
+                        : ""}
                     </p>
                     <p className={cx("muted")}>
                       {item.installed
-                        ? `工具隔离 ${
-                            item.supported === false
-                              ? "不可确认"
-                              : item.isolation === "enforced"
-                                ? "探测通过"
-                                : item.isolation === "candidate"
-                                  ? "待验证（首次执行前自动探测）"
-                                  : "待确认"
-                          }`
-                        : "安装后才可探测工具隔离"}
+                        ? t(
+                            `工具隔离 ${
+                              item.supported === false
+                                ? "不可确认"
+                                : item.isolation === "enforced"
+                                  ? "探测通过"
+                                  : item.isolation === "candidate"
+                                    ? "待验证（首次执行前自动探测）"
+                                    : "待确认"
+                            }`,
+                            `Tool isolation: ${
+                              item.supported === false
+                                ? "unverifiable"
+                                : item.isolation === "enforced"
+                                  ? "verified"
+                                  : item.isolation === "candidate"
+                                    ? "probed on first run"
+                                    : "pending"
+                            }`,
+                          )
+                        : t(
+                            "安装后才可探测工具隔离",
+                            "Install to check tool isolation",
+                          )}
                       {" · "}
                       {item.protocol === "verified"
-                        ? "连接与模型已验证"
+                        ? t("连接与模型已验证", "Connection & model verified")
                         : item.installed
-                          ? "连接未验证（运行时再检查协议）"
-                          : "尚未连接"}
+                          ? t(
+                              "连接未验证（运行时再检查协议）",
+                              "Connection unverified (checked at runtime)",
+                            )
+                          : t("尚未连接", "Not connected")}
                     </p>
                     {item.reason && (
                       <p className={cx("muted")}>
-                        {item.supported === false ? "不支持" : "说明"}：
+                        {item.supported === false
+                          ? t("不支持", "Unsupported")
+                          : t("说明", "Note")}
+                        {t("：", ": ")}
                         {item.reason}
                       </p>
                     )}
@@ -488,41 +561,54 @@ function ServiceSettings({
                 );
               })}
               {!system.executors?.length && (
-                <p className={cx("muted")}>未检测到本机 CLI。</p>
+                <p className={cx("muted")}>
+                  {t("未检测到本机 CLI。", "No local CLIs detected.")}
+                </p>
               )}
             </div>
           </div>
           <div className={cx("settings-card")}>
-            <h4>在线搜索</h4>
+            <h4>{t("在线搜索", "Web search")}</h4>
             <p>
               {statusText[system.search_status] ??
                 system.search_status ??
-                "未配置"}
+                t("未配置", "Not configured")}
               {system.search_provider ? ` · ${system.search_provider}` : ""}
             </p>
             <p className={cx("muted")}>
               {system.search_status === "configured"
-                ? "搜索查询会通过网络发送给搜索服务。"
-                : "搜索不可用时仍可读取公开 URL 和本地资料。"}
+                ? t(
+                    "搜索查询会通过网络发送给搜索服务。",
+                    "Search queries are sent over the network to the configured search provider.",
+                  )
+                : t(
+                    "搜索不可用时仍可读取公开 URL 和本地资料。",
+                    "When search is unavailable, members can still read public URLs and local files.",
+                  )}
             </p>
           </div>
           <div className={cx("settings-card")}>
-            <h4>资料目录范围</h4>
+            <h4>{t("资料目录范围", "Allowed root directories")}</h4>
             <pre className={cx("pre")}>
-              {system.roots.join("\n") || "在各工作空间设置中指定"}
+              {system.roots.join("\n") ||
+                t("在各工作空间设置中指定", "Configured per project")}
             </pre>
           </div>
         </div>
         <p className={cx("muted")}>
-          真实运行会通过 CLI
-          发送问题与读取片段至模型服务；搜索会发送查询词。已安装不代表连接或模型可用。
+          {t(
+            "实际执行时会通过 CLI 将问题与相关片段发送给模型服务；已安装不代表连接或模型可用，可在下方验证。",
+            "During execution, prompts and relevant file snippets are sent to the model provider via the CLI. Installed does not guarantee an active connection or model.",
+          )}
         </p>
       </section>
       <section className={cx("settings-section")}>
-        <h3>验证连接</h3>
+        <h3>{t("验证连接", "Verify connection")}</h3>
         <p>
-          只验证所选 CLI 与确切模型；留空时使用该 CLI
-          的默认模型。验证可能产生少量用量。
+          {t(
+            "测试所选 CLI 与模型能否正常连通；模型留空时使用该 CLI 的默认模型。验证会发起一次极短请求，可能产生少量用量。",
+            "Test whether the selected CLI and model can connect; leave model blank to use the CLI's default model. Verification sends a short test request and may use a small number of tokens.",
+          )}
         </p>
         <form
           className={cx("settings-form")}
@@ -542,7 +628,7 @@ function ServiceSettings({
         >
           <div className={cx("settings-fields")}>
             <label>
-              验证 CLI
+              {t("验证 CLI", "CLI to verify")}
               <Select
                 value={executor}
                 onChange={(selected) => {
@@ -561,14 +647,17 @@ function ServiceSettings({
               </Select>
             </label>
             <label>
-              验证模型（留空使用 CLI 默认）
+              {t(
+                "验证模型（留空使用 CLI 默认）",
+                "Model to verify (leave blank for CLI default)",
+              )}
               <input
                 value={model}
                 onChange={(event) => {
                   setModel(event.target.value);
                   setError("");
                 }}
-                placeholder="CLI 默认模型"
+                placeholder={t("CLI 默认模型", "CLI default model")}
               />
             </label>
           </div>
@@ -579,22 +668,32 @@ function ServiceSettings({
           )}
           {system.verified[key] && (
             <p role="status">
-              验证时间：{formatDateTime(system.verified[key])} · 该 CLI
-              与模型上次已验证
+              {t(
+                `验证时间：${formatDateTime(system.verified[key])} · 该 CLI 与模型上次已验证`,
+                `Verified at: ${formatDateTime(system.verified[key])} · CLI and model verified`,
+              )}
             </p>
           )}
           <div className={cx("form-actions")}>
             <button className={cx("primary")} disabled={verifying || !runnable}>
-              {verifying ? "正在验证…" : "验证模型连接（可能产生用量）"}
+              {verifying
+                ? t("正在验证…", "Verifying…")
+                : t(
+                    "验证模型连接（可能产生用量）",
+                    "Verify model connection (may use tokens)",
+                  )}
             </button>
           </div>
         </form>
       </section>
       <section className={cx("settings-section")}>
-        <h3>锁定</h3>
+        <h3>{t("锁定", "Lock")}</h3>
         <div className={cx("settings-security")}>
           <p className={cx("muted")}>
-            离开时可锁定页面，正在进行的协作会继续运行。
+            {t(
+              "离开时可锁定页面，正在进行的协作会继续运行。",
+              "Lock the UI while away; active collaboration runs will continue in the background.",
+            )}
           </p>
           <button
             type="button"
@@ -602,7 +701,7 @@ function ServiceSettings({
               void lock().catch((error) => setError(errorText(error)));
             }}
           >
-            锁定工作空间
+            {t("锁定工作空间", "Lock workspace")}
           </button>
         </div>
       </section>
@@ -619,6 +718,7 @@ function TrashSettings({
   saveSettings?: (value: SettingsInput) => Promise<Settings>;
   onTrashChanged?: () => Promise<void> | void;
 }) {
+  useLanguage();
   const [items, setItems] = useState<TrashItem[]>();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -729,7 +829,7 @@ function TrashSettings({
         );
       }
       setConfirm(undefined);
-      if (failures.length) setError(failures.join("；"));
+      if (failures.length) setError(failures.join(t("；", "; ")));
       return { completed, failures: failures.length };
     } finally {
       running.current = false;
@@ -741,7 +841,12 @@ function TrashSettings({
     if (!result.completed.length) return;
     try {
       await onTrashChanged?.();
-      setNotice(`已恢复 ${result.completed.length} 个会话。`);
+      setNotice(
+        t(
+          `已恢复 ${result.completed.length} 个会话。`,
+          `Restored ${result.completed.length} conversation(s).`,
+        ),
+      );
     } catch (failure) {
       setError(errorText(failure));
     }
@@ -755,7 +860,12 @@ function TrashSettings({
     if (!result.completed.length) return;
     try {
       await onTrashChanged?.();
-      setNotice(`已永久删除 ${result.completed.length} 个会话。`);
+      setNotice(
+        t(
+          `已永久删除 ${result.completed.length} 个会话。`,
+          `Permanently deleted ${result.completed.length} conversation(s).`,
+        ),
+      );
     } catch (failure) {
       setError(errorText(failure));
     }
@@ -765,9 +875,12 @@ function TrashSettings({
     <>
       {settings && saveSettings && (
         <section className={cx("settings-section")}>
-          <h3>保留周期</h3>
+          <h3>{t("保留周期", "Retention period")}</h3>
           <p className={cx("muted")}>
-            保存后会同步重算回收站中会话的清理时间；之后删除的会话也使用新周期。
+            {t(
+              "保存后会同步重算回收站中会话的清理时间；之后删除的会话也使用新周期。",
+              "Saving recalculates the auto-purge time for items currently in the trash; newly deleted conversations will also use this retention period.",
+            )}
           </p>
           <form
             className={cx("settings-form settings-inline-form")}
@@ -775,7 +888,12 @@ function TrashSettings({
               event.preventDefault();
               const next = Number(days);
               if (!Number.isInteger(next) || next < 1 || next > 3650) {
-                setError("保留天数必须是 1 到 3650 之间的整数。");
+                setError(
+                  t(
+                    "保留天数必须是 1 到 3650 之间的整数。",
+                    "Retention days must be an integer between 1 and 3650.",
+                  ),
+                );
                 return;
               }
               setSavingDays(true);
@@ -794,7 +912,7 @@ function TrashSettings({
             }}
           >
             <label>
-              回收站保留天数
+              {t("回收站保留天数", "Trash retention days")}
               <input
                 type="number"
                 min={1}
@@ -807,25 +925,32 @@ function TrashSettings({
               />
             </label>
             <button className={cx("primary")} disabled={savingDays}>
-              {savingDays ? "保存中…" : "保存保留周期"}
+              {savingDays
+                ? t("保存中…", "Saving…")
+                : t("保存保留周期", "Save retention period")}
             </button>
             {savedDays && (
               <p role="status">
-                保留周期已保存，回收站中的清理时间已同步更新。
+                {t(
+                  "保留周期已保存，回收站中的清理时间已同步更新。",
+                  "Retention period saved; trash cleanup times have been updated.",
+                )}
               </p>
             )}
           </form>
         </section>
       )}
       <section className={cx("settings-section")}>
-        <h3>回收站</h3>
+        <h3>{t("回收站", "Trash")}</h3>
         <p>
-          删除的会话会在这里保留 {settings?.retention_days ?? 7}{" "}
-          天。可多选或全选后批量恢复、永久删除；恢复后回到原工作空间。永久删除会立即移除消息、协作记录、来源和产物，无法恢复。
+          {t(
+            `删除的会话会在这里保留 ${settings?.retention_days ?? 7} 天。可多选或全选后批量恢复、永久删除；恢复后回到原工作空间。永久删除会立即移除消息、协作记录、来源和产物，无法恢复。`,
+            `Deleted conversations are kept here for ${settings?.retention_days ?? 7} days. Select items to restore them to their original project or delete them permanently. Permanent deletion immediately removes messages, run logs, sources, and deliverables and cannot be undone.`,
+          )}
         </p>
         {loading && (
           <p role="status" className={cx("muted")}>
-            正在读取回收站…
+            {t("正在读取回收站…", "Loading trash…")}
           </p>
         )}
         {loadError && (
@@ -836,12 +961,12 @@ function TrashSettings({
               className={cx("ghost small")}
               onClick={() => void load()}
             >
-              重试
+              {t("重试", "Retry")}
             </button>
           </p>
         )}
         {items && !loading && !loadError && !items.length && (
-          <p className={cx("muted")}>回收站为空。</p>
+          <p className={cx("muted")}>{t("回收站为空。", "Trash is empty.")}</p>
         )}
         {!!items?.length && (
           <>
@@ -854,9 +979,11 @@ function TrashSettings({
                   disabled={!!busy || loading}
                   onChange={(event) => toggleAll(event.target.checked)}
                 />
-                全选
+                {t("全选", "Select all")}
               </label>
-              <span className={cx("trash-count")}>已选 {selectedCount} 项</span>
+              <span className={cx("trash-count")}>
+                {t(`已选 ${selectedCount} 项`, `${selectedCount} selected`)}
+              </span>
               <div className={cx("trash-actions trash-bulk-actions")}>
                 <button
                   type="button"
@@ -864,7 +991,9 @@ function TrashSettings({
                   disabled={!selectedCount || !!busy || loading}
                   onClick={() => void restoreSelected()}
                 >
-                  {busy === "restore" ? "正在恢复…" : "恢复所选"}
+                  {busy === "restore"
+                    ? t("正在恢复…", "Restoring…")
+                    : t("恢复所选", "Restore selected")}
                 </button>
                 <button
                   type="button"
@@ -876,7 +1005,7 @@ function TrashSettings({
                     setConfirm(selectedItems.map((item) => item.thread.id));
                   }}
                 >
-                  永久删除所选
+                  {t("永久删除所选", "Delete permanently")}
                 </button>
               </div>
             </div>
@@ -884,11 +1013,16 @@ function TrashSettings({
               <div
                 className={cx("confirm-inline")}
                 role="alertdialog"
-                aria-label={`确认永久删除 ${confirm.length} 个会话`}
+                aria-label={t(
+                  `确认永久删除 ${confirm.length} 个会话`,
+                  `Confirm permanent deletion of ${confirm.length} conversation(s)`,
+                )}
               >
                 <p>
-                  永久删除已选的 {confirm.length}
-                  个会话？消息、协作记录、来源和产物会立即移除，无法恢复。
+                  {t(
+                    `永久删除已选的 ${confirm.length} 个会话？消息、协作记录、来源和产物会立即移除，无法恢复。`,
+                    `Permanently delete ${confirm.length} selected conversation(s)? Messages, run logs, sources, and deliverables will be removed immediately and cannot be recovered.`,
+                  )}
                 </p>
                 <div className={cx("form-actions")}>
                   <button
@@ -896,7 +1030,7 @@ function TrashSettings({
                     disabled={!!busy}
                     onClick={() => setConfirm(undefined)}
                   >
-                    取消
+                    {t("取消", "Cancel")}
                   </button>
                   <button
                     type="button"
@@ -904,12 +1038,17 @@ function TrashSettings({
                     disabled={!!busy}
                     onClick={() => void purgeSelected()}
                   >
-                    {busy === "permanent" ? "正在处理…" : "确认永久删除"}
+                    {busy === "permanent"
+                      ? t("正在处理…", "Deleting…")
+                      : t("确认永久删除", "Confirm permanent delete")}
                   </button>
                 </div>
               </div>
             )}
-            <ul className={cx("trash-list")} aria-label="回收站会话">
+            <ul
+              className={cx("trash-list")}
+              aria-label={t("回收站会话", "Conversations in trash")}
+            >
               {items.map((item) => (
                 <li
                   key={item.thread.id}
@@ -921,7 +1060,10 @@ function TrashSettings({
                     <input
                       type="checkbox"
                       className={cx("trash-check")}
-                      aria-label={`选择会话：${item.thread.title}`}
+                      aria-label={t(
+                        `选择会话：${item.thread.title}`,
+                        `Select conversation: ${item.thread.title}`,
+                      )}
                       checked={selected.has(item.thread.id)}
                       disabled={!!busy || loading}
                       onChange={(event) =>
@@ -933,13 +1075,16 @@ function TrashSettings({
                       <span className={cx("trash-meta")}>
                         <span>{item.workspace_name}</span>
                         <span>
-                          删除于{" "}
-                          {formatDateTime(item.thread.deleted_at) || "未知时间"}
+                          {t(
+                            `删除于 ${formatDateTime(item.thread.deleted_at) || "未知时间"}`,
+                            `Deleted ${formatDateTime(item.thread.deleted_at) || "unknown time"}`,
+                          )}
                         </span>
                         <span>
-                          计划于{" "}
-                          {formatDateTime(item.thread.purge_at) || "未知时间"}{" "}
-                          自动清理
+                          {t(
+                            `计划于 ${formatDateTime(item.thread.purge_at) || "未知时间"} 自动清理`,
+                            `Scheduled for auto-purge on ${formatDateTime(item.thread.purge_at) || "unknown time"}`,
+                          )}
                         </span>
                       </span>
                     </div>
@@ -971,6 +1116,7 @@ export function SnapshotDialog({
   run: Run;
   close: () => void;
 }) {
+  useLanguage();
   // Only the persisted method/selection reaches the snapshot; a missing record
   // stays the free label instead of being inferred from messages.
   const method = runMethod(run);
@@ -978,23 +1124,35 @@ export function SnapshotDialog({
   const startedAt = formatDateTime(run.started_at);
   const deadlineAt = formatDateTime(run.deadline_at);
   return (
-    <Modal title="本次协作配置快照" close={close}>
+    <Modal
+      title={t("本次协作配置快照", "Collaboration Configuration Snapshot")}
+      close={close}
+    >
       <p>
-        协作会话 · 创建于 {formatDateTime(run.created_at)}
+        {t(
+          `协作会话 · 创建于 ${formatDateTime(run.created_at)}`,
+          `Collaborative conversation · Created ${formatDateTime(run.created_at)}`,
+        )}
       </p>
-      <p>本轮方法：{method.label}</p>
+      <p>
+        {t(`本轮方法：${method.label}`, `Approach: ${method.label}`)}
+      </p>
       {method.reason && (
-        <p className={cx("muted")}>选择原因：{method.reason}</p>
+        <p className={cx("muted")}>
+          {t(`选择原因：${method.reason}`, `Reason: ${method.reason}`)}
+        </p>
       )}
       {run.coordinator_id && (
         <p>
-          本轮协调者：
+          {t("本轮协调者：", "Coordinator: ")}
           {run.agents?.find((agent) => agent.id === run.coordinator_id)
-            ?.display_name || "成员"}
+            ?.display_name || t("成员", "Member")}
         </p>
       )}
       <section className={cx("snapshot-member")}>
-        <h3>执行策略（本次协作冻结）</h3>
+        <h3>
+          {t("执行策略（本次协作冻结）", "Execution policy (locked for this run)")}
+        </h3>
         {policyRows.length ? (
           <dl>
             {policyRows.map((row) => (
@@ -1005,23 +1163,32 @@ export function SnapshotDialog({
             ))}
           </dl>
         ) : (
-          <p className={cx("muted")}>{legacyPolicyNote}</p>
+          <p className={cx("muted")}>{getLegacyPolicyNote()}</p>
         )}
-        {startedAt && <p>开始时间：{startedAt}</p>}
+        {startedAt && (
+          <p>{t(`开始时间：${startedAt}`, `Started at: ${startedAt}`)}</p>
+        )}
         {run.execution_policy &&
           (run.execution_policy.run_timeout_ns > 0 ? (
             <p>
               {deadlineAt
-                ? `截止时间：${deadlineAt}`
+                ? t(`截止时间：${deadlineAt}`, `Deadline: ${deadlineAt}`)
                 : startedAt
-                  ? "截止时间：未记录"
-                  : "尚未派发，期限从首次执行开始计算"}
+                  ? t("截止时间：未记录", "Deadline: Not recorded")
+                  : t(
+                      "尚未派发，期限从首次执行开始计算",
+                      "Not dispatched yet; time limit starts on first execution",
+                    )}
             </p>
           ) : (
-            <p>截止时间：不设绝对期限</p>
+            <p>{t("截止时间：不设绝对期限", "Deadline: No hard time limit")}</p>
           ))}
-        {!run.execution_policy && deadlineAt && <p>截止时间：{deadlineAt}</p>}
-        {policyRows.length > 0 && <p className={cx("muted")}>{policyNote}</p>}
+        {!run.execution_policy && deadlineAt && (
+          <p>{t(`截止时间：${deadlineAt}`, `Deadline: ${deadlineAt}`)}</p>
+        )}
+        {policyRows.length > 0 && (
+          <p className={cx("muted")}>{getPolicyNote()}</p>
+        )}
       </section>
       {run.agents?.map((agent) => (
         <section className={cx("snapshot-member")} key={agent.id}>
@@ -1029,17 +1196,24 @@ export function SnapshotDialog({
             {agent.display_name} (@{agent.handle})
           </h3>
           <p className={cx("muted")}>
-            配置版本 {agent.revision} ·{" "}
+            {t(`配置版本 ${agent.revision}`, `Config rev ${agent.revision}`)} ·{" "}
             {agent.executor ? `${agent.executor} · ` : ""}
-            {agent.model === "default" ? "CLI 默认模型" : agent.model}
+            {agent.model === "default"
+              ? t("CLI 默认模型", "CLI default model")
+              : agent.model}
           </p>
           {agent.role_description && <p>{agent.role_description}</p>}
-          <p className={cx("muted")}>可用工具：{agent.tools?.length ?? 0} 项</p>
+          <p className={cx("muted")}>
+            {t(
+              `可用工具：${agent.tools?.length ?? 0} 项`,
+              `Available tools: ${agent.tools?.length ?? 0}`,
+            )}
+          </p>
         </section>
       ))}
       {run.skill_versions && (
         <section className={cx("snapshot-member")}>
-          <h3>共享协作技能</h3>
+          <h3>{t("共享协作技能", "Shared collaboration skills")}</h3>
           {Object.entries(run.skill_versions).map(([id, version]) => (
             <p key={id}>
               {skillLabel(id)} ·{" "}
@@ -1047,12 +1221,20 @@ export function SnapshotDialog({
             </p>
           ))}
           {!Object.keys(run.skill_versions).length && (
-            <p className={cx("muted")}>本次协作未启用共享技能。</p>
+            <p className={cx("muted")}>
+              {t(
+                "本次协作未启用共享技能。",
+                "No shared skills were enabled for this run.",
+              )}
+            </p>
           )}
         </section>
       )}
       <p className={cx("muted")}>
-        历史快照不随成员改名、模型或权限编辑而改变。
+        {t(
+          "历史快照不随成员改名、模型或权限编辑而改变。",
+          "Historical snapshots remain unchanged even if member names, models, or permissions are edited later.",
+        )}
       </p>
     </Modal>
   );

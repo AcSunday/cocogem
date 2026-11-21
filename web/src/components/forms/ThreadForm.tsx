@@ -1,6 +1,7 @@
 import { Select } from "../Select";
 import { useState } from "react";
 import type { Thread, Agent } from "../../api/client";
+import { t, useLanguage } from "../../lib/i18n";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -29,6 +30,7 @@ export function ThreadForm({
   close: () => void;
   save: (value: Thread) => Promise<void>;
 }) {
+  useLanguage();
   const [value, setValue] = useState<Thread>(() => {
     const ids = current
       ? (current.agent_ids?.filter((id) =>
@@ -46,7 +48,7 @@ export function ThreadForm({
     return {
       id: "",
       workspace_id: "",
-      title: "新会话",
+      title: t("新会话", "New conversation"),
       revision: 1,
       updated_at: "",
       ...current,
@@ -62,7 +64,14 @@ export function ThreadForm({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   return (
-    <Modal title={current ? "会话设置" : "新建会话"} close={close}>
+    <Modal
+      title={
+        current
+          ? t("会话设置", "Conversation Settings")
+          : t("新建会话", "New Conversation")
+      }
+      close={close}
+    >
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -73,7 +82,7 @@ export function ThreadForm({
         }}
       >
         <label>
-          会话标题
+          {t("会话标题", "Conversation title")}
           <input
             required
             value={value.title}
@@ -83,7 +92,9 @@ export function ThreadForm({
           />
         </label>
         <fieldset>
-          <legend>会话成员（1–10 位）</legend>
+          <legend>
+            {t("会话成员（1–10 位）", "Conversation members (1–10)")}
+          </legend>
           {agents.map((agent) => (
             <label className={cx("check-label")} key={agent.id}>
               <input
@@ -107,7 +118,7 @@ export function ThreadForm({
           ))}
         </fieldset>
         <label>
-          协调者
+          {t("协调者", "Coordinator")}
           <Select
             value={value.coordinator_id}
             onChange={(selected) =>
@@ -130,7 +141,7 @@ export function ThreadForm({
         )}
         <div className={cx("form-actions")}>
           <button className={cx("primary")} disabled={saving}>
-            保存会话
+            {t("保存会话", "Save conversation")}
           </button>
         </div>
       </form>

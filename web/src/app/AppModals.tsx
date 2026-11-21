@@ -20,6 +20,7 @@ import { WorkspaceMembersForm } from "../components/forms/WorkspaceMembersForm";
 import { api } from "../api/client";
 import type { Appearance } from "../components/AppearanceSelect";
 import type { ExecutionMode } from "./useGlobalSettings";
+import { t, useLanguage } from "../lib/i18n";
 import { errorText } from "../lib/presentation";
 
 export type ModalState =
@@ -111,6 +112,7 @@ export function AppModals({
   permissionThreadID?: string;
   permissionThreadTitle?: string;
 }) {
+  useLanguage();
   return (
     <>
       {(modal?.kind === "workspace" || modal?.kind === "edit-workspace") &&
@@ -302,8 +304,8 @@ export function AppModals({
       )}
       {modal?.kind === "delete-workspace" && (
         <ConfirmDialog
-          title="删除工作空间"
-          action="删除工作空间"
+          title={t("删除工作空间", "Delete Project")}
+          action={t("删除工作空间", "Delete Project")}
           close={close}
           confirm={async () => {
             await api(`/api/v1/workspaces/${modal.workspace.id}`, "DELETE");
@@ -313,8 +315,10 @@ export function AppModals({
           }}
         >
           <p>
-            “{modal.workspace.name}”及其中的 {threads.length}{" "}
-            个会话、成员关联、来源和产物会被永久删除，无法恢复。全局成员档案会保留。
+            {t(
+              `“${modal.workspace.name}”及其中的 ${threads.length} 个会话、成员关联、来源和产物会被永久删除，无法恢复。全局成员档案会保留。`,
+              `“${modal.workspace.name}” and its ${threads.length} conversation(s), member links, sources, and deliverables will be permanently deleted and cannot be recovered. Global member profiles will be kept.`,
+            )}
           </p>
         </ConfirmDialog>
       )}

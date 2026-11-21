@@ -16,6 +16,7 @@ import layout from "../styles/layout.module.css";
 import conversation from "../styles/conversation.module.css";
 import panels from "../styles/panels.module.css";
 import { Icon } from "./Icon";
+import { t, useLanguage } from "../lib/i18n";
 
 const cx = scoped(controls, layout, conversation, panels);
 
@@ -56,6 +57,7 @@ export function Select({
   id,
   ...props
 }: Props) {
+  useLanguage();
   const options = Children.toArray(children)
     .filter(isValidElement<ComponentProps<"option">>)
     .map((option) => ({
@@ -233,7 +235,7 @@ export function Select({
         }}
       >
         <span className={cx("select-value")}>
-          {options[selected]?.label ?? "请选择"}
+          {options[selected]?.label ?? t("请选择", "Select")}
         </span>
         <Icon name="chevron" size={14} />
       </button>
@@ -262,7 +264,10 @@ export function Select({
             role="listbox"
             popover="manual"
             className={cx("select-menu")}
-            aria-label={`${props["aria-label"] || "选择"}选项`}
+            aria-label={t(
+              `${props["aria-label"] || "选择"}选项`,
+              `${props["aria-label"] || "Select"} options`,
+            )}
             style={{ ...position, display: "block", position: "fixed" }}
           >
             {options.map((option, index) => (

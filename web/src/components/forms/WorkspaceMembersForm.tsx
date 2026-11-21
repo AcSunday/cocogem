@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../../api/client";
 import type { Agent, WorkspaceMember } from "../../api/client";
+import { t, useLanguage } from "../../lib/i18n";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -31,6 +32,7 @@ export function WorkspaceMembersForm({
   refresh: () => Promise<void>;
   close: () => void;
 }) {
+  useLanguage();
   const profiles = [
     ...new Set([...agents.map((agent) => agent.id), ...catalog.map((agent) => agent.id)]),
   ].flatMap((id) => {
@@ -44,16 +46,21 @@ export function WorkspaceMembersForm({
   const selected =
     profiles.find(({ profile }) => profile.id === selectedID) ?? profiles[0];
   return (
-    <Modal title="工作空间成员" close={close}>
+    <Modal title={t("工作空间成员", "Project Members")} close={close}>
       <p>
-        这里只管理本工作空间的成员关系与启用状态。成员的工具与命令边界由设置中的全局权限决定；全局档案请到设置 → 成员编辑。
+        {t(
+          "这里只管理当前工作空间的成员加入与启用状态。成员的工具与命令权限由全局权限统一决定；全局档案请到设置 → 成员编辑。",
+          "Manage which members join and are enabled in this project. Tool and command permissions follow global permission settings; edit member profiles under Settings → Members.",
+        )}
       </p>
       <div className={cx("member-picker")}>
         {profiles.map(({ profile, member }) => (
           <button
             type="button"
             key={profile.id}
-            aria-label={`${memberLabel(profile)} · ${member ? "已加入" : "可加入"}`}
+            aria-label={`${memberLabel(profile)} · ${
+              member ? t("已加入", "Joined") : t("可加入", "Available")
+            }`}
             aria-pressed={selected?.profile.id === profile.id}
             onClick={() => setSelectedID(profile.id)}
           >
@@ -67,7 +74,7 @@ export function WorkspaceMembersForm({
               <small title={`@${profile.handle}`}>@{profile.handle}</small>
             </span>
             <span className={cx("member-picker-status")}>
-              {member ? "已加入" : "可加入"}
+              {member ? t("已加入", "Joined") : t("可加入", "Available")}
             </span>
           </button>
         ))}
@@ -128,7 +135,7 @@ function MemberGrant({
       }}
     >
       <fieldset disabled={busy}>
-        <legend>本工作空间成员</legend>
+        <legend>{t("本工作空间成员", "Project membership")}</legend>
         <label className={cx("check-label")}>
           <input
             type="checkbox"
@@ -138,21 +145,34 @@ function MemberGrant({
               setEnabled(event.target.checked);
             }}
           />
-          在本工作空间启用
+          {t("在本工作空间启用", "Enabled in this project")}
         </label>
       </fieldset>
       <p>
         {profile.disabled
-          ? "该成员已在全局停用，加入本空间也不会执行。"
-          : "成员的工具与命令边界由设置中的全局权限决定。"}
-        移出仅撤销本空间访问，保留全局成员档案和历史记录。
+          ? t(
+              "该成员已在全局停用，加入本空间也不会执行。",
+              "This member is globally disabled and will not run even if added to this project.",
+            )
+          : t(
+              "成员的工具与命令边界由设置中的全局权限决定。",
+              "Tool and command boundaries follow the global permission mode.",
+            )}
+        {t(
+          "移出仅撤销本空间访问，保留全局成员档案和历史记录。",
+          " Removing only unlinks this project while preserving the global profile and history.",
+        )}
       </p>
       {error && (
         <p role="alert" className={cx("error")}>
           {error}
         </p>
       )}
-      {saved && <p role="status">本空间成员设置已保存。</p>}
+      {saved && (
+        <p role="status">
+          {t("本空间成员设置已保存。", "Project member settings saved.")}
+        </p>
+      )}
       <div className={cx("form-actions")}>
         {membership && (
           <button
@@ -166,11 +186,15 @@ function MemberGrant({
               })
             }
           >
-            移出本工作空间
+            {t("移出本工作空间", "Remove from project")}
           </button>
         )}
         <button className={cx("primary")} disabled={busy}>
-          {busy ? "保存中…" : membership ? "保存本空间设置" : "加入本工作空间"}
+          {busy
+            ? t("保存中…", "Saving…")
+            : membership
+              ? t("保存本空间设置", "Save project settings")
+              : t("加入本工作空间", "Add to project")}
         </button>
       </div>
     </form>

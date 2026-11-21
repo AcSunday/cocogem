@@ -3,10 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { AuthScreen } from "./AuthScreen";
 import { App } from "../app/App";
+import { LANGUAGE_STORAGE_KEY, setLanguage } from "../lib/i18n";
+import { chooseOption } from "../test/select";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  localStorage.clear();
+  setLanguage("zh-CN");
 });
 
 it("shows a loading animation while the workspace connection is pending", () => {
@@ -114,4 +118,35 @@ it("shows the password gate when the workspace session is missing", async () => 
   render(<App />);
   expect(await screen.findByLabelText("密码", { exact: true })).toBeVisible();
   expect(screen.queryByText("启动令牌")).not.toBeInTheDocument();
+});
+
+it("lets the user choose English or Chinese during initialization", async () => {
+  const fetch = vi.fn(async (path: string) =>
+    Response.json(
+      path === "/auth/status"
+        ? { initialized: false }
+        : { csrf_token: "session" },
+    ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const connect = vi.fn(async () => {});
+  render(<AuthScreen required error="" connect={connect} />);
+  const user = userEvent.setup();
+  const languageSelect = await screen.findByLabelText("界面语言");
+  await chooseOption(user, languageSelect, "en");
+  expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
+  expect(
+    screen.getByRole("heading", { name: "Set Your Workspace Password" }),
+  ).toBeVisible();
+  const password = screen.getByLabelText("Set password", { exact: true });
+  await user.type(password, "a safe test passphrase");
+  await user.type(
+    screen.getByLabelText("Confirm password"),
+    "a safe test passphrase",
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Set Password & Enter" }),
+  );
+  await waitFor(() => expect(connect).toHaveBeenCalledOnce());
+  expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
 });

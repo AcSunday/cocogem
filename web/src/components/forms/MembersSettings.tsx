@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ComponentProps } from "react";
 import { api } from "../../api/client";
 import type { Agent } from "../../api/client";
+import { t, useLanguage } from "../../lib/i18n";
 import { errorText } from "../../lib/presentation";
 import { Modal } from "../Modal";
 import { MembersForm } from "./MembersForm";
@@ -10,6 +11,7 @@ export function MembersSettings({
   refresh,
   ...props
 }: ComponentProps<typeof MembersForm> & { refresh: () => Promise<void> }) {
+  useLanguage();
   const [catalog, setCatalog] = useState<Agent[]>();
   const [error, setError] = useState("");
   const load = async () => {
@@ -33,12 +35,17 @@ export function MembersSettings({
     const loading = error ? (
       <p role="alert">{error}</p>
     ) : (
-      <p role="status">正在读取全局成员…</p>
+      <p role="status">
+        {t("正在读取全局成员…", "Loading global members…")}
+      </p>
     );
     return props.embedded ? (
       loading
     ) : (
-      <Modal title="成员与称呼" close={props.close}>
+      <Modal
+        title={t("成员与称呼", "Members & Handles")}
+        close={props.close}
+      >
         {loading}
       </Modal>
     );

@@ -1,4 +1,5 @@
 import type { Artifact, Source } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -16,10 +17,6 @@ import { Icon } from "./Icon";
 const cx = scoped(base, controls, layout, panels, settings);
 
 export type PanelTab = "sources" | "artifacts";
-const tabs: [PanelTab, string][] = [
-  ["sources", "来源"],
-  ["artifacts", "产物"],
-];
 
 /**
  * Sources and artifacts only. Tool activity lives in the conversation body
@@ -51,6 +48,11 @@ export function ContextPanel({
   artifacts: Artifact[];
   onArtifact: (artifact: Artifact) => void;
 }) {
+  useLanguage();
+  const tabs: [PanelTab, string][] = [
+    ["sources", t("来源", "Sources")],
+    ["artifacts", t("产物", "Deliverables")],
+  ];
   const activeTab: PanelTab = tab === "artifacts" ? "artifacts" : "sources";
   const shownSources = latestSources(sources);
   const counts: Partial<Record<PanelTab, number>> = {
@@ -62,10 +64,14 @@ export function ContextPanel({
       className={cx(`context-panel ${open ? "open" : ""}`)}
       id="collaboration-panel"
       inert={!open}
-      aria-label="协作资料"
+      aria-label={t("协作资料", "Collaboration resources")}
     >
       <div className={cx("panel-head")}>
-        <div className={cx("panel-tabs")} role="tablist" aria-label="协作资料">
+        <div
+          className={cx("panel-tabs")}
+          role="tablist"
+          aria-label={t("协作资料", "Collaboration resources")}
+        >
           {tabs.map(([key, name], index) => (
             <button
               key={key}
@@ -99,7 +105,7 @@ export function ContextPanel({
         </div>
         <button
           className={cx("icon-button panel-close")}
-          aria-label="关闭协作面板"
+          aria-label={t("关闭协作面板", "Close collaboration panel")}
           onClick={close}
         >
           <Icon name="close" size={18} />
@@ -115,7 +121,10 @@ export function ContextPanel({
           <>
             {!shownSources.length && (
               <p className={cx("panel-empty")}>
-                成员读取资料后，来源会出现在这里。
+                {t(
+                  "成员读取资料后，来源会出现在这里。",
+                  "Sources read by team members will appear here.",
+                )}
               </p>
             )}
             {shownSources.map((item) => (
@@ -147,7 +156,7 @@ export function ContextPanel({
             ))}
             {sourceLoading && (
               <p className={cx("muted")} role="status">
-                正在读取来源正文…
+                {t("正在读取来源正文…", "Loading source content…")}
               </p>
             )}
             {source && (
@@ -160,15 +169,24 @@ export function ContextPanel({
                   {formatDateTime(source.captured_at)}
                   {source.path &&
                     source.end_line > 0 &&
-                    ` · 第 ${source.start_line}–${source.end_line} 行`}
+                    t(
+                      ` · 第 ${source.start_line}–${source.end_line} 行`,
+                      ` · Lines ${source.start_line}–${source.end_line}`,
+                    )}
                   {source.kind === "test" &&
-                    ` · exit ${source.timed_out ? "超时" : (source.exit_code ?? 0)}`}
+                    ` · exit ${
+                      source.timed_out
+                        ? t("超时", "timed out")
+                        : (source.exit_code ?? 0)
+                    }`}
                 </small>
                 <pre className={cx("pre")} tabIndex={0}>
                   {source.content}
                 </pre>
                 {source.truncated && (
-                  <p className={cx("muted")}>内容已截断。</p>
+                  <p className={cx("muted")}>
+                    {t("内容已截断。", "Content truncated.")}
+                  </p>
                 )}
                 {source.sha256 && (
                   <small title={source.sha256}>
@@ -183,7 +201,10 @@ export function ContextPanel({
           <>
             {!artifacts.length && (
               <p className={cx("panel-empty")}>
-                协作生成的纪要和报告会出现在这里。
+                {t(
+                  "协作生成的纪要和报告会出现在这里。",
+                  "Summaries and reports produced during collaboration will appear here.",
+                )}
               </p>
             )}
             {artifacts.map((item) => (

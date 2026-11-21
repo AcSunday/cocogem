@@ -28,6 +28,7 @@ import {
   formatDateTime,
   formatRelativeTime,
 } from "../lib/presentation";
+import { isEnglish, t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -91,7 +92,7 @@ type BadgeTone =
   | "stopped"
   | "neutral";
 
-const runStatuses: Record<string, { label: string; tone: BadgeTone }> = {
+const runStatusesZh: Record<string, { label: string; tone: BadgeTone }> = {
   queued: { label: "排队中", tone: "pending" },
   running: { label: "执行中", tone: "running" },
   canceling: { label: "正在停止", tone: "pending" },
@@ -103,8 +104,26 @@ const runStatuses: Record<string, { label: string; tone: BadgeTone }> = {
   yielded: { label: "已让出", tone: "pending" },
 };
 
+const runStatusesEn: Record<string, { label: string; tone: BadgeTone }> = {
+  queued: { label: "Queued", tone: "pending" },
+  running: { label: "Running", tone: "running" },
+  canceling: { label: "Stopping", tone: "pending" },
+  succeeded: { label: "Completed", tone: "success" },
+  failed: { label: "Failed", tone: "failed" },
+  canceled: { label: "Stopped", tone: "stopped" },
+  interrupted: { label: "Interrupted", tone: "failed" },
+  uncertain: { label: "Needs verification", tone: "pending" },
+  yielded: { label: "Yielded", tone: "pending" },
+};
+
 function runStatus(status = "") {
-  return runStatuses[status] ?? { label: status || "未知", tone: "neutral" };
+  const dict = isEnglish() ? runStatusesEn : runStatusesZh;
+  return (
+    dict[status] ?? {
+      label: status || t("未知", "Unknown"),
+      tone: "neutral",
+    }
+  );
 }
 
 function phaseStatus(phase: string, tone: string, label: string) {
@@ -140,7 +159,7 @@ function StatusBadge({ label, tone }: { label: string; tone: BadgeTone }) {
   );
 }
 
-const resultLabels: Record<string, string> = {
+const resultLabelsZh: Record<string, string> = {
   passed: "通过",
   failed: "未通过",
   inconclusive: "无法确认",
@@ -148,11 +167,39 @@ const resultLabels: Record<string, string> = {
   not_applicable: "不适用",
 };
 
-const producerLabels: Record<string, string> = {
+const resultLabelsEn: Record<string, string> = {
+  passed: "Passed",
+  failed: "Failed",
+  inconclusive: "Inconclusive",
+  not_run: "Not verified",
+  not_applicable: "Not applicable",
+};
+
+const resultLabels: Record<string, string> = new Proxy(resultLabelsZh, {
+  get(_target, prop: string) {
+    const dict = isEnglish() ? resultLabelsEn : resultLabelsZh;
+    return dict[prop];
+  },
+});
+
+const producerLabelsZh: Record<string, string> = {
   human_confirmed: "人工确认",
-  host_observed: "宿主验证",
+  host_observed: "系统自动验证",
   member_reported: "成员报告",
 };
+
+const producerLabelsEn: Record<string, string> = {
+  human_confirmed: "Human verified",
+  host_observed: "System verified",
+  member_reported: "Member reported",
+};
+
+const producerLabels: Record<string, string> = new Proxy(producerLabelsZh, {
+  get(_target, prop: string) {
+    const dict = isEnglish() ? producerLabelsEn : producerLabelsZh;
+    return dict[prop];
+  },
+});
 
 const failureStatuses = new Set([
   "failed",
@@ -197,6 +244,7 @@ export function TaskDetail({
   onOpenTask?: (taskID: string) => void;
   onBack?: () => void;
 }) {
+  useLanguage();
   const [creatingChild, setCreatingChild] = useState(false);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState("");
@@ -294,8 +342,18 @@ export function TaskDetail({
   if (!snapshot)
     return (
       <div className={cx("project-home")} role={error ? "alert" : "status"}>
-        <p>{error || "正在读取任务、执行记录和验收状态…"}</p>
-        {error && <button onClick={() => void load()}>重新加载任务</button>}
+        <p>
+          {error ||
+            t(
+              "正在读取任务、执行记录和验收状态…",
+              "Loading task, run records, and review status…",
+            )}
+        </p>
+        {error && (
+          <button onClick={() => void load()}>
+            {t("重新加载任务", "Reload task")}
+          </button>
+        )}
       </div>
     );
 
@@ -341,7 +399,10 @@ export function TaskDetail({
   const focusBadge = phaseStatus(focus.phase, focus.tone, focus.label);
   const focusNext =
     focus.phase === "waiting_budget"
-      ? "打开会话查看原因；已有账本不会重置"
+      ? t(
+          "打开会话查看原因；已有任务额度不会重置",
+          "Open conversation to inspect the reason; existing task budget is not reset",
+        )
       : focus.next;
   const progress = taskAcceptance(view);
   const currentCompletion = [...completions]
@@ -360,12 +421,15 @@ export function TaskDetail({
     })),
     ...deliveredMessages.map((item) => ({
       ref: messageRef(item),
-      label: `会话交付 · ${formatDateTime(item.created_at)}`,
+      label: t(
+        `会话交付 · ${formatDateTime(item.created_at)}`,
+        `Conversation reply · ${formatDateTime(item.created_at)}`,
+      ),
     })),
   ];
   const criterionText = (statement: string) =>
     statement.trim() === revision.goal.trim()
-      ? "交付满足上述任务目标"
+      ? t("交付满足上述任务目标", "Deliverable meets the task objective above")
       : statement;
   const acceptanceAvailable =
     criteria.length > 0 &&
@@ -424,20 +488,33 @@ export function TaskDetail({
     if (!latestRunStatus) return "";
     if (latestRunStatus === "succeeded") {
       const count = deliveryCount(latestRun);
-      return count ? `执行已完成，交付 ${count} 条回复。` : "执行已完成。";
+      return count
+        ? t(
+            `执行已完成，交付 ${count} 条回复。`,
+            `Run completed with ${count} delivered repl${count === 1 ? "y" : "ies"}.`,
+          )
+        : t("执行已完成。", "Run completed.");
     }
     if (failureStatuses.has(latestRunStatus))
-      return taskFailureText(view) || "上次执行没有完成。";
-    return "正在执行，完成后会进入待验收。";
+      return (
+        taskFailureText(view) ||
+        t("上次执行没有完成。", "Previous run did not finish.")
+      );
+    return t(
+      "正在执行，完成后会进入待验收。",
+      "Running now; moves to review once finished.",
+    );
   })();
   const runNote = (run: Run) => {
     if (run.status === "succeeded") {
       const count = deliveryCount(run);
-      return count ? `交付 ${count} 条回复` : "执行完成";
+      return count
+        ? t(`交付 ${count} 条回复`, `Delivered ${count} repl${count === 1 ? "y" : "ies"}`)
+        : t("执行完成", "Completed");
     }
-    if (run.status === "canceled") return "已停止";
-    if (run.status === "interrupted") return "已中断";
-    if (run.status === "failed") return "执行失败";
+    if (run.status === "canceled") return t("已停止", "Stopped");
+    if (run.status === "interrupted") return t("已中断", "Interrupted");
+    if (run.status === "failed") return t("执行失败", "Failed");
     return "";
   };
 
@@ -449,7 +526,7 @@ export function TaskDetail({
           action: "resume",
           request_id: crypto.randomUUID(),
         }),
-      "任务已恢复。",
+      t("任务已恢复。", "Task resumed."),
     );
 
   const openExecution = () => {
@@ -463,7 +540,7 @@ export function TaskDetail({
         const run = await api<Run>(`/api/v1/tasks/${taskID}/start`, "POST", {});
         onOpenThread(run.thread_id);
       },
-      "任务已开始执行。",
+      t("任务已开始执行。", "Task execution started."),
     );
   };
 
@@ -483,7 +560,7 @@ export function TaskDetail({
     try {
       if (latestRunStatus === "interrupted") {
         await api(`/api/v1/runs/${latestRunID}/resume`, "POST", {});
-        setNotice("已恢复执行。");
+        setNotice(t("已恢复执行。", "Execution resumed."));
       } else {
         const detail = await api<RunView>(`/api/v1/runs/${latestRunID}`);
         const step = (detail.steps ?? []).find(
@@ -499,7 +576,12 @@ export function TaskDetail({
         } else {
           await api(`/api/v1/runs/${latestRunID}/retry`, "POST", {});
         }
-        setNotice("已继续执行；只会补跑未完成的步骤。");
+        setNotice(
+          t(
+            "已继续执行；只会补跑未完成的步骤。",
+            "Continued execution; only unfinished steps will be re-run.",
+          ),
+        );
       }
       await load();
     } catch (failure) {
@@ -543,7 +625,10 @@ export function TaskDetail({
         return acceptanceAvailable
           ? { label: focus.action.label, run: openAcceptance }
           : task.thread_id
-            ? { label: "打开会话", run: () => onOpenThread(task.thread_id) }
+            ? {
+                label: t("打开会话", "Open conversation"),
+                run: () => onOpenThread(task.thread_id),
+              }
             : null;
       case "running":
         return { label: focus.action.label, run: openExecution };
@@ -555,11 +640,17 @@ export function TaskDetail({
         // The manual budget editor is gone. A real exhausted root ledger is
         // explained in the conversation, not "unlocked" from this page.
         return task.thread_id
-          ? { label: "打开会话", run: () => onOpenThread(task.thread_id) }
+          ? {
+              label: t("打开会话", "Open conversation"),
+              run: () => onOpenThread(task.thread_id),
+            }
           : null;
       case "waiting_other":
         return task.thread_id
-          ? { label: "打开会话", run: () => onOpenThread(task.thread_id) }
+          ? {
+              label: t("打开会话", "Open conversation"),
+              run: () => onOpenThread(task.thread_id),
+            }
           : null;
       case "completed":
       case "canceled":
@@ -569,11 +660,12 @@ export function TaskDetail({
     }
   })();
 
+  const openThreadLabel = t("打开会话", "Open conversation");
   const secondaryOpen =
     !!task.thread_id &&
     focus.phase !== "running" &&
     focus.phase !== "waiting_other" &&
-    primaryAction?.label !== "打开会话";
+    primaryAction?.label !== openThreadLabel;
 
   return (
     <div className={cx("task-workspace", "task-detail", "task-brief")}>
@@ -582,7 +674,8 @@ export function TaskDetail({
           className={cx("ghost", "small", "task-brief-back")}
           onClick={onBack}
         >
-          <Icon name="reply" size={14} /> 返回任务清单
+          <Icon name="reply" size={14} />{" "}
+          {t("返回任务清单", "Back to tasks")}
         </button>
       )}
 
@@ -599,11 +692,17 @@ export function TaskDetail({
         </div>
         <h1>{taskTitle(view)}</h1>
         <p className={cx("task-brief-sub")}>
-          <span>当前：{focus.current}</span>
+          <span>
+            {t("当前：", "Current: ")}
+            {focus.current}
+          </span>
           <span className={cx("task-brief-sep")} aria-hidden="true">
             ·
           </span>
-          <span>下一步：{focusNext}</span>
+          <span>
+            {t("下一步：", "Next: ")}
+            {focusNext}
+          </span>
         </p>
         <div className={cx("task-brief-actions")}>
           {primaryAction && (
@@ -625,7 +724,7 @@ export function TaskDetail({
               )}
               onClick={() => onOpenThread(task.thread_id)}
             >
-              <Icon name="open" size={14} /> 打开会话
+              <Icon name="open" size={14} /> {openThreadLabel}
             </button>
           )}
         </div>
@@ -649,7 +748,7 @@ export function TaskDetail({
             <section
               ref={askRef}
               className={cx("task-brief-ask-list")}
-              aria-label="需要你决定"
+              aria-label={t("需要你决定", "Decision needed")}
             >
               {openQuestions.map((question) => {
                 const answer =
@@ -664,20 +763,27 @@ export function TaskDetail({
                         )}
                         aria-hidden="true"
                       />
-                      需要你决定
+                      {t("需要你决定", "Decision needed")}
                     </div>
                     <h2>{question.body}</h2>
                     <p className={cx("task-brief-ask-note")}>
                       {question.blocking_scope
-                        ? `影响：${question.blocking_scope}`
-                        : "影响任务继续"}{" "}
-                      · 回答后会在下一个执行边界应用
+                        ? t(
+                            `影响：${question.blocking_scope}`,
+                            `Affects: ${question.blocking_scope}`,
+                          )
+                        : t("影响任务继续", "Required to continue task")}{" "}
+                      ·{" "}
+                      {t(
+                        "提交后将在当前步骤完成后生效",
+                        "Takes effect after the current step finishes",
+                      )}
                     </p>
                     {!!question.options?.length && (
                       <div
                         className={cx("task-brief-options")}
                         role="group"
-                        aria-label="可选回答"
+                        aria-label={t("可选回答", "Suggested answers")}
                       >
                         {question.options.map((option) => (
                           <button
@@ -696,13 +802,15 @@ export function TaskDetail({
                             }
                           >
                             {option}
-                            {option === question.recommended ? "（建议）" : ""}
+                            {option === question.recommended
+                              ? t("（建议）", " (recommended)")
+                              : ""}
                           </button>
                         ))}
                       </div>
                     )}
                     <label className={cx("task-brief-answer")}>
-                      回答
+                      {t("回答", "Your answer")}
                       <textarea
                         value={answer}
                         onChange={(event) =>
@@ -711,7 +819,7 @@ export function TaskDetail({
                             [question.id]: event.target.value,
                           }))
                         }
-                        placeholder="写下你的决定…"
+                        placeholder={t("写下你的决定…", "Write your decision…")}
                       />
                     </label>
                     <div className={cx("task-brief-ask-actions")}>
@@ -731,14 +839,20 @@ export function TaskDetail({
                                 },
                                 { "If-Match": String(task.current_revision) },
                               ),
-                            "回答已提交；任务会在下一个执行边界继续。",
+                            t(
+                              "回答已提交，任务将随后继续推进。",
+                              "Answer submitted; the task will continue shortly.",
+                            ),
                           )
                         }
                       >
-                        提交回答
+                        {t("提交回答", "Submit answer")}
                       </button>
                       <span className={cx("task-brief-ask-hint")}>
-                        回答后将在下一个执行边界应用
+                        {t(
+                          "提交后将在当前步骤完成后生效",
+                          "Takes effect after the current step finishes",
+                        )}
                       </span>
                     </div>
                   </article>
@@ -780,9 +894,12 @@ export function TaskDetail({
             />
           )}
 
-          <section className={cx("task-brief-section")} aria-label="最近进展">
+          <section
+            className={cx("task-brief-section")}
+            aria-label={t("最近进展", "Recent progress")}
+          >
             <div className={cx("task-brief-section-head")}>
-              <h2>最近进展</h2>
+              <h2>{t("最近进展", "Recent progress")}</h2>
               {task.thread_id && (
                 <button
                   type="button"
@@ -793,7 +910,8 @@ export function TaskDetail({
                   )}
                   onClick={() => onOpenThread(task.thread_id)}
                 >
-                  查看执行过程 <Icon name="open" size={13} />
+                  {t("查看执行过程", "View run")}{" "}
+                  <Icon name="open" size={13} />
                 </button>
               )}
             </div>
@@ -816,13 +934,18 @@ export function TaskDetail({
                 <p className={cx("task-brief-run-text")}>{latestRunText}</p>
                 {latestRun?.error && (
                   <details className={cx("task-advanced")}>
-                    <summary>技术详情</summary>
+                    <summary>{t("技术详情", "Technical details")}</summary>
                     <p className={cx("section-note")}>{latestRun.error}</p>
                   </details>
                 )}
                 {taskRuns.length > 1 && (
                   <details className={cx("task-advanced")}>
-                    <summary>{taskRuns.length} 次执行记录</summary>
+                    <summary>
+                      {t(
+                        `${taskRuns.length} 次执行记录`,
+                        `${taskRuns.length} run records`,
+                      )}
+                    </summary>
                     <ol className={cx("task-brief-activity")}>
                       {[...taskRuns]
                         .reverse()
@@ -848,18 +971,27 @@ export function TaskDetail({
               </div>
             ) : (
               <p className={cx("section-note")}>
-                还没有开始执行。开始后，结果会回到这里。
+                {t(
+                  "还没有开始执行。开始后，结果会回到这里。",
+                  "Not started yet. Results will appear here once execution begins.",
+                )}
               </p>
             )}
           </section>
 
-          <section className={cx("task-brief-section")} aria-label="目标与验收">
+          <section
+            className={cx("task-brief-section")}
+            aria-label={t("目标与验收", "Goal & acceptance")}
+          >
             <div className={cx("task-brief-section-head")}>
-              <h2>目标与验收</h2>
+              <h2>{t("目标与验收", "Goal & acceptance")}</h2>
               <span className={cx("task-brief-section-meta")}>
                 {progress.total
-                  ? `${progress.passed}/${progress.total} 通过`
-                  : "未设置验收项"}
+                  ? t(
+                      `${progress.passed}/${progress.total} 通过`,
+                      `${progress.passed}/${progress.total} passed`,
+                    )
+                  : t("未设置验收项", "No acceptance criteria")}
               </span>
             </div>
             {progress.total > 0 && (
@@ -877,7 +1009,7 @@ export function TaskDetail({
             </p>
             <details className={cx("task-brief-requirements")}>
               <summary>
-                展开完整要求
+                {t("展开完整要求", "Show full requirements")}
                 <Icon name="chevron" size={14} />
               </summary>
               <p className={cx("task-brief-goal-full")}>{revision.goal}</p>
@@ -899,7 +1031,7 @@ export function TaskDetail({
                       >
                         {saved
                           ? resultLabels[saved.result] || saved.result
-                          : "待验收"}
+                          : t("待验收", "Pending review")}
                       </span>
                     </li>
                   );
@@ -909,29 +1041,55 @@ export function TaskDetail({
             {!acceptanceAvailable && (
               <p className={cx("section-note")}>
                 {["completed", "canceled"].includes(focus.phase)
-                  ? "当前任务已结束；验收记录保留在下方。"
+                  ? t(
+                      "当前任务已结束；验收记录保留在下方。",
+                      "This task has concluded; review records are preserved below.",
+                    )
                   : criteria.length === 0
-                    ? "这个任务没有设置验收项；交付成果仍可在下方查看。"
+                    ? t(
+                        "这个任务没有设置验收项；交付成果仍可在下方查看。",
+                        "No acceptance criteria were configured for this task; deliverables can still be viewed below.",
+                      )
                     : !latestRunStatus
-                      ? "开始执行后，交付成果会出现在这里，之后可以验收。"
+                      ? t(
+                          "开始执行后，交付成果会出现在这里，之后可以验收。",
+                          "Deliverables will appear here for review once execution completes.",
+                        )
                       : failureStatuses.has(latestRunStatus)
-                        ? "上次执行在完成前停止，暂无可以验收的交付。"
+                        ? t(
+                            "上次执行在完成前停止，暂无可以验收的交付。",
+                            "The previous run stopped before finishing, so no deliverables are ready for review yet.",
+                          )
                         : candidateOptions.length === 0
-                          ? "没有本任务成功交付的确切成果或回复；请打开会话查看或继续执行，不能凭空验收。"
-                          : "执行已完成，但没有可展示的确切交付；请打开会话查看最终回复。"}
+                          ? t(
+                              "没有本任务成功交付的确切成果或回复；请打开会话查看或继续执行，不能凭空验收。",
+                              "No delivered artifacts or replies were found for this task yet; open the conversation to inspect or continue execution before reviewing.",
+                            )
+                          : t(
+                              "执行已完成，但没有可展示的确切交付；请打开会话查看最终回复。",
+                              "Execution finished without a standalone deliverable; open the conversation to view the final reply.",
+                            )}
               </p>
             )}
             {!!completions.length && (
               <details className={cx("task-brief-records")}>
-                <summary>{completions.length} 条验收记录</summary>
+                <summary>
+                  {t(
+                    `${completions.length} 条验收记录`,
+                    `${completions.length} review record(s)`,
+                  )}
+                </summary>
                 <div className={cx("record-list")}>
                   {[...completions].reverse().map((item) => (
                     <article className={cx("project-record")} key={item.id}>
                       <strong>
                         {item.validity === "current" &&
                         item.task_revision === task.current_revision
-                          ? "当前版本验收记录"
-                          : `历史验收 · 目标 v${item.task_revision}`}
+                          ? t("当前版本验收记录", "Current revision review")
+                          : t(
+                              `历史验收 · 目标 v${item.task_revision}`,
+                              `Historical review · Goal v${item.task_revision}`,
+                            )}
                       </strong>
                       <span>
                         {producerLabels[item.evidence_producer] ||
@@ -943,7 +1101,11 @@ export function TaskDetail({
                               (value) =>
                                 value.criterion_id === result.criterion_id,
                             );
-                            return `${criterion ? criterionText(criterion.statement) : "验收项"}：${
+                            return `${
+                              criterion
+                                ? criterionText(criterion.statement)
+                                : t("验收项", "Criterion")
+                            }${t("：", ": ")}${
                               resultLabels[result.result] || result.result
                             }`;
                           })
@@ -960,15 +1122,18 @@ export function TaskDetail({
           <section
             ref={deliverablesRef}
             className={cx("task-brief-section")}
-            aria-label="成果"
+            aria-label={t("成果", "Deliverables")}
           >
             <div className={cx("task-brief-section-head")}>
-              <h2>成果</h2>
+              <h2>{t("成果", "Deliverables")}</h2>
               <span className={cx("task-brief-section-meta")}>
                 {artifacts.length
-                  ? `${artifacts.length} 份`
+                  ? t(`${artifacts.length} 份`, `${artifacts.length} item(s)`)
                   : deliveredMessages.length
-                    ? `${deliveredMessages.length} 条交付`
+                    ? t(
+                        `${deliveredMessages.length} 条交付`,
+                        `${deliveredMessages.length} repl${deliveredMessages.length === 1 ? "y" : "ies"}`,
+                      )
                     : ""}
               </span>
             </div>
@@ -1022,7 +1187,12 @@ export function TaskDetail({
                   >
                     <span className={cx("task-brief-artifact-icon")}>▤</span>
                     <span>
-                      <strong>{message.agent_name || "成员"} 的交付</strong>
+                      <strong>
+                        {t(
+                          `${message.agent_name || "成员"} 的交付`,
+                          `Delivery from ${message.agent_name || "member"}`,
+                        )}
+                      </strong>
                       <small>
                         {taskGoalSummary(message.content, 120)}
                         {" · "}
@@ -1036,18 +1206,33 @@ export function TaskDetail({
             ) : (
               <p className={cx("section-note")}>
                 {!latestRunStatus
-                  ? "开始执行后，交付成果会出现在这里。"
+                  ? t(
+                      "开始执行后，交付成果会出现在这里。",
+                      "Deliverables will appear here once execution begins.",
+                    )
                   : failureStatuses.has(latestRunStatus)
-                    ? "上次执行在完成前停止，暂无交付。"
-                    : "执行已完成，但没有可展示的文件成果；请打开会话查看最终回复。"}
+                    ? t(
+                        "上次执行在完成前停止，暂无交付。",
+                        "The previous run stopped before finishing; no deliverables yet.",
+                      )
+                    : t(
+                        "执行已完成，但没有可展示的文件成果；请打开会话查看最终回复。",
+                        "Execution finished without file deliverables; open the conversation to view the final reply.",
+                      )}
               </p>
             )}
           </section>
 
-          <section className={cx("task-brief-section")} aria-label="子任务">
+          <section
+            className={cx("task-brief-section")}
+            aria-label={t("子任务", "Subtasks")}
+          >
             <div className={cx("task-brief-section-head")}>
               <h2>
-                子任务 · {completedChildren}/{children.length} 完成
+                {t(
+                  `子任务 · ${completedChildren}/${children.length} 完成`,
+                  `Subtasks · ${completedChildren}/${children.length} completed`,
+                )}
               </h2>
               {!["paused", "canceled", "completed"].includes(task.status) && (
                 <button
@@ -1055,7 +1240,7 @@ export function TaskDetail({
                   className={cx("small", "ghost", "task-brief-action")}
                   onClick={() => setCreatingChild(true)}
                 >
-                  ＋ 拆分子任务
+                  {t("＋ 拆分子任务", "＋ Add subtask")}
                 </button>
               )}
             </div>
@@ -1094,37 +1279,43 @@ export function TaskDetail({
               </div>
             ) : (
               <p className={cx("section-note")}>
-                可以把独立工作拆给不同成员，进度与成果回到这里。
+                {t(
+                  "可以把独立工作拆给不同成员，进度与成果回到这里。",
+                  "Break independent work into subtasks for different members; progress and deliverables roll up here.",
+                )}
               </p>
             )}
           </section>
         </div>
 
-        <aside className={cx("task-brief-facts")} aria-label="任务属性">
-          <h2>任务属性</h2>
+        <aside
+          className={cx("task-brief-facts")}
+          aria-label={t("任务属性", "Task properties")}
+        >
+          <h2>{t("任务属性", "Task properties")}</h2>
           <dl>
             <div>
-              <dt>状态</dt>
+              <dt>{t("状态", "Status")}</dt>
               <dd>
                 <StatusBadge label={focusBadge.label} tone={focusBadge.tone} />
               </dd>
             </div>
             <div>
-              <dt>负责人</dt>
+              <dt>{t("负责人", "Owner")}</dt>
               <dd>{member(task.owner_member_id)}</dd>
             </div>
             {workspaceName && (
               <div>
-                <dt>项目</dt>
+                <dt>{t("项目", "Project")}</dt>
                 <dd>{workspaceName}</dd>
               </div>
             )}
             <div>
-              <dt>更新时间</dt>
+              <dt>{t("更新时间", "Updated")}</dt>
               <dd>{formatRelativeTime(task.updated_at)}</dd>
             </div>
             <div>
-              <dt>上次执行</dt>
+              <dt>{t("上次执行", "Last run")}</dt>
               <dd>
                 {latestRunStatus ? (
                   <StatusBadge
@@ -1132,12 +1323,12 @@ export function TaskDetail({
                     tone={latestRunBadge.tone}
                   />
                 ) : (
-                  "尚未开始"
+                  t("尚未开始", "Not started")
                 )}
               </dd>
             </div>
             <div>
-              <dt>关联会话</dt>
+              <dt>{t("关联会话", "Conversation")}</dt>
               <dd>
                 {task.thread_id ? (
                   <button
@@ -1149,19 +1340,22 @@ export function TaskDetail({
                     )}
                     onClick={() => onOpenThread(task.thread_id)}
                   >
-                    打开会话 <Icon name="open" size={13} />
+                    {openThreadLabel} <Icon name="open" size={13} />
                   </button>
                 ) : (
-                  "开始执行时创建"
+                  t("开始执行时创建", "Created when execution starts")
                 )}
               </dd>
             </div>
             <div>
-              <dt>验收</dt>
+              <dt>{t("验收", "Review")}</dt>
               <dd>
                 {progress.total
-                  ? `${progress.passed}/${progress.total} 通过`
-                  : "未设置"}
+                  ? t(
+                      `${progress.passed}/${progress.total} 通过`,
+                      `${progress.passed}/${progress.total} passed`,
+                    )
+                  : t("未设置", "Not configured")}
               </dd>
             </div>
           </dl>
@@ -1179,7 +1373,7 @@ export function TaskDetail({
               )}
               onClick={() => onOpenThread(task.thread_id)}
             >
-              打开会话
+              {openThreadLabel}
             </button>
           )}
           {primaryAction && (
@@ -1195,11 +1389,15 @@ export function TaskDetail({
       )}
 
       {creatingChild && (
-        <Modal title="拆分子任务" close={() => setCreatingChild(false)}>
+        <Modal
+          title={t("拆分子任务", "Add Subtask")}
+          close={() => setCreatingChild(false)}
+        >
           <TaskCreateForm
             workspaceID={task.workspace_id}
             workspaces={{
-              [task.workspace_id]: workspaceName || "当前工作空间",
+              [task.workspace_id]:
+                workspaceName || t("当前工作空间", "Current project"),
             }}
             parentID={task.id}
             onCreated={(child, run) => {
@@ -1257,7 +1455,12 @@ export function TaskDetail({
           close={() => closeAcceptance(acceptance.id)}
           submit={async (submission) => {
             if (acceptanceStale) {
-              throw new Error("验收依据已更新，请重新核对后再提交。");
+              throw new Error(
+                t(
+                  "验收依据已更新，请重新核对后再提交。",
+                  "The review basis was updated; please reload and review again before submitting.",
+                ),
+              );
             }
             const required = new Set(
               acceptance.criteria
@@ -1278,10 +1481,24 @@ export function TaskDetail({
                 results: submission.results,
                 judge_member_id: "user",
                 evidence_producer: "human_confirmed",
-                unresolved: unresolved ? ["仍有必需验收未通过或未核实"] : [],
+                unresolved: unresolved
+                  ? [
+                      t(
+                        "仍有必需验收未通过或未核实",
+                        "Required acceptance criteria remain unverified or failed",
+                      ),
+                    ]
+                  : [],
               },
             );
-            setNotice(unresolved ? "验收已记录。" : "验收已记录，任务已完成。");
+            setNotice(
+              unresolved
+                ? t("验收已记录。", "Review recorded.")
+                : t(
+                    "验收已记录，任务已完成。",
+                    "Review recorded; task marked as accepted.",
+                  ),
+            );
             await load();
           }}
         />
@@ -1289,8 +1506,8 @@ export function TaskDetail({
 
       {confirmingRetry && (
         <ConfirmDialog
-          title="确认继续执行"
-          action="继续执行"
+          title={t("确认继续执行", "Confirm Continuing Execution")}
+          action={t("继续执行", "Continue run")}
           close={() => setConfirmingRetry(false)}
           confirm={async () => {
             setConfirmingRetry(false);
@@ -1298,7 +1515,10 @@ export function TaskDetail({
           }}
         >
           <p>
-            上次执行可能产生了未核实的写入或命令结果。请先确认这些结果可以安全继续，再重试。
+            {t(
+              "上次执行可能产生了未核实的写入或命令结果。请先确认这些结果可以安全继续，再重试。",
+              "The previous run may have produced unverified file writes or command side effects. Please confirm it is safe to proceed before continuing.",
+            )}
           </p>
         </ConfirmDialog>
       )}

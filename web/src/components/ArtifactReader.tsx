@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Artifact, Source } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -36,6 +37,7 @@ export function ArtifactReader({
   onSource: (id: string) => void;
   onError: (error: unknown) => void;
 }) {
+  useLanguage();
   const [copied, setCopied] = useState(false);
   const title = (id: string) =>
     sources.find((source) => source.id === id)?.title ?? id.slice(0, 8);
@@ -45,7 +47,7 @@ export function ArtifactReader({
         {(ids ?? []).map((id) => (
           <button key={id} className={cx("small")} onClick={() => onSource(id)}>
             <Icon name="file" size={14} />
-            打开来源：{title(id)}
+            {t(`打开来源：${title(id)}`, `Open source: ${title(id)}`)}
           </button>
         ))}
       </div>
@@ -65,17 +67,21 @@ export function ArtifactReader({
             onClick={() => onFeedback("accepted")}
           >
             <Icon name="check" size={14} />
-            {artifact.feedback === "accepted" ? "已接受" : "接受"}
+            {artifact.feedback === "accepted"
+              ? t("已接受", "Accepted")
+              : t("接受", "Accept")}
           </button>
           <button
             aria-pressed={artifact.feedback === "dismissed"}
             onClick={() => onFeedback("dismissed")}
           >
-            {artifact.feedback === "dismissed" ? "已搁置" : "搁置"}
+            {artifact.feedback === "dismissed"
+              ? t("已搁置", "Dismissed")
+              : t("搁置", "Dismiss")}
           </button>
           <button onClick={onReference}>
             <Icon name="reply" size={14} />
-            引用后追问
+            {t("引用后追问", "Quote & follow up")}
           </button>
           <button
             onClick={() =>
@@ -89,23 +95,35 @@ export function ArtifactReader({
             }
           >
             <Icon name="copy" size={14} />
-            {copied ? "已复制" : "复制"}
+            {copied ? t("已复制", "Copied") : t("复制", "Copy")}
           </button>
           <a
             className={cx("button")}
             href={`/api/v1/artifacts/${artifact.id}/versions/${artifact.version}/export`}
           >
             <Icon name="download" size={14} />
-            下载 Markdown
+            {t("下载 Markdown", "Download Markdown")}
           </a>
         </div>
         {!!artifact.files?.length && (
-          <section className={cx("reader-section")} aria-label="交付文件">
-            <h3>交付文件</h3>
+          <section
+            className={cx("reader-section")}
+            aria-label={t("交付文件", "Delivered files")}
+          >
+            <h3>{t("交付文件", "Delivered files")}</h3>
             <div className={cx("artifact-actions")}>
               {artifact.files.map((file) => (
-                <a key={file.source_id} className={cx("button")} href={`/api/v1/artifacts/${artifact.id}/versions/${artifact.version}/files/${file.source_id}`} download={file.name}>
-                  <Icon name="download" size={14} />下载 {file.name}（{Math.ceil(file.size / 1024)} KiB）
+                <a
+                  key={file.source_id}
+                  className={cx("button")}
+                  href={`/api/v1/artifacts/${artifact.id}/versions/${artifact.version}/files/${file.source_id}`}
+                  download={file.name}
+                >
+                  <Icon name="download" size={14} />
+                  {t(
+                    `下载 ${file.name}（${Math.ceil(file.size / 1024)} KiB）`,
+                    `Download ${file.name} (${Math.ceil(file.size / 1024)} KiB)`,
+                  )}
                 </a>
               ))}
             </div>
@@ -118,7 +136,7 @@ export function ArtifactReader({
         )}
         {(artifact.findings ?? []).length > 0 && (
           <section className={cx("reader-section")}>
-            <h3>结构化发现</h3>
+            <h3>{t("结构化发现", "Structured findings")}</h3>
             {(artifact.findings ?? []).map((finding, index) => (
               <article className={cx("finding")} key={index}>
                 <h4>
@@ -128,7 +146,8 @@ export function ArtifactReader({
                   </span>
                   {finding.severity && (
                     <span className={cx("role-chip")}>
-                      影响：{severityLabel(finding.severity)}
+                      {t("影响：", "Impact: ")}
+                      {severityLabel(finding.severity)}
                     </span>
                   )}
                 </h4>
@@ -140,7 +159,7 @@ export function ArtifactReader({
         )}
         {(artifact.limitations ?? []).length > 0 && (
           <section className={cx("reader-section")}>
-            <h3>限制</h3>
+            <h3>{t("限制", "Limitations")}</h3>
             <ul>
               {(artifact.limitations ?? []).map((limit, index) => (
                 <li key={index}>{limit}</li>
@@ -149,12 +168,22 @@ export function ArtifactReader({
           </section>
         )}
         <section className={cx("reader-section")}>
-          <h3>捕获来源</h3>
+          <h3>{t("捕获来源", "Captured sources")}</h3>
           {sourceButtons(artifact.source_ids) || (
-            <p className={cx("muted")}>本产物没有引用来源。</p>
+            <p className={cx("muted")}>
+              {t(
+                "本产物没有引用来源。",
+                "This deliverable does not reference any sources.",
+              )}
+            </p>
           )}
         </section>
-        <p className={cx("muted")}>人工标记不改变成员原文或任务结果。</p>
+        <p className={cx("muted")}>
+          {t(
+            "人工标记不改变成员原文或任务结果。",
+            "Manual labels do not alter member replies or task outcomes.",
+          )}
+        </p>
       </div>
     </Modal>
   );

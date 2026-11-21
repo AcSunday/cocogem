@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Thread } from "../../api/client";
+import { t, useLanguage } from "../../lib/i18n";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -21,11 +22,12 @@ export function ThreadRenameForm({
   close: () => void;
   save: (title: string) => Promise<void>;
 }) {
+  useLanguage();
   const [title, setTitle] = useState(thread.title);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   return (
-    <Modal title="重命名会话" close={close}>
+    <Modal title={t("重命名会话", "Rename Conversation")} close={close}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -38,7 +40,7 @@ export function ThreadRenameForm({
         }}
       >
         <label>
-          会话标题
+          {t("会话标题", "Conversation title")}
           <input
             required
             value={title}
@@ -52,10 +54,12 @@ export function ThreadRenameForm({
         )}
         <div className={cx("form-actions")}>
           <button type="button" disabled={saving} onClick={close}>
-            取消
+            {t("取消", "Cancel")}
           </button>
           <button className={cx("primary")} disabled={saving}>
-            {saving ? "正在保存…" : "保存名称"}
+            {saving
+              ? t("正在保存…", "Saving…")
+              : t("保存名称", "Save title")}
           </button>
         </div>
       </form>

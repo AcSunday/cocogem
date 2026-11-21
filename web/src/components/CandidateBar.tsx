@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { CandidateView } from "../api/client";
+import { isEnglish, t, useLanguage } from "../lib/i18n";
 import { errorText } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -8,10 +9,16 @@ import conversation from "../styles/conversation.module.css";
 
 const cx = scoped(base, controls, conversation);
 
-const stateLabels: Record<string, string> = {
+const stateLabelsZh: Record<string, string> = {
   verified: "已验证",
   unverified_mutation: "未验证变更",
   unchanged: "无改动",
+};
+
+const stateLabelsEn: Record<string, string> = {
+  verified: "Verified",
+  unverified_mutation: "Unverified changes",
+  unchanged: "Unchanged",
 };
 
 const stateTones: Record<string, string> = {
@@ -26,9 +33,12 @@ function rootName(root: string) {
 }
 
 function changedSummary(paths: string[]) {
-  if (!paths.length) return "没有文件差异";
+  if (!paths.length) return t("没有文件差异", "No file changes");
   if (paths.length === 1) return paths[0];
-  return `${paths[0]} 等 ${paths.length} 个文件`;
+  return t(
+    `${paths[0]} 等 ${paths.length} 个文件`,
+    `${paths[0]} and ${paths.length - 1} other file(s)`,
+  );
 }
 
 /**
@@ -56,15 +66,19 @@ export function CandidateBar({
   onDiff?: (item: CandidateView) => Promise<string>;
   onExportBranch?: (item: CandidateView) => Promise<string>;
 }) {
+  useLanguage();
   const [confirm, setConfirm] = useState<{
     id: string;
     kind: "apply" | "discard";
   } | null>(null);
   const [working, setWorking] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [diffs, setDiffs] = useState<Record<string, { open: boolean; loading: boolean; text: string }>>({});
+  const [diffs, setDiffs] = useState<
+    Record<string, { open: boolean; loading: boolean; text: string }>
+  >({});
   const [branches, setBranches] = useState<Record<string, string>>({});
   if (!items.length) return null;
+  const stateLabels = isEnglish() ? stateLabelsEn : stateLabelsZh;
   const setItemError = (id: string, message: string) =>
     setErrors((current) => {
       if (!message) {
@@ -102,9 +116,15 @@ export function CandidateBar({
     setItemError(id, "");
     try {
       const text = await onDiff(item);
-      setDiffs((prev) => ({ ...prev, [id]: { open: true, loading: false, text } }));
+      setDiffs((prev) => ({
+        ...prev,
+        [id]: { open: true, loading: false, text },
+      }));
     } catch (failure) {
-      setDiffs((prev) => ({ ...prev, [id]: { open: false, loading: false, text: "" } }));
+      setDiffs((prev) => ({
+        ...prev,
+        [id]: { open: false, loading: false, text: "" },
+      }));
       setItemError(id, errorText(failure));
     }
   };
@@ -123,13 +143,22 @@ export function CandidateBar({
     }
   };
   return (
-    <section className={cx("candidate-bar")} aria-label="候选变更">
+    <section
+      className={cx("candidate-bar")}
+      aria-label={t("候选变更", "Candidate changes")}
+    >
       <div className={cx("candidate-bar-head")}>
-        <strong>候选变更</strong>
+        <strong>{t("候选变更", "Candidate changes")}</strong>
         <span className={cx("candidate-bar-hint")}>
           {locked
-            ? "本轮协作结束后可应用或丢弃；项目目录尚未改动"
-            : "未点应用前，项目目录不会有任何改动"}
+            ? t(
+                "本轮协作结束后可应用或丢弃；项目目录尚未改动",
+                "Apply or discard after the current run finishes; your project directory is untouched",
+              )
+            : t(
+                "未点应用前，项目目录不会有任何改动",
+                "Your project directory remains untouched until you click Apply",
+              )}
         </span>
       </div>
       {items.map((item) => {
@@ -160,7 +189,7 @@ export function CandidateBar({
                 className={cx("candidate-project")}
                 title={execution.canonical_root}
               >
-                {rootName(execution.canonical_root) || "项目"}
+                {rootName(execution.canonical_root) || t("项目", "Project")}
               </span>
               <span className={cx("candidate-summary")}>
                 {changedSummary(paths)}
@@ -171,7 +200,7 @@ export function CandidateBar({
             )}
             {(verification.hygiene_hints ?? []).length > 0 && (
               <p className={cx("candidate-hygiene")} role="status">
-                {verification.hygiene_hints?.join("；")}
+                {verification.hygiene_hints?.join(t("；", "; "))}
               </p>
             )}
             {itemError && (
@@ -181,13 +210,21 @@ export function CandidateBar({
             )}
             {exportedBranch && (
               <p className={cx("candidate-hygiene")} role="status">
-                已导出为本地 Git 分支：<code>{exportedBranch}</code>（可使用{" "}
-                <code>git merge {exportedBranch}</code> 合并）
+                {t("已导出为本地 Git 分支：", "Exported to local Git branch: ")}
+                <code>{exportedBranch}</code>
+                {t("（可使用 ", " (merge with ")}
+                <code>git merge {exportedBranch}</code>
+                {t(" 合并）", ")")}
               </p>
             )}
             {paths.length > 1 && (
               <details className={cx("candidate-paths")}>
-                <summary>查看 {paths.length} 个变更文件</summary>
+                <summary>
+                  {t(
+                    `查看 ${paths.length} 个变更文件`,
+                    `View ${paths.length} changed files`,
+                  )}
+                </summary>
                 <ul>
                   {paths.map((path) => (
                     <li key={path}>{path}</li>
@@ -198,7 +235,9 @@ export function CandidateBar({
             {diffState?.open && (
               <div className={cx("candidate-diff")}>
                 {diffState.loading ? (
-                  <p className={cx("candidate-reason")}>正在加载变更内容…</p>
+                  <p className={cx("candidate-reason")}>
+                    {t("正在加载变更内容…", "Loading diff…")}
+                  </p>
                 ) : (
                   <pre
                     style={{
@@ -214,7 +253,8 @@ export function CandidateBar({
                       wordBreak: "break-word",
                     }}
                   >
-                    {diffState.text || "（当前无文本差异）"}
+                    {diffState.text ||
+                      t("（当前无文本差异）", "(No text diff available)")}
                   </pre>
                 )}
               </div>
@@ -223,8 +263,14 @@ export function CandidateBar({
               <div className={cx("candidate-confirm")}>
                 <span>
                   {pending === "apply"
-                    ? "将把这些文件写入项目目录；若原目录已被外部修改会拒绝覆盖。"
-                    : "将清理该候选目录；项目目录保持不变。"}
+                    ? t(
+                        "将把这些文件写入项目目录；若原目录已被外部修改会拒绝覆盖。",
+                        "Writes these files to the project directory; refuses to overwrite if the target files were modified externally.",
+                      )
+                    : t(
+                        "将清理该候选目录；项目目录保持不变。",
+                        "Removes this candidate directory; your project directory remains unchanged.",
+                      )}
                 </span>
                 <button
                   type="button"
@@ -237,10 +283,10 @@ export function CandidateBar({
                   onClick={() => void decide(item, pending)}
                 >
                   {busy
-                    ? "正在处理…"
+                    ? t("正在处理…", "Working…")
                     : pending === "apply"
-                      ? "确认应用"
-                      : "确认丢弃"}
+                      ? t("确认应用", "Confirm apply")
+                      : t("确认丢弃", "Confirm discard")}
                 </button>
                 <button
                   type="button"
@@ -248,7 +294,7 @@ export function CandidateBar({
                   disabled={busy}
                   onClick={() => setConfirm(null)}
                 >
-                  取消
+                  {t("取消", "Cancel")}
                 </button>
               </div>
             ) : (
@@ -260,7 +306,9 @@ export function CandidateBar({
                     disabled={busy}
                     onClick={() => void toggleDiff(item)}
                   >
-                    {diffState?.open ? "收起 Diff" : "查看 Diff"}
+                    {diffState?.open
+                      ? t("收起 Diff", "Hide diff")
+                      : t("查看 Diff", "View diff")}
                   </button>
                 )}
                 <button
@@ -269,9 +317,15 @@ export function CandidateBar({
                   disabled={locked || busy || nothingToApply}
                   title={
                     locked
-                      ? "本轮协作结束后才能应用到项目目录"
+                      ? t(
+                          "本轮协作结束后才能应用到项目目录",
+                          "Wait for the current run to finish before applying to the project directory",
+                        )
                       : nothingToApply
-                        ? "该候选没有文件差异，无需应用"
+                        ? t(
+                            "该候选没有文件差异，无需应用",
+                            "No file differences to apply",
+                          )
                         : undefined
                   }
                   onClick={() => {
@@ -279,30 +333,40 @@ export function CandidateBar({
                     setConfirm({ id: execution.id, kind: "apply" });
                   }}
                 >
-                  应用到项目目录
+                  {t("应用到项目目录", "Apply to project")}
                 </button>
                 {canExportBranch && (
                   <button
                     type="button"
                     className={cx("small")}
                     disabled={locked || busy}
-                    title="导出为本地 Git 分支，便于手动合并或解决冲突"
+                    title={t(
+                      "导出为本地 Git 分支，便于手动合并或解决冲突",
+                      "Export as a local Git branch for manual merge or conflict resolution",
+                    )}
                     onClick={() => void exportBranch(item)}
                   >
-                    导出本地分支
+                    {t("导出本地分支", "Export local branch")}
                   </button>
                 )}
                 <button
                   type="button"
                   className={cx("small")}
                   disabled={locked || busy}
-                  title={locked ? "本轮协作结束后才能丢弃候选变更" : undefined}
+                  title={
+                    locked
+                      ? t(
+                          "本轮协作结束后才能丢弃候选变更",
+                          "Wait for the current run to finish before discarding candidate changes",
+                        )
+                      : undefined
+                  }
                   onClick={() => {
                     setItemError(execution.id, "");
                     setConfirm({ id: execution.id, kind: "discard" });
                   }}
                 >
-                  丢弃变更
+                  {t("丢弃变更", "Discard changes")}
                 </button>
               </div>
             )}

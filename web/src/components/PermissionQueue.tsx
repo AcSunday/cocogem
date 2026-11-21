@@ -1,4 +1,5 @@
 import type { ToolPermissionRequest } from "../api/client";
+import { isEnglish, t, useLanguage } from "../lib/i18n";
 import type { PermissionPrompt } from "../lib/toolActivity";
 import {
   PermissionDecision,
@@ -7,7 +8,7 @@ import {
 } from "./PermissionDecision";
 import styles from "../styles/permission-decision.module.css";
 
-const toolLabels: Record<string, string> = {
+const toolLabelsZh: Record<string, string> = {
   read_file: "读取文件",
   write_file: "写入文件",
   patch_file: "修改文件",
@@ -21,9 +22,24 @@ const toolLabels: Record<string, string> = {
   external_publish: "外部发布",
 };
 
+const toolLabelsEn: Record<string, string> = {
+  read_file: "Read file",
+  write_file: "Write file",
+  patch_file: "Modify file",
+  list_files: "List directory",
+  search_content: "Search content",
+  run_command: "Run command",
+  run_test: "Run tests",
+  fetch_url: "Fetch web page",
+  web_search: "Web search",
+  request_tool_access: "Request tool access",
+  external_publish: "External publish",
+};
+
 /** A stable short label; the exact operation comes from `operation_summary`. */
 function operationLabel(toolName: string) {
-  return toolLabels[toolName] ?? toolName;
+  const dict = isEnglish() ? toolLabelsEn : toolLabelsZh;
+  return dict[toolName] ?? toolName;
 }
 
 /**
@@ -53,6 +69,7 @@ export function PermissionQueue({
   onDismiss: () => void;
   onRestore: () => void;
 }) {
+  useLanguage();
   // The active card is ONLY the explicit `visible` request. When every pending
   // request has been closed (view-only), the queue collapses to a reopen bar and
   // no request silently becomes active again.
@@ -62,9 +79,14 @@ export function PermissionQueue({
     if (!hidden) return null;
     return (
       <div className={styles.queueBar}>
-        <span>{hidden} 个操作等待授权，已折叠但未决定。</span>
+        <span>
+          {t(
+            `${hidden} 个操作等待授权，已折叠但未决定。`,
+            `${hidden} action(s) awaiting approval (collapsed, not yet decided).`,
+          )}
+        </span>
         <button type="button" className={styles.link} onClick={onRestore}>
-          重新打开
+          {t("重新打开", "Reopen")}
         </button>
       </div>
     );
@@ -88,20 +110,31 @@ export function PermissionQueue({
   };
   const position = items.findIndex((item) => item.id === active.id) + 1;
   return (
-    <section className={styles.queue} aria-label="待处理授权">
+    <section
+      className={styles.queue}
+      aria-label={t("待处理授权", "Pending approvals")}
+    >
       <div className={styles.queueHead}>
         <span>
-          等待授权
-          {items.length > 1 ? `（${position}/${items.length}）` : ""}
+          {t("等待授权", "Awaiting approval")}
+          {items.length > 1
+            ? t(
+                `（${position}/${items.length}）`,
+                ` (${position}/${items.length})`,
+              )
+            : ""}
         </span>
         <button
           type="button"
           className={styles.quiet}
-          aria-label="稍后处理"
-          title="关闭不会拒绝或允许；请求保持待处理"
+          aria-label={t("稍后处理", "Decide later")}
+          title={t(
+            "关闭不会拒绝或允许；请求保持待处理",
+            "Closing does not approve or deny; the request remains pending",
+          )}
           onClick={onDismiss}
         >
-          稍后处理
+          {t("稍后处理", "Decide later")}
         </button>
       </div>
       <PermissionDecision
@@ -116,7 +149,10 @@ export function PermissionQueue({
       />
       {items.length > 1 && (
         <p className={styles.muted}>
-          还有 {items.length - 1} 个待处理请求，按申请顺序逐个决定。
+          {t(
+            `还有 ${items.length - 1} 个待处理请求，按申请顺序逐个决定。`,
+            `${items.length - 1} more pending request(s) will be shown in order.`,
+          )}
         </p>
       )}
     </section>
