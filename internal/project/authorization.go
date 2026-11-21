@@ -96,7 +96,7 @@ func (s *Service) EnsureRunAuthorization(tx *store.Tx, run *w.Run, source string
 	run.EnforcedCapabilities = []string{"host_grant_intersection", "scoped_mcp", "candidate_tree_lease"}
 	run.UnenforcedConstraints = nil
 	switch policy.Mode {
-	case w.ExecutionProjectAutonomous:
+	case w.ExecutionWorkspaceAutonomous:
 		// The project boundary is enforced by the host tools and by each
 		// adapter's own sandbox/allowlist. Remaining unknowns are recorded
 		// honestly instead of downgrading the mode silently.
@@ -106,10 +106,11 @@ func (s *Service) EnsureRunAuthorization(tx *store.Tx, run *w.Run, source string
 		run.EnforcedCapabilities = []string{"host_grant_intersection", "scoped_mcp", "process_group_observation"}
 		run.UnenforcedConstraints = w.NativeIsolationUnknowns()
 	}
-	if run.TaskIntake && run.TaskID == "" {
-		// Intake has no durable task yet; its tool catalog stays read-only.
-		run.EffectiveExecutionMode = w.ExecutionControlled
-	}
+	// An unaddressed turn has no durable task yet. It still runs under the
+	// same global mode: its ceiling is limited by the intake read-only actions
+	// above, not by a hidden downgrade, so full access on this machine also
+	// applies to a plain conversation.
+
 	// The frozen ceiling is the task/role boundary, not the global mode. A mode
 	// may admit less than the task allows; that difference becomes an execution-
 	// time request instead of silently deleting the capability. Actions the mode

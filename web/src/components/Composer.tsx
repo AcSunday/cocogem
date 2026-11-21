@@ -16,36 +16,13 @@ import controls from "../styles/controls.module.css";
 import layout from "../styles/layout.module.css";
 import conversation from "../styles/conversation.module.css";
 import panels from "../styles/panels.module.css";
-import {
-  memberLabel,
-  roleLabel,
-  runErrorText,
-  workflowRoles,
-  workflows,
-} from "../lib/presentation";
+import { memberLabel, runErrorText } from "../lib/presentation";
 import { applyMention, mentionAt, mentionMatches } from "../lib/mention";
-import {
-  applySlash,
-  methodLabel,
-  slashAt,
-  slashMatches,
-  workflowCommands,
-} from "../lib/slash";
 import { errorText } from "../lib/presentation";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 
 const cx = scoped(base, controls, layout, conversation, panels);
-
-const workflowIcons: Record<string, string> = {
-  free: "💬",
-  discussion: "👥",
-  research: "🔬",
-  code_analysis: "💻",
-  engineering: "🛠️",
-};
-
-export type WorkflowKey = keyof typeof workflows;
 
 /** A selected original stays local until the user actually sends it. */
 export type ComposerAttachment = {
@@ -61,8 +38,6 @@ export function Composer({
   allAgents,
   draft,
   setDraft,
-  workflow,
-  setWorkflow,
   artifactRef,
   clearArtifactRef,
   attachments = [],
@@ -72,6 +47,8 @@ export function Composer({
   coordinator,
   executionMode,
   onExecutionModeChange,
+  planOnly = false,
+  onPlanOnlyChange,
   routing,
   error,
   onDismissError,
@@ -90,8 +67,6 @@ export function Composer({
   allAgents: Agent[];
   draft: string;
   setDraft: (value: string) => void;
-  workflow: WorkflowKey;
-  setWorkflow: (value: WorkflowKey) => void;
   artifactRef?: Artifact;
   clearArtifactRef: () => void;
   attachments?: ComposerAttachment[];
@@ -101,6 +76,9 @@ export function Composer({
   coordinator?: { name: string; fallback: boolean };
   executionMode?: string;
   onExecutionModeChange?: (mode: string) => Promise<void> | void;
+  /** This turn is analysis-only; it never writes or changes the global mode. */
+  planOnly?: boolean;
+  onPlanOnlyChange?: (value: boolean) => void;
   routing?: Routing;
   error?: string;
   onDismissError?: () => void;
@@ -130,15 +108,11 @@ export function Composer({
   const [dismissedRouting, setDismissedRouting] = useState<Routing>();
   const [dismissedFailure, setDismissedFailure] = useState("");
   const mention = mentionAt(draft, caret);
-  const command = slashAt(draft, caret);
-  const slashOpen = !!command && command.start !== dismissed;
-  const commandMatches = slashOpen ? slashMatches(command.query) : [];
   const matches =
     mention && mention.start !== dismissed
       ? mentionMatches(agents, mention.query)
       : [];
-  const options = mention ? matches : commandMatches;
-  const optionKind = mention ? "member" : "method";
+  const options = matches;
   const index = Math.min(highlight, Math.max(0, options.length - 1));
   // A completion restores focus/caret on the next frame. Editing or moving the
   // caret before that frame runs owns the selection now, so a stale callback
@@ -193,18 +167,7 @@ export function Composer({
     setCaret(next.caret);
     restoreCaret(next.text, next.caret);
   };
-  const pickCommand = (next: (typeof workflowCommands)[number]) => {
-    if (!command) return;
-    setWorkflow(next.key);
-    const applied = applySlash(draft, command.start, caret);
-    setDraft(applied.text);
-    setCaret(applied.caret);
-    restoreCaret(applied.text, applied.caret);
-  };
-  const pickOption = (position: number) => {
-    if (optionKind === "member") pick(matches[position]);
-    else pickCommand(commandMatches[position]);
-  };
+  const pickOption = (position: number) => pick(matches[position]);
   useEffect(
     () => () => {
       if (caretFrame.current) cancelAnimationFrame(caretFrame.current);
@@ -216,27 +179,22 @@ export function Composer({
     ? (routing.targets ?? [])
         .map((id) => allAgents.find((agent) => agent.id === id)?.display_name)
         .filter(Boolean)
-        .join("、") ||
-      workflows[routing.workflow as WorkflowKey] ||
-      ""
-    : "";
-  // The accepted routing owns the actual roles; the input area only reports it.
-  const assignmentSummary = routing?.assignments
-    ? (workflowRoles[routing.workflow] ?? Object.keys(routing.assignments))
-        .map((role) => {
-          const id = routing.assignments?.[role];
-          const member =
-            agents.find((agent) => agent.id === id) ??
-            allAgents.find((agent) => agent.id === id);
-          return member ? `${roleLabel(role)}：${member.display_name}` : "";
-        })
-        .filter(Boolean)
-        .join(" · ")
+        .join("、")
     : "";
   const [modeError, setModeError] = useState("");
-  const clarification = routing !== dismissedRouting ? routing?.clarification : "";
-  const failedNotice = !!failureNoticeID && failureNoticeID !== dismissedFailure && failedSteps.length > 0;
-  const notice = error || modeError || clarification || (failedNotice ? "成员回复未完成，已完成的回复会保留。重试只补跑该成员并沿用原流程。" : "");
+  const clarification =
+    routing !== dismissedRouting ? routing?.clarification : "";
+  const failedNotice =
+    !!failureNoticeID &&
+    failureNoticeID !== dismissedFailure &&
+    failedSteps.length > 0;
+  const notice =
+    error ||
+    modeError ||
+    clarification ||
+    (failedNotice
+      ? "成员回复未完成，已完成的回复会保留。重试只补跑该成员并保留上下文。"
+      : "");
   const dismissNotice = () => {
     if (error) onDismissError?.();
     else if (modeError) setModeError("");
@@ -360,14 +318,28 @@ export function Composer({
         >
           <span className={cx("composer-notice-body")}>
             {notice}
-            {failedNotice && !error && !modeError && !clarification && failedSteps.map((step) => (
-              <span key={step.id} className={cx("composer-member-failure")}>
-                <span>{step.agent_name || "成员"}：{runErrorText(step.error || "回复未完成")}</span>
-                <button type="button" className={cx("composer-retry")} disabled={busy || active} onClick={() => onRetryMember?.(step.id)} title="只补跑该成员并沿用原流程；输入区新选的流程不会应用">
-                  <Icon name="refresh" size={13} />重试 {step.agent_name || "成员"}
-                </button>
-              </span>
-            ))}
+            {failedNotice &&
+              !error &&
+              !modeError &&
+              !clarification &&
+              failedSteps.map((step) => (
+                <span key={step.id} className={cx("composer-member-failure")}>
+                  <span>
+                    {step.agent_name || "成员"}：
+                    {runErrorText(step.error || "回复未完成")}
+                  </span>
+                  <button
+                    type="button"
+                    className={cx("composer-retry")}
+                    disabled={busy || active}
+                    onClick={() => onRetryMember?.(step.id)}
+                    title="只补跑该成员，已完成成员的结果会保留"
+                  >
+                    <Icon name="refresh" size={13} />
+                    重试 {step.agent_name || "成员"}
+                  </button>
+                </span>
+              ))}
           </span>
           <button
             type="button"
@@ -381,28 +353,6 @@ export function Composer({
         </div>
       )}
       {pending}
-      {workflow !== "free" && (
-        <div className={cx("composer-capsules")}>
-          <span
-            className={cx("method-chip")}
-            role="status"
-            data-testid="composer-method"
-          >
-            <Icon name="layers" size={13} />
-            {methodLabel(workflow)}
-            <button
-              type="button"
-              className={cx("method-chip-clear")}
-              aria-label="清除本次协作模式"
-              title="清除本次协作模式，交回协调者判断"
-              disabled={disabled}
-              onClick={() => setWorkflow("free")}
-            >
-              <Icon name="close" size={12} />
-            </button>
-          </span>
-        </div>
-      )}
       {artifactRef && (
         <div className={cx("reference-pill")}>
           <span>
@@ -446,43 +396,23 @@ export function Composer({
           className={cx("mention-options")}
           role="listbox"
           id="composer-options"
-          aria-label={optionKind === "member" ? "选择成员" : "选择协作模式"}
+          aria-label="选择成员"
         >
-          {optionKind === "member"
-            ? matches.map((agent, i) => (
-                <li
-                  key={agent.id}
-                  id={`composer-option-${agent.id}`}
-                  role="option"
-                  aria-selected={i === index}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    pickOption(i);
-                  }}
-                >
-                  <Avatar
-                    name={agent.display_name}
-                    avatar={agent.avatar}
-                    small
-                  />
-                  {memberLabel(agent)}
-                </li>
-              ))
-            : commandMatches.map((item, i) => (
-                <li
-                  key={item.key}
-                  id={`composer-option-${item.key}`}
-                  role="option"
-                  aria-selected={i === index}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    pickOption(i);
-                  }}
-                >
-                  <span aria-hidden="true">{workflowIcons[item.key] || "⚡"}</span>
-                  {item.label}
-                </li>
-              ))}
+          {matches.map((agent, i) => (
+            <li
+              key={agent.id}
+              id={`composer-option-${agent.id}`}
+              role="option"
+              aria-selected={i === index}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                pickOption(i);
+              }}
+            >
+              <Avatar name={agent.display_name} avatar={agent.avatar} small />
+              {memberLabel(agent)}
+            </li>
+          ))}
         </ul>
       )}
       <div className={cx("composer-input-wrap")}>
@@ -490,7 +420,7 @@ export function Composer({
           ref={hintButton}
           type="button"
           className={cx("composer-hint")}
-          aria-label="输入提示：/ 选择协作模式，@ 指定成员"
+          aria-label="输入提示：@ 指定成员"
           aria-describedby={hintOpen ? hintID : undefined}
           data-open={hintOpen ? "true" : undefined}
           onPointerEnter={(event) => {
@@ -537,88 +467,86 @@ export function Composer({
           <Icon name="info" size={14} />
         </button>
         <textarea
-        ref={input}
-        id="composer-input"
-        className={cx("composer-input")}
-        aria-label="输入问题"
-        placeholder={placeholder}
-        value={draft}
-        disabled={disabled}
-        rows={2}
-        aria-controls={options.length ? "composer-options" : undefined}
-        aria-autocomplete="list"
-        aria-activedescendant={
-          options.length
-            ? `composer-option-${command ? commandMatches[index].key : matches[index].id}`
-            : undefined
-        }
-        onChange={(event) => {
-          // Any real edit supersedes an older completion's caret restore.
-          caretRevision.current += 1;
-          cancelPendingCaret();
-          setDraft(event.target.value);
-          setCaret(event.target.selectionStart);
-          setHighlight(0);
-        }}
-        onSelect={(event) => {
-          const selection = event.currentTarget.selectionStart;
-          if (restoringCaret.current) return;
-          const pending = pendingCaret.current;
-          if (
-            pending &&
-            event.currentTarget.value === pending.text &&
-            selection === pending.caret
-          ) {
-            // Caused by applying the completion itself; keep its restore.
-            setCaret(selection);
-            return;
+          ref={input}
+          id="composer-input"
+          className={cx("composer-input")}
+          aria-label="输入问题"
+          placeholder={placeholder}
+          value={draft}
+          disabled={disabled}
+          rows={2}
+          aria-controls={options.length ? "composer-options" : undefined}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            options.length ? `composer-option-${matches[index].id}` : undefined
           }
-          // A later selection change owns the caret.
-          caretRevision.current += 1;
-          cancelPendingCaret();
-          setCaret(selection);
-        }}
-        onCompositionStart={() => {
-          composing.current = true;
-        }}
-        onCompositionEnd={() => {
-          composing.current = false;
-        }}
-        onKeyDown={(event) => {
-          if (
-            composing.current ||
-            event.nativeEvent.isComposing ||
-            event.keyCode === 229
-          )
-            return;
-          if (options.length) {
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              const step = event.key === "ArrowDown" ? 1 : -1;
-              setHighlight((index + step + options.length) % options.length);
-              return;
-            }
+          onChange={(event) => {
+            // Any real edit supersedes an older completion's caret restore.
+            caretRevision.current += 1;
+            cancelPendingCaret();
+            setDraft(event.target.value);
+            setCaret(event.target.selectionStart);
+            setHighlight(0);
+          }}
+          onSelect={(event) => {
+            const selection = event.currentTarget.selectionStart;
+            if (restoringCaret.current) return;
+            const pending = pendingCaret.current;
             if (
-              !event.shiftKey &&
-              (event.key === "Enter" || event.key === "Tab")
+              pending &&
+              event.currentTarget.value === pending.text &&
+              selection === pending.caret
             ) {
-              event.preventDefault();
-              pickOption(index);
+              // Caused by applying the completion itself; keep its restore.
+              setCaret(selection);
               return;
             }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setDismissed(mention?.start ?? command?.start ?? -1);
+            // A later selection change owns the caret.
+            caretRevision.current += 1;
+            cancelPendingCaret();
+            setCaret(selection);
+          }}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={() => {
+            composing.current = false;
+          }}
+          onKeyDown={(event) => {
+            if (
+              composing.current ||
+              event.nativeEvent.isComposing ||
+              event.keyCode === 229
+            )
               return;
+            if (options.length) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const step = event.key === "ArrowDown" ? 1 : -1;
+                setHighlight((index + step + options.length) % options.length);
+                return;
+              }
+              if (
+                !event.shiftKey &&
+                (event.key === "Enter" || event.key === "Tab")
+              ) {
+                event.preventDefault();
+                pickOption(index);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setDismissed(mention?.start ?? -1);
+                return;
+              }
             }
-          }
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            if (canSend && !event.repeat)
-              event.currentTarget.form?.requestSubmit();
-          }
-        }}
-      />
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              if (canSend && !event.repeat)
+                event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
       </div>
       <div className={cx("composer-bottom")}>
         <div className={cx("composer-meta-chips")}>
@@ -631,11 +559,26 @@ export function Composer({
                 disabled={disabled || modeSaving}
                 onChange={(selected) => void changeMode(selected)}
               >
-                <option value="controlled">受控</option>
-                <option value="project_autonomous">项目内自主</option>
+                <option value="workspace_autonomous">沙箱自主</option>
                 <option value="full_access">完全访问</option>
               </Select>
             </span>
+          )}
+          {onPlanOnlyChange && (
+            <button
+              type="button"
+              className={cx("plan-only-chip")}
+              aria-pressed={planOnly}
+              disabled={disabled || busy || active}
+              title={
+                active
+                  ? "本轮协作结束后可切换仅规划"
+                  : "本轮只读取证据并给出方案；不改代码、不运行有副作用的命令，也不改变全局权限"
+              }
+              onClick={() => onPlanOnlyChange(!planOnly)}
+            >
+              仅规划
+            </button>
           )}
           {coordinator && (
             <span
@@ -660,16 +603,6 @@ export function Composer({
             >
               {`→ ${routeLabel}`}
             </span>
-          )}
-          {assignmentSummary && (
-            <span className={cx("route-chip")} role="status" title="本轮分工">
-              {assignmentSummary}
-            </span>
-          )}
-          {workflow === "engineering" && (
-            <small className={cx("muted")} role="note">
-              按成员已获授权的能力执行，独立复核后交付工程报告
-            </small>
           )}
         </div>
         <div className={cx("composer-actions")}>
@@ -710,7 +643,9 @@ export function Composer({
             className={cx("primary composer-send")}
             type="submit"
             aria-label={busy ? "正在提交" : active ? "保存补充" : "发送"}
-            title={busy ? "正在提交…" : active ? "保存补充 · Enter" : "发送 · Enter"}
+            title={
+              busy ? "正在提交…" : active ? "保存补充 · Enter" : "发送 · Enter"
+            }
             disabled={!canSend}
           >
             <Icon name="send" size={16} />
@@ -731,7 +666,7 @@ export function Composer({
               width: hintBox.width,
             }}
           >
-            @ 指定成员，/ 选择协作模式；都不使用时由协调者按任务判断。
+            @ 指定成员；不指定时由协调者按任务判断。
           </div>,
           document.body,
         )}

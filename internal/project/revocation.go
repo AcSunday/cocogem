@@ -42,24 +42,22 @@ func (s *Service) BeginRevocation(ctx context.Context, workspaceID, memberID, so
 		if err := tx.SaveGrant(grant); err != nil {
 			return err
 		}
-		tasks, err := tx.Tasks(workspaceID)
+		// Seal the member's sessions across every conversation and task scope.
+		// Native CLI state lives in each CLI's own directory and is never removed.
+		sessions, err := tx.SessionsByMember(workspaceID, memberID)
 		if err != nil {
 			return err
 		}
-		for _, task := range tasks {
-			sessions, err := tx.Sessions(task.ID)
-			if err != nil {
-				return err
+		for _, session := range sessions {
+			if session.Status == "revoked" {
+				continue
 			}
-			for _, session := range sessions {
-				if session.MemberID != memberID || session.Status == "revoked" {
-					continue
-				}
-				session.Status = "revoked"
-				session.UpdatedAt = s.now()
-				if err := tx.SaveSession(session); err != nil {
-					return err
-				}
+			session.Status = "revoked"
+			session.NativeSessionID = ""
+			session.Acknowledgement = "revoked"
+			session.UpdatedAt = s.now()
+			if err := tx.SaveSession(session); err != nil {
+				return err
 			}
 		}
 		return nil

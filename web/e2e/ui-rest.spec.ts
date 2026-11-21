@@ -108,7 +108,6 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
       title: "UI 状态验收",
       agent_ids: ids,
       coordinator_id: member.id,
-      workflow: "free",
     },
   );
   await page.goto(`${baseURL}/w/${workspace.id}/t/${thread.id}`);
@@ -322,7 +321,6 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
       title: "回收站验收",
       agent_ids: ids,
       coordinator_id: member.id,
-      workflow: "free",
     },
   );
   const batchDoomed = await api(
@@ -334,7 +332,6 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
       title: "回收站批量",
       agent_ids: ids,
       coordinator_id: member.id,
-      workflow: "free",
     },
   );
   await api(page, csrf, "DELETE", `/api/v1/threads/${doomed.id}`);
@@ -364,9 +361,7 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   const request = (await saved).request();
   expect(request.headers()["if-match"]).toBe(String(before.revision));
   const body = request.postDataJSON();
-  expect(body).toMatchObject({
-    default_coordinator_id: before.default_coordinator_id,
-    assignments: before.assignments,
+  expect(body).toEqual({
     retention_days: 45,
   });
   await expect(
@@ -556,7 +551,6 @@ test("streams staged assistant text while the run is active", async ({
       title: "流式界面验收",
       agent_ids: [member.id],
       coordinator_id: member.id,
-      workflow: "free",
     },
   );
   await page.goto(`${baseURL}/w/${workspace.id}/t/${thread.id}`);

@@ -129,11 +129,13 @@ func (d Model) Complete(ctx context.Context, r model.Request, emit func(string) 
 		role = m[1]
 	}
 	voice := fixtureVoice(r.System)
-	code := strings.Contains(r.System, "workflow=code_analysis") ||
-		strings.Contains(r.System, "workflow=engineering") && !strings.Contains(r.System, "authorized develop action")
-	if code && allowed("read_file") && !used["read_file"] {
+	// A step bound to a local project reads the file first; a research step reads
+	// one bundled source. The kernel has no preset workflow, so the fixture keys
+	// off the capability the host actually granted this step.
+	code := allowed("read_file") && strings.Contains(r.System, "bound project")
+	if code && !used["read_file"] {
 		input := map[string]any{"path": "README.md"}
-		if role == "reviewer" {
+		if role == "reviewer" || role == "critic" {
 			input["start_line"], input["end_line"] = 3, 4
 		}
 		return tool("read_file", input), nil
@@ -150,7 +152,7 @@ func (d Model) Complete(ctx context.Context, r model.Request, emit func(string) 
 		}
 		return tool("fetch_url", map[string]any{"url": url}), nil
 	}
-	publisher := role == "coordinator" || role == "final_reviewer" || role == "reviewer" && code
+	publisher := !strings.Contains(r.System, "(read-only step)")
 	if allowed("publish_artifact") && !used["publish_artifact"] && publisher {
 		return tool("publish_artifact", fixtureArtifact(r.System, code, sourceIDs)), nil
 	}
@@ -180,7 +182,7 @@ func fixtureArtifact(system string, code bool, sourceIDs []string) map[string]an
 	kind, title := "note", "自动化测试样例：讨论纪要"
 	body := "# 自动化测试样例：讨论纪要\n\n## 各方观点\n- 值得用：分工与交叉核对减少单点错误。\n- 要谨慎：协作有传递与等待成本。\n- 看场景：先判断任务能否拆分、结果能否核对。\n\n## 共识\n可拆分、需核对的任务适合协作。\n\n## 保留分歧\n收益是否大于成本，没有一致结论。\n\n## 限制\n自动化测试样例，未调用真实模型。"
 	findings := []any{}
-	if strings.Contains(system, "workflow=research") {
+	if false {
 		kind, title = "research_report", "自动化测试样例：多 Agent 协作研究报告"
 		body = "# 自动化测试样例：多 Agent 协作研究报告\n\n## 问题与范围\n多 Agent 协作适合哪些场景，有哪些证据与限制。仅使用随包的三份示例资料。\n\n## 方法\n研究成员读取方法资料，复核成员读取限制资料并质疑，汇总成员补充案例资料。\n\n## 发现\n1. 可拆分、需要交叉核对的任务（调研、审查）适合协作。\n2. 稳定身份、来源记录和有限步骤是结论可追溯的前提。\n\n## 分歧与限制\n复核成员指出：资料只说明机制，没有证明质量提升；简单任务协作反而更慢。本次使用确定性模型，不能证明真实模型质量。\n\n## 下一步\n用真实 CLI 跑一次公开样例，对比单 Agent 与多 Agent 的耗时和准确度。"
 		if len(sourceIDs) > 0 {

@@ -18,7 +18,6 @@ const thread: Thread = {
   title: "原会话名称",
   agent_ids: ["one", "two"],
   coordinator_id: "two",
-  workflow: "research",
   revision: 4,
   updated_at: "2026-10-28T00:00:00Z",
 };

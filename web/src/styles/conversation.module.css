@@ -1010,3 +1010,160 @@
 .conversation-task-bar { display: flex; justify-content: flex-start; margin: 12px 0 20px; }
 .conversation-task-bar button { display: flex; gap: 12px; max-width: 100%; font-size: 12px; text-align: left; }
 .conversation-task-bar span { color: var(--text-3); white-space: nowrap; }
+
+/* Candidate delivery bar: unapplied worktrees sit above the Composer and are
+ * visually separate from the permission queue, so the reader always knows the
+ * project directory itself is still untouched. */
+.candidate-bar {
+  flex-shrink: 0;
+  display: grid;
+  gap: 8px;
+  margin: 0 auto 10px;
+  width: min(920px, 100%);
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.candidate-bar-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.candidate-bar-head strong {
+  font-size: 13px;
+}
+.candidate-bar-hint {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.candidate-item {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.candidate-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.candidate-state {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+}
+.candidate-state[data-tone="verified"] {
+  border-color: var(--success-text);
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+.candidate-state[data-tone="warn"] {
+  border-color: var(--warn-text);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+.candidate-state[data-tone="muted"] {
+  color: var(--text-3);
+}
+.candidate-project {
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.candidate-summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.candidate-reason {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warn-text);
+  overflow-wrap: anywhere;
+}
+.candidate-paths {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.candidate-paths summary {
+  cursor: pointer;
+}
+.candidate-paths ul {
+  margin: 4px 0 0;
+  padding-inline-start: 18px;
+  max-height: 160px;
+  overflow: auto;
+}
+.candidate-actions,
+.candidate-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.candidate-actions button,
+.candidate-confirm button {
+  min-height: 28px;
+}
+.candidate-confirm span {
+  flex: 1 1 220px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+/* Candidate actions: a 12px white label on the solid accent background only
+ * reaches 3.67:1 in the dark theme, so the primary action uses accent text on
+ * the soft accent surface instead (WCAG AA at this size). */
+.candidate-primary {
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.candidate-primary:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Plan-only turn switch: a per-turn read-only lock, never a permission mode. */
+.plan-only-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.plan-only-chip[aria-pressed="true"] {
+  border-color: var(--accent-text);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.plan-only-chip:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+/* A stacked-fallback smell is a non-blocking observation: it must stay
+ * visually quieter than an unverified mutation. */
+.candidate-hygiene {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}

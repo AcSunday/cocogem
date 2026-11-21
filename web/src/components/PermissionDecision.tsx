@@ -17,9 +17,12 @@ import styles from "../styles/permission-decision.module.css";
 export type PermissionDecisionKind =
   "allow_once" | "allow_conversation" | "deny";
 
+export type PermissionGrantScope = "file" | "directory";
+
 const activityLabels: Record<string, string> = {
   read: "读取",
   write: "写入",
+  execute: "执行",
   run_test: "运行测试",
   network: "联网",
   publish_artifact: "发布产物",
@@ -30,6 +33,26 @@ const activityLabels: Record<string, string> = {
   native_write: "原生写入",
   native_execute: "原生执行",
 };
+
+/** Returns a safe, non-broad parent directory name for an external file scope. */
+function parentDirectoryOf(scope: string): string {
+  if (!scope.startsWith("/") || scope.endsWith("/")) return "";
+  const parts = scope.split("/").filter(Boolean);
+  if (parts.length < 3) return "";
+  const parent = "/" + parts.slice(0, -1).join("/");
+  if (
+    parent === "/Users" ||
+    parent === "/home" ||
+    parent === "/etc" ||
+    parent === "/var" ||
+    parent === "/tmp" ||
+    parent === "/private/tmp" ||
+    /^\/(Users|home)\/[^/]+$/.test(parent)
+  ) {
+    return "";
+  }
+  return parent;
+}
 
 /** The request identity the pending card can resolve. */
 export type PendingPermission = {
@@ -190,7 +213,10 @@ export function PermissionDecision({
 }: {
   prompt: PermissionPrompt;
   request?: ToolPermissionRequest;
-  onDecide: (decision: PermissionDecisionKind) => Promise<void> | void;
+  onDecide: (
+    decision: PermissionDecisionKind,
+    grantScope?: PermissionGrantScope,
+  ) => Promise<void> | void;
   compact?: boolean;
 }) {
   // The same request can be rendered twice at once (the member's inline activity
@@ -214,7 +240,10 @@ export function PermissionDecision({
   const settled = decisionTextOf(persisted) || (shared.decided ? decisionText[shared.decided] : "");
   const busy = shared.busy;
   const readonly = !!settled;
-  const decide = async (kind: PermissionDecisionKind) => {
+  const decide = async (
+    kind: PermissionDecisionKind,
+    grantScope?: PermissionGrantScope,
+  ) => {
     if (readonly || busy) return;
     setError("");
     // `decideShared` deduplicates across instances and across repeat clicks:
@@ -222,7 +251,8 @@ export function PermissionDecision({
     // blocked while it settles.
     try {
       await decideShared(prompt.requestID, kind, async () => {
-        await onDecide(kind);
+        if (grantScope) await onDecide(kind, grantScope);
+        else await onDecide(kind);
       });
     } catch (failure) {
       if (mounted.current) setError(errorText(failure));
@@ -301,6 +331,11 @@ export function PermissionDecision({
           )}
         </dl>
       )}
+      {request?.risk === "sensitive_path" && !readonly && (
+        <p className={styles.risk} role="alert">
+          这是高敏凭据路径，只能「仅本次允许」。系统不会保存为会话持续授权。
+        </p>
+      )}
       {readonly ? (
         <p className={styles.decided} role="status">
           {settled}
@@ -315,15 +350,52 @@ export function PermissionDecision({
           >
             {busy === "allow_once" ? "正在允许…" : "仅本次允许"}
           </button>
-          <button
-            type="button"
-            className={styles.secondary}
-            disabled={!!busy}
-            onClick={() => void decide("allow_conversation")}
-            title="本会话内所有成员可对同一工具与范围使用此授权"
-          >
-            {busy === "allow_conversation" ? "正在允许…" : "本会话持续允许"}
-          </button>
+          {request?.risk === "sensitive_path" ? (
+            <button
+              type="button"
+              className={styles.secondary}
+              disabled
+              title="高敏凭据路径禁止建立会话持续授权"
+            >
+              本会话持续允许
+            </button>
+          ) : (() => {
+            const parentDir =
+              ["read", "write", "native_read", "native_write"].includes(action)
+                ? parentDirectoryOf(scope)
+                : "";
+            const parentShort = parentDir
+              ? parentDir.split("/").filter(Boolean).at(-1) || parentDir
+              : "";
+            return (
+              <>
+                <button
+                  type="button"
+                  className={styles.secondary}
+                  disabled={!!busy}
+                  onClick={() => void decide("allow_conversation")}
+                  title="本会话内所有成员可按同一动作等级与范围使用此授权"
+                >
+                  {busy === "allow_conversation"
+                    ? "正在允许…"
+                    : "本会话持续允许"}
+                </button>
+                {parentDir && (
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    disabled={!!busy}
+                    onClick={() => void decide("allow_conversation", "directory")}
+                    title={`本会话内允许对所在目录 ${parentDir}/ 进行同等级操作`}
+                  >
+                    {busy === "allow_conversation"
+                      ? "正在允许…"
+                      : `允许目录 ${parentShort}/`}
+                  </button>
+                )}
+              </>
+            );
+          })()}
           <button
             type="button"
             className={styles.danger}
@@ -335,7 +407,7 @@ export function PermissionDecision({
         </div>
       )}
       <p className={styles.note}>
-        本会话持续允许对同会话所有成员共享，但只限本次申请的工具、动作与范围。
+        本会话持续允许对同会话所有成员共享，按动作等级（只读 / 写入 / 执行）与授权范围生效；高敏凭据路径只能一次一授权。
       </p>
       {error && (
         <p className={styles.error} role="alert">
@@ -462,8 +534,18 @@ export function usePermissionRequests(threadID: string, activeRun?: Run) {
  * Keys stay for the component's lifetime; a different decision is a different
  * key, so a conflicting choice can never be replayed as the earlier one.
  */
-export function decisionKey(requestID: string, decision: PermissionDecisionKind) {
-  return "decision:" + requestID + ":" + decision;
+export function decisionKey(
+  requestID: string,
+  decision: PermissionDecisionKind,
+  grantScope?: PermissionGrantScope,
+) {
+  return (
+    "decision:" +
+    requestID +
+    ":" +
+    decision +
+    (grantScope ? ":" + grantScope : "")
+  );
 }
 
 const inFlightDecisions = new Map<string, string>();
@@ -481,8 +563,9 @@ const inFlightDecisions = new Map<string, string>();
 export async function submitPermissionDecision(
   request: ToolPermissionRequest,
   decision: PermissionDecisionKind,
+  grantScope?: PermissionGrantScope,
 ): Promise<ToolPermissionRequest> {
-  const key = decisionKey(request.id, decision);
+  const key = decisionKey(request.id, decision, grantScope);
   // One deterministic key per request+decision. It is retained across an
   // uncertain network failure so a retry is the same idempotent decision and a
   // duplicated POST can never authorize a second operation.
@@ -492,7 +575,11 @@ export async function submitPermissionDecision(
     const saved = await api<ToolPermissionRequest>(
       `/api/v1/permission-requests/${encodeURIComponent(request.id)}/decisions`,
       "POST",
-      { decision, request_id: requestID },
+      {
+        decision,
+        request_id: requestID,
+        ...(grantScope ? { grant_scope: grantScope } : {}),
+      },
       { "If-Match": String(request.revision) },
     );
     inFlightDecisions.delete(key);
@@ -638,7 +725,12 @@ export function ConversationGrants({
             return (
               <li key={grant.id} className={styles.grantRow}>
                 <div className={styles.grantMain}>
-                  <strong>{grant.tool_matcher || grant.action}</strong>
+                  <strong>
+                    {activityLabels[grant.action] ?? grant.action}
+                    {grant.tool_matcher && grant.tool_matcher !== "*"
+                      ? ` · ${grant.tool_matcher}`
+                      : ""}
+                  </strong>
                   <small>
                     {grant.normalized_resource_scope || "未提供范围"} ·{" "}
                     {grant.status === "revoked"

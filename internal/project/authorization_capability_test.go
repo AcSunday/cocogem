@@ -8,9 +8,9 @@ import (
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
-// TestExecutionModesExposeOnlyTheirRealCapabilities pins the honest capability
-// projection: project_autonomous is no longer silently downgraded to controlled,
-// its remaining unknowns are recorded, and neither mode rewrites the budget.
+// TestExecutionModesExposeOnlyTheirRealCapabilities pins the honest two-tier
+// capability projection: the autonomous tier records its remaining unknowns and
+// neither mode rewrites the budget.
 func TestExecutionModesExposeOnlyTheirRealCapabilities(t *testing.T) {
 	for _, test := range []struct {
 		name         string
@@ -20,19 +20,21 @@ func TestExecutionModesExposeOnlyTheirRealCapabilities(t *testing.T) {
 		hasUnknowns  bool
 		enforcedList []string
 	}{
-		{name: "project autonomous keeps its mode and records unknowns", mode: w.ExecutionProjectAutonomous, effective: w.ExecutionProjectAutonomous, native: true, hasUnknowns: true, enforcedList: []string{"host_grant_intersection", "project_root_normalized", "native_allowlist"}},
+		{name: "workspace autonomous keeps its mode and records unknowns", mode: w.ExecutionWorkspaceAutonomous, effective: w.ExecutionWorkspaceAutonomous, native: true, hasUnknowns: true, enforcedList: []string{"host_grant_intersection", "project_root_normalized", "native_allowlist"}},
 		{name: "full access records native capability and unenforced constraints", mode: w.ExecutionFullAccess, effective: w.ExecutionFullAccess, native: true, hasUnknowns: true, enforcedList: []string{"process_group_observation"}},
-		{name: "controlled keeps commands closed", mode: w.ExecutionControlled, effective: w.ExecutionControlled, native: false, enforcedList: []string{"host_grant_intersection"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			db, service, created, run := authorizationFixture(t)
-			if test.mode != w.ExecutionControlled {
+			{
+				// The task ceiling now names the same actions in both tiers, so
+				// the native projection is decided by the live mode, not by a
+				// hidden downgrade of an autonomous task.
 				thread := w.Thread{ID: "native-task-thread", WorkspaceID: run.WorkspaceID, AgentIDs: []string{run.Agents[0].ID}, CoordinatorID: run.Agents[0].ID, Internal: true, Revision: 1, UpdatedAt: w.Now()}
 				if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveThread(thread) }); err != nil {
 					t.Fatal(err)
 				}
 				run.ThreadID = thread.ID
-				actions := TaskActions(test.mode, w.RunInput{Workflow: "engineering"})
+				actions := TaskActions(test.mode, w.RunInput{})
 				var err error
 				created, err = service.CreateTask(t.Context(), CreateTaskInput{
 					WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, OwnerMemberID: run.Agents[0].ID,
@@ -82,7 +84,7 @@ func TestExecutionModesExposeOnlyTheirRealCapabilities(t *testing.T) {
 	}
 }
 
-// TestExecutionModeRejectsUnknownValue keeps the three stable wire values.
+// TestExecutionModeRejectsUnknownValue keeps the two stable wire values.
 func TestExecutionModeRejectsUnknownValue(t *testing.T) {
 	_, service, _ := setup(t)
 	bad := "unsafe"

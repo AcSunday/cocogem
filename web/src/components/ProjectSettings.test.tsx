@@ -26,8 +26,7 @@ const workspace = {
 const settings = {
   revision: 3,
   default_coordinator_id: "",
-  assignments: {},
-  execution_mode: "project_autonomous",
+  execution_mode: "workspace_autonomous",
   permission_epoch: 2,
   collaboration_budget: {
     auto_continuations: 20,
@@ -53,7 +52,7 @@ it("shows the inherited global permission instead of a workspace override", asyn
     />,
   );
   // The global value wins over the leftover workspace full_access.
-  expect(screen.getByText("项目内自主")).toBeVisible();
+  expect(screen.getByText("沙箱自主")).toBeVisible();
   expect(screen.queryByText("完全访问")).not.toBeInTheDocument();
   // No workspace permission/budget editor survives anywhere in the panel.
   expect(screen.queryByRole("radiogroup", { name: "执行权限模式" }))
@@ -94,6 +93,6 @@ it("does not call the retired workspace grant or budget routes", async () => {
 
 it("explains an unavailable global record without inventing a workspace value", () => {
   render(<ProjectSettings workspace={workspace} />);
-  expect(screen.getByText("项目内自主")).toBeVisible();
+  expect(screen.getByText("沙箱自主")).toBeVisible();
   expect(screen.getByText("尚未读取全局预算默认值。")).toBeVisible();
 });

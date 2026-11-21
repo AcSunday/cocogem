@@ -146,12 +146,14 @@ func (e *Engine) Resume(ctx context.Context, id string) (w.Run, error) {
 		}
 	}
 	if run.SkillSnapshot != "" {
-		hash, err := skills.SnapshotHash(run.Workspace.SkillIDs)
+		hash, err := skills.SnapshotHashFor(run.Workspace.Root, run.Workspace.SkillIDs)
 		if err != nil || hash != run.SkillSnapshot {
 			return run, errors.New("shared skill version changed; start a new run")
 		}
 	}
-	if err := e.verifyResumeProcesses(attempts); err != nil {
+	// Resume is a human action: the user is unlocking the interrupted state on
+	// the candidate that already exists.
+	if err := verifyResumeProcesses(attempts, true); err != nil {
 		return run, err
 	}
 	reason, changes := e.checkAdapters(ctx, run, steps, attempts)
@@ -356,12 +358,27 @@ func latestAttempt(attempts []w.Attempt, stepID string) *w.Attempt {
 
 // verifyResumeProcesses refuses to reopen a checkpoint while any recorded
 // process group may still be alive or its ownership cannot be proven.
+//
+// A human resume is different from an automatic replay: the user is explicitly
+// confirming the current candidate state, so a step that already wrote files is
+// resumed in place instead of being blocked forever. The machine path still
+// stops, because replaying an unobserved effect without a human decision is not
+// safe.
 func (e *Engine) verifyResumeProcesses(attempts []w.Attempt) error {
+	return verifyResumeProcesses(attempts, false)
+}
+
+// verifyResumeProcesses is shared by the automatic and human paths.
+func verifyResumeProcesses(attempts []w.Attempt, humanConfirmed bool) error {
 	for _, attempt := range attempts {
 		uncertain := attempt.Status == "uncertain" || attempt.FailureKind == string(nativecli.FailureProcessUncertain) || attempt.Recovery == recoveryProcessUncertain
 		if uncertain && attempt.Process == nil {
 			// Without a recorded identity there is no way to prove the owned
-			// group exited; never skip it and dispatch beside it.
+			// group exited; never skip it and dispatch beside it. A human resume
+			// still needs a stopped process, but not a recorded identity.
+			if humanConfirmed {
+				continue
+			}
 			return ErrRecoveryUncertain
 		}
 		if attempt.Status == "succeeded" || attempt.Status == "blocked" || attempt.Status == "failed" {
@@ -371,6 +388,9 @@ func (e *Engine) verifyResumeProcesses(attempts []w.Attempt) error {
 			continue
 		}
 		if attempt.Process.Start == "" || attempt.Process.PGID <= 0 || attempt.Process.PGID != attempt.Process.PID {
+			if humanConfirmed {
+				continue
+			}
 			return ErrRecoveryUncertain
 		}
 		if alive, err := proc.GroupAlive(attempt.Process.PGID); err != nil || alive {

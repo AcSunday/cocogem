@@ -1,9 +1,11 @@
 import { useRef, useState, type FormEvent } from "react";
+import type { CandidateView } from "../api/client";
 import { errorText } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
 import acceptance from "../styles/task-acceptance.module.css";
+import { CandidateBar } from "./CandidateBar";
 import { Modal } from "./Modal";
 
 const cx = scoped(base, controls, acceptance);
@@ -55,6 +57,12 @@ export function TaskAcceptanceDialog({
   goal,
   criteria,
   candidates,
+  codeCandidates,
+  candidateLocked = false,
+  onApplyCandidate,
+  onDiscardCandidate,
+  onDiffCandidate,
+  onExportCandidateBranch,
   expired = false,
   refresh,
   close,
@@ -63,6 +71,17 @@ export function TaskAcceptanceDialog({
   goal: string;
   criteria: AcceptanceCriterion[];
   candidates: AcceptanceCandidate[];
+  /**
+   * Unapplied code candidates of this task's conversation. Acceptance confirms
+   * the delivered content; applying or discarding the worktree is a separate
+   * decision and never changes the frozen acceptance snapshot.
+   */
+  codeCandidates?: CandidateView[];
+  candidateLocked?: boolean;
+  onApplyCandidate?: (item: CandidateView) => Promise<void>;
+  onDiscardCandidate?: (item: CandidateView) => Promise<void>;
+  onDiffCandidate?: (item: CandidateView) => Promise<string>;
+  onExportCandidateBranch?: (item: CandidateView) => Promise<string>;
   expired?: boolean;
   refresh?: () => void;
   close: () => void;
@@ -162,6 +181,19 @@ export function TaskAcceptanceDialog({
         <p className={cx("acceptance-intro")}>
           选择一个确切成果版本或本任务成功执行的交付回复，再逐项判断。关闭不会保存，也不会默认通过。
         </p>
+        {codeCandidates &&
+          codeCandidates.length > 0 &&
+          onApplyCandidate &&
+          onDiscardCandidate && (
+            <CandidateBar
+              items={codeCandidates}
+              locked={candidateLocked}
+              onApply={onApplyCandidate}
+              onDiscard={onDiscardCandidate}
+              onDiff={onDiffCandidate}
+              onExportBranch={onExportCandidateBranch}
+            />
+          )}
 
         <fieldset className={cx("acceptance-candidates")}>
           <legend>候选成果</legend>

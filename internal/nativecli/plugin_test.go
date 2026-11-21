@@ -23,7 +23,7 @@ func pluginTestBridge(t *testing.T, root string, authorize func(context.Context,
 	t.Cleanup(gate.close)
 	gate.cwd = root
 	gate.approver = newNativeApprover(nil, nil, model.Request{
-		ExecutionMode: "project_autonomous", WorkspaceRoot: root, AuthorizeNative: authorize,
+		ExecutionMode: "workspace_autonomous", WorkspaceRoot: root, AuthorizeNative: authorize,
 	}, "opencode", nil)
 	return gate
 }

@@ -67,7 +67,7 @@ func TestLiveGeminiProjectAutonomousReadOnly(t *testing.T) {
 		modelName = "default"
 	}
 	request := model.Request{
-		Executor: "gemini", Model: modelName, ExecutionMode: "project_autonomous", WorkspaceRoot: t.TempDir(),
+		Executor: "gemini", Model: modelName, ExecutionMode: "workspace_autonomous", WorkspaceRoot: t.TempDir(),
 		System:               "This is a synthetic connection check. Do not use tools.",
 		Messages:             []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "Reply with exactly COCOGEM_CONNECTION_OK."}}}},
 		FirstResponseTimeout: 60 * time.Second, StallTimeout: 60 * time.Second, StallAction: "stop",

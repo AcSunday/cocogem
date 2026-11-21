@@ -66,7 +66,7 @@ func TestEngineExecutionManagerWritesOnlyCandidate(t *testing.T) {
 		if request.WorkspaceRoot == "" || filepath.Clean(request.WorkspaceRoot) == filepath.Clean(root) {
 			return errors.New("runner received the source root instead of a candidate")
 		}
-		if strings.Contains(request.System, "Current role=researcher") {
+		if strings.Contains(request.System, "Current role=responder") {
 			if err := os.WriteFile(filepath.Join(request.WorkspaceRoot, "candidate.txt"), []byte("candidate change"), 0600); err != nil {
 				return err
 			}

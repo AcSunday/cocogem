@@ -11,8 +11,6 @@ import settings from "../../styles/settings.module.css";
 import {
   errorText,
   memberLabel,
-  workflowChoices,
-  workflows,
 } from "../../lib/presentation";
 import { Modal } from "../Modal";
 
@@ -49,7 +47,6 @@ export function ThreadForm({
       id: "",
       workspace_id: "",
       title: "新会话",
-      workflow: "free",
       revision: 1,
       updated_at: "",
       ...current,
@@ -124,22 +121,6 @@ export function ThreadForm({
                   {memberLabel(agent)}
                 </option>
               ))}
-          </Select>
-        </label>
-        <label>
-          默认工作方式
-          <Select
-            value={value.workflow}
-            onChange={(selected) => setValue({ ...value, workflow: selected })}
-          >
-            {workflowChoices.map(([key, name]) => (
-              <option key={key} value={key}>
-                {name}
-              </option>
-            ))}
-            {value.workflow === "code_analysis" && (
-              <option value="code_analysis">{workflows.code_analysis}</option>
-            )}
           </Select>
         </label>
         {error && (

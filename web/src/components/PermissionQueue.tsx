@@ -1,6 +1,10 @@
 import type { ToolPermissionRequest } from "../api/client";
 import type { PermissionPrompt } from "../lib/toolActivity";
-import { PermissionDecision, type PermissionDecisionKind } from "./PermissionDecision";
+import {
+  PermissionDecision,
+  type PermissionDecisionKind,
+  type PermissionGrantScope,
+} from "./PermissionDecision";
 import styles from "../styles/permission-decision.module.css";
 
 const toolLabels: Record<string, string> = {
@@ -44,6 +48,7 @@ export function PermissionQueue({
   onDecide: (
     requestID: string,
     decision: PermissionDecisionKind,
+    grantScope?: PermissionGrantScope,
   ) => Promise<void>;
   onDismiss: () => void;
   onRestore: () => void;
@@ -103,7 +108,11 @@ export function PermissionQueue({
         key={active.id}
         prompt={prompt}
         request={active}
-        onDecide={(decision) => onDecide(active.id, decision)}
+        onDecide={(decision, grantScope) =>
+          grantScope
+            ? onDecide(active.id, decision, grantScope)
+            : onDecide(active.id, decision)
+        }
       />
       {items.length > 1 && (
         <p className={styles.muted}>

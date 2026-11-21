@@ -51,7 +51,7 @@ func TestYieldToolSettlesOnlyAfterModelInvocationReturns(t *testing.T) {
 	}
 	defer db.Close()
 	member := w.Agent{ID: "owner", WorkspaceID: "yield-ws", DisplayName: "Owner", Handle: "owner", Model: "test", Tools: tools.Names, Revision: 1}
-	ws := w.Workspace{ID: member.WorkspaceID, Name: "yield", Revision: 1, ExecutionMode: w.ExecutionControlled}
+	ws := w.Workspace{ID: member.WorkspaceID, Name: "yield", Revision: 1, ExecutionMode: w.ExecutionWorkspaceAutonomous}
 	th := w.Thread{ID: "yield-thread", WorkspaceID: ws.ID, AgentIDs: []string{member.ID}, CoordinatorID: member.ID, Revision: 1, UpdatedAt: w.Now()}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {
@@ -75,7 +75,7 @@ func TestYieldToolSettlesOnlyAfterModelInvocationReturns(t *testing.T) {
 	run := w.Run{
 		ID: "tool-yield-run", WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, TaskID: created.Task.ID,
 		TaskRevision: 1, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID,
-		Input: w.RunInput{Message: "wait for host event", Workflow: "free", ResearchScope: "given_sources"},
+		Input: w.RunInput{Message: "wait for host event", ResearchScope: "given_sources"},
 	}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := service.EnsureRunAuthorization(tx, &run, "yield-create"); err != nil {

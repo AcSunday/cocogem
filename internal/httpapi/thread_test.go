@@ -80,7 +80,7 @@ func TestThreadRenameSurvivesDisabledMember(t *testing.T) {
 		t.Fatalf("unexpected members: %+v", members.Items)
 	}
 	ids := []string{members.Items[0].ID, members.Items[1].ID, members.Items[2].ID}
-	thread := w.Thread{Title: "旧标题", AgentIDs: ids, CoordinatorID: ids[1], Workflow: "research"}
+	thread := w.Thread{Title: "旧标题", AgentIDs: ids, CoordinatorID: ids[1]}
 	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", thread, &thread, 0, 200)
 
 	// Disabling the coordinator must not block a later title-only rename.
@@ -91,7 +91,7 @@ func TestThreadRenameSurvivesDisabledMember(t *testing.T) {
 
 	var renamed w.Thread
 	call("PATCH", "/api/v1/threads/"+thread.ID, map[string]string{"title": "新标题"}, &renamed, 1, 200)
-	if renamed.Title != "新标题" || renamed.Revision != 2 || !reflect.DeepEqual(renamed.AgentIDs, ids) || renamed.CoordinatorID != ids[1] || renamed.Workflow != "research" {
+	if renamed.Title != "新标题" || renamed.Revision != 2 || !reflect.DeepEqual(renamed.AgentIDs, ids) || renamed.CoordinatorID != ids[1] {
 		t.Fatalf("title-only update changed other fields: %+v", renamed)
 	}
 	if renamed.ID != thread.ID || renamed.WorkspaceID != ws.ID {
@@ -99,7 +99,7 @@ func TestThreadRenameSurvivesDisabledMember(t *testing.T) {
 	}
 	var view ThreadView
 	call("GET", "/api/v1/threads/"+thread.ID, nil, &view, 0, 200)
-	if view.Thread.Title != "新标题" || view.Thread.Revision != 2 || !reflect.DeepEqual(view.Thread.AgentIDs, ids) || view.Thread.CoordinatorID != ids[1] || view.Thread.Workflow != "research" {
+	if view.Thread.Title != "新标题" || view.Thread.Revision != 2 || !reflect.DeepEqual(view.Thread.AgentIDs, ids) || view.Thread.CoordinatorID != ids[1] {
 		t.Fatalf("rename was not persisted with its members: %+v", view.Thread)
 	}
 	var afterRename struct{ Items []w.Agent }
@@ -135,14 +135,13 @@ func TestThreadRenameSurvivesDisabledMember(t *testing.T) {
 		"title":          "旧客户端标题",
 		"agent_ids":      []string{ids[0], ids[2]},
 		"coordinator_id": ids[0],
-		"workflow":       "code_analysis",
 	}
 	var legacySaved w.Thread
 	call("PATCH", "/api/v1/threads/"+thread.ID, legacy, &legacySaved, 2, 200)
 	if legacySaved.ID != thread.ID || legacySaved.WorkspaceID != ws.ID || legacySaved.Revision != 3 || legacySaved.UpdatedAt == "2000-01-01T00:00:00Z" {
 		t.Fatalf("legacy body changed identity or version: %+v", legacySaved)
 	}
-	if legacySaved.Title != "旧客户端标题" || legacySaved.CoordinatorID != ids[0] || legacySaved.Workflow != "code_analysis" || !reflect.DeepEqual(legacySaved.AgentIDs, []string{ids[0], ids[2]}) {
+	if legacySaved.Title != "旧客户端标题" || legacySaved.CoordinatorID != ids[0] || !reflect.DeepEqual(legacySaved.AgentIDs, []string{ids[0], ids[2]}) {
 		t.Fatalf("legacy body edits were not applied: %+v", legacySaved)
 	}
 	call("GET", "/api/v1/threads/"+thread.ID, nil, &view, 0, 200)
@@ -158,7 +157,10 @@ func TestThreadRenameSurvivesDisabledMember(t *testing.T) {
 	}
 }
 
-func TestNewThreadsRejectLegacyCodeAnalysisWorkflow(t *testing.T) {
+// TestNewThreadsAcceptNoWorkflowField is the A01 cutover regression: the preset
+// workflow no longer exists on the wire, and a new conversation is created with
+// no workflow field at all.
+func TestNewThreadsAcceptNoWorkflowField(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "state.sqlite"))
 	if err != nil {
@@ -167,17 +169,30 @@ func TestNewThreadsRejectLegacyCodeAnalysisWorkflow(t *testing.T) {
 	defer db.Close()
 	api := newDeliveryAPI(t, dir, db, nil)
 	var ws w.Workspace
-	api.call("POST", "/api/v1/workspaces", WorkspaceInput{Name: "legacy workflow"}, nil, 200, &ws)
+	api.call("POST", "/api/v1/workspaces", WorkspaceInput{Name: "dynamic"}, nil, 200, &ws)
 	var members Page[w.Agent]
 	api.call("GET", "/api/v1/workspaces/"+ws.ID+"/agents", nil, nil, 200, &members)
 	if len(members.Items) < 2 {
 		t.Fatal("expected initialized members")
 	}
 	ids := []string{members.Items[0].ID, members.Items[1].ID}
-	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{
-		Title:         "legacy analysis",
+	var th w.Thread
+	raw := api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{
+		Title:         "dynamic collaboration",
 		AgentIDs:      ids,
 		CoordinatorID: ids[0],
-		Workflow:      "code_analysis",
-	}, nil, 400, nil)
+	}, nil, 200, &th)
+	for _, banned := range []string{`"workflow"`, `"assignments"`} {
+		if bytes.Contains(raw, []byte(banned)) {
+			t.Fatalf("new conversation still exposes %s: %s", banned, raw)
+		}
+	}
+	// A legacy client that still sends the removed field is rejected as an
+	// unknown field instead of silently reviving a preset.
+	var failure struct {
+		Error struct{ Code string }
+	}
+	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", map[string]any{
+		"title": "legacy analysis", "agent_ids": ids, "coordinator_id": ids[0], "workflow": "code_analysis",
+	}, nil, 400, &failure)
 }

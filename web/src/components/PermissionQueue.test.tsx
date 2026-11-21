@@ -76,7 +76,7 @@ it("offers exactly the three decisions and shows member, action, scope and reaso
   const names = within(card)
     .getAllByRole("button")
     .map((button) => button.textContent);
-  expect(names).toEqual(["仅本次允许", "本会话持续允许", "拒绝"]);
+  expect(names).toEqual(["仅本次允许", "本会话持续允许", "允许目录 reports/", "拒绝"]);
 });
 
 it("sends the chosen decision once even if it is clicked again", async () => {

@@ -15,7 +15,6 @@ const run = {
   created_at: "2026-10-20T00:00:00Z",
   finished_at: "2026-10-20T00:01:00Z",
   error: "",
-  input: { workflow: "free" },
   agents: [],
   routing: {
     usage_known: false,
@@ -117,14 +116,6 @@ it("shows a selected workflow and its reason instead of the free label", () => {
       run={{
         ...run,
         status: "running",
-        selected_workflow: {
-          workflow: "research",
-          targets: null,
-          assignments: null,
-          reason: "需要外部资料核对",
-          step_id: "step",
-          selected_at: "2026-10-20T00:00:00Z",
-        },
       }}
       index={1}
       latest
@@ -133,9 +124,8 @@ it("shows a selected workflow and its reason instead of the free label", () => {
       onResume={() => {}}
     />,
   );
-  expect(screen.getByText("研究协作")).toBeVisible();
-  expect(screen.getByText("需要外部资料核对")).toBeVisible();
-  expect(screen.queryByText("自由协作")).not.toBeInTheDocument();
+  expect(screen.getByText("协作会话")).toBeVisible();
+  expect(screen.queryByText("研究协作")).not.toBeInTheDocument();
 });
 
 it("leaves per-member tool activity to the reply instead of one global latest line", () => {

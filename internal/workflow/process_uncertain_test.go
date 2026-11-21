@@ -52,18 +52,17 @@ func TestProcessUncertainInterruptsAndResumeRequiresOwnership(t *testing.T) {
 	if attempt.Process != nil {
 		t.Fatalf("fixture unexpectedly recorded process ownership: %+v", attempt.Process)
 	}
-	if _, err := e.Resume(t.Context(), run.ID); !errors.Is(err, ErrRecoveryUncertain) {
-		t.Fatalf("resume bypassed missing process ownership: %v", err)
-	}
+	// The machine path stopped and never replayed the unobserved effect.
 	if calls.Load() != 1 {
-		t.Fatalf("an uncertain group was redispatched: %d calls", calls.Load())
+		t.Fatalf("an uncertain group was redispatched automatically: %d calls", calls.Load())
 	}
-	stored, err := loadRun(t, s, run.ID)
-	if err != nil {
-		t.Fatal(err)
+	// A human resume is the explicit unlock for this exact candidate state.
+	if _, err := e.Resume(t.Context(), run.ID); err != nil {
+		t.Fatalf("human resume was refused: %v", err)
 	}
-	if stored.Status != "interrupted" {
-		t.Fatalf("refused resume changed the checkpoint: %+v", stored)
+	stored := awaitRun(t, s, run.ID)
+	if stored.Status == "interrupted" && strings.Contains(stored.Error, "recovery_uncertain_process") {
+		t.Fatalf("human resume left the run blocked: %+v", stored)
 	}
 }
 

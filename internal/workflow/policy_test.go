@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -35,7 +34,7 @@ func seedCustomRun(t *testing.T, s *store.Store, specs []customStepSpec) w.Run {
 		agents = append(agents, w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: name, Handle: "custom-" + string(rune('a'+i)), Model: "default", Executor: "claude", Tools: tools.Names, Revision: 1})
 	}
 	th := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Revision: 1, UpdatedAt: w.Now()}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, Input: w.RunInput{Message: "custom long task", Workflow: "free", ResearchScope: "given_sources"}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, Input: w.RunInput{Message: "custom long task", ResearchScope: "given_sources"}}
 	steps := make([]w.Step, len(specs))
 	for i, spec := range specs {
 		steps[i] = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: agents[spec.Agent].ID, AgentName: agents[spec.Agent].DisplayName, Role: spec.Role, Instruction: spec.Instruction, Status: "pending", Kind: spec.Kind}
@@ -586,21 +585,11 @@ func TestContextOverflowKeepsStepInterruptedThenFreshResume(t *testing.T) {
 	enableExecutor(t, s, &run, "claude")
 	researcherCalls := 0
 	runner := &testRunner{run: func(ctx context.Context, request model.Request, call int, execute agent.Execute, observe agent.Observe) error {
-		if strings.Contains(request.System, "role=researcher") {
-			researcherCalls = call
-			if call == 1 {
-				return &nativecli.Failure{Kind: nativecli.FailureContextOverflow, Reason: "native session context window exhausted"}
-			}
+		researcherCalls = call
+		if call == 1 {
+			return &nativecli.Failure{Kind: nativecli.FailureContextOverflow, Reason: "native session context window exhausted"}
 		}
-		if err := observe("text", map[string]any{"text": "recovered result"}); err != nil {
-			return err
-		}
-		if strings.Contains(request.System, "role=coordinator") {
-			payload, _ := json.Marshal(map[string]any{"type": "research_report", "title": "Recovered", "body": "Recovered body", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-			_, err := execute(ctx, "publish_artifact", payload)
-			return err
-		}
-		return nil
+		return observe("text", map[string]any{"text": "recovered result"})
 	}}
 	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
 	cancel, wait := startEngine(t, &e)

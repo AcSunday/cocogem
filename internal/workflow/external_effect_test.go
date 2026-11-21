@@ -46,7 +46,7 @@ func (m *mockEgress) count() int {
 func externalJourney(t *testing.T, egress tools.Egress) (*hostApprovalJourney, *stepRuntime, *mockEgress) {
 	t.Helper()
 	db, service, th, member, root := newFreeTaskFixture(t)
-	mode := w.ExecutionControlled
+	mode := w.ExecutionWorkspaceAutonomous
 	var current w.Settings
 	if err := db.Read(t.Context(), func(tx *store.Tx) error {
 		var err error
@@ -68,7 +68,7 @@ func externalJourney(t *testing.T, egress tools.Egress) (*hostApprovalJourney, *
 	run := w.Run{
 		ID: "external-run", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: created.Task.ID,
 		TaskRevision: created.Task.CurrentRevision, BudgetAccountID: created.Budget.ID,
-		Input:  w.RunInput{Message: "发布外部版本", Workflow: "free", Targets: []string{member.ID}},
+		Input:  w.RunInput{Message: "发布外部版本", Targets: []string{member.ID}},
 		Agents: []w.Agent{member}, CoordinatorID: member.ID, Status: "running", CreatedAt: w.Now(),
 	}
 	step := w.Step{ID: "external-step", RunID: run.ID, AgentID: member.ID, AgentName: member.DisplayName, Role: "responder", Status: "running"}

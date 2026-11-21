@@ -90,7 +90,7 @@ func newReviewEffectFixture(t *testing.T, mode string) reviewEffectFixture {
 		TaskID: created.Task.ID, TaskRevision: 1, BudgetAccountID: created.Budget.ID,
 		TaskDirectory: root, Status: "running", CreatedAt: w.Now(),
 		Agents: []w.Agent{member}, CoordinatorID: member.ID,
-		Input: w.RunInput{Workflow: "engineering", Message: "Perform the authorized fixture operation", ResearchScope: "auto", Assignments: map[string]string{"engineer": member.ID}},
+		Input: w.RunInput{Message: "Perform the authorized fixture operation", ResearchScope: "auto"},
 	}
 	step := w.Step{ID: "review-effect-step", RunID: run.ID, AgentID: member.ID, AgentName: member.DisplayName, Role: "engineer", Status: "running"}
 	attempt := w.Attempt{ID: "review-effect-attempt", RunID: run.ID, StepID: step.ID, Number: 1, Status: "running", StartedAt: w.Now()}
@@ -183,7 +183,7 @@ func reviewEffectAdmission(t *testing.T, f reviewEffectFixture, request w.ToolPe
 // A01: approving an outside read has to make those exact bytes readable. Merely
 // returning an error from the old root-only dispatcher is not a valid approval.
 func TestReviewWorkflowExternalReadExecutesAfterOneApproval(t *testing.T) {
-	f := newReviewEffectFixture(t, w.ExecutionControlled)
+	f := newReviewEffectFixture(t, w.ExecutionWorkspaceAutonomous)
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	raw, _ := json.Marshal(map[string]any{"path": f.outside})
@@ -212,11 +212,13 @@ func TestReviewWorkflowExternalReadExecutesAfterOneApproval(t *testing.T) {
 	}
 }
 
-// A02: approval authorizes the exact command without changing the global mode,
-// but the command still requires a verified sandbox to execute.
-func TestReviewWorkflowControlledCommandRequiresApprovalAndSandbox(t *testing.T) {
-	f := newReviewEffectFixture(t, w.ExecutionControlled)
-	marker := filepath.Join(f.root, "approved-command-marker")
+// A02: approval authorizes an exact outside command without changing the global
+// mode, but the command still requires a verified sandbox to execute.
+func TestReviewWorkflowOutsideCommandRequiresApprovalAndSandbox(t *testing.T) {
+	f := newReviewEffectFixture(t, w.ExecutionWorkspaceAutonomous)
+	// The workspace itself is autonomous, so the outside target is the case that
+	// still requires a decision.
+	marker := filepath.Join(filepath.Dir(f.root), "approved-command-marker")
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	raw, _ := json.Marshal(map[string]any{"argv": []string{"/usr/bin/touch", marker}, "cwd": ".", "timeout_seconds": 1})
@@ -266,7 +268,7 @@ func TestReviewWorkflowControlledCommandRequiresApprovalAndSandbox(t *testing.T)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if settings.ExecutionMode != w.ExecutionControlled || f.runtime.run.EffectiveExecutionMode != w.ExecutionControlled {
+	if settings.ExecutionMode != w.ExecutionWorkspaceAutonomous || f.runtime.run.EffectiveExecutionMode != w.ExecutionWorkspaceAutonomous {
 		t.Fatal("single operation approval changed the entire mode")
 	}
 }
@@ -274,7 +276,7 @@ func TestReviewWorkflowControlledCommandRequiresApprovalAndSandbox(t *testing.T)
 // A03: a tool error after an approval is a failed/unknown admission, never a
 // completed one. The nonexistent temporary file cannot accidentally be read.
 func TestReviewWorkflowFailedApprovedReadIsNotAuditedAsCompleted(t *testing.T) {
-	f := newReviewEffectFixture(t, w.ExecutionControlled)
+	f := newReviewEffectFixture(t, w.ExecutionWorkspaceAutonomous)
 	missing := filepath.Join(filepath.Dir(f.outside), "missing.txt")
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
@@ -303,7 +305,7 @@ func TestReviewWorkflowFailedApprovedReadIsNotAuditedAsCompleted(t *testing.T) {
 // A04: request_tool_access approval must bind to the next exact real operation.
 // A second durable prompt is a failure, even if the UI could answer it again.
 func TestReviewWorkflowPreApprovalIsConsumedByTheRealCallWithoutAnotherPrompt(t *testing.T) {
-	f := newReviewEffectFixture(t, w.ExecutionControlled)
+	f := newReviewEffectFixture(t, w.ExecutionWorkspaceAutonomous)
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	arguments, _ := json.Marshal(map[string]any{"path": f.outside})
@@ -359,7 +361,7 @@ func TestReviewWorkflowPreApprovalIsConsumedByTheRealCallWithoutAnotherPrompt(t 
 // A05: simultaneous calls on one member runtime keep their own admission
 // identities and terminal outcomes. Both use read-only temporary fixtures.
 func TestReviewWorkflowConcurrentApprovedReadsKeepIndependentOutcomes(t *testing.T) {
-	f := newReviewEffectFixture(t, w.ExecutionControlled)
+	f := newReviewEffectFixture(t, w.ExecutionWorkspaceAutonomous)
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
 	defer cancel()
 	missing := filepath.Join(filepath.Dir(f.outside), "missing-concurrent.txt")

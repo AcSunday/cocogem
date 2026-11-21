@@ -20,7 +20,7 @@ func contractFixture(t *testing.T, engine *workflow.Engine) (*deliveryAPI, *stor
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
-		if err := tx.SaveWorkspace(w.Workspace{ID: "project", Name: "项目", Revision: 1, ExecutionMode: w.ExecutionControlled}); err != nil {
+		if err := tx.SaveWorkspace(w.Workspace{ID: "project", Name: "项目", Revision: 1, ExecutionMode: w.ExecutionWorkspaceAutonomous}); err != nil {
 			return err
 		}
 		return tx.SaveThread(w.Thread{ID: "thread", WorkspaceID: "project", Revision: 1, UpdatedAt: w.Now(), CoordinatorID: "owner"})

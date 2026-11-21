@@ -75,7 +75,7 @@ test("uploads an arbitrary file and downloads exact processed bytes", async ({ p
   expect((await configured.json()).execution_mode).toBe("full_access");
   const {items: members} = await (await page.request.get(`${baseURL}/api/v1/workspaces/${workspace.id}/agents`)).json();
   const member = members[0];
-  const thread = await (await page.request.post(`${baseURL}/api/v1/workspaces/${workspace.id}/threads`, {headers,data:{title:"附件处理",workflow:"free",agent_ids:[member.id],coordinator_id:member.id}})).json();
+  const thread = await (await page.request.post(`${baseURL}/api/v1/workspaces/${workspace.id}/threads`, {headers,data:{title:"附件处理",agent_ids:[member.id],coordinator_id:member.id}})).json();
   await page.goto(`${baseURL}/w/${workspace.id}/t/${thread.id}`);
   const attachment = page.locator('input[type="file"]').last();
   await attachment.setInputFiles({name:"input.unlisted",mimeType:"application/octet-stream",buffer:Buffer.from([0,1,2,255])});

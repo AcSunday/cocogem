@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -70,7 +71,7 @@ func newReviewPermissionFixture(t *testing.T, mode string) reviewPermissionFixtu
 		ID: "review-run", WorkspaceID: thread.WorkspaceID, ThreadID: thread.ID,
 		TaskID: created.Task.ID, TaskRevision: created.Task.CurrentRevision,
 		BudgetAccountID: created.Budget.ID,
-		Input:           w.RunInput{Workflow: "engineering", Message: "Execute the fixture inside its explicit permission boundary", Assignments: map[string]string{"engineer": member.ID}},
+		Input:           w.RunInput{Message: "Execute the fixture inside its explicit permission boundary"},
 		Agents:          []w.Agent{member}, CoordinatorID: member.ID,
 		Status: "running", CreatedAt: w.Now(),
 	}
@@ -152,7 +153,7 @@ func reviewApprove(t *testing.T, f reviewPermissionFixture, request w.ToolPermis
 // member steps in the same Run. Only the identical operation may deduplicate.
 func TestReviewPermissionRequestIdentityIncludesStepAttemptAndArguments(t *testing.T) {
 	t.Run("exact duplicate returns the original request", func(t *testing.T) {
-		f := newReviewPermissionFixture(t, w.ExecutionControlled)
+		f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 		input := f.requestInput(t)
 		first := reviewRequest(t, f, input)
 		replayed := reviewRequest(t, f, input)
@@ -162,7 +163,7 @@ func TestReviewPermissionRequestIdentityIncludesStepAttemptAndArguments(t *testi
 	})
 	for _, kind := range []string{"other step", "other attempt"} {
 		t.Run(kind, func(t *testing.T) {
-			f := newReviewPermissionFixture(t, w.ExecutionControlled)
+			f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 			input := f.requestInput(t)
 			first := reviewRequest(t, f, input)
 			if kind == "other step" {
@@ -187,7 +188,7 @@ func TestReviewPermissionRequestIdentityIncludesStepAttemptAndArguments(t *testi
 		})
 	}
 	t.Run("changed arguments under the same call identity conflict", func(t *testing.T) {
-		f := newReviewPermissionFixture(t, w.ExecutionControlled)
+		f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 		input := f.requestInput(t)
 		reviewRequest(t, f, input)
 		input.Arguments = json.RawMessage(`{"argv":["fixture-command","different-target"]}`)
@@ -202,7 +203,7 @@ func TestReviewPermissionRequestIdentityIncludesStepAttemptAndArguments(t *testi
 func TestReviewPermissionAllowanceCannotBeConsumedByAnotherInvocation(t *testing.T) {
 	for _, kind := range []string{"other call", "other step and attempt", "other run"} {
 		t.Run(kind, func(t *testing.T) {
-			f := newReviewPermissionFixture(t, w.ExecutionControlled)
+			f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 			request := reviewApprove(t, f, reviewRequest(t, f, f.requestInput(t)), w.DecisionAllowOnce)
 			first, created, err := f.service.ConsumeAllowance(t.Context(), request.ID, f.run, f.step.ID, f.attempt.ID, request.ToolCallID)
 			if err != nil || !created {
@@ -240,10 +241,11 @@ func TestReviewPermissionAllowanceCannotBeConsumedByAnotherInvocation(t *testing
 	}
 }
 
-// (c) A thread grant is shared across eligible members, not across all tools
-// that happen to map to the same broad action category.
+// (c) A thread grant is shared across eligible members and, per the directory
+// subtree decision, covers every tool whose action level fits inside the
+// approved scope; a read grant still never admits a write.
 func TestReviewPermissionConversationGrantMatchesTheApprovedTool(t *testing.T) {
-	f := newReviewPermissionFixture(t, w.ExecutionProjectAutonomous)
+	f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 	input := f.requestInput(t)
 	input.ToolName, input.Action = "write_file", "write"
 	input.Arguments = json.RawMessage(`{"path":"external.txt","content":"fixture"}`)
@@ -253,7 +255,11 @@ func TestReviewPermissionConversationGrantMatchesTheApprovedTool(t *testing.T) {
 		allowed bool
 	}{
 		{name: "write_file", allowed: true},
-		{name: "patch_file", allowed: false},
+		// The same approved write scope admits an edit tool at the same action
+		// level; that is the cross-tool reuse the directory grant promises.
+		{name: "patch_file", allowed: true},
+		// A read is always covered by a write grant.
+		{name: "read_file", allowed: true},
 	} {
 		t.Run(item.name, func(t *testing.T) {
 			decision, err := f.service.CheckToolAccess(t.Context(), AccessRequest{Run: f.run, StepID: f.step.ID, Attempt: f.attempt.ID, CallID: "another-call", Name: item.name, Arguments: input.Arguments, Scope: f.outside})
@@ -270,7 +276,9 @@ func TestReviewPermissionConversationGrantMatchesTheApprovedTool(t *testing.T) {
 // (d) Being a read/write capability is not proof that its concrete target is
 // inside the workspace. Outside operations must be requestable, not auto-run.
 func TestReviewPermissionProjectOutsideReadsAndWritesRequireApproval(t *testing.T) {
-	for _, mode := range []string{w.ExecutionControlled, w.ExecutionProjectAutonomous} {
+	// Only the autonomous tier can request; full access trusts the explicit
+	// local boundary and is covered by its own capability test.
+	for _, mode := range []string{w.ExecutionWorkspaceAutonomous} {
 		for _, name := range []string{"read_file", "write_file", "run_test"} {
 			t.Run(mode+"/"+name, func(t *testing.T) {
 				f := newReviewPermissionFixture(t, mode)
@@ -302,7 +310,7 @@ func TestReviewPermissionLiveEpochBlocksOldFullAccessRun(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	mode := w.ExecutionControlled
+	mode := w.ExecutionWorkspaceAutonomous
 	change, err := f.service.UpdateSettings(t.Context(), settings.Revision, SettingsPatch{ExecutionMode: &mode})
 	if err != nil {
 		t.Fatal(err)
@@ -321,7 +329,7 @@ func TestReviewPermissionLiveEpochBlocksOldFullAccessRun(t *testing.T) {
 func TestReviewPermissionFinishedExecutionCannotReceiveLateApproval(t *testing.T) {
 	for _, kind := range []string{"attempt ended", "run canceled"} {
 		t.Run(kind, func(t *testing.T) {
-			f := newReviewPermissionFixture(t, w.ExecutionControlled)
+			f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 			request := reviewRequest(t, f, f.requestInput(t))
 			if err := f.db.Write(t.Context(), func(tx *store.Tx) error {
 				if kind == "run canceled" {
@@ -359,7 +367,7 @@ func TestReviewPermissionFinishedExecutionCannotReceiveLateApproval(t *testing.T
 // allow_conversation decision must release both without a second prompt, while a
 // different scope in another thread stays pending.
 func TestReviewPermissionSharedGrantReleasesConcurrentMember(t *testing.T) {
-	f := newReviewPermissionFixture(t, w.ExecutionProjectAutonomous)
+	f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 	// Member A's request.
 	first := f.requestInput(t)
 	first.ToolName, first.Action = "write_file", "write"
@@ -447,7 +455,7 @@ func TestReviewPermissionSharedGrantReleasesConcurrentMember(t *testing.T) {
 // waiting request.
 func TestReviewPermissionSharedGrantRejectsEndedOrRevokedExecution(t *testing.T) {
 	t.Run("attempt ended before release", func(t *testing.T) {
-		f := newReviewPermissionFixture(t, w.ExecutionProjectAutonomous)
+		f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 		first := f.requestInput(t)
 		first.ToolName, first.Action = "write_file", "write"
 		first.ToolCallID = "native-1"
@@ -484,7 +492,7 @@ func TestReviewPermissionSharedGrantRejectsEndedOrRevokedExecution(t *testing.T)
 		}
 	})
 	t.Run("revoked grant never releases a later waiting member", func(t *testing.T) {
-		f := newReviewPermissionFixture(t, w.ExecutionProjectAutonomous)
+		f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
 		first := f.requestInput(t)
 		first.ToolName, first.Action = "write_file", "write"
 		first.ToolCallID = "native-1"
@@ -516,4 +524,170 @@ func TestReviewPermissionSharedGrantRejectsEndedOrRevokedExecution(t *testing.T)
 			t.Fatalf("a revoked grant released the request: %+v", settled)
 		}
 	})
+}
+
+// TestConversationGrantCoversEveryFileInAnApprovedDirectory is the A12
+// regression: after the user approves "the containing directory", a second new
+// file in that subtree is admitted without asking again, while a sibling
+// directory outside it still requests its own decision.
+func TestConversationGrantCoversEveryFileInAnApprovedDirectory(t *testing.T) {
+	f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
+	extDir := filepath.Join(filepath.Dir(f.outside), "ext-dir")
+	if err := os.MkdirAll(extDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(extDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := f.requestInput(t)
+	input.ToolName, input.Action = "write_file", "write"
+	input.NormalizedResourceScope = resolved
+	input.Arguments = json.RawMessage(`{"path":"` + resolved + `/one.txt","content":"fixture"}`)
+	reviewApprove(t, f, reviewRequest(t, f, input), w.DecisionAllowConversation)
+
+	// A new file in the same approved directory is admitted.
+	second := filepath.Join(resolved, "two.txt")
+	decision, err := f.service.CheckToolAccess(t.Context(), AccessRequest{
+		Run: f.run, StepID: f.step.ID, Attempt: f.attempt.ID, CallID: "second-file",
+		Name: "write_file", Arguments: json.RawMessage(`{"path":"` + second + `","content":"second"}`), Scope: second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Allowed || decision.GrantID == "" {
+		t.Fatalf("a new file inside the approved directory requested again: %+v", decision)
+	}
+	// A sibling directory outside the approved subtree still asks.
+	sibling := filepath.Join(filepath.Dir(resolved), "other", "three.txt")
+	decision, err = f.service.CheckToolAccess(t.Context(), AccessRequest{
+		Run: f.run, StepID: f.step.ID, Attempt: f.attempt.ID, CallID: "sibling-file",
+		Name: "write_file", Arguments: json.RawMessage(`{"path":"` + sibling + `","content":"third"}`), Scope: sibling,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Allowed || !decision.Requestable {
+		t.Fatalf("a sibling subtree reused the directory grant: %+v", decision)
+	}
+	// A read grant never authorizes a write in the same directory.
+	f2 := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
+	readInput := f2.requestInput(t)
+	readInput.ToolName, readInput.Action = "read_file", "read"
+	readInput.NormalizedResourceScope = resolved
+	readInput.Arguments = json.RawMessage(`{"path":"` + filepath.Join(resolved, "one.txt") + `"}`)
+	reviewApprove(t, f2, reviewRequest(t, f2, readInput), w.DecisionAllowConversation)
+	write, err := f2.service.CheckToolAccess(t.Context(), AccessRequest{
+		Run: f2.run, StepID: f2.step.ID, Attempt: f2.attempt.ID, CallID: "read-grant-write",
+		Name: "write_file", Arguments: json.RawMessage(`{"path":"` + second + `","content":"x"}`), Scope: second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if write.Allowed {
+		t.Fatalf("a read grant authorized a write: %+v", write)
+	}
+	// A broad root cannot be stored as a directory grant at all.
+	if !w.BroadDirectoryScope("/") || !w.BroadDirectoryScope("/Users") {
+		t.Fatal("broad scopes were not rejected")
+	}
+}
+
+// TestSensitivePathNeverGainsAConversationGrant is the A11 dual-insurance
+// regression: a credential target that the host graded as sensitive can be
+// allowed once, but a conversation grant is rejected outright.
+func TestSensitivePathNeverGainsAConversationGrant(t *testing.T) {
+	f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	sensitive := filepath.Join(home, ".ssh", "id_ed25519")
+	input := f.requestInput(t)
+	input.ToolName, input.Action = "read_file", "read"
+	input.NormalizedResourceScope = sensitive
+	input.Arguments = json.RawMessage(`{"path":"` + sensitive + `"}`)
+	input.Risk = "sensitive_path"
+	request := reviewRequest(t, f, input)
+	if _, err := f.service.DecidePermissionRequest(t.Context(), request.ID, request.Revision, DecisionInput{
+		Decision: w.DecisionAllowConversation, RequestID: "sensitive-conversation",
+	}); !IsCode(err, "invalid_request") {
+		t.Fatalf("sensitive-path conversation grant error = %v", err)
+	}
+	// The one-time decision still works for exactly that call.
+	if _, err := f.service.DecidePermissionRequest(t.Context(), request.ID, request.Revision, DecisionInput{
+		Decision: w.DecisionAllowOnce, RequestID: "sensitive-once",
+	}); err != nil {
+		t.Fatalf("sensitive-path one-time decision failed: %v", err)
+	}
+}
+
+func TestThreeTierActionLevelsAndDirectoryGrantScope(t *testing.T) {
+	f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
+	outside := filepath.Join(t.TempDir(), "docs")
+	if err := os.MkdirAll(outside, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fileA := filepath.Join(outside, "a.md")
+	fileB := filepath.Join(outside, "b.md")
+	if err := os.WriteFile(fileA, []byte("a"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fileB, []byte("b"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Grant write on parent directory explicitly via GrantScope="directory".
+	in := f.requestInput(t)
+	in.ToolName, in.Action = "write_file", "write"
+	in.NormalizedResourceScope = fileA
+	in.Arguments = json.RawMessage(`{"path":"` + fileA + `","content":"x"}`)
+	req := reviewRequest(t, f, in)
+	if _, err := f.service.DecidePermissionRequest(t.Context(), req.ID, req.Revision, DecisionInput{
+		Decision: w.DecisionAllowConversation, RequestID: "dir-grant-decision", GrantScope: "directory",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Sibling fileB read and write MUST both be covered by the write directory grant.
+	readDec, err := f.service.CheckToolAccess(t.Context(), AccessRequest{
+		Run: f.run, StepID: f.step.ID, Attempt: f.attempt.ID, CallID: "read-sibling",
+		Name: "read_file", Action: "read", Scope: fileB,
+	})
+	if err != nil || !readDec.Allowed {
+		t.Fatalf("directory write grant did not cover sibling read: %+v, %v", readDec, err)
+	}
+	// Execute MUST NOT be covered by a write grant (3-tier: read < write < execute).
+	execDec, err := f.service.CheckToolAccess(t.Context(), AccessRequest{
+		Run: f.run, StepID: f.step.ID, Attempt: f.attempt.ID, CallID: "exec-sibling",
+		Name: "run_command", Action: "execute", Scope: fileB,
+	})
+	if err != nil || execDec.Allowed {
+		t.Fatalf("write grant erroneously covered execute: %+v, %v", execDec, err)
+	}
+}
+
+func TestSaveClaimEnforcesOriginalSourceCustody(t *testing.T) {
+	db, service, th := setup(t)
+	task := create(t, service, th)
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.InsertRun(w.Run{
+			ID: "run-1", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: task.Task.ID,
+			Status: "succeeded", CreatedAt: w.Now(),
+		}, "claim-custody-key", "claim-custody-hash"); err != nil {
+			return err
+		}
+		return tx.SaveSource(w.Source{
+			ID: "lead-src", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, RunID: "run-1",
+			Kind: "search", URL: "https://duckduckgo.com/?q=test", Title: "Search lead",
+			Content: "snippet", CapturedAt: w.Now(),
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SaveClaim(t.Context(), w.Claim{
+		ID: "claim-1", WorkspaceID: th.WorkspaceID, TaskID: task.Task.ID,
+		Statement: "Unverified search snippet", Status: "supported",
+		SupportingRefs: []string{"lead-src"},
+	}); !IsCode(err, "invalid_request") {
+		t.Fatalf("supported claim with search lead was not rejected: %v", err)
+	}
 }

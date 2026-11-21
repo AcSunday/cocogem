@@ -32,7 +32,7 @@ func TestEngineTransferStopsRunningInvocationBeforeOwnerCAS(t *testing.T) {
 	defer db.Close()
 	owner := w.Agent{ID: "owner", WorkspaceID: "transfer-ws", DisplayName: "Owner", Handle: "owner", Executor: "claude", Model: "default", Revision: 1}
 	recipient := w.Agent{ID: "recipient", WorkspaceID: owner.WorkspaceID, DisplayName: "Recipient", Handle: "recipient", Executor: "claude", Model: "default", Revision: 1}
-	ws := w.Workspace{ID: owner.WorkspaceID, Name: "transfer", Revision: 1, ExecutionMode: w.ExecutionControlled}
+	ws := w.Workspace{ID: owner.WorkspaceID, Name: "transfer", Revision: 1, ExecutionMode: w.ExecutionWorkspaceAutonomous}
 	th := w.Thread{ID: "transfer-thread", WorkspaceID: ws.ID, AgentIDs: []string{owner.ID, recipient.ID}, CoordinatorID: owner.ID, Revision: 1, UpdatedAt: w.Now()}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {
@@ -55,7 +55,7 @@ func TestEngineTransferStopsRunningInvocationBeforeOwnerCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := w.Run{ID: "transfer-running-run", WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, TaskID: created.Task.ID, TaskRevision: 1, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{owner}, CoordinatorID: owner.ID, Input: w.RunInput{Message: "wait", Workflow: "free"}}
+	run := w.Run{ID: "transfer-running-run", WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, TaskID: created.Task.ID, TaskRevision: 1, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{owner}, CoordinatorID: owner.ID, Input: w.RunInput{Message: "wait"}}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := service.EnsureRunAuthorization(tx, &run, "transfer-create"); err != nil {
 			return err

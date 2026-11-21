@@ -11,7 +11,9 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => cleanup?.());
 
-test("explicit recipients override the workflow and notices open above the input", async ({ page }, testInfo) => {
+test("explicit recipients dispatch deterministically and notices open above the input", async ({
+  page,
+}, testInfo) => {
   const auth = await page.request.post(`${baseURL}/auth/setup`, {
     data: { password: "routing-notice-password" },
   });
@@ -23,25 +25,44 @@ test("explicit recipients override the workflow and notices open above the input
     data: { name: "明确指派验收" },
   });
   const workspace = await created.json();
-  const { items: members } = await (await page.request.get(`${baseURL}/api/v1/workspaces/${workspace.id}/agents`)).json();
-  const orange = members.find((member: { handle: string }) => member.handle === "orange");
-  const thread = await (await page.request.post(`${baseURL}/api/v1/workspaces/${workspace.id}/threads`, {
-    headers,
-    data: { title: "文档比较", agent_ids: [orange.id], coordinator_id: orange.id, workflow: "research" },
-  })).json();
+  const { items: members } = await (
+    await page.request.get(`${baseURL}/api/v1/workspaces/${workspace.id}/agents`)
+  ).json();
+  const orange = members.find(
+    (member: { handle: string }) => member.handle === "orange",
+  );
+  const thread = await (
+    await page.request.post(`${baseURL}/api/v1/workspaces/${workspace.id}/threads`, {
+      headers,
+      data: { title: "文档比较", agent_ids: [orange.id], coordinator_id: orange.id },
+    })
+  ).json();
   await page.goto(`${baseURL}/w/${workspace.id}/t/${thread.id}`);
   const input = page.getByLabel("输入问题");
   await input.fill("@orange 新文档对比原文档有什么变化？");
-  const previewResponse = page.waitForResponse((response) => response.url().endsWith("/routing-preview"));
+  // Sending no longer waits for a model pre-routing round trip.
+  const submissions: unknown[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/runs") && request.method() === "POST") {
+      submissions.push(request.postDataJSON());
+    }
+  });
   await page.getByRole("button", { name: "发送", exact: true }).click();
-  const preview = await (await previewResponse).json();
-  expect(preview.proposal_id).toBeTruthy();
-  expect(preview.routing).toMatchObject({ decision: "assign", workflow: "free", targets: [orange.id], clarification: "" });
-  await expect(page.getByTestId("run-status")).toHaveText("已完成", { timeout: 30000 });
-  const current = await (await page.request.get(`${baseURL}/api/v1/threads/${thread.id}`)).json();
-  expect(current.thread.workflow).toBe("research");
+  await expect(page.getByTestId("run-status")).toHaveText("已完成", {
+    timeout: 30000,
+  });
+  const current = await (
+    await page.request.get(`${baseURL}/api/v1/threads/${thread.id}`)
+  ).json();
+  expect(current.thread).not.toHaveProperty("workflow");
   expect(current.runs).toHaveLength(1);
-  const view = await (await page.request.get(`${baseURL}/api/v1/runs/${current.runs[0].id}`)).json();
+  expect(submissions[0]).not.toHaveProperty("workflow");
+  expect(submissions[0]).not.toHaveProperty("proposal_id");
+  const view = await (
+    await page.request.get(`${baseURL}/api/v1/runs/${current.runs[0].id}`)
+  ).json();
+  // The server resolves the explicit mention deterministically on submit.
+  expect(view.run.input.targets).toEqual([orange.id]);
   expect(view.steps).toHaveLength(1);
   expect(view.steps[0]).toMatchObject({ agent_id: orange.id, role: "responder" });
 
@@ -50,10 +71,14 @@ test("explicit recipients override the workflow and notices open above the input
     { width: 390, height: 844, appearance: "dark" },
   ]) {
     await page.setViewportSize({ width, height });
-    await page.evaluate((value) => { document.documentElement.dataset.appearance = value; }, appearance);
+    await page.evaluate((value) => {
+      document.documentElement.dataset.appearance = value;
+    }, appearance);
     await input.fill("@missing 比较两份文档");
     await page.getByRole("button", { name: "发送", exact: true }).click();
-    const notice = page.getByRole("status").filter({ hasText: "成员 @missing 不可用" });
+    const notice = page
+      .getByRole("alert")
+      .filter({ hasText: "成员 @missing 不可用" });
     await expect(notice).toBeVisible();
     const form = input.locator("xpath=ancestor::form");
     const box = (await notice.boundingBox())!;
@@ -61,7 +86,10 @@ test("explicit recipients override the workflow and notices open above the input
     expect(box.y + box.height).toBeLessThanOrEqual(composer.y);
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(width);
-    const close = notice.getByRole("button", { name: "关闭提示", exact: true });
+    const close = notice.getByRole("button", {
+      name: "关闭错误提示",
+      exact: true,
+    });
     await expect(close).toHaveCSS("border-radius", "50%");
     await expect(close.locator("svg")).toBeVisible();
     const noticeBox = (await notice.boundingBox())!;
@@ -74,14 +102,21 @@ test("explicit recipients override the workflow and notices open above the input
     await expect(notice).toHaveCount(0);
     await expect(input).toHaveValue("@missing 比较两份文档");
     await expect(input).toBeFocused();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    ).toBeTruthy();
   }
 
-  await page.route("**/routing-preview", (route) => route.fulfill({
-    status: 400,
-    contentType: "application/json",
-    body: JSON.stringify({ error: { code: "invalid_request", message: "无法提交，请稍后重试。" } }),
-  }));
+  // A failed submission keeps the draft and reports above the input.
+  await page.route("**/runs", (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: { code: "invalid_request", message: "无法提交，请稍后重试。" },
+      }),
+    }),
+  );
   await input.fill("保留这份草稿");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   const failure = page.getByRole("alert");

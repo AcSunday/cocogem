@@ -11,7 +11,7 @@ afterEach(() => {
 
 it("keeps conversations under home when switching from the task list or browser history", async () => {
   history.replaceState({}, "", "/w/ws/t/thread");
-  const thread = { id: "thread", workspace_id: "ws", title: "导航检查", agent_ids: [], workflow: "free", revision: 1 };
+  const thread = { id: "thread", workspace_id: "ws", title: "导航检查", agent_ids: [], revision: 1 };
   vi.stubGlobal("fetch", vi.fn(async (path: string) => {
     if (path === "/api/v1/system") return Response.json({ models: [], roots: [], verified: {}, limits: {}, executors: [], csrf_token: "test" });
     if (path === "/api/v1/workspaces") return Response.json({ items: [{ id: "ws", name: "测试空间" }] });

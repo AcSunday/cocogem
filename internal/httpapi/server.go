@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/project"
@@ -40,15 +39,6 @@ type Config struct {
 	Limits           map[string]int
 }
 
-type proposal struct {
-	ThreadID string
-	Input    w.RunInput
-	Routing  workflow.Routing
-	Digest   string
-	Catalog  string
-	Expires  time.Time
-}
-
 // Server owns routing previews and local authentication, never provider credentials.
 type Server struct {
 	config          Config
@@ -57,8 +47,6 @@ type Server struct {
 	projects        *project.Service
 	auth            *authentication
 	mu              sync.Mutex
-	proposals       map[string]proposal
-	routerSlots     chan struct{}
 	verified        map[string]string
 	verifiedProgram map[string]string
 	// purgeExpired is a test seam for lifecycle tests; production uses
@@ -75,7 +63,7 @@ func New(config Config, db *store.Store, engine *workflow.Engine) (*Server, erro
 	if err != nil {
 		return nil, fmt.Errorf("initialize local authentication: %w", err)
 	}
-	s := &Server{config: config, store: db, engine: engine, projects: project.New(db), auth: auth, proposals: map[string]proposal{}, routerSlots: make(chan struct{}, 2), verified: map[string]string{}, verifiedProgram: map[string]string{}}
+	s := &Server{config: config, store: db, engine: engine, projects: project.New(db), auth: auth, verified: map[string]string{}, verifiedProgram: map[string]string{}}
 	return s, nil
 }
 
@@ -114,7 +102,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/trash", s.trash)
 	mux.HandleFunc("POST /api/v1/threads/{id}/restore", s.restoreThread)
 	mux.HandleFunc("DELETE /api/v1/threads/{id}/permanent", s.permanentDeleteThread)
-	mux.HandleFunc("POST /api/v1/threads/{id}/routing-preview", s.preview)
 	mux.HandleFunc("POST /api/v1/threads/{id}/runs", s.submit)
 	mux.HandleFunc("POST /api/v1/threads/{id}/sources", s.importSource)
 	mux.HandleFunc("GET /api/v1/threads/{id}/sources", s.sourceImports)
@@ -170,6 +157,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs/{id}/event-history", s.eventHistory)
 	mux.HandleFunc("GET /api/v1/runs/{id}/messages/{messageID}/content", s.messageContent)
 	mux.HandleFunc("GET /api/v1/sources/{id}", s.source)
+	mux.HandleFunc("GET /api/v1/threads/{id}/candidates", s.threadCandidates)
+	mux.HandleFunc("GET /api/v1/threads/{id}/candidates/{executionID}/diff", s.candidateDiff)
+	mux.HandleFunc("POST /api/v1/threads/{id}/candidates/{executionID}/export-branch", s.exportCandidateBranch)
+	mux.HandleFunc("POST /api/v1/threads/{id}/candidates/{executionID}/apply", s.applyCandidate)
+	mux.HandleFunc("POST /api/v1/threads/{id}/candidates/{executionID}/discard", s.discardCandidate)
 	mux.HandleFunc("GET /api/v1/threads/{id}/artifacts", s.artifacts)
 	mux.HandleFunc("GET /api/v1/artifacts/{id}/versions/{version}", s.artifact)
 	mux.HandleFunc("PATCH /api/v1/artifacts/{id}/versions/{version}", s.feedback)

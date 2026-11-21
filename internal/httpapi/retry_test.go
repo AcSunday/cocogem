@@ -18,7 +18,7 @@ func seedRetrySource(t *testing.T, db *store.Store, status string) (w.Thread, w.
 	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Title: "retry", Revision: 1, UpdatedAt: w.Now()}
 	agent := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "重试成员", Handle: "retry-member", Model: "test", Tools: []string{"read_file", "publish_artifact"}, Revision: 1}
 	thread.AgentIDs, thread.CoordinatorID = []string{agent.ID}, agent.ID
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: status, CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{agent}, CoordinatorID: agent.ID, Input: w.RunInput{Message: "需要重试的任务", Workflow: "free", Targets: []string{agent.ID}, ResearchScope: "given_sources"}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: status, CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{agent}, CoordinatorID: agent.ID, Input: w.RunInput{Message: "需要重试的任务", Targets: []string{agent.ID}, ResearchScope: "given_sources"}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
 	if status == "failed" {
 		run.Error = "protocol failure"
 	}

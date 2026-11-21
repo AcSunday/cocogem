@@ -16,7 +16,7 @@ func TestBootstrapFirstInputIsAtomicAndReplayable(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	api := newDeliveryAPI(t, root, db, nil)
-	input := BootstrapInput{Title: "比较两种协作方案", Workflow: "research"}
+	input := BootstrapInput{Title: "比较两种协作方案"}
 	headers := map[string]string{"Idempotency-Key": "first-input-stable-key"}
 	var first, replay BootstrapReply
 	api.call("POST", "/api/v1/bootstrap", input, headers, 200, &first)
@@ -24,7 +24,7 @@ func TestBootstrapFirstInputIsAtomicAndReplayable(t *testing.T) {
 	if first.Workspace.ID != replay.Workspace.ID || first.Thread.ID != replay.Thread.ID {
 		t.Fatalf("bootstrap replay created new identities: %+v / %+v", first, replay)
 	}
-	if first.Workspace.Name != "未命名项目" || first.Workspace.Root != "" || first.Workspace.ExecutionMode != w.ExecutionControlled {
+	if first.Workspace.Name != "未命名项目" || first.Workspace.Root != "" || first.Workspace.ExecutionMode != w.ExecutionWorkspaceAutonomous {
 		t.Fatalf("unsafe or blocking first project: %+v", first.Workspace)
 	}
 	if first.Thread.Title != input.Title || first.Thread.CoordinatorID == "" || len(first.Agents) == 0 {

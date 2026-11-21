@@ -77,6 +77,24 @@ type TaskView struct {
 	LastRunError       string `json:"last_run_error,omitempty"`
 	LastRunStartedAt   string `json:"last_run_started_at,omitempty"`
 	LastRunFinishedAt  string `json:"last_run_finished_at,omitempty"`
+
+	// The board projection below is assembled from one batch read, so the global
+	// list never issues a per-task query.
+	PendingPermissions    int               `json:"pending_permissions,omitempty"`
+	OpenQuestions         int               `json:"open_questions,omitempty"`
+	ActiveChildren        int               `json:"active_children_count,omitempty"`
+	AttentionChildren     int               `json:"attention_children_count,omitempty"`
+	CandidateVerification *CandidateSummary `json:"candidate_verification,omitempty"`
+}
+
+// CandidateSummary is the task-board view of an unapplied candidate. The exact
+// diff and test evidence live in the conversation verdict, because only the
+// execution manager can compute them.
+type CandidateSummary struct {
+	ExecutionID string `json:"execution_id"`
+	State       string `json:"state"`
+	Path        string `json:"path,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 // Overview is the two-page product's project-facing projection.
@@ -371,14 +389,15 @@ func (s *Service) EnsureThreadTask(tx *store.Tx, th w.Thread, in w.RunInput, mes
 		if policy.Mode == w.ExecutionFullAccess && !slices.Contains(actions, "execute") {
 			actions = append(actions, "execute")
 		}
-		if engineeringWrites(in) {
-			for _, action := range []string{"write", "run_test"} {
-				if !slices.Contains(actions, action) {
-					actions = append(actions, action)
-				}
+		for _, action := range []string{"write", "run_test"} {
+			if !slices.Contains(actions, action) {
+				actions = append(actions, action)
 			}
 		}
 	}
+	// A new advancing user message always advances the accepted objective. That
+	// includes a completed task: reviseTaskInTx moves it back to ready with a
+	// new revision, so the follow-up activates instead of returning a conflict.
 	view, err = s.reviseTaskInTx(tx, view.Task, ReviseTaskInput{
 		Goal: goal, Scope: view.Revision.Scope, NonGoals: view.Revision.NonGoals,
 		ConstraintRefs: view.Revision.ConstraintRefs, Acceptance: nil,
@@ -438,6 +457,70 @@ func (s *Service) taskInTx(tx *store.Tx, id string) (TaskView, error) {
 		view.LastRunFinishedAt = run.FinishedAt
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return TaskView{}, err
+	}
+	questions, err := tx.OpenQuestions()
+	if err != nil {
+		return TaskView{}, err
+	}
+	requests, err := tx.PendingPermissionRequests()
+	if err != nil {
+		return TaskView{}, err
+	}
+	executions, err := tx.UnappliedExecutions()
+	if err != nil {
+		return TaskView{}, err
+	}
+	wsTasks, err := tx.Tasks(task.WorkspaceID)
+	if err != nil {
+		return TaskView{}, err
+	}
+	runs, err := tx.LatestTaskRuns()
+	if err != nil {
+		return TaskView{}, err
+	}
+	runTask := map[string]string{}
+	for _, run := range runs {
+		runTask[run.ID] = run.TaskID
+	}
+	threadTask := map[string]string{}
+	for _, t := range wsTasks {
+		if t.ThreadID != "" {
+			threadTask[t.ThreadID] = t.ID
+		}
+	}
+	openByTask := map[string]int{}
+	for _, q := range questions {
+		openByTask[q.TaskID]++
+	}
+	pendingByTask := map[string]int{}
+	for _, req := range requests {
+		if tid := runTask[req.RunID]; tid != "" {
+			pendingByTask[tid]++
+			continue
+		}
+		if tid := threadTask[req.ThreadID]; tid != "" {
+			pendingByTask[tid]++
+		}
+	}
+	view.OpenQuestions = openByTask[task.ID]
+	view.PendingPermissions = pendingByTask[task.ID]
+	for _, execution := range executions {
+		if execution.TaskID == task.ID {
+			view.CandidateVerification = &CandidateSummary{
+				ExecutionID: execution.ID, State: "unapplied", Path: execution.Path,
+				Reason: "候选变更尚未应用；精确验证状态见会话",
+			}
+			break
+		}
+	}
+	for _, child := range wsTasks {
+		if child.ParentID != task.ID || child.Status == "completed" || child.Status == "canceled" {
+			continue
+		}
+		view.ActiveChildren++
+		if openByTask[child.ID] > 0 || pendingByTask[child.ID] > 0 {
+			view.AttentionChildren++
+		}
 	}
 	return view, nil
 }
@@ -906,48 +989,212 @@ func (s *Service) ReserveRun(ctx context.Context, taskID string, automatic bool)
 	return account, err
 }
 
-// ProjectOverview returns active records and task projections without loading all message bodies.
 // TaskBoard returns durable work from every workspace for the global todo view.
+//
+// Everything below is assembled from one read transaction with a constant
+// number of queries: workspaces, members, tasks, latest revisions, ledgers,
+// completions, latest runs, open questions, pending permission requests and
+// unapplied candidates. No task issues its own per-row query.
 func (s *Service) TaskBoard(ctx context.Context) (TaskBoard, error) {
-	out := TaskBoard{Tasks: []TaskView{}, Workspaces: map[string]string{}, Members: map[string]string{}, NeedsAttention: []w.Question{}}
+	out := TaskBoard{Tasks: []TaskView{}, Workspaces: map[string]string{}, Members: map[string]string{}}
 	err := s.store.Read(ctx, func(tx *store.Tx) error {
 		workspaces, err := tx.Workspaces()
 		if err != nil {
 			return err
 		}
-		for _, ws := range workspaces {
-			out.Workspaces[ws.ID] = ws.Name
-			members, err := tx.Agents(ws.ID)
-			if err != nil {
-				return err
-			}
-			for _, member := range members {
-				out.Members[member.ID] = member.DisplayName
-			}
-		}
-		tasks, err := tx.AllTasks()
+		names, members, err := batchWorkspaceMetadata(tx, workspaces)
 		if err != nil {
 			return err
 		}
-		for _, task := range tasks {
-			view, err := s.taskInTx(tx, task.ID)
-			if err != nil {
-				return err
-			}
-			out.Tasks = append(out.Tasks, view)
-			questions, err := tx.Questions(task.ID)
-			if err != nil {
-				return err
-			}
-			for _, question := range questions {
-				if question.Status == "open" {
-					out.NeedsAttention = append(out.NeedsAttention, question)
-				}
-			}
+		out.Workspaces, out.Members = names, members
+		views, questions, err := batchTaskViews(tx)
+		if err != nil {
+			return err
 		}
+		out.Tasks = views
+		out.NeedsAttention = questions
 		return nil
 	})
 	return out, err
+}
+
+// batchWorkspaceMetadata resolves workspace names and member display names in
+// two queries instead of one per workspace.
+func batchWorkspaceMetadata(tx *store.Tx, workspaces []w.Workspace) (map[string]string, map[string]string, error) {
+	names := make(map[string]string, len(workspaces))
+	for _, ws := range workspaces {
+		names[ws.ID] = ws.Name
+	}
+	all, err := tx.AllAgents()
+	if err != nil {
+		return nil, nil, err
+	}
+	members := make(map[string]string, len(all))
+	for _, member := range all {
+		members[member.ID] = member.DisplayName
+	}
+	return names, members, nil
+}
+
+// batchTaskViews builds every TaskView from bulk reads. Callers may reuse it in
+// any read transaction; it never calls a per-task reader.
+func batchTaskViews(tx *store.Tx) ([]TaskView, []w.Question, error) {
+	tasks, err := tx.AllTasks()
+	if err != nil {
+		return nil, nil, err
+	}
+	revisions, err := tx.AllTaskRevisions()
+	if err != nil {
+		return nil, nil, err
+	}
+	ledgers, err := tx.AllBudgetAccounts()
+	if err != nil {
+		return nil, nil, err
+	}
+	completions, err := tx.AllCompletions()
+	if err != nil {
+		return nil, nil, err
+	}
+	runs, err := tx.LatestTaskRuns()
+	if err != nil {
+		return nil, nil, err
+	}
+	questions, err := tx.OpenQuestions()
+	if err != nil {
+		return nil, nil, err
+	}
+	requests, err := tx.PendingPermissionRequests()
+	if err != nil {
+		return nil, nil, err
+	}
+	executions, err := tx.UnappliedExecutions()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	currentRevision := map[string]w.TaskRevision{}
+	for _, revision := range revisions {
+		if previous, ok := currentRevision[revision.TaskID]; !ok || revision.Revision > previous.Revision {
+			currentRevision[revision.TaskID] = revision
+		}
+	}
+	ledgerByID := map[string]w.BudgetAccount{}
+	for _, ledger := range ledgers {
+		ledgerByID[ledger.ID] = ledger
+	}
+	completionByTask := map[string][]w.CompletionRecord{}
+	for _, completion := range completions {
+		completionByTask[completion.TaskID] = append(completionByTask[completion.TaskID], completion)
+	}
+	runByTask := map[string]w.Run{}
+	runByID := map[string]w.Run{}
+	for _, run := range runs {
+		runByTask[run.TaskID] = run
+		runByID[run.ID] = run
+	}
+	openQuestions := map[string]int{}
+	threadTasks := map[string]string{}
+	for _, task := range tasks {
+		if task.ThreadID != "" {
+			threadTasks[task.ThreadID] = task.ID
+		}
+	}
+	for _, question := range questions {
+		openQuestions[question.TaskID]++
+	}
+	pendingByTask := map[string]int{}
+	for _, request := range requests {
+		if taskID := runByID[request.RunID].TaskID; taskID != "" {
+			pendingByTask[taskID]++
+			continue
+		}
+		// A request attached to a thread whose task is not the latest run still
+		// counts against the conversation's task.
+		if taskID := threadTasks[request.ThreadID]; taskID != "" {
+			pendingByTask[taskID]++
+		}
+	}
+	executionByTask := map[string]w.WorkspaceExecution{}
+	for _, execution := range executions {
+		executionByTask[execution.TaskID] = execution
+	}
+	children := map[string][]w.Task{}
+	for _, task := range tasks {
+		if task.ParentID != "" {
+			children[task.ParentID] = append(children[task.ParentID], task)
+		}
+	}
+	views := make([]TaskView, 0, len(tasks))
+	for _, task := range tasks {
+		revision, ok := currentRevision[task.ID]
+		if !ok {
+			return nil, nil, fmt.Errorf("task %s has no accepted revision", task.ID)
+		}
+		ledger, ok := ledgerByID[task.BudgetAccountID]
+		if !ok {
+			return nil, nil, fmt.Errorf("task %s has no budget ledger", task.ID)
+		}
+		view := TaskView{
+			Task: task, Revision: revision, Budget: ledger,
+			Completions:        nonNilCompletion(completionByTask[task.ID]),
+			PendingPermissions: pendingByTask[task.ID],
+			OpenQuestions:      openQuestions[task.ID],
+		}
+		if run, ok := runByTask[task.ID]; ok {
+			view.LastRunID = run.ID
+			view.LastRunStatus = run.Status
+			view.LastRunFailureKind = run.FailureKind
+			view.LastRunError = run.Error
+			view.LastRunStartedAt = run.StartedAt
+			view.LastRunFinishedAt = run.FinishedAt
+		}
+		if execution, ok := executionByTask[task.ID]; ok {
+			view.CandidateVerification = &CandidateSummary{
+				ExecutionID: execution.ID, State: "unapplied", Path: execution.Path,
+				Reason: "候选变更尚未应用；精确验证状态见会话",
+			}
+		}
+		for _, child := range children[task.ID] {
+			if child.Status == "completed" || child.Status == "canceled" {
+				continue
+			}
+			view.ActiveChildren++
+			if openQuestions[child.ID] > 0 || pendingByTask[child.ID] > 0 {
+				view.AttentionChildren++
+			}
+		}
+		views = append(views, view)
+	}
+	return views, questions, nil
+}
+
+func nonNilCompletion(values []w.CompletionRecord) []w.CompletionRecord {
+	if values == nil {
+		return []w.CompletionRecord{}
+	}
+	return values
+}
+
+func batchTaskViewsForWorkspace(tx *store.Tx, workspaceID string) ([]TaskView, []w.Question, error) {
+	allViews, allQuestions, err := batchTaskViews(tx)
+	if err != nil {
+		return nil, nil, err
+	}
+	views := []TaskView{}
+	taskSet := map[string]bool{}
+	for _, view := range allViews {
+		if view.Task.WorkspaceID == workspaceID {
+			views = append(views, view)
+			taskSet[view.Task.ID] = true
+		}
+	}
+	questions := []w.Question{}
+	for _, q := range allQuestions {
+		if taskSet[q.TaskID] {
+			questions = append(questions, q)
+		}
+	}
+	return views, questions, nil
 }
 
 func (s *Service) ProjectOverview(ctx context.Context, workspaceID string) (Overview, error) {
@@ -961,27 +1208,11 @@ func (s *Service) ProjectOverview(ctx context.Context, workspaceID string) (Over
 		if err != nil {
 			return err
 		}
-		tasks, err := tx.Tasks(workspaceID)
+		views, questions, err := batchTaskViewsForWorkspace(tx, workspaceID)
 		if err != nil {
 			return err
 		}
-		out = Overview{Workspace: ws, Records: currentRecords(records), Tasks: []TaskView{}, NeedsAttention: []w.Question{}}
-		for _, task := range tasks {
-			view, err := s.taskInTx(tx, task.ID)
-			if err != nil {
-				return err
-			}
-			out.Tasks = append(out.Tasks, view)
-			questions, err := tx.Questions(task.ID)
-			if err != nil {
-				return err
-			}
-			for _, question := range questions {
-				if question.Status == "open" {
-					out.NeedsAttention = append(out.NeedsAttention, question)
-				}
-			}
-		}
+		out = Overview{Workspace: ws, Records: currentRecords(records), Tasks: views, NeedsAttention: questions}
 		return nil
 	})
 	return out, err

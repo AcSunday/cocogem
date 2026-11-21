@@ -54,6 +54,14 @@ export type PermissionRequestList =
 export type ConversationGrant = components["schemas"]["ConversationGrant"];
 export type ConversationGrantList =
   components["schemas"]["ConversationGrantList"];
+export type WorkspaceExecution = components["schemas"]["WorkspaceExecution"];
+export type CandidateVerification =
+  components["schemas"]["CandidateVerification"];
+/** One unapplied candidate directory and its settlement verdict. */
+export type CandidateView = {
+  execution: WorkspaceExecution;
+  verification: CandidateVerification;
+};
 
 /** The browser keeps a bounded activity window; older history is paged on demand. */
 export const EVENT_WINDOW = 500;
@@ -470,11 +478,16 @@ export async function threadPermissionRequests(
 export async function decidePermissionRequest(
   request: ToolPermissionRequest,
   decision: "allow_once" | "allow_conversation" | "deny",
+  grantScope?: "file" | "directory",
 ): Promise<ToolPermissionRequest> {
   return api<ToolPermissionRequest>(
     `/api/v1/permission-requests/${encodeURIComponent(request.id)}/decisions`,
     "POST",
-    { decision, request_id: request.request_id },
+    {
+      decision,
+      request_id: request.request_id,
+      ...(grantScope ? { grant_scope: grantScope } : {}),
+    },
     { "If-Match": String(request.revision) },
   );
 }
@@ -496,6 +509,68 @@ export async function revokePermissionGrant(
     "POST",
     {},
   );
+}
+
+/** Unapplied candidate directories of one conversation and their verdicts. */
+export async function threadCandidates(
+  threadID: string,
+): Promise<CandidateView[]> {
+  const page = await api<{ items?: CandidateView[] | null }>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/candidates`,
+  );
+  return page.items ?? [];
+}
+
+/**
+ * Writes one candidate back to the bound project. The server refuses with 409
+ * when a project file changed after the candidate was derived; the caller
+ * shows the exact conflict instead of retrying blindly.
+ */
+export function applyCandidate(
+  threadID: string,
+  executionID: string,
+): Promise<WorkspaceExecution> {
+  return api<WorkspaceExecution>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/candidates/${encodeURIComponent(executionID)}/apply`,
+    "POST",
+    {},
+  );
+}
+
+/** Destroys one candidate without touching the bound project. */
+export function discardCandidate(
+  threadID: string,
+  executionID: string,
+): Promise<WorkspaceExecution> {
+  return api<WorkspaceExecution>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/candidates/${encodeURIComponent(executionID)}/discard`,
+    "POST",
+    {},
+  );
+}
+
+/** Reads the live unified diff of an unapplied candidate before Apply. */
+export async function candidateDiff(
+  threadID: string,
+  executionID: string,
+): Promise<string> {
+  const reply = await api<{ id: string; diff: string }>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/candidates/${encodeURIComponent(executionID)}/diff`,
+  );
+  return reply.diff ?? "";
+}
+
+/** Exports one Git candidate to a local branch (cocogem/cand-<shortID>). */
+export async function exportCandidateBranch(
+  threadID: string,
+  executionID: string,
+): Promise<string> {
+  const reply = await api<{ id: string; branch: string }>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/candidates/${encodeURIComponent(executionID)}/export-branch`,
+    "POST",
+    {},
+  );
+  return reply.branch ?? "";
 }
 
 /** Narrow delivery projection used by TaskDetail; never loads sources. */

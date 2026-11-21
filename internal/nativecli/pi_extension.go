@@ -132,14 +132,31 @@ func preparePiNative(request model.Request, workdir string, gate *bridge, launch
 	for _, tool := range request.Tools {
 		names = append(names, "mcp__cocogem__"+tool.Name)
 	}
-	names = append(names, "read", "bash", "edit", "write")
+	if request.ReadOnly {
+		names = append(names, "read")
+	} else {
+		names = append(names, "read", "bash", "edit", "write")
+	}
 	// RPC mode is long-lived: adding --print would make Pi exit after the
 	// prompt instead of emitting agent_settled, so the gate would hang.
-	args := []string{
-		"--mode", "rpc", "--no-session", "--no-skills", "--no-prompt-templates",
+	args := []string{"--mode", "rpc"}
+	if managedNativeSession(request) {
+		if nativeRoot := nativeStateRoot("pi"); nativeRoot != "" {
+			sessionDir := filepath.Join(nativeRoot, "sessions")
+			if err := os.MkdirAll(sessionDir, 0700); err == nil {
+				args = append(args, "--session-dir", sessionDir)
+			}
+		}
+		if request.SessionMode == "resume" && request.SessionID != "" {
+			args = append(args, "--session", request.SessionID)
+		}
+	} else {
+		args = append(args, "--no-session")
+	}
+	args = append(args, "--no-skills", "--no-prompt-templates",
 		"--no-themes", "--no-context-files", "--no-approve", "--no-extensions",
 		"-e", "builtin:mcp", "-e", extension, "--tools", strings.Join(names, ","),
-	}
+	)
 	if plan.piModel != "" {
 		args = append(args, "--model", plan.piModel, "--thinking", plan.piThinking)
 	}

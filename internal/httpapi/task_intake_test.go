@@ -70,12 +70,9 @@ func TestChatStaysLightweightThenPromotesInPlace(t *testing.T) {
 	member.Executor = "claude"
 	api.call("PATCH", "/api/v1/agents/"+member.ID, member, map[string]string{"If-Match": fmt.Sprint(member.Revision)}, 200, &member)
 	var th w.Thread
-	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "先讨论", AgentIDs: []string{member.ID}, CoordinatorID: member.ID, Workflow: "free"}, nil, 200, &th)
+	api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "先讨论", AgentIDs: []string{member.ID}, CoordinatorID: member.ID}, nil, 200, &th)
 	submit := func(message, key string) w.Run {
-		in := w.RunInput{Message: message, Workflow: "free", ResearchScope: "auto"}
-		var preview RoutingPreview
-		api.call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", in, nil, 200, &preview)
-		in.ProposalID = preview.ProposalID
+		in := w.RunInput{Message: message, ResearchScope: "auto"}
 		var run w.Run
 		api.call("POST", "/api/v1/threads/"+th.ID+"/runs", in, map[string]string{"Idempotency-Key": key}, 202, &run)
 		deadline := time.Now().Add(10 * time.Second)

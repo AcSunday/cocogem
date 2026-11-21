@@ -37,16 +37,19 @@ var adapters = map[string]adapterSpec{
 	"codex": {
 		name: "codex", adapter: "codex-exec-json", minVersion: [3]int{0, 100, 0},
 		flags:        []string{"--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "--json"},
+		resumeFlags:  []string{"resume"},
 		capabilities: []string{"stream_json", "scoped_mcp", "ephemeral_session", "tool_allowlist"},
 	},
 	"gemini": {
 		name: "gemini", adapter: "gemini-stream-json", minVersion: [3]int{0, 50, 0},
 		flags:        []string{"--extensions", "--allowed-mcp-server-names", "--policy", "--admin-policy", "--output-format", "--skip-trust", "--approval-mode"},
+		resumeFlags:  []string{"--resume"},
 		capabilities: []string{"stream_json", "scoped_mcp", "policy_engine", "tool_allowlist"},
 	},
 	"pi": {
 		name: "pi", adapter: "pi-json", minVersion: [3]int{1, 4, 0},
 		flags:        []string{"--mode", "--print", "--no-session", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-builtin-tools", "--tools", "--thinking"},
+		resumeFlags:  []string{"--session"},
 		capabilities: []string{"stream_json", "scoped_mcp", "ephemeral_session", "tool_allowlist"},
 	},
 }

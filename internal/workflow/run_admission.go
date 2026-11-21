@@ -67,7 +67,7 @@ func (e *Engine) admitRun(ctx context.Context, run w.Run) (runAdmission, error) 
 			run.Delivery = &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}
 		}
 		if run.SkillSnapshot != "" {
-			hash, skillErr := skills.SnapshotHash(run.Workspace.SkillIDs)
+			hash, skillErr := skills.SnapshotHashFor(run.Workspace.Root, run.Workspace.SkillIDs)
 			if skillErr != nil || hash != run.SkillSnapshot {
 				return errors.New("shared skill version changed before dispatch; start a new run")
 			}

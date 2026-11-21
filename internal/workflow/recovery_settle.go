@@ -207,7 +207,7 @@ func (r *recoveryTransaction) succeed() error {
 			return r.tx.AppendEvent(r.id, "", "", "run_finished", *r.run)
 		}
 		r.run.Delivery = delivery
-		r.run.Method = settledMethod(*r.run, r.steps)
+		r.run.Method = settledMethod(r.steps)
 	}
 	r.run.Status = "succeeded"
 	r.run.Error = ""
@@ -215,7 +215,7 @@ func (r *recoveryTransaction) succeed() error {
 	if err := r.tx.SaveRun(*r.run); err != nil {
 		return err
 	}
-	if r.run.Delivery != nil && r.run.SelectedWorkflow == nil && (r.run.Input.Workflow == "" || r.run.Input.Workflow == "free") {
+	if r.run.Delivery != nil {
 		if err := r.tx.AppendEvent(r.id, "", "", "method_recorded", map[string]any{"method": r.run.Method}); err != nil {
 			return err
 		}

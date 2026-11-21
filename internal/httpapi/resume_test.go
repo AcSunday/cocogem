@@ -70,14 +70,14 @@ func TestRunViewAttemptsAndExplicitResume(t *testing.T) {
 	var members struct{ Items []w.Agent }
 	json.Unmarshal(rw.Body.Bytes(), &members)
 	agent := members.Items[0]
-	thread := w.Thread{Title: "恢复会话", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID, Workflow: "free"}
+	thread := w.Thread{Title: "恢复会话", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID}
 	rw = call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", thread)
 	if rw.Code != 200 {
 		t.Fatal(rw.Body.String())
 	}
 	json.Unmarshal(rw.Body.Bytes(), &thread)
 
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "interrupted", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{agent}, CoordinatorID: agent.ID, Input: w.RunInput{Message: "继续给定任务", Workflow: "free", Targets: []string{agent.ID}, ResearchScope: "given_sources"}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "interrupted", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{agent}, CoordinatorID: agent.ID, Input: w.RunInput{Message: "继续给定任务", Targets: []string{agent.ID}, ResearchScope: "given_sources"}}
 	step := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: agent.ID, AgentName: agent.DisplayName, Role: "responder", Instruction: "Answer the task", Status: "interrupted", Error: "capability_blocked: claude: missing --restricted"}
 	attempt := w.Attempt{ID: w.NewID(), RunID: run.ID, StepID: step.ID, Number: 1, Status: "blocked", Reason: "initial", Error: step.Error, StartedAt: w.Now(), FinishedAt: w.Now()}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
@@ -182,10 +182,10 @@ func TestResumeRejectsCanceledRun(t *testing.T) {
 	var members struct{ Items []w.Agent }
 	json.Unmarshal(rw.Body.Bytes(), &members)
 	agent := members.Items[0]
-	thread := w.Thread{Title: "取消会话", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID, Workflow: "free"}
+	thread := w.Thread{Title: "取消会话", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID}
 	rw = call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", thread)
 	json.Unmarshal(rw.Body.Bytes(), &thread)
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "canceled", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{agent}, Input: w.RunInput{Message: "停止", Workflow: "free", Targets: []string{agent.ID}}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "canceled", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{agent}, Input: w.RunInput{Message: "停止", Targets: []string{agent.ID}}}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.InsertRun(run, w.NewID(), "canceled") }); err != nil {
 		t.Fatal(err)
 	}
@@ -242,14 +242,14 @@ func TestDeleteRefusesAliveOwnedProcess(t *testing.T) {
 	var members struct{ Items []w.Agent }
 	json.Unmarshal(rw.Body.Bytes(), &members)
 	agent := members.Items[0]
-	thread := w.Thread{Title: "进程会话", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID, Workflow: "free"}
+	thread := w.Thread{Title: "进程会话", AgentIDs: []string{agent.ID}, CoordinatorID: agent.ID}
 	rw = call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", thread)
 	json.Unmarshal(rw.Body.Bytes(), &thread)
 	self, err := proc.Inspect(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "interrupted", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{agent}, Input: w.RunInput{Message: "pending", Workflow: "free", Targets: []string{agent.ID}}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "interrupted", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{agent}, Input: w.RunInput{Message: "pending", Targets: []string{agent.ID}}}
 	step := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: agent.ID, AgentName: agent.DisplayName, Role: "responder", Status: "interrupted", Instruction: "pending"}
 	attempt := w.Attempt{ID: w.NewID(), RunID: run.ID, StepID: step.ID, Number: 1, Status: "uncertain", StartedAt: w.Now(), Process: &w.ProcessRef{PID: self.PID, PGID: self.PGID, Start: self.Start}}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
@@ -300,9 +300,9 @@ func TestHTTPResumeRaceWithSoftDelete(t *testing.T) {
 	s.engine.Adapters = blocker
 	ws := w.Workspace{ID: w.NewID(), Name: "race", Revision: 1}
 	member := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "review", Handle: "review", Executor: "claude", Model: "default", Revision: 1, Tools: []string{}}
-	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Title: "race", Revision: 1, UpdatedAt: w.Now(), AgentIDs: []string{member.ID}, CoordinatorID: member.ID, Workflow: "free"}
+	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Title: "race", Revision: 1, UpdatedAt: w.Now(), AgentIDs: []string{member.ID}, CoordinatorID: member.ID}
 	policy := w.ExecutionPolicy{}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "interrupted", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID, ExecutionPolicy: &policy, Input: w.RunInput{Message: "retry", Workflow: "free", ResearchScope: "given_sources", Targets: []string{member.ID}}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "interrupted", CreatedAt: w.Now(), FinishedAt: w.Now(), Agents: []w.Agent{member}, CoordinatorID: member.ID, ExecutionPolicy: &policy, Input: w.RunInput{Message: "retry", ResearchScope: "given_sources", Targets: []string{member.ID}}}
 	step := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: member.ID, Role: "responder", Status: "interrupted", Instruction: "reply"}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {

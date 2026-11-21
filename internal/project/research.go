@@ -8,8 +8,25 @@ import (
 	"strings"
 
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
+
+// isLeadSource identifies search snippets and search-result pages that may guide
+// follow-up reading but cannot prove a supported claim on their own.
+func isLeadSource(source w.Source) bool {
+	if tools.IsSearchResultURL(source.URL) {
+		return true
+	}
+	switch source.Kind {
+	case "file", "text", "web", "html", "native_file", "native_web", "diff", "test", "image",
+		"csv", "tsv", "pdf", "docx", "xlsx", "pptx",
+		"doc", "rtf", "odt", "wordml", "webarchive":
+		return false
+	default:
+		return true
+	}
+}
 
 func claimSources(tx *store.Tx, workspaceID string, refs []string) ([]w.Source, error) {
 	sources := make([]w.Source, 0, len(refs))
@@ -88,7 +105,7 @@ func (s *Service) SaveClaim(ctx context.Context, in w.Claim) (w.Claim, error) {
 			if evidence.Completeness != "unavailable" && !locatorMatches(source, evidence.Locator) {
 				return errorf("evidence_stale", "claim evidence locator does not match the captured source")
 			}
-			if evidence.Relation == "supports" && evidence.Completeness == "complete" && strings.TrimSpace(evidence.Reviewer) != "" {
+			if evidence.Relation == "supports" && evidence.Completeness == "complete" && strings.TrimSpace(evidence.Reviewer) != "" && !isLeadSource(source) {
 				completeSupport = true
 			}
 			if evidence.Relation == "supports" {
@@ -100,7 +117,7 @@ func (s *Service) SaveClaim(ctx context.Context, in w.Claim) (w.Claim, error) {
 			refs = append(refs, evidence.SourceID)
 		}
 		if in.Status == "supported" && !completeSupport {
-			return errorf("insufficient_evidence", "supported claims require complete located evidence and a semantic reviewer")
+			return errorf("insufficient_evidence", "supported claims require complete located original-source evidence (not search leads) and a semantic reviewer")
 		}
 		sources, err := claimSources(tx, in.WorkspaceID, refs)
 		if err != nil {

@@ -53,7 +53,7 @@ func collaborationTools(run w.Run) []model.Tool {
 	if len(enabledSkills(run)) > 0 {
 		out = append(out, model.Tool{Name: "read_skill", Description: "Read an enabled shared skill or its reference file. Read the relevant skill before collaboration; use only runtime roster IDs.", Schema: object(map[string]any{"skill_id": text(64), "resource": text(200)}, "skill_id")})
 	}
-	if workflow := effectiveInput(run).Workflow; (workflow == "free" || workflow == "") && len(run.Agents) > 1 {
+	if len(run.Agents) > 1 {
 		out = append(out, model.Tool{Name: "handoff_task", Description: "Hand off or delegate bounded work to another member in this run. Set mode='relay' for direct peer-to-peer A2A transfer (for example: coordinator -> engineer -> reviewer, where the target takes over directly; if a reviewer finds no issues it finishes the run directly without wasted rounds, or relays back to engineer only if concrete changes are needed). Omit mode or set mode='delegate' when you want the platform to call you back in a continuation step after parallel subtasks finish. Finish your invocation after submitting. Never dispatch through @ text. In delegate mode, context_refs must be exact committed IDs (message_id, id@version, or source ID), and reviewer/critic targets cannot review their own work. In relay mode, your current step's committed reply and captured diffs/tests are passed automatically to the target.", Schema: object(map[string]any{
 			"request_id": text(100), "target_agent_id": text(100), "task": text(6000),
 			"role":         map[string]any{"type": "string", "enum": []string{"engineer", "researcher", "analyst", "reviewer", "critic", "coordinator", "member"}},
@@ -67,7 +67,7 @@ func collaborationTools(run w.Run) []model.Tool {
 
 func enabledSkills(run w.Run) []string {
 	ids := []string{}
-	for _, info := range skills.List() {
+	for _, info := range skills.ListFor(run.Workspace.Root) {
 		if run.SkillVersions != nil {
 			if run.SkillVersions[info.ID] == info.Version {
 				ids = append(ids, info.ID)
@@ -87,10 +87,13 @@ func (e *Engine) readSkill(ctx context.Context, run w.Run, step w.Step, input js
 	if err := tools.Decode(input, &in); err != nil {
 		return "", err
 	}
-	if !slices.Contains(enabledSkills(run), in.SkillID) {
+	// The shared reference layer is readable whenever this run enabled at
+	// least one skill; it is never an enableable skill of its own.
+	shared := in.SkillID == skills.SharedSkillID() && len(enabledSkills(run)) > 0
+	if !shared && !slices.Contains(enabledSkills(run), in.SkillID) {
 		return "", errors.New("skill is not enabled in this run snapshot")
 	}
-	body, err := skills.Read(in.SkillID, in.Resource)
+	body, err := skills.ReadFor(run.Workspace.Root, in.SkillID, in.Resource)
 	if err != nil {
 		return "", err
 	}
@@ -98,7 +101,7 @@ func (e *Engine) readSkill(ctx context.Context, run w.Run, step w.Step, input js
 		in.Resource = "SKILL.md"
 	}
 	version := ""
-	for _, info := range skills.List() {
+	for _, info := range skills.ListFor(run.Workspace.Root) {
 		if info.ID == in.SkillID {
 			version = info.Version
 		}
@@ -222,7 +225,7 @@ func (e *Engine) collaborationContext(ctx context.Context, run w.Run, step w.Ste
 	if err != nil {
 		return "", err
 	}
-	catalogue, err := skills.Catalogue(enabledSkills(run))
+	catalogue, err := skills.CatalogueFor(run.Workspace.Root, enabledSkills(run))
 	if err != nil {
 		return "", err
 	}
@@ -252,12 +255,6 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 	if err := tools.Decode(raw, &in); err != nil {
 		return "", err
 	}
-	if run.SelectedWorkflow != nil {
-		return "", errors.New("a workflow method was selected; follow its plan instead of delegating")
-	}
-	if run.Input.Workflow != "free" && run.Input.Workflow != "" {
-		return "", errors.New("built-in workflows use their accepted step plan")
-	}
 	if strings.TrimSpace(in.RequestID) == "" || utf8.RuneCountInString(in.RequestID) > 100 || strings.TrimSpace(in.Task) == "" || utf8.RuneCountInString(in.Task) > 6000 || len(in.ContextRefs) > 12 {
 		return "", errors.New("invalid handoff request")
 	}
@@ -273,6 +270,9 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 		return "", errors.New("target must be another member of this run roster")
 	}
 	target := run.Agents[targetIndex]
+	if (in.Role == "reviewer" || in.Role == "critic") && in.TargetAgentID == sender.AgentID {
+		return "", errors.New("independent review cannot target the author")
+	}
 	var child, continuation w.Step
 	err := e.Store.Write(ctx, func(tx *store.Tx) error {
 		current, err := tx.Run(run.ID)
@@ -281,9 +281,6 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 		}
 		if current.Status != "running" {
 			return errors.New("run no longer accepts handoffs")
-		}
-		if current.SelectedWorkflow != nil {
-			return errors.New("a workflow method was selected; follow its plan instead of delegating")
 		}
 		steps, err := tx.Steps(run.ID)
 		if err != nil {
@@ -296,6 +293,14 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 		sender = steps[origin]
 		if target.ID == sender.AgentID {
 			return errors.New("target must be another member of this run roster")
+		}
+		// The anti-ping-pong valve: a reviewer/critic may hand the same issue
+		// back to the same author at most twice. The next attempt must deliver
+		// the current state and the disagreement instead of another round.
+		if relayMode && (sender.Role == "reviewer" || sender.Role == "critic") && slices.Contains([]string{"engineer", "researcher", "analyst", "member"}, in.Role) {
+			if reviewRoundCount(steps, sender.AgentID, target.ID) >= maxReworkRounds {
+				return errors.New("two rework rounds already completed for this issue chain; deliver the current state and remaining disagreements instead of another relay rework")
+			}
 		}
 		for _, s := range steps {
 			if (s.Kind == "handoff" || s.Kind == "relay") && s.FromStepID == sender.ID && s.RequestID == in.RequestID {
@@ -378,6 +383,16 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 			if err := validateContextRefs(tx, current, sender, in); err != nil {
 				return err
 			}
+			if in.Role == "reviewer" || in.Role == "critic" {
+				for _, prior := range steps {
+					if prior.ID == sender.ID || prior.Status != "succeeded" {
+						continue
+					}
+					if prior.AgentID == target.ID && prior.Role != "reviewer" && prior.Role != "critic" && prior.Role != "coordinator" {
+						return errors.New("independent review cannot use a target reviewer who authored work in this run; choose a different member")
+					}
+				}
+			}
 			deps := slices.Clone(sender.DependsOn)
 			if !slices.Contains(deps, sender.ID) {
 				deps = append(deps, sender.ID)
@@ -430,6 +445,16 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 		}
 		if err := validateContextRefs(tx, current, sender, in); err != nil {
 			return err
+		}
+		if in.Role == "reviewer" || in.Role == "critic" {
+			for _, prior := range steps {
+				if prior.ID == sender.ID || prior.Status != "succeeded" {
+					continue
+				}
+				if prior.AgentID == target.ID && prior.Role != "reviewer" && prior.Role != "critic" && prior.Role != "coordinator" {
+					return errors.New("independent review cannot use a target reviewer who authored work in this run; choose a different member")
+				}
+			}
 		}
 		child = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: target.ID, AgentName: target.DisplayName, Role: in.Role, Instruction: in.Task, DependsOn: []string{sender.ID}, Status: "pending", Kind: "handoff", FromStepID: sender.ID, FromAgentID: sender.AgentID, FromAttemptID: currentAttempt, RequestID: in.RequestID, ContextRefs: slices.Clone(in.ContextRefs), Depth: sender.Depth + 1}
 		handoffContinuationPrompt := "根据返回的任务结果继续完成用户原始目标。如实处理失败和分歧；只有确实需要时才从当前名册选择后续复核者，否则交付结果。不要重复已完成的委派，也不要为确认收到而创建新任务。"

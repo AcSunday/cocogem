@@ -131,7 +131,7 @@ func seedFreeRun(t *testing.T, s *store.Store) w.Run {
 		agents = append(agents, w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: name, Handle: "member-" + string(rune('a'+len(agents))), Model: "test", Tools: tools.Names, Revision: 1})
 	}
 	th := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, AgentIDs: []string{agents[0].ID, agents[1].ID, agents[2].ID}, CoordinatorID: agents[0].ID, Revision: 1, UpdatedAt: w.Now()}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, CoordinatorID: agents[0].ID, Input: w.RunInput{Workflow: "free", Message: "请研究给定材料并协作完成", Targets: []string{agents[0].ID}, ResearchScope: "given_sources"}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID, Status: "queued", CreatedAt: w.Now(), Agents: agents, CoordinatorID: agents[0].ID, Input: w.RunInput{Message: "请研究给定材料并协作完成", Targets: []string{agents[0].ID}, ResearchScope: "given_sources"}}
 	if err := s.Write(context.Background(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {
 			return err

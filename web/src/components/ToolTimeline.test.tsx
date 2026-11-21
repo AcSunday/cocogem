@@ -379,29 +379,7 @@ it("marks a retained start unknown once its run ended", () => {
   expect(screen.getByText("未收到完成记录 · 运行已结束")).toBeVisible();
 });
 
-it("shows the persisted method selection and settled method as readable text", () => {
-  const selected = event(1, "workflow_selected", {
-    selection: {
-      workflow: "research",
-      targets: ["member-uuid"],
-      assignments: { researcher: "member-uuid", future_role: "other-uuid" },
-      reason: "需要外部资料核对",
-      step_id: "step",
-      selected_at: "2026-10-28T00:00:00Z",
-    },
-    steps: [{ step_id: "plan-step" }],
-  });
-  const { rerender } = render(
-    <ToolTimeline agents={[member]} events={[selected]} />,
-  );
-  expect(
-    screen.getByText("协调者选择方法：研究协作 · 需要外部资料核对"),
-  ).toBeVisible();
-  // Unknown assignment roles and member IDs stay in the raw event record.
-  expect(
-    screen.queryByText(/member-uuid|other-uuid|future_role|plan-step/),
-  ).toBeNull();
-
+it("shows only the settled method as readable text", () => {
   const recorded: Event = {
     schema_version: 1,
     run_id: "run",
@@ -410,6 +388,16 @@ it("shows the persisted method selection and settled method as readable text", (
     occurred_at: "",
     data: { method: "direct" },
   };
-  rerender(<ToolTimeline agents={[member]} events={[recorded]} />);
+  const retired = event(1, "workflow_selected", {
+    selection: { targets: ["member-uuid"], reason: "需要外部资料核对" },
+  });
+  const { rerender } = render(
+    <ToolTimeline agents={[member]} events={[recorded, retired]} />,
+  );
   expect(screen.getByText("本轮方法：直接回答")).toBeVisible();
+  expect(screen.queryByText(/协调者选择方法/)).toBeNull();
+  expect(screen.queryByText(/member-uuid/)).toBeNull();
+
+  rerender(<ToolTimeline agents={[member]} events={[]} />);
+  expect(screen.queryByText(/本轮方法/)).toBeNull();
 });

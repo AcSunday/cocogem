@@ -55,8 +55,8 @@ function sameFieldChanged(
   base: Settings | undefined,
 ): boolean {
   if (input.execution_mode && base) {
-    const decided = fresh.execution_mode ?? "project_autonomous";
-    if (decided !== (base.execution_mode ?? "project_autonomous")) return true;
+    const decided = fresh.execution_mode ?? "workspace_autonomous";
+    if (decided !== (base.execution_mode ?? "workspace_autonomous")) return true;
   }
   if (
     input.collaboration_budget &&
@@ -72,12 +72,6 @@ function sameFieldChanged(
     input.default_coordinator_id !== undefined &&
     base &&
     (fresh.default_coordinator_id ?? "") !== (base.default_coordinator_id ?? "")
-  )
-    return true;
-  if (
-    input.assignments !== undefined &&
-    base?.assignments &&
-    JSON.stringify(fresh.assignments ?? {}) !== JSON.stringify(base.assignments ?? {})
   )
     return true;
   return false;
@@ -294,25 +288,18 @@ export function useGlobalSettings(
 
 export const executionModes = [
   {
-    value: "controlled",
-    label: "受控",
-    summary: "只做当前任务已允许的操作",
+    value: "workspace_autonomous",
+    label: "沙箱自主",
+    summary: "工作台内零弹窗，越界才申请",
     description:
-      "沿用成员模板和受控规则；项目内读写、命令与联网检索按现有授权执行。需要额外范围时，成员会在执行前申请。",
-  },
-  {
-    value: "project_autonomous",
-    label: "项目内自主",
-    summary: "项目内自主，项目外申请",
-    description:
-      "项目内文件读写、测试、命令、联网检索和项目内依赖安装自主执行；项目外文件读写、系统软件安装、发布和部署在执行前申请。",
+      "候选 worktree、/tmp、本地回环与本机工具链内自主读写、测试和运行命令；公共检索与依赖经受控代理拉取。高敏凭据路径默认硬拒绝，跨出工作台、git push 或外部发布才申请。",
   },
   {
     value: "full_access",
     label: "完全访问",
     summary: "信任本机原生能力",
     description:
-      "保持现有原生 CLI 放开行为，可按任务读写本机文件、执行命令并联网。这不是沙箱隔离；只读和审核角色限制仍然有效。",
+      "保持原生 CLI 放开行为，可按任务读写本机文件、执行命令并联网。这不是沙箱隔离；只读和审核角色限制仍然有效。",
   },
 ] as const;
 
@@ -320,12 +307,11 @@ export type ExecutionMode = (typeof executionModes)[number]["value"];
 
 /** Defense in depth for a legacy or partial record. */
 export function executionModeOf(settings?: Settings): ExecutionMode {
-  const value = settings?.execution_mode;
-  return value === "controlled" ||
-    value === "full_access" ||
-    value === "project_autonomous"
-    ? value
-    : "project_autonomous";
+  // A legacy controlled/project_autonomous record is the same autonomous tier
+  // today; it is never silently promoted to full access.
+  return settings?.execution_mode === "full_access"
+    ? "full_access"
+    : "workspace_autonomous";
 }
 
 export const defaultBudgetPolicy = {

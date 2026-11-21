@@ -51,6 +51,8 @@ type bridge struct {
 	trustedNative    bool
 	sessionMode      string
 	sessionID        string
+	managedSession   bool
+	readOnly         bool
 	live             *liveness
 	approver         *nativeApprover
 	sandbox          *nativeSandbox

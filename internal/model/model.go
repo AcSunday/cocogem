@@ -63,15 +63,27 @@ type Request struct {
 	NativeTools      []string `json:"-"`
 	WorkspaceRoot    string   `json:"-"`
 	WorkingDirectory string   `json:"-"`
-	TrustedExecution bool     `json:"-"`
-	NativeProxy      string   `json:"-"`
+	// IOInputs is the read-only attachment exchange directory of this scope. It
+	// is separate from the code root and never writable by a native command.
+	IOInputs         string `json:"-"`
+	TrustedExecution bool   `json:"-"`
+	NativeProxy      string `json:"-"`
 	// Managed native sessions live only under SessionStorageRoot. SessionID is
 	// populated solely after an earlier runner acknowledged the exact session.
-	ExecutionMode       string `json:"-"`
-	SessionMode         string `json:"-"`
-	SessionID           string `json:"-"`
-	SessionStorageRoot  string `json:"-"`
-	SessionContextEpoch int    `json:"-"`
+	ExecutionMode string `json:"-"`
+	SessionMode   string `json:"-"`
+	SessionID     string `json:"-"`
+	// SessionStorageRoot is the server-owned continuity ledger key for this
+	// attempt. The native session itself lives in the CLI's own home directory;
+	// this value only names which Cocogem row may reuse it.
+	SessionStorageRoot string `json:"-"`
+	// EphemeralSession marks a disposable reviewer/verify run: the CLI must not
+	// persist a session, so a destroyed directory never enters native history.
+	EphemeralSession bool `json:"-"`
+	// ReadOnly enforces the per-turn Plan-Only / parallel-pass lock at both the
+	// adapter and OS sandbox layers (even when ExecutionMode is full_access).
+	ReadOnly            bool `json:"-"`
+	SessionContextEpoch int  `json:"-"`
 	// AuthorizeNative is the host's pre-effect admission for a CLI-owned tool
 	// call. A nil callback means no host approval is available: native
 	// adapters must fail closed for every operation that is not already

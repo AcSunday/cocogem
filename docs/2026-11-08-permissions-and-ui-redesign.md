@@ -2,6 +2,8 @@
 
 日期：2026-11-08
 
+> 替代说明（2026-11-13）：全局权限收敛为 `workspace_autonomous / full_access` 两档、单轮「仅规划」、AST 命令解析与目录子树持续授权，以 `docs/2026-11-13-unified-collaboration-and-engineering-skills.md` 为准；本文的三档权限与旧授权匹配规则被替代。
+
 状态：**需求已确认，已按本合同实施并完成本机验收；具体通过范围、原生协议能力缺口与未验证项以[验收记录](2026-11-08-permissions-and-ui-acceptance.md)为准。** 本文件保留目标合同，不能单凭这里的目标宣称全部平台或供应商能力已交付。
 
 适用仓库：Cocogem。核对基线为 `a1496dc2b8616828bcd874b79e4bbe13e4a5b976` 及当前工作区已有改动；实现前重新记录基线。

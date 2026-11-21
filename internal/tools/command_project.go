@@ -67,14 +67,67 @@ func executeProjectCommand(ctx context.Context, raw json.RawMessage, scope Scope
 	if resolved, err := filepath.EvalSymlinks(temp); err == nil {
 		temp = resolved
 	}
-	spec := sandboxSpec{Root: absWork, Temp: temp, Toolchain: toolchainSpec{Command: in.Argv, Display: strings.Join(in.Argv, " "), Env: commandEnv(temp)}}
+	env := commandEnv(temp)
+	// The exchange area is orthogonal to the code root: inputs are readable,
+	// outputs are writable, and both absolute paths are exported so a command
+	// never resolves an attachment relative to the candidate tree.
+	// Seatbelt matches real paths, so a /var -> /private/var exchange directory
+	// must be resolved for both the sandbox rule and the exported variable.
+	ioInputs, ioOutputs := "", ""
+	if scope.IOInputs != "" {
+		if resolved, err := filepath.EvalSymlinks(scope.IOInputs); err == nil {
+			ioInputs = resolved
+			env = append(env, "COCOGEM_IO_INPUTS="+resolved)
+			env = append(env, "COCOGEM_IO_DIR="+filepath.Dir(resolved))
+		}
+	}
+	if scope.IOOutputs != "" {
+		if resolved, err := filepath.EvalSymlinks(scope.IOOutputs); err == nil {
+			ioOutputs = resolved
+			env = append(env, "COCOGEM_IO_OUTPUTS="+resolved)
+			if ioInputs == "" {
+				env = append(env, "COCOGEM_IO_DIR="+filepath.Dir(resolved))
+			}
+		}
+	}
+	spec := sandboxSpec{
+		Root:                absWork,
+		Temp:                temp,
+		ReadOnly:            scope.ReadOnly,
+		AllowLoopback:       true,
+		AllowTmp:            true,
+		AllowUserToolchains: true,
+		Toolchain:           toolchainSpec{Command: in.Argv, Display: strings.Join(in.Argv, " "), Env: env},
+	}
+	// A linked worktree's per-worktree git dir and shared object store must be
+	// writable so git status/add/diff can lock the index and write objects, while
+	// hooks, config, refs/heads and packed-refs stay write-denied in the source repo.
+	if worktreeGit, commonGit := WorktreeMeta(absWork); worktreeGit != "" {
+		spec.ExtraWrites = append(spec.ExtraWrites, worktreeGit)
+		if commonGit != "" {
+			spec.ExtraReads = append(spec.ExtraReads, commonGit)
+			spec.ExtraWrites = append(spec.ExtraWrites, filepath.Join(commonGit, "objects"))
+		}
+		spec.DenyWrites = append(spec.DenyWrites, GitMetadataDenies(absWork)...)
+	}
+	// Attachment inputs are read-only; collected deliverables are a separate
+	// writable root. Neither one widens the code root.
+	if ioInputs != "" {
+		spec.ExtraReads = append(spec.ExtraReads, ioInputs)
+	}
+	if ioOutputs != "" {
+		spec.ExtraWrites = append(spec.ExtraWrites, ioOutputs)
+	}
 	for _, approved := range scope.ApprovedRoots {
 		// An approved outside write target widens exactly that root, resolved to
 		// its real path like every other sandbox path.
-		if resolved, err := filepath.EvalSymlinks(approved); err == nil {
-			spec.ExtraWrites = append(spec.ExtraWrites, resolved)
-		} else {
-			spec.ExtraWrites = append(spec.ExtraWrites, approved)
+		resolved := approved
+		if real, err := filepath.EvalSymlinks(approved); err == nil {
+			resolved = real
+		}
+		spec.ExtraWrites = append(spec.ExtraWrites, resolved)
+		if SensitivePath(resolved) || DeniedPath(resolved) {
+			spec.AllowSensitive = append(spec.AllowSensitive, resolved)
 		}
 	}
 	plan, err := prepareCommandSandbox(ctx, spec)
@@ -82,14 +135,17 @@ func executeProjectCommand(ctx context.Context, raw json.RawMessage, scope Scope
 		return "", err
 	}
 	argv := append(append([]string{}, plan.Prefix...), in.Argv...)
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	runCtx, cancel := context.WithTimeout(ctx, time.Duration(in.Timeout)*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	cmd.Dir = filepath.Join(absWork, local)
 	cmd.Env = spec.Toolchain.Env
 	output := &boundedBuffer{limit: maxTestOutputBytes}
 	cmd.Stdout, cmd.Stderr = output, output
+	if err := configureTestProcess(cmd); err != nil {
+		return "", err
+	}
 	started := time.Now()
-	runCtx, cancel := context.WithTimeout(ctx, time.Duration(in.Timeout)*time.Second)
-	defer cancel()
 	if err := cmd.Start(); err != nil {
 		return "", errors.New("command could not start")
 	}
@@ -99,11 +155,10 @@ func executeProjectCommand(ctx context.Context, raw json.RawMessage, scope Scope
 	select {
 	case waitErr = <-done:
 	case <-runCtx.Done():
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+		terminateTestGroup(cmd)
 		waitErr = <-done
 	}
+	_ = cleanupTestGroup(cmd)
 	exitCode := -1
 	if cmd.ProcessState != nil {
 		exitCode = cmd.ProcessState.ExitCode()

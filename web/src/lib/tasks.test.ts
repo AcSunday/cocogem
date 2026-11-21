@@ -8,6 +8,7 @@ import {
   taskFocusMeta,
   taskGoalSummary,
   taskPhase,
+  taskPhaseMeta,
   taskTitle,
 } from "./tasks";
 
@@ -342,4 +343,25 @@ it("uses the title and falls back to the first goal line", () => {
   untitled.revision.goal = "第一行\n第二行";
   expect(taskTitle(untitled)).toBe("第一行");
   expect(taskGoalSummary(untitled.revision.goal)).toBe("第一行 第二行");
+});
+
+it("treats a pending authorization as the same needs-you state", () => {
+  const pending = view({}, "running");
+  pending.pending_permissions = 2;
+  const meta = taskPhaseMeta(pending);
+  expect(meta.phase).toBe("needs_answer");
+  expect(meta.tone).toBe("attention");
+  expect(meta.label).toBe("需要你");
+  expect(meta.current).toContain("等待你授权 2 个操作");
+  expect(meta.action.kind).toBe("open_execution");
+  expect(meta.action.label).toBe("去审批");
+});
+
+it("keeps a task with active children out of review", () => {
+  const parent = view({ status: "active" }, "succeeded");
+  parent.active_children_count = 1;
+  const meta = taskPhaseMeta(parent);
+  // The parent's own acceptance gate is what keeps it running: an active child
+  // means the objective is not converged yet.
+  expect(meta.group).not.toBe("review");
 });

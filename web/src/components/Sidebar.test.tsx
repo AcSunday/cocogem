@@ -15,7 +15,6 @@ const thread = (id: string, title: string): Thread => ({
   title,
   agent_ids: ["one"],
   coordinator_id: "one",
-  workflow: "free",
   revision: 3,
   updated_at: "2026-10-28T00:00:00Z",
 });

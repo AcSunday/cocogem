@@ -772,6 +772,86 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/threads/{id}/candidates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["threadCandidates"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/candidates/{executionID}/apply": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["applyCandidate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/candidates/{executionID}/diff": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["candidateDiff"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/candidates/{executionID}/discard": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["discardCandidate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{id}/candidates/{executionID}/export-branch": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["exportCandidateBranch"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/threads/{id}/permanent": {
     parameters: {
       query?: never;
@@ -830,22 +910,6 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations["restoreThread"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/v1/threads/{id}/routing-preview": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["routingPreview"];
     delete?: never;
     options?: never;
     head?: never;
@@ -1316,7 +1380,6 @@ export interface components {
     };
     BootstrapInput: {
       title: string;
-      workflow: string;
       workspace_id?: string;
     };
     BootstrapReply: {
@@ -1357,12 +1420,15 @@ export interface components {
         internal?: boolean;
         last_run_id?: string;
         last_run_status?: string;
+        open_questions?: number;
+        pending_permissions?: number;
         purge_at?: string;
         revision: number;
         task_id?: string;
+        task_status?: string;
+        task_waiting_reason?: string;
         title: string;
         updated_at: string;
-        workflow: string;
         workspace_id: string;
       };
       workspace: {
@@ -1434,6 +1500,62 @@ export interface components {
       no_progress_failures: string;
       parallel_branches: string;
       writer_branches: string;
+    };
+    CandidateBranchReply: {
+      branch: string;
+      id: string;
+    };
+    CandidateDiffReply: {
+      diff: string;
+      id: string;
+    };
+    CandidateList: {
+      items:
+        | {
+            execution: {
+              base_files?: {
+                [key: string]: string;
+              } | null;
+              base_revision: string;
+              base_snapshot_oid?: string;
+              base_tree_digest?: string;
+              canonical_root: string;
+              created_at: string;
+              id: string;
+              kind: string;
+              lease_epoch: number;
+              lease_expires_at: string;
+              lease_owner: string;
+              observation_completeness: string;
+              owner_member_id: string;
+              path: string;
+              status: string;
+              task_id?: string;
+              thread_id: string;
+              tree_digest: string;
+              updated_at: string;
+              workspace_id: string;
+            };
+            verification: {
+              changed_paths?: string[] | null;
+              diff_source_ids?: string[] | null;
+              hygiene_hints?: string[] | null;
+              reason?: string;
+              state: string;
+              test_source_ids?: string[] | null;
+              tree_digest?: string;
+            };
+          }[]
+        | null;
+    };
+    CandidateVerification: {
+      changed_paths?: string[] | null;
+      diff_source_ids?: string[] | null;
+      hygiene_hints?: string[] | null;
+      reason?: string;
+      state: string;
+      test_source_ids?: string[] | null;
+      tree_digest?: string;
     };
     Claim: {
       applicability: string;
@@ -1859,17 +1981,13 @@ export interface components {
                 version: number;
               }[]
             | null;
-          assignments: {
-            [key: string]: string;
-          } | null;
           message: string;
-          proposal_id: string;
+          plan_only?: boolean;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;
           source_urls: string[] | null;
           targets: string[] | null;
-          workflow: string;
         };
         input_snapshot_digest?: string;
         method?: string;
@@ -1888,35 +2006,11 @@ export interface components {
         reservation_release_reason?: string;
         retry_of_step_id?: string;
         routing: {
-          assignments: {
-            [key: string]: string;
-          } | null;
           clarification: string;
           decision: string;
-          evidence:
-            | {
-                agent_id: string;
-                quote: string;
-              }[]
-            | null;
           explanation: string;
-          input_tokens: number;
-          model_call: boolean;
-          output_tokens: number;
           targets: string[] | null;
-          usage_known: boolean;
-          workflow: string;
         };
-        selected_workflow?: {
-          assignments: {
-            [key: string]: string;
-          } | null;
-          reason?: string;
-          selected_at: string;
-          step_id: string;
-          targets: string[] | null;
-          workflow: string;
-        } | null;
         skill_snapshot?: string;
         skill_versions?: {
           [key: string]: string;
@@ -1953,6 +2047,8 @@ export interface components {
         write_branch?: boolean;
       };
       task: {
+        active_children_count?: number;
+        attention_children_count?: number;
         budget: {
           active_branches: number;
           active_writers: number;
@@ -1983,6 +2079,12 @@ export interface components {
           updated_at: string;
           used_continuations: number;
         };
+        candidate_verification?: {
+          execution_id: string;
+          path?: string;
+          reason?: string;
+          state: string;
+        } | null;
         completions:
           | {
               candidate_refs: string[] | null;
@@ -2013,6 +2115,8 @@ export interface components {
         last_run_id?: string;
         last_run_started_at?: string;
         last_run_status?: string;
+        open_questions?: number;
+        pending_permissions?: number;
         revision: {
           acceptance:
             | {
@@ -2197,9 +2301,11 @@ export interface components {
       native_session_id?: string;
       role: string;
       status: string;
-      task_id: string;
+      task_id?: string;
+      thread_id: string;
       updated_at: string;
       visibility_epoch: number;
+      work_root?: string;
     };
     ExecutorInfo: {
       adapter: string;
@@ -2297,9 +2403,11 @@ export interface components {
         | null;
     };
     Info: {
+      category?: string;
       description: string;
       id: string;
       name: string;
+      project?: boolean;
       version: string;
     };
     MemoryList: {
@@ -2452,6 +2560,8 @@ export interface components {
         | null;
       tasks:
         | {
+            active_children_count?: number;
+            attention_children_count?: number;
             budget: {
               active_branches: number;
               active_writers: number;
@@ -2482,6 +2592,12 @@ export interface components {
               updated_at: string;
               used_continuations: number;
             };
+            candidate_verification?: {
+              execution_id: string;
+              path?: string;
+              reason?: string;
+              state: string;
+            } | null;
             completions:
               | {
                   candidate_refs: string[] | null;
@@ -2512,6 +2628,8 @@ export interface components {
             last_run_id?: string;
             last_run_started_at?: string;
             last_run_status?: string;
+            open_questions?: number;
+            pending_permissions?: number;
             revision: {
               acceptance:
                 | {
@@ -2590,6 +2708,7 @@ export interface components {
     };
     PermissionDecisionInput: {
       decision: string;
+      grant_scope?: string;
       request_id: string;
     };
     PermissionRequestList: {
@@ -2783,48 +2902,10 @@ export interface components {
         | null;
     };
     Routing: {
-      assignments: {
-        [key: string]: string;
-      } | null;
       clarification: string;
       decision: string;
-      evidence:
-        | {
-            agent_id: string;
-            quote: string;
-          }[]
-        | null;
       explanation: string;
-      input_tokens: number;
-      model_call: boolean;
-      output_tokens: number;
       targets: string[] | null;
-      usage_known: boolean;
-      workflow: string;
-    };
-    RoutingPreview: {
-      expires_in?: number;
-      proposal_id?: string;
-      routing: {
-        assignments: {
-          [key: string]: string;
-        } | null;
-        clarification: string;
-        decision: string;
-        evidence:
-          | {
-              agent_id: string;
-              quote: string;
-            }[]
-          | null;
-        explanation: string;
-        input_tokens: number;
-        model_call: boolean;
-        output_tokens: number;
-        targets: string[] | null;
-        usage_known: boolean;
-        workflow: string;
-      };
     };
     Run: {
       agents:
@@ -2891,18 +2972,14 @@ export interface components {
               version: number;
             }[]
           | null;
-        assignments: {
-          [key: string]: string;
-        } | null;
         message: string;
-        proposal_id: string;
+        plan_only?: boolean;
         /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
         research_scope: string;
         retry_of_run_id: string;
         source_ids: string[] | null;
         source_urls: string[] | null;
         targets: string[] | null;
-        workflow: string;
       };
       input_snapshot_digest?: string;
       method?: string;
@@ -2921,35 +2998,11 @@ export interface components {
       reservation_release_reason?: string;
       retry_of_step_id?: string;
       routing: {
-        assignments: {
-          [key: string]: string;
-        } | null;
         clarification: string;
         decision: string;
-        evidence:
-          | {
-              agent_id: string;
-              quote: string;
-            }[]
-          | null;
         explanation: string;
-        input_tokens: number;
-        model_call: boolean;
-        output_tokens: number;
         targets: string[] | null;
-        usage_known: boolean;
-        workflow: string;
       };
-      selected_workflow?: {
-        assignments: {
-          [key: string]: string;
-        } | null;
-        reason?: string;
-        selected_at: string;
-        step_id: string;
-        targets: string[] | null;
-        workflow: string;
-      } | null;
       skill_snapshot?: string;
       skill_versions?: {
         [key: string]: string;
@@ -2992,18 +3045,14 @@ export interface components {
             version: number;
           }[]
         | null;
-      assignments: {
-        [key: string]: string;
-      } | null;
       message: string;
-      proposal_id: string;
+      plan_only?: boolean;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope: string;
       retry_of_run_id: string;
       source_ids: string[] | null;
       source_urls: string[] | null;
       targets: string[] | null;
-      workflow: string;
     };
     RunRequest: {
       artifact_refs?:
@@ -3012,18 +3061,14 @@ export interface components {
             version: number;
           }[]
         | null;
-      assignments?: {
-        [key: string]: string;
-      } | null;
       message: string;
-      proposal_id?: string;
+      plan_only?: boolean;
       /** @description auto: research proactively with granted tools as needed, including URLs in the message; given_sources: supplied URLs, bound files and captured sources only; web_discovery: explicitly require online search. Empty retains legacy given-source behavior. */
       research_scope?: string;
       retry_of_run_id?: string;
       source_ids?: string[] | null;
       source_urls?: string[] | null;
       targets?: string[] | null;
-      workflow?: string;
     };
     RunView: {
       attempts:
@@ -3179,17 +3224,13 @@ export interface components {
                 version: number;
               }[]
             | null;
-          assignments: {
-            [key: string]: string;
-          } | null;
           message: string;
-          proposal_id: string;
+          plan_only?: boolean;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;
           source_urls: string[] | null;
           targets: string[] | null;
-          workflow: string;
         };
         input_snapshot_digest?: string;
         method?: string;
@@ -3208,35 +3249,11 @@ export interface components {
         reservation_release_reason?: string;
         retry_of_step_id?: string;
         routing: {
-          assignments: {
-            [key: string]: string;
-          } | null;
           clarification: string;
           decision: string;
-          evidence:
-            | {
-                agent_id: string;
-                quote: string;
-              }[]
-            | null;
           explanation: string;
-          input_tokens: number;
-          model_call: boolean;
-          output_tokens: number;
           targets: string[] | null;
-          usage_known: boolean;
-          workflow: string;
         };
-        selected_workflow?: {
-          assignments: {
-            [key: string]: string;
-          } | null;
-          reason?: string;
-          selected_at: string;
-          step_id: string;
-          targets: string[] | null;
-          workflow: string;
-        } | null;
         skill_snapshot?: string;
         skill_versions?: {
           [key: string]: string;
@@ -3291,6 +3308,7 @@ export interface components {
             id: string;
             instruction: string;
             kind?: string;
+            read_only?: boolean;
             request_id?: string;
             retry_of_step_id?: string;
             review_verdict?: string;
@@ -3305,11 +3323,6 @@ export interface components {
       csrf_token: string;
     };
     Settings: {
-      assignments: {
-        [key: string]: {
-          [key: string]: string;
-        } | null;
-      } | null;
       collaboration_budget?: {
         auto_continuations: number;
         fix_rounds: number;
@@ -3324,13 +3337,6 @@ export interface components {
       revision: number;
     };
     SettingsInput: {
-      assignments?:
-        | ({
-            [key: string]: {
-              [key: string]: string;
-            } | null;
-          } | null)
-        | null;
       collaboration_budget?: {
         auto_continuations: number;
         fix_rounds: number;
@@ -3344,13 +3350,6 @@ export interface components {
       retention_days?: number | null;
     };
     SettingsPatch: {
-      assignments?:
-        | ({
-            [key: string]: {
-              [key: string]: string;
-            } | null;
-          } | null)
-        | null;
       collaboration_budget?: {
         auto_continuations: number;
         fix_rounds: number;
@@ -3464,6 +3463,7 @@ export interface components {
       id: string;
       instruction: string;
       kind?: string;
+      read_only?: boolean;
       request_id?: string;
       retry_of_step_id?: string;
       review_verdict?: string;
@@ -3506,9 +3506,11 @@ export interface components {
       search_status: string;
       skills?:
         | {
+            category?: string;
             description: string;
             id: string;
             name: string;
+            project?: boolean;
             version: string;
           }[]
         | null;
@@ -3568,6 +3570,8 @@ export interface components {
         | null;
       tasks:
         | {
+            active_children_count?: number;
+            attention_children_count?: number;
             budget: {
               active_branches: number;
               active_writers: number;
@@ -3598,6 +3602,12 @@ export interface components {
               updated_at: string;
               used_continuations: number;
             };
+            candidate_verification?: {
+              execution_id: string;
+              path?: string;
+              reason?: string;
+              state: string;
+            } | null;
             completions:
               | {
                   candidate_refs: string[] | null;
@@ -3628,6 +3638,8 @@ export interface components {
             last_run_id?: string;
             last_run_started_at?: string;
             last_run_status?: string;
+            open_questions?: number;
+            pending_permissions?: number;
             revision: {
               acceptance:
                 | {
@@ -3827,17 +3839,13 @@ export interface components {
                     version: number;
                   }[]
                 | null;
-              assignments: {
-                [key: string]: string;
-              } | null;
               message: string;
-              proposal_id: string;
+              plan_only?: boolean;
               research_scope: string;
               retry_of_run_id: string;
               source_ids: string[] | null;
               source_urls: string[] | null;
               targets: string[] | null;
-              workflow: string;
             };
             input_snapshot_digest?: string;
             method?: string;
@@ -3856,35 +3864,11 @@ export interface components {
             reservation_release_reason?: string;
             retry_of_step_id?: string;
             routing: {
-              assignments: {
-                [key: string]: string;
-              } | null;
               clarification: string;
               decision: string;
-              evidence:
-                | {
-                    agent_id: string;
-                    quote: string;
-                  }[]
-                | null;
               explanation: string;
-              input_tokens: number;
-              model_call: boolean;
-              output_tokens: number;
               targets: string[] | null;
-              usage_known: boolean;
-              workflow: string;
             };
-            selected_workflow?: {
-              assignments: {
-                [key: string]: string;
-              } | null;
-              reason?: string;
-              selected_at: string;
-              step_id: string;
-              targets: string[] | null;
-              workflow: string;
-            } | null;
             skill_snapshot?: string;
             skill_versions?: {
               [key: string]: string;
@@ -3939,6 +3923,8 @@ export interface components {
     TaskList: {
       items:
         | {
+            active_children_count?: number;
+            attention_children_count?: number;
             budget: {
               active_branches: number;
               active_writers: number;
@@ -3969,6 +3955,12 @@ export interface components {
               updated_at: string;
               used_continuations: number;
             };
+            candidate_verification?: {
+              execution_id: string;
+              path?: string;
+              reason?: string;
+              state: string;
+            } | null;
             completions:
               | {
                   candidate_refs: string[] | null;
@@ -3999,6 +3991,8 @@ export interface components {
             last_run_id?: string;
             last_run_started_at?: string;
             last_run_status?: string;
+            open_questions?: number;
+            pending_permissions?: number;
             revision: {
               acceptance:
                 | {
@@ -4107,6 +4101,8 @@ export interface components {
       task_id: string;
     };
     TaskView: {
+      active_children_count?: number;
+      attention_children_count?: number;
       budget: {
         active_branches: number;
         active_writers: number;
@@ -4137,6 +4133,12 @@ export interface components {
         updated_at: string;
         used_continuations: number;
       };
+      candidate_verification?: {
+        execution_id: string;
+        path?: string;
+        reason?: string;
+        state: string;
+      } | null;
       completions:
         | {
             candidate_refs: string[] | null;
@@ -4167,6 +4169,8 @@ export interface components {
       last_run_id?: string;
       last_run_started_at?: string;
       last_run_status?: string;
+      open_questions?: number;
+      pending_permissions?: number;
       revision: {
         acceptance:
           | {
@@ -4230,12 +4234,15 @@ export interface components {
       internal?: boolean;
       last_run_id?: string;
       last_run_status?: string;
+      open_questions?: number;
+      pending_permissions?: number;
       purge_at?: string;
       revision: number;
       task_id?: string;
+      task_status?: string;
+      task_waiting_reason?: string;
       title: string;
       updated_at: string;
-      workflow: string;
       workspace_id: string;
     };
     ThreadInput: {
@@ -4248,12 +4255,15 @@ export interface components {
       internal?: boolean;
       last_run_id?: string;
       last_run_status?: string;
+      open_questions?: number;
+      pending_permissions?: number;
       purge_at?: string;
       revision?: number;
       task_id?: string;
+      task_status?: string;
+      task_waiting_reason?: string;
       title: string;
       updated_at?: string;
-      workflow?: string;
       workspace_id?: string;
     };
     ThreadList: {
@@ -4270,7 +4280,6 @@ export interface components {
       title: string;
       /** @description Accepted for compatibility; ignored. The server sets the timestamp. */
       updated_at?: string;
-      workflow?: string | null;
       /** @description Accepted for compatibility; ignored. A thread never changes workspace. */
       workspace_id?: string;
     };
@@ -4361,17 +4370,13 @@ export interface components {
                 version: number;
               }[]
             | null;
-          assignments: {
-            [key: string]: string;
-          } | null;
           message: string;
-          proposal_id: string;
+          plan_only?: boolean;
           research_scope: string;
           retry_of_run_id: string;
           source_ids: string[] | null;
           source_urls: string[] | null;
           targets: string[] | null;
-          workflow: string;
         };
         input_snapshot_digest?: string;
         method?: string;
@@ -4390,35 +4395,11 @@ export interface components {
         reservation_release_reason?: string;
         retry_of_step_id?: string;
         routing: {
-          assignments: {
-            [key: string]: string;
-          } | null;
           clarification: string;
           decision: string;
-          evidence:
-            | {
-                agent_id: string;
-                quote: string;
-              }[]
-            | null;
           explanation: string;
-          input_tokens: number;
-          model_call: boolean;
-          output_tokens: number;
           targets: string[] | null;
-          usage_known: boolean;
-          workflow: string;
         };
-        selected_workflow?: {
-          assignments: {
-            [key: string]: string;
-          } | null;
-          reason?: string;
-          selected_at: string;
-          step_id: string;
-          targets: string[] | null;
-          workflow: string;
-        } | null;
         skill_snapshot?: string;
         skill_versions?: {
           [key: string]: string;
@@ -4496,12 +4477,15 @@ export interface components {
         internal?: boolean;
         last_run_id?: string;
         last_run_status?: string;
+        open_questions?: number;
+        pending_permissions?: number;
         purge_at?: string;
         revision: number;
         task_id?: string;
+        task_status?: string;
+        task_waiting_reason?: string;
         title: string;
         updated_at: string;
-        workflow: string;
         workspace_id: string;
       };
     };
@@ -4559,12 +4543,15 @@ export interface components {
         internal?: boolean;
         last_run_id?: string;
         last_run_status?: string;
+        open_questions?: number;
+        pending_permissions?: number;
         purge_at?: string;
         revision: number;
         task_id?: string;
+        task_status?: string;
+        task_waiting_reason?: string;
         title: string;
         updated_at: string;
-        workflow: string;
         workspace_id: string;
       };
       workspace_name: string;
@@ -4582,12 +4569,15 @@ export interface components {
               internal?: boolean;
               last_run_id?: string;
               last_run_status?: string;
+              open_questions?: number;
+              pending_permissions?: number;
               purge_at?: string;
               revision: number;
               task_id?: string;
+              task_status?: string;
+              task_waiting_reason?: string;
               title: string;
               updated_at: string;
-              workflow: string;
               workspace_id: string;
             };
             workspace_name: string;
@@ -4692,7 +4682,12 @@ export interface components {
       skill_ids: string[] | null;
     };
     WorkspaceExecution: {
+      base_files?: {
+        [key: string]: string;
+      } | null;
       base_revision: string;
+      base_snapshot_oid?: string;
+      base_tree_digest?: string;
       canonical_root: string;
       created_at: string;
       id: string;
@@ -4704,7 +4699,8 @@ export interface components {
       owner_member_id: string;
       path: string;
       status: string;
-      task_id: string;
+      task_id?: string;
+      thread_id: string;
       tree_digest: string;
       updated_at: string;
       workspace_id: string;
@@ -6813,6 +6809,183 @@ export interface operations {
       };
     };
   };
+  threadCandidates: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CandidateList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  applyCandidate: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+        executionID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkspaceExecution"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  candidateDiff: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+        executionID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CandidateDiffReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  discardCandidate: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+        executionID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkspaceExecution"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  exportCandidateBranch: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-CSRF-Token": string;
+      };
+      path: {
+        id: string;
+        executionID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyInput"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CandidateBranchReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
   permanentDeleteThread: {
     parameters: {
       query?: never;
@@ -6934,43 +7107,6 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Thread"];
-        };
-      };
-      /** @description Structured error */
-      default: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Error"];
-        };
-      };
-    };
-  };
-  routingPreview: {
-    parameters: {
-      query?: never;
-      header: {
-        "X-CSRF-Token": string;
-      };
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["RunRequest"];
-      };
-    };
-    responses: {
-      /** @description Success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RoutingPreview"];
         };
       };
       /** @description Structured error */

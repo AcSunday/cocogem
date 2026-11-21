@@ -20,11 +20,13 @@ type ConversationGrantList struct {
 	Items []w.ConversationGrant `json:"items"`
 }
 
-// PermissionDecisionInput is the fixed three-way decision. The request scope is
-// never taken from this body.
+// PermissionDecisionInput is the fixed three-way decision. GrantScope optionally
+// widens allow_conversation from "file" to "directory" (the parent directory);
+// arbitrary paths are never taken from this body.
 type PermissionDecisionInput struct {
-	Decision  string `json:"decision"`
-	RequestID string `json:"request_id"`
+	Decision   string `json:"decision"`
+	RequestID  string `json:"request_id"`
+	GrantScope string `json:"grant_scope,omitempty"`
 }
 
 func (s *Server) threadPermissionRequests(rw http.ResponseWriter, r *http.Request) {
@@ -51,7 +53,7 @@ func (s *Server) decidePermissionRequest(rw http.ResponseWriter, r *http.Request
 		respond(rw, r, nil, err)
 		return
 	}
-	request, err := s.projects.DecidePermissionRequest(r.Context(), r.PathValue("id"), expected, project.DecisionInput{Decision: in.Decision, RequestID: in.RequestID})
+	request, err := s.projects.DecidePermissionRequest(r.Context(), r.PathValue("id"), expected, project.DecisionInput{Decision: in.Decision, RequestID: in.RequestID, GrantScope: in.GrantScope})
 	respond(rw, r, request, err)
 }
 

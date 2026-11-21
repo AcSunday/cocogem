@@ -87,7 +87,7 @@ func liveFileTask(t *testing.T, cli string) {
 		coordinatorID = coordinator.ID
 	}
 	var thread w.Thread
-	api.call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "文件交付验收", AgentIDs: ids, CoordinatorID: coordinatorID, Workflow: "free"}, nil, 200, &thread)
+	api.call("POST", "/api/v1/workspaces/"+workspace.ID+"/threads", w.Thread{Title: "文件交付验收", AgentIDs: ids, CoordinatorID: coordinatorID}, nil, 200, &thread)
 	paper := os.Getenv("COCOGEM_FILE_TASK_PAPER")
 	if paper != "" {
 		data, err := os.ReadFile(paper)
@@ -230,14 +230,8 @@ type downloadedFile struct {
 
 func liveSubmitFileTask(t *testing.T, api *deliveryAPI, thread w.Thread, prompt, key string, sourceIDs ...string) []downloadedFile {
 	t.Helper()
-	in := w.RunInput{Message: prompt, Workflow: "free", Targets: []string{thread.CoordinatorID}, ResearchScope: "auto"}
+	in := w.RunInput{Message: prompt, Targets: []string{thread.CoordinatorID}, ResearchScope: "auto"}
 	in.SourceIDs = sourceIDs
-	var preview RoutingPreview
-	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", in, nil, 200, &preview)
-	if preview.ProposalID == "" {
-		t.Fatalf("routing did not accept file task: %+v", preview)
-	}
-	in.ProposalID = preview.ProposalID
 	var run w.Run
 	api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", in, map[string]string{"Idempotency-Key": "live-file-acceptance-" + key}, 202, &run)
 	deadline := time.NewTimer(30 * time.Minute)

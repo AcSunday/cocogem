@@ -190,7 +190,7 @@ func (e *Engine) persistStepCompletion(ctx context.Context, c stepCompletion) (w
 		}
 		if current.TaskPromotionStepID == step.ID {
 			step.Role = "task_intake"
-			dispatchedInPlace := current.SelectedWorkflow != nil || slices.ContainsFunc(steps, func(s w.Step) bool {
+			dispatchedInPlace := slices.ContainsFunc(steps, func(s w.Step) bool {
 				return (s.Kind == "handoff" || s.Kind == "relay") && s.FromStepID == step.ID
 			})
 			if !dispatchedInPlace || strings.TrimSpace(message.Content) == "" {

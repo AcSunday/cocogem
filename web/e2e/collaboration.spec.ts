@@ -37,7 +37,6 @@ test("persisted task handoffs, skill settings and whole-run cancellation", async
     title: "研究与独立复核",
     agent_ids: agents.map((agent) => agent.id),
     coordinator_id: "coordinator",
-    workflow: "free",
     revision: 1,
     updated_at: "2026-10-24T00:00:00Z",
   };

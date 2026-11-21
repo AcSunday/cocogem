@@ -60,7 +60,7 @@ func TestSharedHistoryAndCurrentRunInliningStayInsideFrozenScope(t *testing.T) {
 	}
 	defer s.Close()
 	run := seedRun(t, s)
-	run.Input = w.RunInput{Workflow: "free", Message: "Check the historical finding", Targets: []string{run.Agents[0].ID}}
+	run.Input = w.RunInput{Message: "Check the historical finding", Targets: []string{run.Agents[0].ID}}
 	if err := s.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveRun(run) }); err != nil {
 		t.Fatal(err)
 	}
@@ -72,17 +72,29 @@ func TestSharedHistoryAndCurrentRunInliningStayInsideFrozenScope(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// One addressed member means one planned step; add a sibling step so a
+	// continuation can depend on it and an outside sibling can exist.
+	sibling := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[1].ID, AgentName: run.Agents[1].DisplayName, Role: "responder", Instruction: "sibling", Status: "pending"}
+	outsideStep := w.Step{ID: w.NewID(), RunID: run.ID, AgentID: run.Agents[2].ID, AgentName: run.Agents[2].DisplayName, Role: "responder", Instruction: "outside", Status: "pending"}
 	sender := steps[0]
-	sender.Kind, sender.DependsOn, sender.Status = "continuation", []string{steps[1].ID}, "running"
-	if err := s.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveStep(sender) }); err != nil {
+	sender.Kind, sender.DependsOn, sender.Status = "continuation", []string{sibling.ID}, "running"
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.SaveStep(sibling); err != nil {
+			return err
+		}
+		if err := tx.SaveStep(outsideStep); err != nil {
+			return err
+		}
+		return tx.SaveStep(sender)
+	}); err != nil {
 		t.Fatal(err)
 	}
 	historyUser := w.Message{ID: w.NewID(), Role: "user", Content: "earlier synthetic question"}
 	historyReply := w.Message{ID: w.NewID(), Role: "assistant", AgentName: run.Agents[0].DisplayName, Content: "earlier exact historical finding"}
 	prior := priorCompletedRun(t, s, run, []w.Message{historyUser, historyReply})
-	inScope := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[1].ID, AgentID: steps[1].AgentID, AgentName: steps[1].AgentName, Role: "assistant", Status: "completed", Content: "in-scope current-run reply"}
-	outside := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[2].ID, AgentID: steps[2].AgentID, AgentName: steps[2].AgentName, Role: "assistant", Status: "completed", Content: "outside-scope sibling reply"}
-	uncommitted := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[1].ID, AgentID: steps[1].AgentID, Role: "assistant", Status: "processing", Content: "uncommitted processing output"}
+	inScope := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: sibling.ID, AgentID: sibling.AgentID, AgentName: sibling.AgentName, Role: "assistant", Status: "completed", Content: "in-scope current-run reply"}
+	outside := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: outsideStep.ID, AgentID: outsideStep.AgentID, AgentName: outsideStep.AgentName, Role: "assistant", Status: "completed", Content: "outside-scope sibling reply"}
+	uncommitted := w.Message{ID: w.NewID(), ThreadID: run.ThreadID, RunID: run.ID, StepID: sibling.ID, AgentID: sibling.AgentID, Role: "assistant", Status: "processing", Content: "uncommitted processing output"}
 	for _, message := range []w.Message{inScope, outside, uncommitted} {
 		saveHistoryMessage(t, s, message)
 	}
@@ -137,7 +149,7 @@ func TestSharedHistoryKeepsCommittedContentFromFailedRound(t *testing.T) {
 	}
 	defer s.Close()
 	run := seedRun(t, s)
-	run.Input = w.RunInput{Workflow: "free", Message: "追问失败讨论的结论", Targets: []string{run.Agents[0].ID}}
+	run.Input = w.RunInput{Message: "追问失败讨论的结论", Targets: []string{run.Agents[0].ID}}
 	var sender w.Step
 	if err := s.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveRun(run); err != nil {
@@ -211,7 +223,7 @@ func TestDeliveredHistoryArtifactExactVersionIsReadableAndHandedOff(t *testing.T
 	}
 	defer s.Close()
 	run := seedRun(t, s)
-	run.Input = w.RunInput{Workflow: "free", Message: "请独立复核刚才那份研究报告", Targets: []string{run.Agents[0].ID}}
+	run.Input = w.RunInput{Message: "请独立复核刚才那份研究报告", Targets: []string{run.Agents[0].ID}}
 	run.Status = "running"
 	var sender w.Step
 	if err := s.Write(t.Context(), func(tx *store.Tx) error {
@@ -475,7 +487,7 @@ func TestOverBudgetSharedHistoryStaysVisibleAndReadable(t *testing.T) {
 	}
 	defer s.Close()
 	run := seedRun(t, s)
-	run.Input = w.RunInput{Workflow: "free", Message: "Review the latest research report", Targets: []string{run.Agents[0].ID}}
+	run.Input = w.RunInput{Message: "Review the latest research report", Targets: []string{run.Agents[0].ID}}
 	if err := s.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveRun(run) }); err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +610,7 @@ func TestFollowUpDiagnosticsExposeRecentRunStateButNotRawInput(t *testing.T) {
 	}
 	defer s.Close()
 	run := seedRun(t, s)
-	run.Input = w.RunInput{Workflow: "free", Message: "What failed last time?", Targets: []string{run.Agents[0].ID}}
+	run.Input = w.RunInput{Message: "What failed last time?", Targets: []string{run.Agents[0].ID}}
 	if err := s.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveRun(run) }); err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +714,7 @@ func TestSharedHistoryMessageFlowsToReviewerThroughHandoffAndReadContext(t *test
 	}
 	defer s.Close()
 	run := seedRun(t, s)
-	run.Input = w.RunInput{Workflow: "free", Message: "Have the exact earlier finding reviewed", Targets: []string{run.Agents[0].ID}}
+	run.Input = w.RunInput{Message: "Have the exact earlier finding reviewed", Targets: []string{run.Agents[0].ID}}
 	run.Status = "running"
 	for i := range run.Agents {
 		run.Agents[i].Executor, run.Agents[i].Model = "claude", "default"

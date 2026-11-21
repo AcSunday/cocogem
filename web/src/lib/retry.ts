@@ -11,9 +11,9 @@ export type RunTurn = {
 export function rootRunID(run: Run, runs: Run[]): string {
   const byID = new Map(runs.map((item) => [item.id, item]));
   const seen = new Set<string>();
-  while (run.input.retry_of_run_id && !seen.has(run.id)) {
+  while (run.input?.retry_of_run_id && !seen.has(run.id)) {
     seen.add(run.id);
-    const previous = byID.get(run.input.retry_of_run_id);
+    const previous = byID.get(run.input?.retry_of_run_id);
     if (!previous) break;
     run = previous;
   }
@@ -46,7 +46,7 @@ export function outstandingStepFailures(
           ["failed", "canceled"].includes(step.status) &&
           !runs.some(
             (retry) =>
-              retry.input.retry_of_run_id === run.id &&
+              retry.input?.retry_of_run_id === run.id &&
               retry.retry_of_step_id === step.id,
           ),
       )

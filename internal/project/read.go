@@ -14,18 +14,9 @@ func (s *Service) Tasks(ctx context.Context, workspaceID string) ([]TaskView, er
 		if _, err := tx.Workspace(workspaceID); err != nil {
 			return err
 		}
-		tasks, err := tx.Tasks(workspaceID)
-		if err != nil {
-			return err
-		}
-		for _, task := range tasks {
-			view, err := s.taskInTx(tx, task.ID)
-			if err != nil {
-				return err
-			}
-			views = append(views, view)
-		}
-		return nil
+		var err error
+		views, _, err = batchTaskViewsForWorkspace(tx, workspaceID)
+		return err
 	})
 	return views, err
 }

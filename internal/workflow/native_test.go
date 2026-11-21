@@ -152,15 +152,17 @@ func TestNativeEvidenceCannotMasqueradeAsOriginal(t *testing.T) {
 	if err := ValidateArtifact(artifact("research_report", "native-file"), "research_report", sources); err != nil {
 		t.Fatalf("native file capture was not accepted: %v", err)
 	}
-	code := artifact("code_analysis", "native-file")
+	// A note carries the same first-hand custody rule: a native file capture is
+	// acceptable evidence, and a native web observation is not a file capture.
+	code := artifact("note", "native-file")
 	code.Findings[0].Status = "confirmed"
-	if err := ValidateArtifact(code, "code_analysis", sources); err != nil {
-		t.Fatalf("native file was not accepted for code evidence: %v", err)
+	if err := ValidateArtifact(code, "", sources); err != nil {
+		t.Fatalf("native file was not accepted as note evidence: %v", err)
 	}
-	code.SourceIDs = []string{"native-web"}
-	code.Findings[0].SourceIDs = []string{"native-web"}
-	if err := ValidateArtifact(code, "code_analysis", sources); err == nil {
-		t.Fatal("native web observation counted as code file evidence")
+	code.SourceIDs = []string{"native-search"}
+	code.Findings[0].SourceIDs = []string{"native-search"}
+	if err := ValidateArtifact(code, "", sources); err == nil {
+		t.Fatal("native search lead counted as original evidence")
 	}
 }
 
@@ -324,7 +326,7 @@ func TestCancelMemberSurvivesCanceledRequestContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	run := seedPublicationRun(t, s, "free", "responder")
+	run := seedPublicationRun(t, s, "responder")
 	started, stopped := make(chan struct{}), make(chan struct{})
 	runner := nativeRunnerFunc(func(ctx context.Context, _ model.Request, _ agent.Execute, _ agent.Observe) error {
 		close(started)
@@ -374,7 +376,7 @@ func TestNativeCaptureAndListSourcesDrivePublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	run := seedPublicationRun(t, s, "research", "coordinator")
+	run := seedPublicationRun(t, s, "coordinator")
 	var publishedSourceID string
 	runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
 		input := json.RawMessage(`{"file_path":"/workspace/README.md"}`)
@@ -452,7 +454,7 @@ func TestFailedNativeResultCreatesNoEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	run := seedPublicationRun(t, s, "research", "coordinator")
+	run := seedPublicationRun(t, s, "coordinator")
 	runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
 		if err := observe("tool_finished", map[string]any{"tool_call_id": "cli:read-1", "name": "Read", "input": json.RawMessage(`{"file_path":"/workspace/README.md"}`), "status": "error", "output": "permission denied", "origin": "native"}); err != nil {
 			return err
@@ -468,15 +470,15 @@ func TestFailedNativeResultCreatesNoEvidence(t *testing.T) {
 		if _, err := execute(ctx, "publish_artifact", payload); err == nil {
 			return errors.New("an invented source ID was accepted")
 		}
-		return nil
+		return observe("text", map[string]any{"text": "无法引用未捕获的来源，保留真实限制。"})
 	})
 	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
 	cancel, wait := startEngine(t, &e)
 	defer wait()
 	defer cancel()
 	got := awaitRun(t, s, run.ID)
-	if got.Status != "failed" || !strings.Contains(got.Error, "required artifact") {
-		t.Fatalf("run status=%s error=%s", got.Status, got.Error)
+	if got.Status != "succeeded" {
+		t.Fatalf("an invented source must be rejected without failing the run: status=%s error=%s", got.Status, got.Error)
 	}
 	if err := s.Read(t.Context(), func(tx *store.Tx) error {
 		sources, err := tx.Sources(run.ThreadID)

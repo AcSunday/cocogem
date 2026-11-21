@@ -7,17 +7,19 @@ import (
 	"strings"
 )
 
-// Project execution modes are stable API values. Full access is an explicit
-// trust decision, not an isolation guarantee.
+// Execution modes are stable API values. The two-tier policy is the only
+// effective permission boundary: workspace_autonomous is the default and keeps
+// every host effect inside the workspace, /tmp and the toolchain boundary, while
+// full_access is an explicit trust decision for the user's own machine and is
+// never an isolation guarantee.
 const (
-	ExecutionControlled        = "controlled"
-	ExecutionProjectAutonomous = "project_autonomous"
-	ExecutionFullAccess        = "full_access"
+	ExecutionWorkspaceAutonomous = "workspace_autonomous"
+	ExecutionFullAccess          = "full_access"
 )
 
 // ValidExecutionMode rejects implicit privilege upgrades and unknown modes.
 func ValidExecutionMode(mode string) bool {
-	return slices.Contains([]string{ExecutionControlled, ExecutionProjectAutonomous, ExecutionFullAccess}, mode)
+	return mode == ExecutionWorkspaceAutonomous || mode == ExecutionFullAccess
 }
 
 // BudgetPolicy is resolved when a root task is created. Later setting changes
@@ -323,32 +325,52 @@ func AuthorizedActions(global, project, task, step, run []string) []string {
 }
 
 // WorkspaceExecution owns an isolated candidate directory and its durable lease.
+// The owning scope is either a durable task or a plain conversation, so a
+// thread-scoped candidate survives until the user applies or discards it.
 type WorkspaceExecution struct {
-	ID             string `json:"id"`
-	WorkspaceID    string `json:"workspace_id"`
-	TaskID         string `json:"task_id"`
-	Kind           string `json:"kind"`
-	Path           string `json:"path"`
-	CanonicalRoot  string `json:"canonical_root"`
-	BaseRevision   string `json:"base_revision"`
-	TreeDigest     string `json:"tree_digest"`
-	OwnerMemberID  string `json:"owner_member_id"`
-	LeaseOwner     string `json:"lease_owner"`
-	LeaseEpoch     int    `json:"lease_epoch"`
-	LeaseExpiresAt string `json:"lease_expires_at"`
-	Status         string `json:"status"`
-	Observation    string `json:"observation_completeness"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID            string `json:"id"`
+	WorkspaceID   string `json:"workspace_id"`
+	ThreadID      string `json:"thread_id"`
+	TaskID        string `json:"task_id,omitempty"`
+	Kind          string `json:"kind"`
+	Path          string `json:"path"`
+	CanonicalRoot string `json:"canonical_root"`
+	BaseRevision  string `json:"base_revision"`
+	// BaseSnapshotOID is an unreferenced git commit capturing the exact derived
+	// tree (HEAD + dirty tracked + untracked files) when the worktree was created,
+	// so live diffs and affected-file conflict checks stay exact even if the agent
+	// commits inside the candidate worktree.
+	BaseSnapshotOID string `json:"base_snapshot_oid,omitempty"`
+	// BaseTreeDigest is the affected workspace snapshot taken when the candidate
+	// was materialized. Apply compares it with the live source tree so an
+	// external edit can never be silently overwritten.
+	BaseTreeDigest string `json:"base_tree_digest,omitempty"`
+	// BaseFiles records each file digest of the derived snapshot for a bounded
+	// file copy, so Apply can prove a project file was not edited externally.
+	BaseFiles      map[string]string `json:"base_files,omitempty"`
+	TreeDigest     string            `json:"tree_digest"`
+	OwnerMemberID  string            `json:"owner_member_id"`
+	LeaseOwner     string            `json:"lease_owner"`
+	LeaseEpoch     int               `json:"lease_epoch"`
+	LeaseExpiresAt string            `json:"lease_expires_at"`
+	// Status is active, completed, applied, discarded, failed, quarantined or uncertain.
+	Status      string `json:"status"`
+	Observation string `json:"observation_completeness"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // ExecutionSession is disposable native context with explicit exposure and
 // revocation metadata; WorkRecord remains the canonical recovery source.
 type ExecutionSession struct {
-	ID              string   `json:"id"`
-	TaskID          string   `json:"task_id"`
-	MemberID        string   `json:"member_id"`
-	Role            string   `json:"role"`
+	ID       string `json:"id"`
+	ThreadID string `json:"thread_id"`
+	TaskID   string `json:"task_id,omitempty"`
+	MemberID string `json:"member_id"`
+	Role     string `json:"role"`
+	// WorkRoot is the exact working directory the native session was started in.
+	// A different root (applied or discarded candidate) rolls a new session.
+	WorkRoot        string   `json:"work_root,omitempty"`
 	ExecutionBranch string   `json:"execution_branch"`
 	Fingerprint     string   `json:"fingerprint"`
 	ContextEpoch    int      `json:"context_epoch"`

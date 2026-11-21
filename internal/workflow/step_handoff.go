@@ -24,10 +24,9 @@ func prepareStepHandoff(
 	if err != nil {
 		return Handoff{}, err
 	}
-	// The planning root is a scheduling dependency only. Its message and
-	// artifacts are withheld from the handoff so a planner that answered
-	// the task anyway cannot seed the independent views.
-	planningRoot := planningRootStep(run)
+	// The task-promotion step is a scheduling dependency only. Its message and
+	// artifacts are withheld from the handoff.
+	planningRoot := run.TaskPromotionStepID
 	dependentArtifacts := []w.Artifact{}
 	for _, artifact := range artifacts {
 		if artifact.RunID != run.ID || artifact.StepID == planningRoot || artifact.StepID == run.TaskPromotionStepID || !slices.Contains(step.DependsOn, artifact.StepID) {

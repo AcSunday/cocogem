@@ -43,7 +43,6 @@ test("retries only the failed member from a dismissible Composer notice", async 
           title: "成员重试",
           agent_ids: members.map((member: { id: string }) => member.id),
           coordinator_id: orange.id,
-          workflow: "free",
         },
       },
     )

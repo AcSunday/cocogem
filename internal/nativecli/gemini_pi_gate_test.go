@@ -22,7 +22,7 @@ func gateTestRequest(t *testing.T, root string, decide func(model.NativePermissi
 	t.Helper()
 	request := testRequest()
 	request.Executor = "gemini"
-	request.ExecutionMode = "project_autonomous"
+	request.ExecutionMode = "workspace_autonomous"
 	request.WorkspaceRoot = root
 	request.AuthorizeNative = func(_ context.Context, request model.NativePermissionRequest) (model.NativePermissionDecision, error) {
 		return decide(request)
@@ -557,7 +557,7 @@ func TestGateMissingCallbackFailsClosed(t *testing.T) {
 	root := t.TempDir()
 	request := testRequest()
 	request.Executor = "gemini"
-	request.ExecutionMode = "project_autonomous"
+	request.ExecutionMode = "workspace_autonomous"
 	request.WorkspaceRoot = root
 	gate, err := newBridge(t.Context(), nil, func(context.Context, string, json.RawMessage) (string, error) {
 		return "", errors.New("unused")

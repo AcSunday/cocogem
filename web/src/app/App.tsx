@@ -10,13 +10,18 @@ import {
   applyMessageDelta,
   eventHistory,
   uploadSource,
+  threadCandidates,
+  applyCandidate,
+  discardCandidate,
+  candidateDiff,
+  exportCandidateBranch,
   EVENT_WINDOW,
   type Agent,
   type Artifact,
   type Attempt,
   type BootstrapReply,
+  type CandidateView,
   type Event,
-  type Routing,
   type Run,
   type RunInput,
   type RunView,
@@ -33,11 +38,8 @@ import {
 import { AuthScreen } from "../components/AuthScreen";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
-import {
-  Composer,
-  type ComposerAttachment,
-  type WorkflowKey,
-} from "../components/Composer";
+import { CandidateBar } from "../components/CandidateBar";
+import { Composer, type ComposerAttachment } from "../components/Composer";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
 import { RunSegment } from "../components/RunSegment";
@@ -70,6 +72,7 @@ import {
   PermissionDecision,
   submitPermissionDecision,
   usePermissionRequests,
+  type PermissionGrantScope,
 } from "../components/PermissionDecision";
 import { PermissionQueue } from "../components/PermissionQueue";
 import { executionModeOf, useGlobalSettings } from "./useGlobalSettings";
@@ -81,7 +84,6 @@ import {
   nextLiveness,
   seedLiveness,
   threadTitle,
-  workflows,
 } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -223,6 +225,9 @@ function WorkspaceApp({
   const [threads, setThreads] = useState<Thread[]>([]);
   const [view, setView] = useState<ThreadView>();
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  // Unapplied candidate worktrees of the open conversation; never inferred
+  // from run status, because applying is always an explicit reader decision.
+  const [candidates, setCandidates] = useState<CandidateView[]>([]);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [stepsByRun, setStepsByRun] = useState<Record<string, Step[]>>({});
@@ -252,10 +257,6 @@ function WorkspaceApp({
       return {};
     }
   });
-  const [workflowChoices, setWorkflowChoices] = useState<
-    Record<string, WorkflowKey>
-  >({});
-  const [routing, setRouting] = useState<Routing>();
   const memberRetryKeys = useRef(new Map<string, string>());
   const [tab, setTab] = useState<PanelTab>("artifacts");
   const [source, setSource] = useState<Source>();
@@ -329,7 +330,11 @@ function WorkspaceApp({
       (item) => item.id === requestID || item.request_id === requestID,
     );
   const decidePermission = useCallback(
-    async (requestID: string, decision: "allow_once" | "allow_conversation" | "deny") => {
+    async (
+      requestID: string,
+      decision: "allow_once" | "allow_conversation" | "deny",
+      grantScope?: PermissionGrantScope,
+    ) => {
       const request = permissions.items.find(
         (item) => item.id === requestID || item.request_id === requestID,
       );
@@ -339,11 +344,14 @@ function WorkspaceApp({
         throw new Error("该授权请求已不在待处理列表中，请刷新后重试。");
       }
       try {
-        await submitPermissionDecision(request, decision);
+        await submitPermissionDecision(request, decision, grantScope);
       } finally {
         // Re-read in both cases: a conflict must show the true server state
         // instead of leaving a stale card that looks decidable.
         await permissions.request();
+        if (currentWorkspace.current) {
+          void loadThreads(currentWorkspace.current).catch(() => undefined);
+        }
       }
       // The decision answers exactly this blocked call. It never submits the
       // Composer draft and never restarts the root task.
@@ -351,6 +359,9 @@ function WorkspaceApp({
     [permissions],
   );
   const mode = executionModeOf(settings);
+  // The plan-only switch is a per-turn lock, not a permission mode: it resets
+  // after a successful send and never touches the global epoch.
+  const [planOnly, setPlanOnly] = useState(false);
   const active = runs.some((run) => !terminal(run.status));
   const available = agents.filter((agent) => !agent.disabled);
   const newThreadMembers = [...available].sort(
@@ -365,14 +376,6 @@ function WorkspaceApp({
     : threadID
       ? []
       : newThreadMembers.slice(0, 4);
-  const workflow =
-    workflowChoices[draftKey] ??
-    (view?.thread.workflow as WorkflowKey | undefined) ??
-    "free";
-  const setWorkflow = (value: WorkflowKey) => {
-    setWorkflowChoices((current) => ({ ...current, [draftKey]: value }));
-    setRouting(undefined);
-  };
   // Existing conversations keep their own coordinator; a new one previews the
   // same default/fallback the server applies when creating it.
   const coordinatorID = threadID
@@ -430,6 +433,7 @@ function WorkspaceApp({
       return;
     setPendingRequest(pendingSubmission.current.has(th));
     setSteeringReceipt("");
+    setPlanOnly(false);
     currentThread.current = th;
     currentWorkspace.current = ws;
     currentTask.current = task;
@@ -454,7 +458,6 @@ function WorkspaceApp({
     setSourceLoading(false);
     sourceGeneration.current++;
     setArtifactRef(undefined);
-    setRouting(undefined);
     messageCursorRef.current = "";
     viewCursor.current = "";
     setMessageCursor("");
@@ -529,9 +532,10 @@ function WorkspaceApp({
       // Anything applied after this point is newer than the HTTP snapshot.
       const startConfirmed = { ...confirmedSeq.current };
       const result = await loadThreadPage(id, cursor);
-      const deliverables = await api<{ items: Artifact[] }>(
-        `/api/v1/threads/${id}/artifacts`,
-      );
+      const [deliverables, candidateItems] = await Promise.all([
+        api<{ items: Artifact[] }>(`/api/v1/threads/${id}/artifacts`),
+        threadCandidates(id),
+      ]);
       if (
         currentThread.current !== id ||
         generation !== refreshGeneration.current
@@ -549,6 +553,7 @@ function WorkspaceApp({
       );
       viewCursor.current = cursor;
       setArtifacts(deliverables.items ?? []);
+      setCandidates(candidateItems);
       const stale = result.runs.filter(
         (run) => !settledSteps.current.has(run.id),
       );
@@ -694,6 +699,7 @@ function WorkspaceApp({
   useEffect(() => {
     if (ready && threadID) {
       setView(undefined);
+      setCandidates([]);
       setEvents([]);
       void refreshThread(threadID).catch((error) => setError(errorText(error)));
     }
@@ -901,9 +907,20 @@ function WorkspaceApp({
         const next = nextLiveness(previous ?? [], event);
         return withRunWarnings(current, event.run_id, next);
       });
-      // Run lifecycle frames change the sidebar's queued/running/final state;
-      // refresh the lightweight list instead of walking every thread.
-      if (event.type.startsWith("run_")) void loadThreads(workspaceID);
+      // Run, permission, question and task lifecycle frames change sidebar &
+      // header capsule projections; refresh them immediately instead of waiting
+      // for background polling.
+      if (
+        event.type.startsWith("run_") ||
+        event.type.startsWith("permission_") ||
+        event.type.startsWith("question_") ||
+        event.type.startsWith("task_")
+      ) {
+        void loadThreads(workspaceID);
+        if (event.type.startsWith("permission_")) {
+          void permissions.request();
+        }
+      }
       // Replayed deltas predate the loaded snapshot; only newer ones update it.
       if (
         event.type === "message_delta" &&
@@ -978,7 +995,7 @@ function WorkspaceApp({
       const bootstrapped = await api<BootstrapReply>(
         "/api/v1/bootstrap",
         "POST",
-        { workspace_id: workspaceID, title: threadTitle(text), workflow },
+        { workspace_id: workspaceID, title: threadTitle(text) },
         { "Idempotency-Key": key },
       );
       thread = bootstrapped.thread;
@@ -1000,13 +1017,11 @@ function WorkspaceApp({
           title: threadTitle(text),
           // The server applies the global default coordinator when omitted.
           agent_ids: newThreadMembers.slice(0, 10).map((agent) => agent.id),
-          workflow,
         },
       );
     }
     currentThread.current = thread.id;
     setTaskID("");
-    setWorkflowChoices((current) => ({ ...current, [thread.id]: workflow }));
     setDrafts((current) => ({
       ...current,
       [thread.id]: current[`new:${workspaceID}`] ?? text,
@@ -1069,7 +1084,6 @@ function WorkspaceApp({
     if (busy) return;
     setBusy(true);
     setError("");
-    setRouting(undefined);
     setSteeringReceipt("");
     try {
       const text = inputOverride?.message ?? draft;
@@ -1101,18 +1115,15 @@ function WorkspaceApp({
         ? structuredClone(inputOverride)
         : {
             message: text,
-            workflow: workflow === "free" ? "" : workflow,
             targets: [],
-            // The server resolves global/session defaults from an empty map.
-            assignments: {},
             source_urls: [],
             source_ids: uploaded.map((item) => item.source?.id ?? item.id),
             artifact_refs: artifactRef
               ? [{ id: artifactRef.id, version: artifactRef.version }]
               : [],
             research_scope: "auto",
-            proposal_id: "",
             retry_of_run_id: "",
+            plan_only: planOnly,
           };
       let pending = pendingSubmission.current.get(id);
       if (
@@ -1124,15 +1135,6 @@ function WorkspaceApp({
           "有一次提交结果未确认，请先重试原请求；新问题已保留为草稿。",
         );
       if (!pending || pending.threadID !== id) {
-        input.proposal_id = "";
-        const preview = await api<{ proposal_id?: string; routing: Routing }>(
-          `/api/v1/threads/${id}/routing-preview`,
-          "POST",
-          input,
-        );
-        setRouting(preview.routing);
-        if (!preview.proposal_id) return;
-        input.proposal_id = preview.proposal_id;
         pending = {
           input: structuredClone(input),
           key: crypto.randomUUID(),
@@ -1158,6 +1160,7 @@ function WorkspaceApp({
       setEvents([]);
       setLivenessByRun({});
       setSeededRunID("");
+      setPlanOnly(false);
       setArtifactRef(undefined);
       messageCursorRef.current = "";
       viewCursor.current = "";
@@ -1363,9 +1366,7 @@ function WorkspaceApp({
             {view ? (
               <>
                 <span>
-                  {workspace?.name} /{" "}
-                  {workflows[view.thread.workflow as WorkflowKey] ||
-                    workflows.free}
+                  {workspace?.name} / 协作会话
                 </span>
                 <h1>{view.thread.title}</h1>
               </>
@@ -1489,8 +1490,7 @@ function WorkspaceApp({
                       workspace={workspace}
                       members={available.length}
                       onCreate={() => setModal({ kind: "workspace" })}
-                      onPick={(key, sample) => {
-                        setWorkflow(key);
+                      onPick={(sample) => {
                         updateDraft(sample);
                         document.getElementById("composer-input")?.focus();
                       }}
@@ -1505,8 +1505,7 @@ function WorkspaceApp({
                     <Welcome
                       members={available.length}
                       onCreate={() => setModal({ kind: "workspace" })}
-                      onPick={(key, sample) => {
-                        setWorkflow(key);
+                      onPick={(sample) => {
                         updateDraft(sample);
                         document.getElementById("composer-input")?.focus();
                       }}
@@ -1515,7 +1514,7 @@ function WorkspaceApp({
                 )}
                 <div className={cx("timeline-inner")}>
                   {view?.thread && <div className={cx("conversation-task-bar")}>
-                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>转为任务</button>}
+                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} refreshKey={`${runs.map((run) => `${run.id}:${run.status}`).join("|")}|p:${permissions.pending.length}`} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>转为任务</button>}
                   </div>}
                   {view && (messageCursor || view.messages.next_cursor) && (
                     <div
@@ -1611,8 +1610,8 @@ function WorkspaceApp({
                             key={prompt.requestID || prompt.activityKey}
                             prompt={prompt}
                             request={permissionRequestFor(prompt.requestID)}
-                            onDecide={(decision) =>
-                              decidePermission(prompt.requestID, decision)
+                            onDecide={(decision, grantScope) =>
+                              decidePermission(prompt.requestID, decision, grantScope)
                             }
                           />
                         )}
@@ -1649,14 +1648,46 @@ function WorkspaceApp({
                   onRestore={permissions.restore}
                 />
               )}
+            {!taskID && threadID && (
+              <CandidateBar
+                items={candidates}
+                locked={!!active || busy}
+                onApply={async (item) => {
+                  await applyCandidate(threadID, item.execution.id);
+                  // The server settled this candidate; drop it locally before a
+                  // quiet refresh so a slow reload never re-offers applied work.
+                  setCandidates((current) =>
+                    current.filter(
+                      (entry) => entry.execution.id !== item.execution.id,
+                    ),
+                  );
+                  void refreshThread(threadID).catch((error) =>
+                    setError(errorText(error)),
+                  );
+                }}
+                onDiscard={async (item) => {
+                  await discardCandidate(threadID, item.execution.id);
+                  setCandidates((current) =>
+                    current.filter(
+                      (entry) => entry.execution.id !== item.execution.id,
+                    ),
+                  );
+                  void refreshThread(threadID).catch((error) =>
+                    setError(errorText(error)),
+                  );
+                }}
+                onDiff={(item) => candidateDiff(threadID, item.execution.id)}
+                onExportBranch={(item) =>
+                  exportCandidateBranch(threadID, item.execution.id)
+                }
+              />
+            )}
             {!taskID && (threadID || projectView !== "tasks") && (
               <Composer
               agents={threadID ? threadMembers : available}
               allAgents={agents}
               draft={draft}
               setDraft={updateDraft}
-              workflow={workflow}
-              setWorkflow={setWorkflow}
               artifactRef={artifactRef}
               clearArtifactRef={() => setArtifactRef(undefined)}
               attachments={attachments}
@@ -1679,7 +1710,8 @@ function WorkspaceApp({
               // inert audit data and must never drive the Composer.
               executionMode={globalSettings.loading && !settings ? undefined : mode}
               onExecutionModeChange={changeExecutionMode}
-              routing={routing}
+              planOnly={planOnly}
+              onPlanOnlyChange={setPlanOnly}
               error={error}
               onDismissError={() => setError("")}
               // One notice per accepted user turn; retries inside that turn
@@ -1773,7 +1805,6 @@ function WorkspaceApp({
         loadThreads={loadThreads}
         loadGlobalAgents={loadGlobalAgents}
         setView={setView}
-        setWorkflowChoices={setWorkflowChoices}
         setArtifactRef={setArtifactRef}
         setPanelOpen={setPanelOpen}
         setError={setError}
@@ -1786,14 +1817,91 @@ function WorkspaceApp({
   );
 }
 
-function ConversationTask({ taskID, onOpen }: { taskID: string; onOpen: () => void }) {
+/**
+ * The conversation's task capsule. It refreshes immediately whenever this
+ * conversation's SSE run state changes, and keeps a slow fallback so a change
+ * made in another window still lands without a manual reload.
+ */
+function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string; refreshKey?: string; onOpen: () => void }) {
   const [task, setTask] = useState<ProjectTaskView>();
+  const [error, setError] = useState("");
+  const [popoverOpen, setPopoverOpen] = useState(false);
   useEffect(() => {
     let canceled = false;
-    const load = () => { void api<ProjectTaskView>(`/api/v1/tasks/${taskID}`).then((value) => { if (!canceled) setTask(value); }).catch(() => {}); };
+    const load = () => { void api<ProjectTaskView>(`/api/v1/tasks/${taskID}`).then((value) => { if (!canceled) { setTask(value); setError(""); } }).catch((failure) => { if (!canceled) setError(errorText(failure)); }); };
     load();
-    const timer = window.setInterval(load, 5000);
+    const timer = window.setInterval(load, 30000);
     return () => { canceled = true; window.clearInterval(timer); };
-  }, [taskID]);
-  return <button className={cx("ghost small")} onClick={onOpen}>{task ? `${taskTitle(task)} · ${taskFocusMeta(task).label}` : "关联任务"} <span>查看任务 →</span></button>;
+  }, [taskID, refreshKey]);
+  if (error) {
+    return <span className={cx("notice")} role="status">关联任务状态暂不可用</span>;
+  }
+  const meta = task ? taskFocusMeta(task) : undefined;
+  return (
+    <span style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+      <button className={cx("ghost small")} onClick={onOpen}>
+        {task && meta ? `${taskTitle(task)} · ${meta.label}` : "关联任务"}{" "}
+        <span>查看任务 →</span>
+      </button>
+      {task && meta && (
+        <button
+          type="button"
+          className={cx("ghost small")}
+          aria-expanded={popoverOpen}
+          aria-label="展开关联任务摘要"
+          title="查看关联任务摘要"
+          onClick={() => setPopoverOpen((open) => !open)}
+        >
+          {popoverOpen ? "▴" : "▾"}
+        </button>
+      )}
+      {popoverOpen && task && meta && (
+        <div
+          role="dialog"
+          aria-label="关联任务摘要"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            right: 0,
+            zIndex: 40,
+            width: "280px",
+            padding: "12px",
+            borderRadius: "10px",
+            border: "1px solid var(--border)",
+            background: "var(--surface)",
+            boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
+            display: "grid",
+            gap: "6px",
+            fontSize: "12px",
+          }}
+        >
+          <strong>{taskTitle(task)}</strong>
+          <div>状态：{meta.label}</div>
+          <div>当前：{meta.current}</div>
+          <div>下一步：{meta.next}</div>
+          <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+            <button
+              type="button"
+              className={cx("primary small")}
+              onClick={() => {
+                setPopoverOpen(false);
+                onOpen();
+              }}
+            >
+              {meta.phase === "review" || meta.phase === "needs_revalidation"
+                ? "去验收"
+                : "查看详情"}
+            </button>
+            <button
+              type="button"
+              className={cx("ghost small")}
+              onClick={() => setPopoverOpen(false)}
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
+    </span>
+  );
 }

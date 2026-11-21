@@ -164,7 +164,7 @@ func (e *Engine) recoverRun(ctx context.Context, id string) error {
 	} else if run.Status != "canceling" {
 		blockedReason, changes = e.checkAdapters(ctx, run, steps, attempts)
 		if blockedReason == "" && run.SkillSnapshot != "" {
-			hash, err := skills.SnapshotHash(run.Workspace.SkillIDs)
+			hash, err := skills.SnapshotHashFor(run.Workspace.Root, run.Workspace.SkillIDs)
 			if err != nil || hash != run.SkillSnapshot {
 				blockedReason = "checkpoint_blocked: shared skill version changed before recovery; start a new run"
 			}

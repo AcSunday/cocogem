@@ -13,7 +13,7 @@ const agent = {
   role_description: "", model: "default", executor: "claude", tools: [], disabled: false, revision: 1,
 };
 const workspace = { id: "ws", name: "未命名项目", description: "", root: "", revision: 1, created_at: "2026-11-05T00:00:00Z", skill_ids: [] };
-const thread = { id: "thread", workspace_id: "ws", title: "第一次提问", agent_ids: ["owner"], coordinator_id: "owner", workflow: "free", revision: 1, updated_at: "" };
+const thread = { id: "thread", workspace_id: "ws", title: "第一次提问", agent_ids: ["owner"], coordinator_id: "owner", revision: 1, updated_at: "" };
 const taskView = {
   task: {
     id: "task", workspace_id: "ws", thread_id: "thread", current_revision: 1, owner_member_id: "owner",
@@ -61,7 +61,7 @@ it("bootstraps into the conversation with a stable key and restores a task deep 
     if (path === "/api/v1/workspaces/ws/agents") return Response.json({ items: [agent] });
     if (path.startsWith("/api/v1/workspaces/ws/threads")) return Response.json({ items: [thread], next_cursor: "" });
     if (path === "/api/v1/threads/thread/routing-preview") return Response.json({ proposal_id: "proposal", routing: { decision: "respond", targets: [] } });
-    if (path === "/api/v1/threads/thread/runs") return Response.json({ id: "run", task_id: "task", input: { message: "第一次提问", workflow: "free", targets: [], assignments: {}, source_urls: [], artifact_refs: [], research_scope: "auto", proposal_id: "proposal", retry_of_run_id: "" }, agents: [agent], status: "running", created_at: "2026-11-05T00:00:00Z" });
+    if (path === "/api/v1/threads/thread/runs") return Response.json({ id: "run", task_id: "task", input: { message: "第一次提问", targets: [], assignments: {}, source_urls: [], artifact_refs: [], research_scope: "auto", proposal_id: "proposal", retry_of_run_id: "" }, agents: [agent], status: "running", created_at: "2026-11-05T00:00:00Z" });
     if (path === "/api/v1/tasks/task") return Response.json(taskView);
     if (path === "/api/v1/threads/thread") return Response.json({ thread, messages: { items: [], next_cursor: "" }, runs: [], sources: [] });
     if (path.startsWith("/api/v1/threads/thread?")) return Response.json({ thread, messages: { items: [], next_cursor: "" }, runs: [], sources: [] });

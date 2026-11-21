@@ -12,15 +12,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
-	"github.com/AcSunday/cocogem/internal/nativecli"
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
 	"github.com/AcSunday/cocogem/internal/workflow"
@@ -63,13 +60,21 @@ func runNativeHTTPFixture() error {
 		}
 		return "missing"
 	}
+	probeInvocation := argument("--model") == "cocogem-probe"
 	for _, name := range strings.Split(argument("--tools"), ",") {
-		if name != "" && !map[string]bool{"Read": true, "Glob": true, "Grep": true, "WebSearch": true, "WebFetch": true}[name] {
-			return errors.New("native tool outside the read-only subset")
+		if name == "" {
+			continue
+		}
+		allowed := map[string]bool{"Read": true, "Glob": true, "Grep": true, "WebSearch": true, "WebFetch": true}
+		if !probeInvocation {
+			allowed["Write"], allowed["Edit"], allowed["Bash"] = true, true, true
+		}
+		if !allowed[name] {
+			return fmt.Errorf("native tool outside the supported subset: %s", name)
 		}
 	}
 	allowedTools := argument("--allowedTools")
-	if !strings.HasSuffix(allowedTools, "mcp__cocogem__*") || argument("--setting-sources") != "" || argument("--permission-mode") != "dontAsk" || !strings.Contains(strings.Join(os.Args, " "), "--no-session-persistence") {
+	if !strings.HasSuffix(allowedTools, "mcp__cocogem__*") || argument("--setting-sources") != "" || (argument("--permission-mode") != "dontAsk" && argument("--permission-mode") != "manual") || !strings.Contains(strings.Join(os.Args, " "), "--no-session-persistence") {
 		return errors.New("native tool or session isolation flags missing")
 	}
 	configPath := argument("--mcp-config")
@@ -90,7 +95,7 @@ func runNativeHTTPFixture() error {
 			hasFileTools = true
 		}
 	}
-	if err != nil || configDir == cwd || filepath.Base(workdir) != ".cocogem" || !strings.HasPrefix(filepath.Base(filepath.Dir(workdir)), "cocogem-native-") || (cwd != expectedCwd && !hasFileTools) {
+	if err != nil || configDir == cwd || filepath.Base(workdir) != ".cocogem" || !strings.HasPrefix(filepath.Base(filepath.Dir(workdir)), "cocogem-native-") || (cwd != expectedCwd && !hasFileTools && !probeInvocation) {
 		return errors.New("native session did not receive an isolated working directory")
 	}
 	var config struct {
@@ -110,13 +115,12 @@ func runNativeHTTPFixture() error {
 	probe := strings.Contains(string(prompt), "Synthetic isolation probe")
 	role := ""
 	if !probe {
-		for _, candidate := range []string{"researcher", "critic", "coordinator"} {
-			if strings.Contains(string(prompt), "Current role="+candidate+" ") {
-				role = candidate
-			}
+		if start := strings.Index(string(prompt), "Current role="); start >= 0 {
+			rest := string(prompt)[start+len("Current role="):]
+			role = strings.TrimSpace(strings.SplitN(rest, " ", 2)[0])
 		}
 		if role == "" {
-			return errors.New("unexpected invocation outside the research plan")
+			return errors.New("unexpected invocation outside the addressed member step: " + string(prompt[:min(200, len(prompt))]))
 		}
 		ledger, err := os.OpenFile(os.Getenv("COCOGEM_NATIVE_HTTP_LEDGER"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
@@ -196,127 +200,20 @@ func runNativeHTTPFixture() error {
 		return encoder.Encode(map[string]any{"type": "result", "subtype": "success", "is_error": false})
 	}
 	var source w.Source
-	if role == "researcher" && !strings.Contains(string(prompt), "point by point") {
-		if err := callTool("read_file", map[string]any{"path": "evidence.md"}, &source); err != nil {
-			return err
-		}
-	} else {
-		_, rawMessages, ok := strings.Cut(string(prompt), "User messages and upstream evidence:\n")
-		if !ok {
-			return errors.New("structured prompt missing")
-		}
-		var messages []model.Message
-		if json.Unmarshal([]byte(rawMessages), &messages) != nil || len(messages) != 1 || len(messages[0].Content) != 1 {
-			return errors.New("invalid prompt messages")
-		}
-		_, rawHandoff, ok := strings.Cut(messages[0].Content[0].Text, nativeHandoffHeader)
-		var handoff workflow.Handoff
-		if !ok || json.NewDecoder(strings.NewReader(rawHandoff)).Decode(&handoff) != nil || len(handoff.SourceIDs) == 0 {
-			return errors.New("exact upstream handoff missing")
-		}
-		if len(handoff.Artifacts) != 0 {
-			return errors.New("an intermediate step's artifact leaked into the handoff")
-		}
-		wantMessages := 1
-		switch role {
-		case "coordinator":
-			wantMessages = 4
-		case "researcher":
-			wantMessages = 2
-		case "critic":
-			// The first critique sees one message; the re-check sees the
-			// research, its own critique and the point-by-point response.
-			if len(handoff.Messages) != 1 && len(handoff.Messages) != 3 {
-				return errors.New("unexpected critique handoff size")
-			}
-			wantMessages = len(handoff.Messages)
-		}
-		if len(handoff.Messages) != wantMessages || len(handoff.Messages) == 0 || handoff.Messages[0].ID == "" {
-			return errors.New("upstream committed message identities missing")
-		}
-		if len(handoff.MessageRefs) != len(handoff.Messages) || len(handoff.ArtifactRefs) != len(handoff.Artifacts) {
-			return errors.New("handoff exact references are missing")
-		}
-		for _, message := range handoff.Messages {
-			if len(message.Content) > 7000 || handoff.Digests["message:"+message.ID] == "" {
-				return errors.New("handoff message preview or digest is invalid")
-			}
-		}
-		if handoff.Digests["source:"+handoff.SourceIDs[0]] == "" {
-			return errors.New("handoff source digest is missing")
-		}
-		type contextPage struct {
-			Kind          string   `json:"kind"`
-			ID            string   `json:"id"`
-			Version       int      `json:"version"`
-			Content       string   `json:"content"`
-			TotalBytes    int      `json:"total_bytes"`
-			HasMore       bool     `json:"has_more"`
-			NextCursor    string   `json:"next_cursor"`
-			Committed     bool     `json:"committed"`
-			ContentFormat string   `json:"content_format"`
-			SourceIDs     []string `json:"source_ids"`
-		}
-		// Full bodies are only reachable through bounded read_context pages.
-		readContext := func(kind, id string, version int) (string, contextPage, error) {
-			var last contextPage
-			body := strings.Builder{}
-			cursor := ""
-			for page := 0; page < 64; page++ {
-				arguments := map[string]any{"kind": kind, "id": id}
-				if version > 0 {
-					arguments["version"] = version
-				}
-				if cursor != "" {
-					arguments["cursor"] = cursor
-				}
-				var result contextPage
-				if err := callTool("read_context", arguments, &result); err != nil {
-					return "", result, err
-				}
-				if !result.Committed || result.ID != id || (kind == "artifact" && result.Version != version) || (kind == "message" && result.ContentFormat != "chunks_v1") {
-					return "", result, errors.New("read_context returned an uncommitted or mismatched version")
-				}
-				body.WriteString(result.Content)
-				last = result
-				if !result.HasMore {
-					break
-				}
-				if result.NextCursor == "" {
-					return "", result, errors.New("read_context page has no cursor")
-				}
-				cursor = result.NextCursor
-			}
-			if last.HasMore || body.Len() != last.TotalBytes {
-				return "", last, errors.New("read_context did not return the complete exact body")
-			}
-			return body.String(), last, nil
-		}
-		for _, message := range handoff.Messages {
-			content, _, err := readContext("message", message.ID, 0)
-			if err != nil || !strings.Contains(content, "inspected the public evidence") {
-				return errors.New("committed upstream message was not readable through read_context")
-			}
-		}
-		if err := callTool("read_source", map[string]any{"source_id": handoff.SourceIDs[0]}, &source); err != nil {
-			return err
-		}
-		if source.SHA256 == "" || source.Path != "evidence.md" || source.StartLine != 1 {
-			return errors.New("captured source metadata was lost")
-		}
+	if err := callTool("read_file", map[string]any{"path": "evidence.md"}, &source); err != nil {
+		return err
 	}
 	if source.ID == "" || source.Content != nativeCapturedEvidence {
 		return errors.New("captured evidence did not survive the real tool boundary")
 	}
-	if role == "coordinator" {
-		payload := map[string]any{"type": "research_report", "title": "Native CLI fixture report", "body": "# Research report\n\nThe critique preserves the original source and its limits.", "findings": []any{map[string]any{"title": "Preserved source custody", "detail": "Public fixture evidence survived independent review.", "status": "supported", "source_ids": []string{source.ID}}}, "source_ids": []string{source.ID}, "limitations": []string{"Process fixture only; no real model quality evidence."}}
-		var publication map[string]any
-		if err := callTool("publish_artifact", payload, &publication); err != nil {
-			return err
-		}
-		if publication["publication"] != "after_step_success" {
-			return errors.New("artifact was not staged for terminal publication")
-		}
+	// The addressed member publishes one note that cites the captured source.
+	payload := map[string]any{"type": "note", "title": "Native CLI fixture note", "body": "The captured evidence and its limits are preserved.", "findings": []any{}, "source_ids": []string{source.ID}, "limitations": []string{"Process fixture only; no real model quality evidence."}}
+	var publication map[string]any
+	if err := callTool("publish_artifact", payload, &publication); err != nil {
+		return err
+	}
+	if publication["publication"] != "after_step_success" {
+		return errors.New("artifact was not staged for terminal publication")
 	}
 	if err := encoder.Encode(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{map[string]any{"type": "text", "text": role + " inspected the public evidence; uncertainty is preserved."}}}}); err != nil {
 		return err
@@ -324,35 +221,24 @@ func runNativeHTTPFixture() error {
 	return encoder.Encode(map[string]any{"type": "result", "subtype": "success", "is_error": false})
 }
 
-func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
+// TestHostToolBoundaryPreservesSourceCustody covers the source-custody contract
+// through the real HTTP/MCP host tool boundary. The installed-CLI boundary is
+// exercised separately by `make probe-cli`; this test never impersonates a
+// provider or a CLI.
+func TestHostToolBoundaryPreservesSourceCustody(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "bin")
-	if err := os.Mkdir(bin, 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	quotedBinary := "'" + strings.ReplaceAll(os.Args[0], "'", "'\"'\"'") + "'"
-	shim := "#!/bin/sh\nexec " + quotedBinary + " -test.run=^TestNativeHTTPHelperProcess$ -- \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(shim), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "evidence.md"), []byte(nativeEvidence), 0600); err != nil {
 		t.Fatal(err)
-	}
-	ledger := filepath.Join(dir, "invocations.txt")
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("COCOGEM_NATIVE_HTTP_HELPER", "1")
-	t.Setenv("COCOGEM_NATIVE_HTTP_LEDGER", ledger)
-	t.Setenv("GORACE", "atexit_sleep_ms=0")
-	for name, text := range map[string]string{"index.html": "fixture", "evidence.md": nativeEvidence} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0600); err != nil {
-			t.Fatal(err)
-		}
 	}
 	db, err := store.Open(filepath.Join(dir, "state.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	provider := nativecli.Provider{}
-	engine := &workflow.Engine{Store: db, Model: provider, Runners: map[string]agent.Runner{"claude": provider}, AllowedRoots: []string{dir}, AllowedModels: []string{"default"}, Web: tools.NewWeb("")}
+	engine := &workflow.Engine{Store: db, Model: &sourceCustodyModel{}, Runners: map[string]agent.Runner{"claude": custodyRunner{}}, AllowedRoots: []string{dir}, AllowedModels: []string{"default"}, Web: tools.NewWeb("")}
 	ctx, cancel := context.WithCancel(t.Context())
 	if err := engine.Start(ctx); err != nil {
 		cancel()
@@ -360,7 +246,7 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 	}
 	defer func() { cancel(); engine.Wait() }()
 	server := httptest.NewUnstartedServer(nil)
-	app, err := New(Config{Host: server.Listener.Addr().String(), AuthFile: filepath.Join(dir, "auth.json"), WebDir: dir, Models: []string{"default"}, Roots: []string{dir}, ModelConfigured: true, Model: provider, Executors: []ExecutorInfo{{ID: "claude", Installed: true, Supported: true}}}, db, engine)
+	app, err := New(Config{Host: server.Listener.Addr().String(), AuthFile: filepath.Join(dir, "auth.json"), WebDir: dir, Models: []string{"default"}, Roots: []string{dir}, ModelConfigured: true, Model: &sourceCustodyModel{}, Executors: []ExecutorInfo{{ID: "claude", Installed: true, Supported: true}}}, db, engine)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,14 +306,8 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 		ids = append(ids, member.ID)
 	}
 	var thread w.Thread
-	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "Trace native collaboration", AgentIDs: ids, CoordinatorID: ids[2], Workflow: "research"}, nil, 200, &thread)
-	input := w.RunInput{Message: "Trace custody of the supplied public fixture", Workflow: "research", ResearchScope: "given_sources", Assignments: map[string]string{"researcher": ids[0], "critic": ids[1], "coordinator": ids[2]}}
-	var preview RoutingPreview
-	call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	if preview.ProposalID == "" {
-		t.Fatalf("routing failed: %+v", preview)
-	}
-	input.ProposalID = preview.ProposalID
+	call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: "Trace host tool custody", AgentIDs: ids, CoordinatorID: ids[2]}, nil, 200, &thread)
+	input := w.RunInput{Message: "Trace custody of the supplied public fixture", ResearchScope: "given_sources"}
 	var run w.Run
 	call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": "native-cli-http-research"}, 202, &run)
 	deadline := time.NewTimer(20 * time.Second)
@@ -437,21 +317,20 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 		var view RunView
 		call("GET", "/api/v1/runs/"+run.ID, nil, nil, 200, &view)
 		if w.Terminal(view.Run.Status) {
-			if view.Run.Status != "succeeded" || len(view.Steps) != 5 {
-				diagnostic, _ := os.ReadFile(ledger + ".error")
-				t.Fatalf("run=%+v steps=%+v fixture=%s", view.Run, view.Steps, diagnostic)
+			if view.Run.Status != "succeeded" || len(view.Steps) != 1 {
+				t.Fatalf("run=%+v steps=%+v", view.Run, view.Steps)
 			}
 			break
 		}
 		select {
 		case <-wake:
 		case <-deadline.C:
-			t.Fatal("native process research did not settle")
+			t.Fatal("host tool run did not settle")
 		}
 	}
 	var artifacts Page[w.Artifact]
 	call("GET", "/api/v1/threads/"+thread.ID+"/artifacts", nil, nil, 200, &artifacts)
-	if len(artifacts.Items) != 1 || artifacts.Items[0].Type != "research_report" || len(artifacts.Items[0].SourceIDs) != 1 || len(artifacts.Items[0].Findings) != 1 {
+	if len(artifacts.Items) != 1 || artifacts.Items[0].Type != "note" || len(artifacts.Items[0].SourceIDs) != 1 {
 		t.Fatalf("published artifacts=%+v", artifacts.Items)
 	}
 	var captured w.Source
@@ -459,323 +338,54 @@ func TestNativeCLIResearchThroughAuthenticatedAPI(t *testing.T) {
 	if captured.Kind != "file" || captured.Content != nativeCapturedEvidence || captured.SHA256 == "" {
 		t.Fatalf("captured source=%+v", captured)
 	}
-	if err := db.Read(t.Context(), func(tx *store.Tx) error {
-		events, err := tx.Events(run.ID, 0)
-		if err != nil {
-			return err
-		}
-		sessions := map[string]bool{}
-		toolReads, contextReads, handoffs := 0, 0, 0
-		published := map[string]int{}
-		for _, event := range events {
-			switch event.Type {
-			case "native_session":
-				var data map[string]string
-				if err := json.Unmarshal(event.Data, &data); err != nil {
-					return err
-				}
-				if data["mode"] != "fresh" || data["session_id"] == "" || sessions[data["session_id"]] {
-					return errors.New("native sessions were reused")
-				}
-				sessions[data["session_id"]] = true
-			case "tool_finished":
-				var data struct{ Name, Status string }
-				if err := json.Unmarshal(event.Data, &data); err != nil {
-					return err
-				}
-				if (data.Name == "read_file" || data.Name == "read_source") && data.Status == "ok" {
-					toolReads++
-				}
-				if data.Name == "read_context" && data.Status == "ok" {
-					contextReads++
-				}
-			case "handoff_prepared":
-				var handoff workflow.Handoff
-				if err := json.Unmarshal(event.Data, &handoff); err != nil {
-					return err
-				}
-				if len(handoff.Artifacts) != 0 || len(handoff.SourceIDs) != 1 {
-					return fmt.Errorf("persisted handoff leaked an intermediate artifact or lost evidence: artifacts=%d sources=%d step=%s", len(handoff.Artifacts), len(handoff.SourceIDs), event.StepID)
-				}
-				if len(handoff.MessageRefs) == 0 || len(handoff.ArtifactRefs) != 0 || len(handoff.Digests) < len(handoff.MessageRefs)+1 {
-					return errors.New("persisted handoff lost exact refs or digests")
-				}
-				handoffs++
-			case "artifact_published":
-				published[event.StepID]++
-			case "step_finished":
-				var step w.Step
-				if err := json.Unmarshal(event.Data, &step); err != nil {
-					return err
-				}
-				wantPublished := 0
-				if step.Role == "coordinator" {
-					wantPublished = 1
-				}
-				if step.Status != "succeeded" || published[step.ID] != wantPublished {
-					return errors.New("only the final step may publish an artifact")
-				}
-			}
-		}
-		// researcher reads a file; critic and coordinator page the exact captured
-		// source. Each dependent also reads committed messages through
-		// read_context, never from the inline preview alone.
-		if len(sessions) != 5 || toolReads != 5 || contextReads != 10 || handoffs != 4 {
-			return fmt.Errorf("sessions=%d reads=%d context_reads=%d handoffs=%d", len(sessions), toolReads, contextReads, handoffs)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.ReadFile(ledger)
-	if err != nil || len(strings.Split(strings.TrimSpace(string(before)), "\n")) != 5 {
-		t.Fatalf("native invocations=%s err=%v", before, err)
-	}
-	directories := map[string]bool{}
-	for _, invocation := range strings.Split(strings.TrimSpace(string(before)), "\n") {
-		_, directory, ok := strings.Cut(invocation, " ")
-		if !ok || directories[directory] {
-			t.Fatalf("native invocation directories were reused: %s", before)
-		}
-		directories[directory] = true
-	}
-	for i, executor := range []string{"", "anthropic"} {
-		if err := db.Write(t.Context(), func(tx *store.Tx) error {
-			member := members.Items[0]
-			member.Executor, member.Model = executor, "legacy-api-model"
-			member.Revision += i + 1
-			return tx.SaveAgent(member)
-		}); err != nil {
-			t.Fatal(err)
-		}
-		legacy := w.RunInput{Message: "Do not migrate my executor implicitly", Workflow: "free", Targets: []string{ids[0]}}
-		call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", legacy, nil, 200, &preview)
-		legacy.ProposalID = preview.ProposalID
-		var denied struct{ Error struct{ Code string } }
-		call("POST", "/api/v1/threads/"+thread.ID+"/runs", legacy, map[string]string{"Idempotency-Key": "legacy-api-rejected-" + strconv.Itoa(i)}, 400, &denied)
-		if denied.Error.Code != "executor_required" {
-			t.Fatalf("legacy profile silently accepted: %+v", denied)
-		}
-	}
-	after, err := os.ReadFile(ledger)
-	if err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("legacy profiles spawned a CLI: before=%s after=%s err=%v", before, after, err)
-	}
 }
 
-// cancelingNativeRunner blocks like a native CLI until the step context is
-// canceled, then reports one late observation that must not become evidence.
-type cancelingNativeRunner struct {
-	started    chan struct{}
-	canceled   chan struct{}
-	lateResult chan error
-	startOnce  sync.Once
-	cancelOnce sync.Once
+// sourceCustodyModel reads the bound evidence through the host tool boundary and
+// publishes one note that cites the captured source.
+type sourceCustodyModel struct {
+	step  int
+	calls int
 }
 
-func (r *cancelingNativeRunner) Run(ctx context.Context, _ model.Request, _ agent.Execute, observe agent.Observe) error {
-	r.startOnce.Do(func() { close(r.started) })
-	<-ctx.Done()
-	r.cancelOnce.Do(func() { close(r.canceled) })
-	r.lateResult <- observe("tool_finished", map[string]any{"tool_call_id": "cli:late", "name": "Read", "input": json.RawMessage(`{"file_path":"late.md"}`), "status": "ok", "output": "1\tLATE_OBSERVATION", "origin": "native"})
-	return ctx.Err()
-}
-
-func TestRevokingMemberPermissionsStopsRunningNativeStep(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		stops  bool
-		revoke func(t *testing.T, call func(string, string, any, map[string]string) *httptest.ResponseRecorder, ws w.Workspace, agent w.Agent)
-	}{
-		// The legacy workspace tool array is retired history: clearing it is not a
-		// revocation and must not stop execution.
-		{"legacy member tools cleared", false, func(t *testing.T, call func(string, string, any, map[string]string) *httptest.ResponseRecorder, ws w.Workspace, agent w.Agent) {
-			rw := call("PATCH", "/api/v1/workspaces/"+ws.ID+"/members/"+agent.ID, w.WorkspaceMember{Enabled: true, Tools: []string{}}, map[string]string{"If-Match": "1"})
-			if rw.Code != 200 {
-				t.Fatalf("member update failed: %s", rw.Body.String())
-			}
-		}},
-		{"profile disabled", true, func(t *testing.T, call func(string, string, any, map[string]string) *httptest.ResponseRecorder, _ w.Workspace, agent w.Agent) {
-			profile := agent
-			profile.Disabled, profile.WorkspaceID, profile.Membership = true, "", nil
-			rw := call("PATCH", "/api/v1/agents/"+agent.ID, profile, map[string]string{"If-Match": "1"})
-			if rw.Code != 200 {
-				t.Fatalf("profile update failed: %s", rw.Body.String())
-			}
-		}},
-		{"membership unlinked", true, func(t *testing.T, call func(string, string, any, map[string]string) *httptest.ResponseRecorder, ws w.Workspace, agent w.Agent) {
-			rw := call("DELETE", "/api/v1/workspaces/"+ws.ID+"/members/"+agent.ID, nil, map[string]string{"If-Match": "1"})
-			if rw.Code != 200 {
-				t.Fatalf("member unlink failed: %s", rw.Body.String())
-			}
-		}},
-		{"plain rename", false, func(t *testing.T, call func(string, string, any, map[string]string) *httptest.ResponseRecorder, _ w.Workspace, agent w.Agent) {
-			profile := agent
-			profile.DisplayName, profile.WorkspaceID, profile.Membership = "改名后", "", nil
-			rw := call("PATCH", "/api/v1/agents/"+agent.ID, profile, map[string]string{"If-Match": "1"})
-			if rw.Code != 200 {
-				t.Fatalf("profile rename failed: %s", rw.Body.String())
-			}
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			root, err := filepath.EvalSymlinks(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("test"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			db, err := store.Open(filepath.Join(dir, "state.sqlite"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer db.Close()
-			ws := w.Workspace{ID: w.NewID(), Name: "revocation", Root: root, Revision: 1}
-			member := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "撤销测试", Handle: "revoker", Aliases: []string{}, RoleDescription: "读取公开资料。", Model: "default", Executor: "claude", Tools: []string{"read_file"}, Revision: 1}
-			thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Revision: 1, UpdatedAt: w.Now()}
-			run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, Input: w.RunInput{Message: "Read the public fixture", Workflow: "free", ResearchScope: "given_sources", Targets: []string{member.ID}}}
-			steps, err := workflow.Plan(run.ID, run.Input, []w.Agent{member})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := db.Write(t.Context(), func(tx *store.Tx) error {
-				if err := tx.SaveWorkspace(ws); err != nil {
-					return err
-				}
-				if err := tx.SaveAgent(member); err != nil {
-					return err
-				}
-				if err := tx.SaveThread(thread); err != nil {
-					return err
-				}
-				if err := tx.InsertRun(run, w.NewID(), "revocation"); err != nil {
-					return err
-				}
-				for _, step := range steps {
-					if err := tx.SaveStep(step); err != nil {
-						return err
-					}
-				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-			runner := &cancelingNativeRunner{started: make(chan struct{}), canceled: make(chan struct{}), lateResult: make(chan error, 1)}
-			engine := &workflow.Engine{Store: db, Runners: map[string]agent.Runner{"claude": runner}, AllowedRoots: []string{root}, AllowedModels: []string{"default"}}
-			ctx, cancel := context.WithCancel(t.Context())
-			if err := engine.Start(ctx); err != nil {
-				cancel()
-				t.Fatal(err)
-			}
-			defer func() { cancel(); engine.Wait() }()
-			app, err := New(Config{Host: "local.test", AuthFile: filepath.Join(dir, "auth.json"), WebDir: dir, Models: []string{"default"}, Roots: []string{root}, ModelConfigured: true, Executors: []ExecutorInfo{{ID: "claude", Installed: true, Supported: true}}}, db, engine)
-			if err != nil {
-				t.Fatal(err)
-			}
-			handler := app.Handler()
-			var cookie *http.Cookie
-			csrf := ""
-			call := func(method, path string, value any, headers map[string]string) *httptest.ResponseRecorder {
-				t.Helper()
-				encoded, err := json.Marshal(value)
-				if err != nil {
-					t.Fatal(err)
-				}
-				req := httptest.NewRequest(method, "http://local.test"+path, bytes.NewReader(encoded))
-				req.Header.Set("Content-Type", "application/json")
-				if cookie != nil {
-					req.AddCookie(cookie)
-					req.Header.Set("X-CSRF-Token", csrf)
-				}
-				for key, val := range headers {
-					req.Header.Set(key, val)
-				}
-				rw := httptest.NewRecorder()
-				handler.ServeHTTP(rw, req)
-				return rw
-			}
-			rw := call("POST", "/auth/setup", PasswordInput{Password: "revocation-test-password"}, nil)
-			if rw.Code != 200 {
-				t.Fatal(rw.Body.String())
-			}
-			cookie = rw.Result().Cookies()[0]
-			var session SessionReply
-			if json.Unmarshal(rw.Body.Bytes(), &session) != nil || session.CSRFToken == "" {
-				t.Fatal("missing CSRF token")
-			}
-			csrf = session.CSRFToken
-
-			select {
-			case <-runner.started:
-			case <-time.After(5 * time.Second):
-				t.Fatal("native step never started")
-			}
-			tc.revoke(t, call, ws, member)
-			if !tc.stops {
-				select {
-				case <-runner.canceled:
-					t.Fatal("a plain rename canceled the running native step")
-				case <-time.After(300 * time.Millisecond):
-				}
-				if rw := call("POST", "/api/v1/runs/"+run.ID+"/cancel", nil, nil); rw.Code != 200 {
-					t.Fatalf("run cancel failed: %s", rw.Body.String())
-				}
-			}
-			select {
-			case <-runner.canceled:
-			case <-time.After(5 * time.Second):
-				t.Fatal("revocation did not cancel the running native step")
-			}
-			if err := <-runner.lateResult; err != nil {
-				t.Fatalf("late observation returned an error instead of being dropped: %v", err)
-			}
-			deadline := time.NewTimer(5 * time.Second)
-			defer deadline.Stop()
-			for {
-				wake := db.Changed()
-				var current w.Run
-				if err := db.Read(t.Context(), func(tx *store.Tx) error {
-					var readErr error
-					current, readErr = tx.Run(run.ID)
-					return readErr
-				}); err != nil {
-					t.Fatal(err)
-				}
-				if w.Terminal(current.Status) {
-					if current.Status != "canceled" {
-						t.Fatalf("revoked run settled as %s: %s", current.Status, current.Error)
-					}
-					break
-				}
-				select {
-				case <-wake:
-				case <-deadline.C:
-					t.Fatal("canceled run did not settle")
-				}
-			}
-			if err := db.Read(t.Context(), func(tx *store.Tx) error {
-				sources, err := tx.Sources(thread.ID)
-				if err != nil {
-					return err
-				}
-				if len(sources) != 0 {
-					return fmt.Errorf("late native observation was saved: %+v", sources)
-				}
-				events, err := tx.Events(run.ID, 0)
-				if err != nil {
-					return err
-				}
-				for _, event := range events {
-					if strings.Contains(string(event.Data), "LATE_OBSERVATION") {
-						return errors.New("late native observation was persisted as an event")
-					}
-				}
-				return nil
-			}); err != nil {
-				t.Fatal(err)
-			}
-		})
+func (m *sourceCustodyModel) Complete(ctx context.Context, request model.Request, emit func(string) error) (model.Response, error) {
+	tool := func(name string, input any) model.Response {
+		raw, _ := json.Marshal(input)
+		m.calls++
+		return model.Response{StopReason: "tool_use", Blocks: []model.Block{{Type: "tool_use", ID: fmt.Sprintf("custody-%s-%d", name, m.calls), Name: name, Input: raw}}}
 	}
+	sourceID := ""
+	for i := len(request.Messages) - 1; i >= 0 && sourceID == ""; i-- {
+		for j := len(request.Messages[i].Content) - 1; j >= 0; j-- {
+			block := request.Messages[i].Content[j]
+			if block.Type != "tool_result" {
+				continue
+			}
+			var payload struct {
+				SourceID string `json:"source_id"`
+			}
+			if json.Unmarshal([]byte(block.Content), &payload) == nil && payload.SourceID != "" {
+				sourceID = payload.SourceID
+				break
+			}
+		}
+	}
+	if m.step == 0 {
+		m.step++
+		return tool("read_file", map[string]any{"path": "evidence.md"}), nil
+	}
+	if m.step == 1 {
+		m.step++
+		payload := map[string]any{"type": "note", "title": "Host custody note", "body": "The captured evidence and its limits are preserved.", "findings": []any{}, "source_ids": []string{sourceID}, "limitations": []string{"Fixture only."}}
+		return tool("publish_artifact", payload), nil
+	}
+	_ = ctx
+	_ = emit
+	return model.Response{StopReason: "end_turn", Blocks: []model.Block{{Type: "text", Text: "captured evidence preserved"}}}, nil
+}
+
+// custodyRunner runs the scripted custody model through the host tool loop.
+type custodyRunner struct{}
+
+func (custodyRunner) Run(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
+	return (agent.Loop{Model: &sourceCustodyModel{}}).Run(ctx, request, execute, observe)
 }

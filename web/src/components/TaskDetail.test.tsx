@@ -662,8 +662,7 @@ it("shows one 已停止 fact and retries from the exact stopped step", async () 
     />,
   );
   await screen.findByRole("heading", { name: "完成可追溯研究" });
-  expect(screen.getAllByText("已停止").length).toBeGreaterThan(0);
-  expect(screen.queryByText("执行已停止")).not.toBeInTheDocument();
+  expect(screen.getAllByText("执行已停止").length).toBeGreaterThan(0);
   expect(screen.getByText("上次执行在完成前停止")).toBeVisible();
 
   await user.click(screen.getAllByRole("button", { name: "从停止处继续" })[0]);

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
@@ -58,6 +59,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		allowed:        allowed,
 		required:       required,
 		scope:          scope,
+		workRoot:       prep.workRoot,
 		attempt:        attempt,
 		sources:        slices.Clone(sourceSnapshot),
 		nativeCaptured: map[string]bool{},
@@ -69,6 +71,11 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		stopStep()
 	})
 	request, requestErr := e.buildRequest(stepCtx, run, step, a, allowed, required, connection, adapter, message, handoff, scope, history, all, sourceSnapshot, previousDraft, rt.attempt)
+	if requestErr == nil && prep.workRoot != "" {
+		// A reviewer step runs inside its own sandbox copy, never the author's
+		// candidate or the bound project.
+		request.WorkspaceRoot = prep.workRoot
+	}
 	if requestErr == nil {
 		// Every CLI-owned effect must be admitted by the live host policy before
 		// it happens. The callback is bound here, per attempt, so it always sees
@@ -95,6 +102,30 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		} else {
 			trusted = request.TrustedExecution
 			err = runner.Run(stepCtx, request, rt.executeTool, rt.observeEvent)
+			// Continuity Handshake transparent self-healing: if a resumed native
+			// session fails before mutating (e.g. context overflow or corrupted
+			// thinking signature after Stop), seal the broken session and retry
+			// cleanly with a fresh session + Continuity Capsule in this same step.
+			if err != nil && request.SessionMode == "resume" && !rt.mutated.Load() && stepCtx.Err() == nil && shouldAutoSealResumeError(err) {
+				if sealErr := e.sealBrokenSession(stepCtx, rt.attempt.ExecutionSessionRef); sealErr == nil {
+					rt.mu.Lock()
+					rt.attempt.SessionMode = "fresh"
+					rt.attempt.SessionID = ""
+					rt.attempt.Recovery = "context_fresh"
+					rt.retiredSession = rt.attempt.ExecutionSessionRef
+					freshAttempt := rt.attempt
+					rt.mu.Unlock()
+					if freshReq, freshErr := e.buildRequest(stepCtx, run, step, a, allowed, required, connection, adapter, message, handoff, scope, history, all, sourceSnapshot, previousDraft, freshAttempt); freshErr == nil {
+						if prep.workRoot != "" {
+							freshReq.WorkspaceRoot = prep.workRoot
+						}
+						rt.bindNativeAuthorizer(&freshReq)
+						request = freshReq
+						trusted = request.TrustedExecution
+						err = runner.Run(stepCtx, request, rt.executeTool, rt.observeEvent)
+					}
+				}
+			}
 		}
 	} else {
 		err = (agent.Loop{Model: e.Model}).Run(stepCtx, request, rt.executeTool, rt.observeEvent)
@@ -123,16 +154,37 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	yieldRequest := rt.yieldRequest
 	knownSources := slices.Clone(rt.sources)
 	rt.mu.Unlock()
-	if yieldRequest != nil && err == nil {
-		yieldCtx, stopYield := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		_, _, yieldErr := project.New(e.Store).YieldRun(yieldCtx, run.ID, yieldRequest.Predicate, yieldRequest.ObservationCursor, yieldRequest.WakeSource, yieldRequest.EventID, "")
-		stopYield()
-		if yieldErr == nil {
-			step.Status = "yielded"
-			step.Error = "waiting for durable predicate: " + yieldRequest.Predicate
-			return step
+	destroyVerify := func() error {
+		if prep.verifyDir == nil || e.Executions == nil {
+			return nil
 		}
-		err = yieldErr
+		destroyCtx, stopDestroy := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer stopDestroy()
+		return e.Executions.DestroyVerifyTree(destroyCtx, *prep.verifyDir, run.ExecutionRef)
+	}
+	if yieldRequest != nil && err == nil {
+		if destroyErr := destroyVerify(); destroyErr != nil {
+			e.report(destroyErr)
+			err = destroyErr
+		} else {
+			yieldCtx, stopYield := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			_, _, yieldErr := project.New(e.Store).YieldRun(yieldCtx, run.ID, yieldRequest.Predicate, yieldRequest.ObservationCursor, yieldRequest.WakeSource, yieldRequest.EventID, "")
+			stopYield()
+			if yieldErr == nil {
+				step.Status = "yielded"
+				step.Error = "waiting for durable predicate: " + yieldRequest.Predicate
+				return step
+			}
+			err = yieldErr
+		}
+	}
+	// The reviewer sandbox is disposable: destroy it after the step settles and
+	// assert the reviewed candidate/project never changed. Tampering MUST fail the step.
+	if destroyErr := destroyVerify(); destroyErr != nil {
+		e.report(destroyErr)
+		if err == nil {
+			err = destroyErr
+		}
 	}
 	step, attempt, saveErr := e.settleStep(ctx, stepSettlement{
 		run:             run,
@@ -197,4 +249,49 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		return e.executeStepWith(ctx, run, step, history, all, sourceSnapshot, checkpoint)
 	}
 	return step
+}
+
+// shouldAutoSealResumeError reports whether a failure on a resumed native
+// session indicates session overflow, corruption (e.g. truncated thinking
+// signature after Stop) or missing/invalid native session identity, so the
+// host can seal the session and transparently restart with a Continuity Capsule.
+func shouldAutoSealResumeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	var nf *nativecli.Failure
+	if errors.As(err, &nf) {
+		switch nf.Kind {
+		case nativecli.FailureContextOverflow, nativecli.FailureProtocol, nativecli.FailureHostInputLimit:
+			return true
+		}
+	}
+	for _, marker := range []string{
+		"context_length_exceeded", "context window", "prompt is too long", "maximum context length",
+		"thinking", "signature", "session not found", "no conversation found", "invalid session",
+		"could not resume", "resume failed", "corrupt",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) sealBrokenSession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	return e.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
+		session, err := tx.Session(sessionID)
+		if err != nil {
+			return err
+		}
+		session.Status = "sealed"
+		session.Acknowledgement = "sealed"
+		session.NativeSessionID = ""
+		session.UpdatedAt = w.Now()
+		return tx.SaveSession(session)
+	})
 }

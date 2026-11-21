@@ -374,3 +374,55 @@ func TestNativeSandboxDeniesHardlinkedInode(t *testing.T) {
 		t.Fatalf("hardlinked outside file changed: %q", data)
 	}
 }
+
+// TestNativeSandboxKeepsAttachmentInputsReadOnly is the A28 native-boundary
+// regression: the exchange area's inputs are readable by a sandboxed native
+// command but its write allow is overridden, so a member can read an original
+// and cannot tamper with it.
+func TestNativeSandboxKeepsAttachmentInputsReadOnly(t *testing.T) {
+	area := t.TempDir()
+	root := filepath.Join(area, "workspace")
+	inputs := filepath.Join(root, "inputs")
+	if err := os.MkdirAll(inputs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inputs, "src-1-report.md"), []byte("attachment"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	sandbox, err := newNativeSandbox(filepath.Join(area, "private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The task directory contains the exchange area, so its write allow would
+	// otherwise accept a tampering write.
+	sandbox.addRoots(root)
+	sandbox.addReadOnlyRoot(inputs)
+	profile, err := sandbox.profile("io", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	deny := `(deny file-write* (literal "` + inputs + `") (subpath "` + inputs + `"))`
+	if !strings.Contains(text, deny) {
+		t.Fatalf("attachment inputs are not write-denied:\n%s", text)
+	}
+	// The deny must come after the task directory write allow.
+	if strings.Index(text, deny) < strings.Index(text, "(allow file-write*") {
+		t.Fatal("the read-only deny precedes the write allow and would be overridden")
+	}
+	// A real command reads the attachment but cannot overwrite it.
+	out, err := runWrapped(t, sandbox, profile, root, `body=""; IFS= read -r body < "`+filepath.Join(inputs, "src-1-report.md")+`" || true; printf '%s' "$body"; printf tampered > "`+filepath.Join(inputs, "src-1-report.md")+`" || printf '|denied'`)
+	if err != nil {
+		t.Fatalf("sandboxed read failed: %v %s", err, out)
+	}
+	if !strings.Contains(out, "attachment") || !strings.Contains(out, "denied") {
+		t.Fatalf("attachment read/write boundary = %q", out)
+	}
+	if content, err := os.ReadFile(filepath.Join(inputs, "src-1-report.md")); err != nil || string(content) != "attachment" {
+		t.Fatalf("attachment was modified: %q %v", content, err)
+	}
+}

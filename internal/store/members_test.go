@@ -118,7 +118,7 @@ func TestAgentProfileDeletionCleansLinksThreadsAndDefaults(t *testing.T) {
 			return err
 		}
 		settings.DefaultCoordinatorID = gone.ID
-		settings.Assignments = map[string]map[string]string{"research": {"researcher": gone.ID, "critic": kept.ID}}
+		_ = kept
 		return tx.SaveSettings(settings)
 	}); err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestAgentProfileDeletionCleansLinksThreadsAndDefaults(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if settings.DefaultCoordinatorID != "" || settings.Assignments["research"]["researcher"] != "" || settings.Assignments["research"]["critic"] != kept.ID {
+		if settings.DefaultCoordinatorID != "" {
 			t.Fatalf("defaults still reference the deleted profile: %+v", settings)
 		}
 		return nil

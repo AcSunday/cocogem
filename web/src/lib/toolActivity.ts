@@ -233,6 +233,8 @@ const CATEGORY: Record<string, string> = {
   glob: "list",
   ls: "list",
   search_content: "search",
+  git_inspect: "read",
+  preview_page: "read",
   grep: "search",
   search: "search",
   web_search: "web_search",

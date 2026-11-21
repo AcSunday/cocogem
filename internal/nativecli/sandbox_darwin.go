@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/AcSunday/cocogem/internal/tools"
 )
 
 // nativeSandbox is the per-attempt OS execution boundary for CLI-owned tools on
@@ -18,20 +20,25 @@ import (
 // leave the bound project must be refused by the kernel before they happen.
 // This is real enforcement, not a prompt or a cwd string comparison.
 type nativeSandbox struct {
-	base         string
-	home         string
-	tmp          string
-	cache        string
-	profiles     string
-	writeRoots   []string
-	readRoots    []string
-	proxyURL     string
-	proxyAddr    string
-	caPath       string
-	denyPaths    []string
-	denyUnknown  bool
-	allowAddrs   []string
-	allowInbound bool
+	base          string
+	home          string
+	tmp           string
+	cache         string
+	profiles      string
+	writeRoots    []string
+	readRoots     []string
+	readOnlyDirs  []string
+	denyWrites    []string
+	proxyURL      string
+	proxyAddr     string
+	caPath        string
+	denyPaths     []string
+	denyUnknown   bool
+	allowAddrs    []string
+	allowInbound  bool
+	readOnly      bool
+	allowLoopback bool
+	allowTmp      bool
 }
 
 func newNativeSandbox(base string) (*nativeSandbox, error) {
@@ -104,6 +111,33 @@ func (s *nativeSandbox) addRoots(roots ...string) {
 	}
 }
 
+// addReadOnlyRoot keeps one subtree readable but not writable. Uploaded
+// attachments live in a read-only exchange area, so a native command can inspect
+// an original but can never tamper with it, and the deny rule is emitted last so
+// it overrides the task directory's write allow.
+func (s *nativeSandbox) addDenyWrites(paths ...string) {
+	for _, path := range paths {
+		if path == "" || !filepath.IsAbs(path) {
+			continue
+		}
+		s.denyWrites = appendUnique(s.denyWrites, path)
+	}
+}
+
+func (s *nativeSandbox) addReadOnlyRoot(root string) {
+	if s == nil || root == "" {
+		return
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return
+	}
+	s.readOnlyDirs = appendUnique(s.readOnlyDirs, absolute)
+	if resolved := resolvePhysicalPath(absolute); resolved != absolute {
+		s.readOnlyDirs = appendUnique(s.readOnlyDirs, resolved)
+	}
+}
+
 // env returns the private runtime identity for a sandboxed command. The model
 // never receives the user's HOME, cache or git credentials.
 func (s *nativeSandbox) env() map[string]string {
@@ -145,26 +179,39 @@ func (s *nativeSandbox) profile(name string, approvedRead, approvedWrite []strin
 	readRoots = append(readRoots, s.readRoots...)
 	readRoots = append(readRoots, s.writeRoots...)
 	readRoots = append(readRoots, s.base)
-	writeRoots := append([]string{}, s.writeRoots...)
-	writeRoots = append(writeRoots, s.base, s.home, s.tmp, s.cache, s.profiles)
+	if s.allowTmp {
+		readRoots = append(readRoots, "/tmp", "/private/tmp")
+	}
+	writeRoots := []string{s.base, s.home, s.tmp, s.cache, s.profiles}
+	if !s.readOnly {
+		writeRoots = append(append([]string{}, s.writeRoots...), writeRoots...)
+		if s.allowTmp {
+			writeRoots = append(writeRoots, "/tmp", "/private/tmp")
+		}
+	}
+	approvedSet := map[string]bool{}
 	for _, scope := range approvedRead {
 		if scope == "" || !filepath.IsAbs(scope) {
 			continue
 		}
 		readRoots = appendUnique(readRoots, scope)
+		approvedSet[resolvePhysicalPath(scope)] = true
 	}
-	for _, scope := range approvedWrite {
-		if scope == "" || !filepath.IsAbs(scope) {
-			continue
+	if !s.readOnly {
+		for _, scope := range approvedWrite {
+			if scope == "" || !filepath.IsAbs(scope) {
+				continue
+			}
+			readRoots = appendUnique(readRoots, scope)
+			writeRoots = appendUnique(writeRoots, scope)
+			approvedSet[resolvePhysicalPath(scope)] = true
 		}
-		readRoots = appendUnique(readRoots, scope)
-		writeRoots = appendUnique(writeRoots, scope)
 	}
 	var rules strings.Builder
 	rules.WriteString("(version 1)\n(deny default)\n")
-	// System services needed to start any process. Execution still requires a
-	// readable executable path below.
-	rules.WriteString("(allow process*)\n(allow sysctl-read)\n(allow mach-lookup)\n(allow signal (target self))\n(allow ipc-posix*)\n")
+	// System services needed to start any process; deny Keychain Mach services
+	// so sandboxed commands cannot query macOS Keychain credentials via XPC.
+	rules.WriteString("(allow process*)\n(allow sysctl-read)\n(allow mach-lookup)\n(deny mach-lookup (global-name \"com.apple.SecurityServer\") (global-name \"com.apple.securityd.xpc\"))\n(allow signal (target self))\n(allow ipc-posix*)\n")
 	rules.WriteString("(allow file-read*\n  (literal \"/\")\n")
 	for _, path := range ancestors(writeRoots) {
 		fmt.Fprintf(&rules, "  (literal %s)\n", seatbeltQuote(path))
@@ -185,15 +232,62 @@ func (s *nativeSandbox) profile(name string, approvedRead, approvedWrite []strin
 		}
 	}
 	rules.WriteString("  (subpath \"/dev\")\n)\n")
-	// Network is limited to loopback so a shell command can reach only the
-	// host-owned egress proxy. Public retrieval and dependency installation use
-	// that proxy; arbitrary external writes without a proxy allowlisted host are
-	// refused by the kernel before the socket exists.
+	if s.readOnly {
+		for _, path := range dedupePaths(s.writeRoots) {
+			for _, variant := range []string{path, resolvePhysicalPath(path)} {
+				fmt.Fprintf(&rules, "(deny file-write* (literal %s) (subpath %s))\n", seatbeltQuote(variant), seatbeltQuote(variant))
+			}
+		}
+	}
+	if s.allowTmp {
+		rules.WriteString("(deny file-read* file-write* (regex #\"^(/private)?/tmp/ssh-[^/]+(/|$)\"))\n")
+	}
+	// Default-deny user credential directories and sensitive files so approving
+	// a parent directory never leaks .ssh/.aws/.gnupg/.kube/Keychains/.env.
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		resolvedHome := resolvePhysicalPath(home)
+		for _, rel := range []string{".ssh", ".aws", ".gnupg", ".kube", ".git-credentials", ".npmrc", ".netrc", "Library/Keychains"} {
+			p := filepath.Join(resolvedHome, rel)
+			if approvedSet[p] {
+				continue
+			}
+			fmt.Fprintf(&rules, "(deny file-read* file-write* (literal %s) (subpath %s))\n", seatbeltQuote(p), seatbeltQuote(p))
+		}
+	}
+	// Single-use explicitly approved sensitive targets are re-allowed after the
+	// directory deny rules so one-shot human approval genuinely works. Non-sensitive
+	// approved targets are already included in the main file-read* / file-write* blocks above.
+	for _, scope := range approvedRead {
+		if scope == "" || !filepath.IsAbs(scope) || !tools.SensitivePath(scope) {
+			continue
+		}
+		resolved := resolvePhysicalPath(scope)
+		fmt.Fprintf(&rules, "(allow file-read* (literal %s))\n", seatbeltQuote(resolved))
+	}
+	if !s.readOnly {
+		for _, scope := range approvedWrite {
+			if scope == "" || !filepath.IsAbs(scope) || !tools.SensitivePath(scope) {
+				continue
+			}
+			resolved := resolvePhysicalPath(scope)
+			fmt.Fprintf(&rules, "(allow file-read* file-write* (literal %s))\n", seatbeltQuote(resolved))
+		}
+	}
 	if s.denyUnknown {
 		// The scan could not prove absence of external hardlinks. Fail closed
 		// for effects: the command may still read normal project files, but it
 		// cannot write through any path the host could not classify.
 		rules.WriteString("(deny file-write* (subpath \"/\"))\n")
+	}
+	for _, path := range s.readOnlyDirs {
+		for _, variant := range []string{path, resolvePhysicalPath(path)} {
+			fmt.Fprintf(&rules, "(deny file-write* (literal %s) (subpath %s))\n", seatbeltQuote(variant), seatbeltQuote(variant))
+		}
+	}
+	for _, path := range s.denyWrites {
+		for _, variant := range []string{path, resolvePhysicalPath(path)} {
+			fmt.Fprintf(&rules, "(deny file-write* (literal %s) (subpath %s))\n", seatbeltQuote(variant), seatbeltQuote(variant))
+		}
 	}
 	for _, path := range s.denyPaths {
 		if !filepath.IsAbs(path) {
@@ -205,24 +299,29 @@ func (s *nativeSandbox) profile(name string, approvedRead, approvedWrite []strin
 		}
 	}
 	rules.WriteString("(deny network*)\n")
-	if s.allowInbound {
-		// A sandboxed local server (for example OpenCode's private HTTP
-		// listener) may accept loopback connections, but no external inbound
-		// socket is exposed.
+	if s.allowLoopback {
+		// Allow loopback testing (httptest, local dev servers); Cocogem's own
+		// management API is protected by authentication and step-scoped MCP tokens.
+		rules.WriteString("(allow network-bind (local ip \"localhost:*\"))\n")
 		rules.WriteString("(allow network-inbound (local ip \"localhost:*\"))\n")
-	}
-	addrs := append([]string{}, s.allowAddrs...)
-	if s.proxyAddr != "" {
-		addrs = append(addrs, s.proxyAddr)
-	}
-	seenPorts := map[string]bool{}
-	for _, address := range addrs {
-		_, port, err := net.SplitHostPort(address)
-		if err != nil || port == "" || seenPorts[port] {
-			continue
+		rules.WriteString("(allow network-outbound (remote ip \"localhost:*\"))\n")
+	} else {
+		if s.allowInbound {
+			rules.WriteString("(allow network-inbound (local ip \"localhost:*\"))\n")
 		}
-		seenPorts[port] = true
-		fmt.Fprintf(&rules, "(allow network-outbound (remote ip \"localhost:%s\"))\n", port)
+		addrs := append([]string{}, s.allowAddrs...)
+		if s.proxyAddr != "" {
+			addrs = append(addrs, s.proxyAddr)
+		}
+		seenPorts := map[string]bool{}
+		for _, address := range addrs {
+			_, port, err := net.SplitHostPort(address)
+			if err != nil || port == "" || seenPorts[port] {
+				continue
+			}
+			seenPorts[port] = true
+			fmt.Fprintf(&rules, "(allow network-outbound (remote ip \"localhost:%s\"))\n", port)
+		}
 	}
 	path := filepath.Join(s.profiles, safeToken(name)+".sb")
 	if err := os.WriteFile(path, []byte(rules.String()), 0600); err != nil {
@@ -279,8 +378,8 @@ func toolchainRoots() []string {
 	}
 	var roots []string
 	for _, name := range []string{
-		".nvm", ".pyenv", ".cargo/bin", ".rustup/toolchains", ".bun", ".volta/tools", ".asdf/installs",
-		".local/bin", ".local/share/pnpm", ".local/share/uv", ".cache/uv",
+		".nvm", ".pyenv", ".cargo/bin", ".cargo/registry", ".rustup/toolchains", ".bun", ".volta/tools", ".asdf/installs",
+		".local/bin", ".local/share/mise", ".local/share/pnpm", ".local/share/uv", ".cache/uv",
 		"go/pkg/mod", "go/bin",
 	} {
 		path := filepath.Join(home, name)

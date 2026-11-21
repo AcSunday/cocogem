@@ -3,7 +3,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
@@ -32,10 +31,9 @@ afterEach(() => {
 const savedSettings = (value: SettingsInput): Settings => ({
   revision: 2,
   default_coordinator_id: value.default_coordinator_id ?? "",
-  assignments: value.assignments ?? {},
   retention_days: value.retention_days ?? undefined,
   // Saving collaboration must never move the permission boundary.
-  execution_mode: "project_autonomous",
+  execution_mode: "workspace_autonomous",
   permission_epoch: 1,
 });
 
@@ -43,7 +41,6 @@ it("shows the recorded coordinator and exact shared skill versions", () => {
   const version = "123456789abc0123456789abcdef";
   const run = {
     id: "historical-run",
-    input: { workflow: "free" },
     created_at: "2026-10-24T00:00:00Z",
     coordinator_id: "coordinator",
     agents: [
@@ -71,7 +68,6 @@ it("shows the recorded coordinator and exact shared skill versions", () => {
 it("shows the frozen execution policy and run deadlines", () => {
   const run = {
     id: "policy-run",
-    input: { workflow: "free" },
     created_at: "2026-10-24T00:00:00Z",
     started_at: "2026-10-24T00:01:00Z",
     execution_policy: {
@@ -146,9 +142,6 @@ it("clears an unavailable member instead of saving the stale id", async () => {
   const settings: Settings = {
     revision: 1,
     default_coordinator_id: "gone",
-    assignments: {
-      research: { researcher: "gone", critic: "one" },
-    },
   };
   const saveSettings = vi.fn(async (value: SettingsInput) =>
     savedSettings(value),
@@ -173,7 +166,6 @@ it("clears an unavailable member instead of saving the stale id", async () => {
   await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
   expect(saveSettings).toHaveBeenCalledWith({
     default_coordinator_id: "",
-    assignments: { research: { critic: "one" } },
     collaboration_budget: {
       auto_continuations: 20,
       parallel_branches: 4,
@@ -184,7 +176,7 @@ it("clears an unavailable member instead of saving the stale id", async () => {
   });
 });
 
-it("configures engineering engineer and reviewer defaults", async () => {
+it("saves only the default coordinator and the budget in collaboration settings", async () => {
   const system = {
     csrf_token: "",
     limits: {},
@@ -195,7 +187,7 @@ it("configures engineering engineer and reviewer defaults", async () => {
     verified: {},
     executors: [],
   } as unknown as System;
-  const agents: Agent[] = ["engineer", "reviewer"].map((id) => ({
+  const agents: Agent[] = ["one", "two"].map((id) => ({
     id,
     workspace_id: "",
     display_name: id,
@@ -216,60 +208,40 @@ it("configures engineering engineer and reviewer defaults", async () => {
       setSystem={() => {}}
       close={() => {}}
       lock={async () => {}}
-      settings={{ revision: 1, default_coordinator_id: "", assignments: {} }}
+      settings={{ revision: 1, default_coordinator_id: "" }}
       saveSettings={saveSettings}
       agents={agents}
     />,
   );
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "协作" }));
-  const engineering = screen
-    .getByText("工程协作")
-    .closest("fieldset") as HTMLElement;
-  expect(within(engineering).getByLabelText("执行")).toBeInTheDocument();
-  expect(within(engineering).getByLabelText("复核")).toBeInTheDocument();
-  await chooseOption(
-    user,
-    within(engineering).getByLabelText("执行"),
-    "engineer",
-  );
+  expect(
+    screen.getByText(/单一动态协作内核/),
+  ).toBeVisible();
+  await chooseOption(user, screen.getByLabelText("默认协调者"), "one");
   await user.click(screen.getByRole("button", { name: "保存协作默认" }));
   await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
-  expect(
-    saveSettings.mock.calls[0][0].assignments?.engineering?.engineer,
-  ).toBe("engineer");
+  expect(saveSettings.mock.calls[0][0].default_coordinator_id).toBe("one");
 });
 
-it("shows the persisted method and selection reason without raw payloads", () => {
+it("shows only the settled run method without raw payloads", () => {
   const selected = {
     id: "selected-run",
-    input: { workflow: "free" },
     created_at: "2026-10-24T00:00:00Z",
-    selected_workflow: {
-      workflow: "research",
-      targets: ["member-uuid"],
-      assignments: { researcher: "member-uuid", future_role: "other-uuid" },
-      reason: "  需要外部资料核对  ",
-      step_id: "step-uuid",
-      selected_at: "2026-10-24T00:00:00Z",
-    },
     agents: [],
+    method: "delegation",
   } as unknown as Run;
   const { rerender } = render(
     <SnapshotDialog run={selected} close={() => {}} />,
   );
-  expect(screen.getByText("本轮方法：研究协作")).toBeVisible();
-  expect(screen.getByText("选择原因：需要外部资料核对")).toBeVisible();
-  // Unknown assignment roles and raw IDs never reach the visible snapshot.
+  expect(screen.getByText("本轮方法：协作分工")).toBeVisible();
+  // No assignment roles or raw IDs ever reach the visible snapshot.
   expect(
     screen.queryByText(/member-uuid|other-uuid|future_role|step-uuid/),
   ).toBeNull();
 
   rerender(
-    <SnapshotDialog
-      run={{ ...selected, selected_workflow: null, method: "direct" }}
-      close={() => {}}
-    />,
+    <SnapshotDialog run={{ ...selected, method: "direct" }} close={() => {}} />,
   );
   expect(screen.getByText("本轮方法：直接回答")).toBeVisible();
   expect(screen.queryByText(/选择原因：/)).toBeNull();
@@ -320,7 +292,6 @@ const trashItem = (
     title,
     agent_ids: ["one"],
     coordinator_id: "one",
-    workflow: "free",
     revision,
     updated_at: "2026-10-01T00:00:00Z",
     deleted_at: "2026-10-01T09:30:00Z",
@@ -336,7 +307,7 @@ it("uses real tabs with roving focus and arrow-key navigation", async () => {
       setSystem={() => {}}
       close={() => {}}
       lock={async () => {}}
-      settings={{ revision: 1, default_coordinator_id: "", assignments: {} }}
+      settings={{ revision: 1, default_coordinator_id: "" }}
       saveSettings={async (value) => savedSettings(value)}
     />,
   );
@@ -396,7 +367,6 @@ it("keeps retention first and restores or purges selected entries only from the 
       settings={{
         revision: 4,
         default_coordinator_id: "one",
-        assignments: { research: { researcher: "one" } },
         retention_days: 30,
       }}
       saveSettings={async (value) => savedSettings(value)}
@@ -474,7 +444,6 @@ it("restores multiple selected trash entries without a confirmation", async () =
       settings={{
         revision: 4,
         default_coordinator_id: "one",
-        assignments: {},
         retention_days: 30,
       }}
       saveSettings={async (value) => savedSettings(value)}
@@ -539,7 +508,6 @@ it("selects all trash entries and purges them only after confirmation", async ()
       settings={{
         revision: 4,
         default_coordinator_id: "one",
-        assignments: {},
         retention_days: 30,
       }}
       saveSettings={async (value) => savedSettings(value)}
@@ -591,7 +559,6 @@ it("saves retention with the existing collaboration defaults intact", async () =
   const settings: Settings = {
     revision: 5,
     default_coordinator_id: "one",
-    assignments: { research: { researcher: "one", critic: "two" } },
     retention_days: 30,
   };
   const saveSettings = vi.fn(async (value: SettingsInput) => ({
@@ -617,8 +584,6 @@ it("saves retention with the existing collaboration defaults intact", async () =
   await user.click(screen.getByRole("button", { name: "保存保留周期" }));
   await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
   expect(saveSettings).toHaveBeenCalledWith({
-    default_coordinator_id: "one",
-    assignments: { research: { researcher: "one", critic: "two" } },
     retention_days: 45,
   });
   expect(

@@ -1,5 +1,7 @@
 # Cocogem 项目协作内核重构设计
 
+> 替代说明（2026-11-13）：统一动态协作内核、双层 Worktree、两档权限、工程技能与任务状态改造以 `docs/2026-11-13-unified-collaboration-and-engineering-skills.md` 为准。本文件中关于预设流程（discussion/research/engineering/code_analysis）、固定角色槽位与选择器的描述已被该合同替代；其余未冲突部分继续有效。
+
 状态：**M1–M4 的纵向实现已落地，并通过 Go 竞态/单元/集成、契约、前端和浏览器合成旅程验证；显式工作方式/开发动作选择仍按当前 product 契约运行。真实供应商任务、adapter×OS 隔离、真实语料定位与长期项目评测仍按第 16.2、17 节关闭**
 
 日期：2026-11-03

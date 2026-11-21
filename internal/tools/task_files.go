@@ -195,18 +195,18 @@ func ExecuteCommand(ctx context.Context, raw json.RawMessage, scope Scope) (stri
 	switch scope.ExecutionMode {
 	case w.ExecutionFullAccess:
 		// The user's explicit trust choice; unchanged behavior.
-	case w.ExecutionProjectAutonomous:
+	case w.ExecutionWorkspaceAutonomous:
 		// A project-scoped command runs under an OS sandbox: writes are confined
 		// to the project (plus a private temp dir) and secret paths stay
 		// unreadable. An approved outside target widens the write set only to
 		// that exact scope.
 		return executeProjectCommand(ctx, raw, scope)
 	default:
-		// In a stricter mode the command runs only after its exact invocation was
-		// approved. It still executes under the same OS sandbox, so the approval
-		// cannot turn into an unconstrained shell.
+		// No mode reaches this branch in the two-tier policy. A command still
+		// runs under the sandbox only after its exact invocation was approved,
+		// so an unknown mode can never become an unconstrained shell.
 		if !scope.ApprovedCommand {
-			return "", errors.New("command execution requires an approved scope or project-autonomous mode")
+			return "", errors.New("command execution requires an approved scope")
 		}
 		if scope.WorkDir == "" {
 			scope.WorkDir = scope.Root

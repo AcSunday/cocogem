@@ -17,7 +17,9 @@ func TestParallelStepsAcquireAndReleaseSharedBranchSlots(t *testing.T) {
 			return err
 		}
 		account.Policy.ParallelBranches = 2
-		account.Policy.WriterBranches = 1
+		// The Run holds one writer slot from admission, so exactly one additional
+		// writer may be granted to a sibling step.
+		account.Policy.WriterBranches = 2
 		account.Revision++
 		if err := tx.SaveBudgetAccount(account, account.Revision-1); err != nil {
 			return err

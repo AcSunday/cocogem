@@ -360,18 +360,25 @@ func classifyNativeCall(name string, input json.RawMessage, cwd string, roots []
 	case "bash", "shell", "run_shell_command", "exec", "command":
 		command := pick("command", "cmd")
 		primary = command
-		tokens := shellPathTokens(command)
 		if cwd == "" && len(roots) != 0 {
 			cwd = roots[0]
 		}
-		for _, token := range tokens {
-			resolved := resolveTarget(token, cwd)
-			if resolved == "" {
-				continue
+		parsed, err := parseShellCommand(command)
+		if err != nil {
+			// An unparseable command (for example an incomplete heredoc) falls
+			// back to the conservative token scan so it still requests its
+			// plausible targets instead of running unbounded.
+			for _, token := range shellPathTokens(command) {
+				if resolved := resolveTarget(token, cwd); resolved != "" {
+					targets = appendUnique(targets, resolved)
+				}
 			}
-			targets = appendUnique(targets, resolved)
+			return "execute", primary, targets, false
 		}
-		return "execute", primary, targets, false
+		// A structural classifier reads the real command/redirect targets and
+		// never treats `2>/dev/null`, `jq '//'`, an awk regex or the executable
+		// path as a data target.
+		return "execute", primary, resolveShellTargets(parsed, cwd), parsed.Network
 	}
 	target := pick("path", "file_path", "notebook_path", "directory", "cwd")
 	if target == "" {
@@ -392,6 +399,15 @@ func resolveTarget(target, cwd string) string {
 	target = strings.Trim(target, `"'`)
 	if target == "" || strings.Contains(target, "://") || strings.HasPrefix(target, "git@") {
 		return ""
+	}
+	if target == "~" || strings.HasPrefix(target, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			if target == "~" {
+				target = home
+			} else {
+				target = filepath.Join(home, strings.TrimPrefix(target, "~/"))
+			}
+		}
 	}
 	if !filepath.IsAbs(target) {
 		if cwd == "" {

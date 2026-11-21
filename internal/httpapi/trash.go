@@ -59,9 +59,11 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 		thread.DeletedAt = now.Format(time.RFC3339Nano)
 		thread.PurgeAt = now.AddDate(0, 0, w.EffectiveRetentionDays(settings.RetentionDays)).Format(time.RFC3339Nano)
 		thread.Revision++
-		// Moving a conversation to the trash ends its execution authorization:
-		// conversation grants are revoked and pending requests are canceled so a
-		// restore never revives authority the user did not re-approve.
+		// Moving a conversation to the trash ends its execution authorization but
+		// keeps unapplied candidate worktrees and the IO area frozen on disk, so a
+		// restore preserves the user's unfinished code without re-granting
+		// authority: conversation grants are revoked and pending requests are
+		// canceled, and only a permanent delete/purge reclaims the directories.
 		if err := tx.RevokeConversationGrantsForThread(id, now.Format(time.RFC3339Nano)); err != nil {
 			return err
 		}
@@ -72,7 +74,6 @@ func (s *Server) deleteThread(rw http.ResponseWriter, r *http.Request) {
 		return tx.SaveThread(thread)
 	})
 	if err == nil {
-		s.dropProposals(func(p proposal) bool { return p.ThreadID == id })
 	}
 	respond(rw, r, DeleteReply{ID: id, PurgeAt: purgeAt}, err)
 }
@@ -128,6 +129,11 @@ func (s *Server) restoreThread(rw http.ResponseWriter, r *http.Request) {
 
 func (s *Server) permanentDeleteThread(rw http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	var (
+		candidates []w.WorkspaceExecution
+		ioScopes   []string
+		roots      []string
+	)
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
 		thread, err := tx.ThreadAny(id)
 		if err != nil {
@@ -139,12 +145,64 @@ func (s *Server) permanentDeleteThread(rw http.ResponseWriter, r *http.Request) 
 		if err := revision(r, thread.Revision); err != nil {
 			return err
 		}
+		// Capture candidates, IO scopes and repo roots before deleting rows;
+		// after tx.DeleteThread commits, the database no longer names them.
+		candidates, ioScopes, roots, err = captureThreadCleanup(tx, thread)
+		if err != nil {
+			return err
+		}
 		return tx.DeleteThread(id)
 	})
-	if err == nil {
-		s.dropProposals(func(p proposal) bool { return p.ThreadID == id })
+	if err == nil && s.engine != nil {
+		// Permanent deletion reclaims the candidate worktrees and the IO area;
+		// a soft delete keeps them so a restore preserves unapplied work.
+		if releaseErr := s.engine.ReleaseDeletedTaskExecutions(context.WithoutCancel(r.Context()), candidates, ioScopes, roots); releaseErr != nil {
+			slog.Error("release thread executions failed", "thread", id, "error", releaseErr)
+		}
 	}
 	respond(rw, r, DeleteReply{ID: id}, err)
+}
+
+func captureThreadCleanup(tx *store.Tx, thread w.Thread) ([]w.WorkspaceExecution, []string, []string, error) {
+	items, err := tx.ThreadExecutions(thread.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	seenExec := make(map[string]bool, len(items))
+	for _, item := range items {
+		seenExec[item.ID] = true
+	}
+	ioScopes := []string{thread.ID}
+	if thread.TaskID != "" {
+		ioScopes = append(ioScopes, thread.TaskID)
+		taskItems, err := tx.ScopeExecutions(thread.TaskID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for _, item := range taskItems {
+			if !seenExec[item.ID] {
+				seenExec[item.ID] = true
+				items = append(items, item)
+			}
+		}
+	}
+	seenRoot := map[string]bool{}
+	roots := []string{}
+	addRoot := func(root string) {
+		if root != "" && !seenRoot[root] {
+			seenRoot[root] = true
+			roots = append(roots, root)
+		}
+	}
+	for _, item := range items {
+		addRoot(item.CanonicalRoot)
+	}
+	if thread.WorkspaceID != "" {
+		if ws, err := tx.Workspace(thread.WorkspaceID); err == nil {
+			addRoot(ws.Root)
+		}
+	}
+	return items, ioScopes, roots, nil
 }
 
 // PurgeExpiredThreads performs the retention cleanup in one bounded write. It
@@ -189,7 +247,13 @@ func (s *Server) PurgeExpiredThreads(ctx context.Context) (int, error) {
 		}
 		candidates = append(candidates, thread)
 	}
-	purged := []string{}
+	type purgedCleanup struct {
+		threadID   string
+		candidates []w.WorkspaceExecution
+		ioScopes   []string
+		roots      []string
+	}
+	purged := []purgedCleanup{}
 	err := s.store.Write(ctx, func(tx *store.Tx) error {
 		active, err := tx.Active()
 		if err != nil {
@@ -219,18 +283,33 @@ func (s *Server) PurgeExpiredThreads(ctx context.Context) (int, error) {
 				// current trash entry still has time left; never purge it early.
 				continue
 			}
+			execs, ioScopes, roots, err := captureThreadCleanup(tx, thread)
+			if err != nil {
+				return err
+			}
 			if err := tx.DeleteThread(thread.ID); err != nil {
 				return err
 			}
-			purged = append(purged, thread.ID)
+			purged = append(purged, purgedCleanup{
+				threadID:   thread.ID,
+				candidates: execs,
+				ioScopes:   ioScopes,
+				roots:      roots,
+			})
 		}
 		return nil
 	})
 	if err != nil {
 		return 0, err
 	}
-	if len(purged) > 0 {
-		s.dropProposals(func(p proposal) bool { return slices.Contains(purged, p.ThreadID) })
+	if len(purged) > 0 && s.engine != nil {
+		// Retention purge is a permanent removal: reclaim candidate worktrees and
+		// IO areas captured before deletion so nothing survives on disk or in git.
+		for _, item := range purged {
+			if err := s.engine.ReleaseDeletedTaskExecutions(ctx, item.candidates, item.ioScopes, item.roots); err != nil {
+				slog.Error("release purged thread executions failed", "thread", item.threadID, "error", err)
+			}
+		}
 	}
 	return len(purged), nil
 }

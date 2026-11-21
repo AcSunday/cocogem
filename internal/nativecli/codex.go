@@ -59,8 +59,16 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 	if nativeWeb {
 		webSearch = "live"
 	}
-	args := []string{"exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "read-only", "--color", "never"}
-	if gate.trustedNative {
+	args := []string{"exec"}
+	if managedNativeSession(request) && request.SessionMode == "resume" && request.SessionID != "" {
+		args = append(args, "resume", request.SessionID)
+	}
+	args = append(args, "--json", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules")
+	if !managedNativeSession(request) {
+		args = append(args, "--ephemeral")
+	}
+	args = append(args, "--sandbox", "read-only", "--color", "never")
+	if gate.trustedNative && !request.ReadOnly {
 		for i, value := range args {
 			if value == "read-only" {
 				args[i] = "danger-full-access"
@@ -93,6 +101,11 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 	}
 	if env == nil {
 		env = map[string]string{}
+	}
+	if managedNativeSession(request) {
+		if state := nativeStateRoot("codex"); state != "" {
+			env["CODEX_HOME"] = state
+		}
 	}
 	env["COCOGEM_MCP_TOKEN"] = gate.token
 	return args, env, nil

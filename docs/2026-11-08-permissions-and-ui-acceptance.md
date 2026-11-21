@@ -2,7 +2,7 @@
 
 日期：2026-11-08
 
-状态：**本机已验证的交付范围通过验收，服务已启动；保留明确的原生协议与平台能力缺口。** 19 条界面批注、全局权限/预算、宿主审批、数据迁移与关键回归已通过。Codex 原生项目外按次扩权未实现，已关闭该路径并由范围受限的宿主工具承接，不把它记为 A10 的完整原生通过。后续静态核对还发现候选目录、重启恢复及外部请求重定向的限制，详见下方能力缺口；原有通过记录不能覆盖这些情况。本文不把组件测试、合成模型或安装版检查视为全部平台/供应商验证完成。
+状态：**本机已验证的交付范围通过验收，服务已启动；保留明确的原生协议与平台能力缺口。** 19 条界面批注、全局权限/预算、宿主审批、数据迁移与关键回归已通过。Codex 原生项目外按次扩权未实现，已关闭该路径并由范围受限的宿主工具承接，不把它记为 A10 的完整原生通过。后续静态核对发现的候选目录限制已在阶段 2 由按作用域 worktree + Apply/Discard 闭环替代，重启恢复与外部请求重定向的限制仍保留，详见下方能力缺口；原有通过记录不能覆盖这些情况。本文不把组件测试、合成模型或安装版检查视为全部平台/供应商验证完成。
 
 执行合同：[改造文档](2026-11-08-permissions-and-ui-redesign.md)。用户已授权 OpenCode 实施，Codex 独立验收并反馈修复。
 
@@ -96,8 +96,8 @@
 1. Codex 0.166.0 的命令审批响应不能表达按次外部目录范围，额外权限 overlay 只有 turn/session，原生 `view_image` 没有逐调用宿主准入。项目内自主时不开放这些扩大路径；原生调用明确拒绝后，模型可使用受统一审批约束的宿主工具。原生项目内命令仍保留，不把这一限制描述为所有适配器的完全原生闭环。
 2. 原生 Codex 命令网络保持关闭，公共检索和项目依赖可由宿主工具承接。安装版协议及本机边界通过不代表该适配器真实供应商任务已验证。
 3. 非 macOS 实机隔离、另外四种适配器的真实供应商任务、真实公开发布/部署、移动真机软键盘仍为未验证。公开发布/部署的决定和单次效果已用本地 TLS handler 验证，没有对外发布测试内容。
-4. 后续静态核对发现，会话提交时创建工程候选目录仍依赖历史成员工具数组，而新建成员的该数组为空；未建立候选目录时执行根可能回退到绑定源目录。此前的候选目录和权限测试不能证明所有可写任务都与源目录隔离。代码见 [`runs.go`](../internal/httpapi/runs.go)、[`execution.go`](../internal/workflow/execution.go)。
-5. 后续静态核对发现，重启恢复在已确认进程退出或停止、但结果尚未提交时，仍可能重新排队未完成步骤。此前同次调用内不重放的测试不能证明重启窗口中未记录的原生副作用不会重复。代码见 [`connection_check.go`](../internal/workflow/connection_check.go)、[`recovery.go`](../internal/workflow/recovery.go) 和 [`recovery_settle.go`](../internal/workflow/recovery_settle.go)。
+4. 候选目录隔离已在阶段 2 改为按会话/任务作用域的 `git worktree add --detach`：未绑定记录、并行子任务各自成域，未应用前源目录字节不变，Apply 前逐文件核对基线并拒绝覆盖外部修改，Discard 只销毁候选。相应行为由 `internal/execution`、`internal/workflow`、`internal/httpapi/candidates_test.go` 与前端 `CandidateBar` 测试覆盖；仍未在真实多仓大项目与全部平台组合上实测性能与 `git worktree prune` 边界。代码见 [`execution.go`](../internal/workflow/execution.go)、[`manager.go`](../internal/execution/manager.go)、[`candidates.go`](../internal/httpapi/candidates.go)。
+5. 后续静态核对发现，重启恢复在已确认进程退出或停止、但结果尚未提交时，仍可能重新排队未完成步骤。此前同次调用内不重放的测试不能证明重启窗口中未记录的原生副作用不会重复。代码见 [`connection_check.go`](../internal/workflow/connection_check.go)、[`recovery.go`](../internal/workflow/recovery.go) 和 [`recovery_settle.go`](../internal/workflow/recovery_settle.go)。阶段 2 已让用户人工「继续」放行对应候选现场并注入检查点摘要，自动恢复仍不在未核实副作用上重放。
 6. 后续静态核对发现，宿主外部 HTTP 写入只在首次请求前检查 HTTPS 和目标名单；默认客户端可能跟随重定向，后续目标未重新检查。此前本地 TLS handler 的允许/拒绝测试不覆盖该重定向边界。代码见 [`egress.go`](../internal/tools/egress.go)。
 
 ## 交付与运行
@@ -106,3 +106,67 @@
 - 迁移前备份：`/Users/sunday/Library/Application Support/cocogem/backups/before-global-permissions-20261108T123654Z.sqlite`，备份完整性已核验。
 - 实际界面截图：`/Users/sunday/.codex/visualizations/2026/11/08/01a1ba17-77ab-79f3-81ba-df3777181be1/cocogem-redesign/`，含 10 张隔离测试环境的真实页面截图，无用户会话内容。
 - 详细测试、基线、各 OpenCode 工作包和独立复验日志保存在 `/var/folders/7_/srdsmgns77l_n36f3cb1r0xw0000gn/T/cocogem-redesign-20261108-gbvllu6h/`。没有混合提交原有工作区改动。
+
+## 阶段 2 补充验证（worktree、上下文与续接）
+
+本节只记录阶段 2 的实际验证范围，不把 Go 单元/HTTP 测试或浏览器夹具当作真实供应商或多平台完成。
+
+- 候选隔离：`internal/execution` 覆盖 `git worktree add --detach` 共享对象池、脏工作区同步、同作用域单候选、并行任务各自候选、Apply 写回新建与删除、外部修改 409、Discard 零改动、worktree 与 `prune` 回收、孤儿目录清理；非 Git 目录回退到受界副本并拒绝复制期间源树变化。
+- 复核沙箱：`verify_dir` 从作者确切树派生、复核方写入不回流、销毁后作者摘要不变；`internal/workflow` 覆盖复核步骤使用沙箱根与其只读/审批边界。
+- HTTP/UI：`internal/httpapi/candidates_test.go` 走完整列表/Apply/409/Discard 旅程；前端 `CandidateBar` 与 `App` 覆盖二次确认、未验证变更呈现、运行期锁定、冲突保留重试，`web/e2e/candidates.spec.ts` 覆盖浏览器点击路径。
+- 上下文与续接：真实增量（已确认引用账本）、头 40%/尾 60% 截断、人工继续放行 uncertain、检查点摘要注入均由 `internal/workflow` 行为测试覆盖。
+- 生命周期：软删冻结候选、永久删除/Purge/删空间回收、换根 409 与 session seal、撤销只封存 DB 行不触碰用户 CLI 目录，均由 Go 测试覆盖。
+- 未验证：真实大仓 worktree 性能、非 macOS 的 `git worktree`/副本边界、五家 CLI 在各自原生目录中的真实跨轮续聊（按计划留到阶段 3/4/6 的真实 CLI 探针）。
+
+## 阶段 3 补充验证（两档权限、仅规划、AST 与原生目录会话）
+
+本节只记录阶段 3 的实际验证范围；真实五家 CLI 的跨轮续聊探针仍按计划单独执行。
+
+- 两档权限：旧 `controlled`/`project_autonomous` 归并为默认 `workspace_autonomous`，与 `full_access` 一起成为唯一两个生效值；Settings PATCH 拒绝其它值，未改变的模式不推进 `permission_epoch`，真实切换在同一事务内推进 epoch 并使旧请求/持续授权失效。Composer 与 Settings → 权限显示同一份全局值；Historic `controlled` 记录按防御性默认映射到 `workspace_autonomous`，不会静默升级为完全访问。
+- 仅规划：`RunInput.PlanOnly` 使该轮不派生候选 worktree，单成员步骤自动 `Step.ReadOnly`，原生 `Write/Edit/Bash` 被移除，宿主写文件与副作用命令返回确定性 `read_only_step` 拒绝而不是弹审批卡；全局模式与 epoch 不变。多成员并行扇出仍自动只读。
+- 授权层：`ConversationGrant` 从精确文件匹配升级为动作层级 + 物理目录子树；批准目录后该子树内新文件与覆盖动作复用授权，读授权不放开写/执行；`/`、`$HOME`、`/Users`、顶层 `/tmp` 被拒绝存为持续授权。高敏凭据路径可「仅本次允许」但不能建持续授权，UI 同时禁用「本会话持续允许」。
+- AST：`internal/nativecli` 引入 `mvdan.cc/sh/v3/syntax` 提取命令与重定向目标；`2>/dev/null`、`jq '//'`、awk 正则与解释器路径不再成为审批范围；解析失败的残损命令回退到保守扫描。宿主 `run_command` 的审批范围同样使用 AST 目标；直接 argv 调用使用路径参数扫描。
+- 沙箱：命令沙箱与原生 CLI 沙箱显式放行候选 worktree 的 git 元数据目录、只读挂载 IO `inputs/`、可写挂载 `outputs/`；源仓 `hooks`/`config`/`refs/heads`/`packed-refs` 以写拒绝规则覆盖。
+- 原生目录：托管会话使用各 CLI 自己的状态目录；不再用临时 `CODEX_HOME`/`CLAUDE_CONFIG_DIR` 覆盖，也不在常规轮次加 `--ephemeral`/`--no-session-persistence`。一次性 reviewer `verify_dir` 保持无痕。用户设置的 CLI 环境变量优先。
+- 未验证：阶段 3 只完成代码与行为测试；真实五家 CLI 的跨轮 `--resume`、OAuth 续期与 prompt cache 命中按阶段 4/6 的真实探针单独验证。Linux `bwrap` 仍未在实机验证，保持失败关闭。
+
+## 阶段 4 补充验证（工程工具链、git_inspect、preview_page、Diff 提示）
+
+- `run_test`：枚举化 argv（`auto|go|npm|pnpm|yarn|pytest|cargo` × `test|typecheck|lint|build`），`filter` 严格字符集并在 `go -run` / `pytest -k` / 包管理器脚本参数中真实生效；`auto` 通过真实 manifest 探测；typecheck/lint/build 输出明确标注"仅支持性证据"。Go 单测过滤实测只运行匹配测试；macOS 真实沙箱仍按既有边界测试；Linux 增加最小无害 `bwrap` 实测探针，受限 AppArmor/userns 报告 `linux_bwrap_userns_unavailable` 并失败关闭，交叉编译不等于验证。
+- `git_inspect`：真实仓库实测 `status/diff/log/show`，外部 diff、textconv 与仓库 hook 均未执行；路径穿越、`--exec` 形式参数、任意 revision 与超限 limit 被拒绝；输出为有界 JSON。
+- `preview_page`：本机 Chrome 真实渲染成功（截图 7.7KB、标题正确）；对另一回环端口与公网的 fetch 被 CDP 拦截器中止且页面标题未变；静态服务只暴露入口所在子树；项目 `TreeDigest` 前后一致；截图注册为 image `Source`；只读轮次的 `command` 模式确定性拒绝。
+- Diff 提示：三层兜底分支触发非阻塞提示；以删除分支为主的清理不触发；注释与普通两分支守卫不误报。
+- 未验证：Linux `bwrap` 完整边界（当前仍失败关闭）、非 Chromium 浏览器内核、真实项目 `mode=command` 预览脚本的多框架组合。
+
+## 阶段 5 补充验证（共享技能引擎）
+
+- 固定 10 个内置技能：`task-orchestration`、`task-handoff`、`independent-review`、`synthesize-results`、`file-delivery`、`writing-plans`、`debugging`、`tdd`、`quality-gate`、`receive-review`；`library_test.go` 静态校验数量、`Use when / Not for / Output` 标记、240 字符描述上限、90 行正文上限与 bootstrap 索引预算。
+- 受限 frontmatter：支持 `name`、`category`、单行与折叠/字面多行 `description`；未知字段、重复字段、缺失标记和超限均拒绝。
+- 跨技能参考层：`library/_shared/references/{claim-grounding,lane-selection,evidence,convergence}.md`，通过 `read_skill(skill_id="_shared")` 读取；`_shared` 不是可启用技能；任一共享文件变更都会改变 `SnapshotHash`。
+- 项目技能：`.agents/skills/<id>/SKILL.md` 只读发现，最多 8 个；符号链接目录、敏感路径、非 `SKILL.md` 资源与同名内置技能均被拒绝；项目技能进入 `CatalogueFor`/`SnapshotHashFor`，编辑后快照变化。
+- 未验证：项目技能在真实第三方仓库约定下的可用性、非 ASCII frontmatter 的边界组合。
+
+## 阶段 6 补充验证（任务与会话状态同步、清单视觉）
+
+- 任务板零 N+1：`TaskBoard()` 在一次读事务内用固定数量批量查询组装任务、最新修订、账本、完成记录、最新 Run、未决问题、待批授权与未应用候选；新增 `pending_permissions`/`open_questions`/`active_children_count`/`attention_children_count`/`candidate_verification` 投影，`TaskView` 不再逐任务读取。
+- 提问状态同步：`AskQuestion(blockingScope="task")` 在同一事务写入 `WaitingReason="question"`；解答最后一个未决问题后恢复 ready，仍有其它问题则保持等待。
+- 父子收敛：进行中的子任务使父任务保持进行中（`taskPhase` 不再因父任务自身 Run 成功而进入待验收）。
+- 平顺重激活：已验收任务的关联会话收到新的推进消息时推进目标修订并重新激活，历史验收记录保留。
+- 前端唯一分类器：删除 `TaskTodoList.tsx` 的重复分类器，列表/看板/详情/会话胶囊共享 `taskPhaseMeta`；待批授权与未决问题统一显示「需要你」，胶囊在 SSE 运行状态变化时即时刷新并保留 30 秒兜底。
+- 清单视觉：删除常态行的「当前/下一步」两行套话，收敛为标题 + 来源/负责人/子任务两行；仅 `attention`/`failed` 行使用 3px 语义左边框并单行直出真实阻塞原因；已验收/已取消默认收进底部「已验收 N 项 ›」抽屉。
+- 未验证：真实供应商长列表下的滚动性能与移动窄屏布局仍只做了本机浏览器检查，未做 iOS/Android 真机验证。
+
+### 阶段 6 真实 CLI 验收发现并修复的回归
+
+- `make probe-cli` 暴露 `TestInstalledCodexAppServerInProjectApproval` 失败：Codex app-server 把每个原生命令包装为 `/bin/zsh -lc "<command>"`，阶段 3 引入的 AST 分类器把整段引号内脚本当成一个超长路径参数，项目内重定向被判为区间外目标并在宿主回调前直接拒绝。
+- 二分定位：`84a9839` 通过，`3d6c299` 起失败；与本机 CLI 版本无关。
+- 修复：`shellast.go` 识别 shell 解释器，递归解析 `-c` 脚本（`-lc`/`-ec` 等聚簇、`-o` 取值、`--` 终止，深度上限 3），对无法静态求值的脚本保留保守 token 扫描；新增 `TestShellASTParsesInterpreterScripts` 与深度上限测试。
+- 复验：`make probe-cli` 全部通过（Claude/Codex/Gemini/Pi/OpenCode），`go test ./internal/nativecli ./internal/tools` 通过。
+- 门禁：`make check-contract`、`make test`、`make build`、`make e2e`（37/37）、`make verify-redesign` 均通过。`make verify-redesign` 在整套 e2e 之后曾出现一次不可复现的 Node 异常退出，随后同序列连续 4 次通过，未定位到稳定复现路径，按偶发记录而不视为已修复缺陷。
+
+### CI 环境暴露并修复的三处问题
+
+- `test (stable, ubuntu-latest)`：间接依赖 `github.com/go-json-experiment/json` 的旧伪版本引用当前标准库已不存在的符号。升级到 `v1.27.2`（其 `go.mod` 仍声明 1.26）；`1.26.x` 与 `stable` 两套工具链的 `-race -shuffle=on` 全量测试均通过。
+- `preview_page` 被通用工具注册表统一限制在 20s，冷启动浏览器在负载较高的 Linux runner 上耗尽预算后报 `css.EnableParams: context deadline exceeded`。现在注册表让 `run_test`/`run_command`/`preview_page` 各自使用经过校验的显式超时（`toolBudget`），浏览器冷启动另有独立上限，不再占用页面渲染预算。
+- `TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney` 在预算账本并发落定时对 `If-Match` 读到过期 revision 而得 409。409 是设计行为，测试改为重新读取当前 revision 后重试，并连续重复运行验证。
+- 修复后四个矩阵组合（1.26.x / stable × ubuntu / macOS）全部通过。

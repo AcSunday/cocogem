@@ -119,8 +119,7 @@ func createProjectJourneyThread(t *testing.T, api *deliveryAPI, workspaceID, tit
 	}
 	var thread w.Thread
 	api.call("POST", "/api/v1/workspaces/"+workspaceID+"/threads", w.Thread{
-		Title: title, AgentIDs: []string{members.Items[0].ID}, CoordinatorID: members.Items[0].ID, Workflow: "free",
-	}, nil, 200, &thread)
+		Title: title, AgentIDs: []string{members.Items[0].ID}, CoordinatorID: members.Items[0].ID}, nil, 200, &thread)
 	// These journeys exercise durable control, not automatic intent detection.
 	var task project.TaskView
 	api.call("POST", "/api/v1/workspaces/"+workspaceID+"/tasks", project.CreateTaskInput{ThreadID: thread.ID, OwnerMemberID: thread.CoordinatorID, Goal: title}, nil, 200, &task)
@@ -130,10 +129,7 @@ func createProjectJourneyThread(t *testing.T, api *deliveryAPI, workspaceID, tit
 
 func submitProjectJourneyRun(t *testing.T, api *deliveryAPI, thread w.Thread, goal, key string) w.Run {
 	t.Helper()
-	input := w.RunInput{Message: goal, Workflow: "free", Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
-	var preview RoutingPreview
-	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	input.ProposalID = preview.ProposalID
+	input := w.RunInput{Message: goal, Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
 	var run w.Run
 	api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": key + "-project-journey"}, 202, &run)
 	deadline := time.Now().Add(10 * time.Second)
@@ -150,6 +146,28 @@ func submitProjectJourneyRun(t *testing.T, api *deliveryAPI, thread w.Thread, go
 	}
 	t.Fatalf("journey run did not finish: %s", run.ID)
 	return w.Run{}
+}
+
+// adjustBudget applies one policy change against the current budget revision.
+// A yielded run settles its account concurrently with the PATCH, so a 409 is the
+// designed optimistic-concurrency answer and the caller simply reloads and
+// retries with the revision it just read.
+func adjustBudget(t *testing.T, api *deliveryAPI, threadID, taskID string, policy w.BudgetPolicy) {
+	t.Helper()
+	for attempt := 0; attempt < 20; attempt++ {
+		current := projectJourneyTask(t, api, threadID)
+		raw, status := api.callStatus("PATCH", "/api/v1/tasks/"+taskID+"/budget",
+			TaskBudgetInput{Policy: policy}, map[string]string{"If-Match": fmt.Sprint(current.Budget.Revision)})
+		switch status {
+		case 200:
+			return
+		case 409:
+			time.Sleep(10 * time.Millisecond)
+		default:
+			t.Fatalf("budget patch: status=%d body=%s", status, raw)
+		}
+	}
+	t.Fatal("budget patch kept conflicting with a settling account")
 }
 
 func projectJourneyTask(t *testing.T, api *deliveryAPI, threadID string) project.TaskView {
@@ -259,8 +277,7 @@ func TestProjectBudgetPauseAndResumeHTTPJourney(t *testing.T) {
 	root := projectJourneyTask(t, api, thread.ID)
 	adjustDecimal := func(policy w.BudgetPolicy) {
 		t.Helper()
-		current := projectJourneyTask(t, api, thread.ID)
-		api.call("PATCH", "/api/v1/tasks/"+root.Task.ID+"/budget", TaskBudgetInput{Policy: policy}, map[string]string{"If-Match": fmt.Sprint(current.Budget.Revision)}, 200, nil)
+		adjustBudget(t, api, thread.ID, root.Task.ID, policy)
 	}
 	policy := root.Budget.Policy
 	policy.AutoContinuations, policy.ParallelBranches, policy.WriterBranches = 2, 1, 1
@@ -349,10 +366,7 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 	journey := engine.Model.(*projectJourneyModel)
 	journey.questionGoal = "需要用户选择格式的任务"
 	journey.questionAnswer = "用户答案标记：完整报告"
-	input := w.RunInput{Message: journey.questionGoal, Workflow: "free", Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
-	var preview RoutingPreview
-	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	input.ProposalID = preview.ProposalID
+	input := w.RunInput{Message: journey.questionGoal, Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
 	var initial w.Run
 	api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": "question-initial-run"}, 202, &initial)
 	var created project.TaskView
@@ -360,7 +374,14 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 	for {
 		created = projectJourneyTask(t, api, thread.ID)
 		if created.Task.Status == "waiting" && created.Task.WaitingReason == "question" {
-			break
+			// The attention state is written atomically with the question, which
+			// is intentionally before the run settles to yielded. Wait for the
+			// durable yield too instead of treating the earlier state as final.
+			var settled RunView
+			api.call("GET", "/api/v1/runs/"+initial.ID, nil, nil, 200, &settled)
+			if settled.Run.Status == "yielded" {
+				break
+			}
 		}
 		var current RunView
 		api.call("GET", "/api/v1/runs/"+initial.ID, nil, nil, 200, &current)
@@ -391,6 +412,7 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 	if yielded.Run.Status != "yielded" {
 		t.Fatalf("question run did not yield: %+v", yielded.Run)
 	}
+	created = projectJourneyTask(t, api, thread.ID)
 	var questions QuestionList
 	api.call("GET", "/api/v1/tasks/"+created.Task.ID+"/questions", nil, nil, 200, &questions)
 	if len(questions.Items) != 1 || questions.Items[0].Status != "open" || questions.Items[0].TaskRevision != 1 {
@@ -398,7 +420,7 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 	}
 	policy := created.Budget.Policy
 	policy.AutoContinuations = 1
-	api.call("PATCH", "/api/v1/tasks/"+created.Task.ID+"/budget", TaskBudgetInput{Policy: policy}, map[string]string{"If-Match": fmt.Sprint(created.Budget.Revision)}, 200, nil)
+	adjustBudget(t, api, thread.ID, created.Task.ID, policy)
 	// Consume the sole continuation through a real child Run before answering.
 	// The subsequent answer must remain durable without bypassing this account.
 	var child project.DelegationView
@@ -443,7 +465,7 @@ func TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney(t *testing.T) {
 		t.Fatalf("budget-exhausted continuation = %+v", continuation.Run)
 	}
 	policy.AutoContinuations = 2
-	api.call("PATCH", "/api/v1/tasks/"+created.Task.ID+"/budget", TaskBudgetInput{Policy: policy}, map[string]string{"If-Match": fmt.Sprint(created.Budget.Revision)}, 200, nil)
+	adjustBudget(t, api, thread.ID, created.Task.ID, policy)
 	deadline = time.Now().Add(5 * time.Second)
 	for {
 		api.call("GET", "/api/v1/runs/"+continuation.Run.ID, nil, nil, 200, &continuation)
@@ -475,10 +497,7 @@ func TestProjectInterruptStaysPendingUntilNextBoundary(t *testing.T) {
 	journey := engine.Model.(*projectJourneyModel)
 	journey.blockGoal = "需要打断的执行"
 	journey.started, journey.release = make(chan struct{}), make(chan struct{})
-	input := w.RunInput{Message: journey.blockGoal, Workflow: "free", Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
-	var preview RoutingPreview
-	api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-	input.ProposalID = preview.ProposalID
+	input := w.RunInput{Message: journey.blockGoal, Targets: thread.AgentIDs, ResearchScope: "given_sources", SourceURLs: testutil.Sources}
 	var initial w.Run
 	api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": "interrupt-initial-run"}, 202, &initial)
 	select {
@@ -529,10 +548,7 @@ func TestProjectControlReplayAndUnchangedModeDoNotStopNewWork(t *testing.T) {
 	start := func(key string) w.Run {
 		t.Helper()
 		journey.started, journey.release, journey.once = make(chan struct{}), make(chan struct{}), sync.Once{}
-		input := w.RunInput{Message: journey.blockGoal, Workflow: "free", Targets: thread.AgentIDs, ResearchScope: "given_sources"}
-		var preview RoutingPreview
-		api.call("POST", "/api/v1/threads/"+thread.ID+"/routing-preview", input, nil, 200, &preview)
-		input.ProposalID = preview.ProposalID
+		input := w.RunInput{Message: journey.blockGoal, Targets: thread.AgentIDs, ResearchScope: "given_sources"}
 		var run w.Run
 		api.call("POST", "/api/v1/threads/"+thread.ID+"/runs", input, map[string]string{"Idempotency-Key": key}, 202, &run)
 		select {
@@ -574,6 +590,9 @@ func TestProjectControlReplayAndUnchangedModeDoNotStopNewWork(t *testing.T) {
 	if w.Terminal(current.Run.Status) || current.Run.Status == "canceling" {
 		t.Fatalf("replayed pause or unchanged mode stopped new work: %+v", current.Run)
 	}
-	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionControlled)}, map[string]string{"If-Match": fmt.Sprint(currentSettings.Revision + 1)}, 200, nil)
+	// A real tier change (not a replay of the current value) advances the epoch
+	// and ends the blocked run; the two-tier policy has full access as the
+	// other side of that boundary.
+	api.call("PATCH", "/api/v1/settings", SettingsInput{ExecutionMode: ptr(w.ExecutionFullAccess)}, map[string]string{"If-Match": fmt.Sprint(currentSettings.Revision + 1)}, 200, nil)
 	awaitStop(second.ID)
 }

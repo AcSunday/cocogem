@@ -153,17 +153,20 @@ func (t *Tx) PendingGrants() ([]w.Grant, error) {
 
 // SaveExecution creates or updates an execution directory projection.
 func (t *Tx) SaveExecution(v w.WorkspaceExecution) error {
-	return t.exec("INSERT INTO workspace_executions(id,workspace_id,task_id,canonical_root,lease_epoch,lease_expires_at,status,body) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET lease_epoch=excluded.lease_epoch,lease_expires_at=excluded.lease_expires_at,status=excluded.status,body=excluded.body", v.ID, v.WorkspaceID, v.TaskID, v.CanonicalRoot, v.LeaseEpoch, v.LeaseExpiresAt, v.Status, body(v))
+	return t.exec("INSERT INTO workspace_executions(id,workspace_id,thread_id,task_id,canonical_root,lease_epoch,lease_expires_at,status,body) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id,task_id=excluded.task_id,lease_epoch=excluded.lease_epoch,lease_expires_at=excluded.lease_expires_at,status=excluded.status,body=excluded.body", v.ID, v.WorkspaceID, nullable(v.ThreadID), nullable(v.TaskID), v.CanonicalRoot, v.LeaseEpoch, v.LeaseExpiresAt, v.Status, body(v))
 }
 
-// AcquireExecution atomically rejects exact, parent/child and canonical-path
-// conflicts across every workspace and every process using this database.
+// AcquireExecution atomically rejects a second live candidate for the same
+// owning scope and source root. The scope is the durable task when present and
+// the conversation otherwise, so parallel sub-tasks and a plain conversation can
+// each hold their own worktree on one project while no scope forks two.
 func (t *Tx) AcquireExecution(v w.WorkspaceExecution) error {
-	result, err := t.tx.ExecContext(t.ctx, `INSERT INTO workspace_executions(id,workspace_id,task_id,canonical_root,lease_epoch,lease_expires_at,status,body)
-		SELECT ?,?,?,?,?,?,?,? WHERE NOT EXISTS (
+	result, err := t.tx.ExecContext(t.ctx, `INSERT INTO workspace_executions(id,workspace_id,thread_id,task_id,canonical_root,lease_epoch,lease_expires_at,status,body)
+		SELECT ?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (
 			SELECT 1 FROM workspace_executions WHERE status IN ('active','quarantined','uncertain')
-			AND (canonical_root=? OR canonical_root LIKE rtrim(?, '/')||'/%' OR ? LIKE rtrim(canonical_root, '/')||'/%')
-		)`, v.ID, v.WorkspaceID, v.TaskID, v.CanonicalRoot, v.LeaseEpoch, v.LeaseExpiresAt, v.Status, body(v), v.CanonicalRoot, v.CanonicalRoot, v.CanonicalRoot)
+			AND COALESCE(task_id, thread_id)=COALESCE(?, ?)
+			AND canonical_root=?
+		)`, v.ID, v.WorkspaceID, nullable(v.ThreadID), nullable(v.TaskID), v.CanonicalRoot, v.LeaseEpoch, v.LeaseExpiresAt, v.Status, body(v), nullable(v.TaskID), v.ThreadID, v.CanonicalRoot)
 	if err != nil {
 		return err
 	}
@@ -199,7 +202,7 @@ func (t *Tx) Executions(workspaceID string) ([]w.WorkspaceExecution, error) {
 
 // SaveSession persists a disposable native execution cache and its exposure.
 func (t *Tx) SaveSession(v w.ExecutionSession) error {
-	return t.exec("INSERT INTO execution_sessions(id,task_id,member_id,fingerprint,visibility_epoch,status,body) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET visibility_epoch=excluded.visibility_epoch,status=excluded.status,body=excluded.body", v.ID, v.TaskID, v.MemberID, v.Fingerprint, v.VisibilityEpoch, v.Status, body(v))
+	return t.exec("INSERT INTO execution_sessions(id,thread_id,task_id,member_id,fingerprint,visibility_epoch,status,body) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id,task_id=excluded.task_id,visibility_epoch=excluded.visibility_epoch,status=excluded.status,body=excluded.body", v.ID, nullable(v.ThreadID), nullable(v.TaskID), v.MemberID, v.Fingerprint, v.VisibilityEpoch, v.Status, body(v))
 }
 
 // Session reads one managed native session.
@@ -207,9 +210,20 @@ func (t *Tx) Session(id string) (w.ExecutionSession, error) {
 	return get[w.ExecutionSession](t, "SELECT body FROM execution_sessions WHERE id=?", id)
 }
 
-// Sessions lists task-local native sessions, never user terminal history.
-func (t *Tx) Sessions(taskID string) ([]w.ExecutionSession, error) {
-	return list[w.ExecutionSession](t, "SELECT body FROM execution_sessions WHERE task_id=? ORDER BY rowid", taskID)
+// Sessions lists the native sessions of one owning scope (task or thread),
+// never user terminal history.
+func (t *Tx) Sessions(scopeID string) ([]w.ExecutionSession, error) {
+	return list[w.ExecutionSession](t, "SELECT body FROM execution_sessions WHERE COALESCE(task_id, thread_id)=? ORDER BY rowid", scopeID)
+}
+
+// ThreadExecutions lists one conversation's candidate directories.
+func (t *Tx) ThreadExecutions(threadID string) ([]w.WorkspaceExecution, error) {
+	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE thread_id=? ORDER BY rowid", threadID)
+}
+
+// ActiveExecutions lists every live candidate directory for reconciliation.
+func (t *Tx) ActiveExecutions() ([]w.WorkspaceExecution, error) {
+	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE status IN ('active','quarantined','uncertain') ORDER BY rowid")
 }
 
 // SaveEffect creates or reconciles a host-managed effect.
@@ -433,4 +447,71 @@ func isUniqueConstraint(err error) bool {
 // bounded projection TaskDetail uses instead of loading a full thread.
 func (t *Tx) TaskRuns(taskID string) ([]w.Run, error) {
 	return list[w.Run](t, "SELECT body FROM runs WHERE task_id=? ORDER BY created_at,id", taskID)
+}
+
+// SealThreadSessions retires every managed native session of one conversation so
+// a rebound project never resumes cross-repository context.
+func (t *Tx) SealThreadSessions(threadID string) error {
+	return t.exec("UPDATE execution_sessions SET status='sealed',body=json_set(body,'$.status','sealed','$.acknowledgement','sealed') WHERE thread_id=?", threadID)
+}
+
+// SessionsByMember lists every managed native session of one member across the
+// workspace's conversations and tasks, regardless of its owning scope.
+func (t *Tx) SessionsByMember(workspaceID, memberID string) ([]w.ExecutionSession, error) {
+	return list[w.ExecutionSession](t, `SELECT body FROM execution_sessions WHERE member_id=? AND (
+		thread_id IN (SELECT id FROM threads WHERE workspace_id=?)
+		OR task_id IN (SELECT id FROM tasks WHERE workspace_id=?)
+	) ORDER BY rowid`, memberID, workspaceID, workspaceID)
+}
+
+// ScopeExecutions lists every candidate directory of one owning scope, whether
+// it is a durable task or a plain conversation.
+func (t *Tx) ScopeExecutions(scopeID string) ([]w.WorkspaceExecution, error) {
+	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE COALESCE(task_id, thread_id)=? ORDER BY rowid", scopeID)
+}
+
+// AllTaskRevisions lists every accepted goal version in one bounded query so the
+// task board never issues a per-task read.
+func (t *Tx) AllTaskRevisions() ([]w.TaskRevision, error) {
+	return list[w.TaskRevision](t, "SELECT body FROM task_revisions ORDER BY task_id,revision")
+}
+
+// AllBudgetAccounts lists every root ledger in one query.
+func (t *Tx) AllBudgetAccounts() ([]w.BudgetAccount, error) {
+	return list[w.BudgetAccount](t, "SELECT body FROM budget_accounts ORDER BY rowid")
+}
+
+// AllCompletions lists every acceptance judgment in one query.
+func (t *Tx) AllCompletions() ([]w.CompletionRecord, error) {
+	return list[w.CompletionRecord](t, "SELECT body FROM completion_records ORDER BY rowid")
+}
+
+// LatestTaskRuns returns exactly one newest run per task, in a single query.
+func (t *Tx) LatestTaskRuns() ([]w.Run, error) {
+	return list[w.Run](t, `SELECT body FROM runs r1 WHERE r1.task_id<>'' AND NOT EXISTS (
+		SELECT 1 FROM runs r2 WHERE r2.task_id=r1.task_id AND (
+			r2.created_at > r1.created_at OR (r2.created_at = r1.created_at AND r2.id > r1.id)
+		)
+	) ORDER BY r1.task_id`)
+}
+
+// OpenQuestions lists every unresolved question in one query.
+func (t *Tx) OpenQuestions() ([]w.Question, error) {
+	return list[w.Question](t, "SELECT body FROM questions WHERE status='open' ORDER BY task_id,rowid")
+}
+
+// PendingPermissionRequests lists every unsettled permission request in one query.
+func (t *Tx) PendingPermissionRequests() ([]w.ToolPermissionRequest, error) {
+	return list[w.ToolPermissionRequest](t, "SELECT body FROM tool_permission_requests WHERE status='pending' ORDER BY thread_id,created_at")
+}
+
+// UnappliedExecutions lists candidate directories that are still live for a task,
+// used by the board to show an unapplied worktree without an extra request per task.
+func (t *Tx) UnappliedExecutions() ([]w.WorkspaceExecution, error) {
+	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE task_id IS NOT NULL AND status IN ('active','completed','uncertain') AND COALESCE(json_extract(body,'$.kind'),'')<>'verify_dir' ORDER BY task_id")
+}
+
+// OpenQuestionsForTask lists one task's unresolved questions in a bounded query.
+func (t *Tx) OpenQuestionsForTask(taskID string) ([]w.Question, error) {
+	return list[w.Question](t, "SELECT body FROM questions WHERE task_id=? AND status='open' ORDER BY rowid", taskID)
 }

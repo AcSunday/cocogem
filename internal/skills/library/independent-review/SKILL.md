@@ -1,17 +1,32 @@
 ---
 name: independent-review
-description: 对其他成员的研究结论或代码发现进行独立证据复核；用于检验来源、推论、遗漏和争议，不能由同一项工作的作者自我复核。
+category: quality
+description: "Use when verifying another member's claim or code as a non-author. Not for self-review or for restating the author's reasoning. Output: an independent verdict backed by fresh test, probe or preview evidence, with named limitations."
 ---
 
 # 独立复核
 
 先从工作包核对被复核的任务、作者、结论和证据。当前成员如果是这项工作的作者，说明不满足独立复核条件，将缺口交回协调者；不能用换一个角色名冒充独立性。
 
-1. 逐项检查重要结论与实际来源是否对应。通过允许的 `read_source`、文件或网页工具独立读取必要证据；上游成员的总结不能代替证据本身。
-2. 区分已支持、存在争议和证据不足。检查来源日期、范围、推论跨度、替代解释；代码问题检查具体位置、触发条件和影响。静态分析不能声称已完成运行验证。
-3. 为每项问题给出判断、理由和有效来源引用。发现证据不可访问、内容被截断或时效未知时明确限制，不虚构补充内容。
-4. 按验证结果明确收敛或返工，避免无效空转：
-   - **验证通过、无实质异议**：若当前步骤暴露了 `submit_review_verdict`，立即调用 `submit_review_verdict(verdict="approved", summary="...")` 跳过后续冗余轮次；若处于自由接力（`relay`）步骤，直接给出核实结论并结束调用，不再回调执行者。
-   - **发现真实缺陷、遗漏或测试未过**：保留具体争议和证据引用；内置流程调用 `submit_review_verdict(verdict="changes_requested", summary="...")`，自由接力流程通过 `handoff_task(mode="relay")` 将明确修改项交回执行者修复后再复核。不为走流程强行挑刺，也不为省事勉强放行。
+## 二源验真
 
-确需补充工作时只提出在当前范围与预算内的有限任务，由获准的交接能力提交；不要自动开展无限返工，也不要发起任务互相复核的循环。
+对每个关键声明至少找两个独立视角：
+
+1. 作者给出的证据（T1 捕获的 diff / test）。
+2. 自己新取得的证据：在独立验证副本里跑真实测试、写最小反例探针，或用 `preview_page` 看真实页面。
+
+两者不一致时以自己复现的字节为准，并记录差异。
+
+## 验证手段
+
+- 代码：在独立 worktree 里跑项目自己的测试，必要时加一个只验证该缺陷的最小用例。
+- 页面：`preview_page` 只用宿主给定的 origin；纯后端、CLI 或算法改动不需要截图。
+- 历史：`git_inspect` 看实际 diff 和提交，不依赖作者描述。
+
+## 视觉 Gate-0
+
+纯后端、命令行或算法改动硬豁免截图要求。没有可用浏览器内核时报告 `browser_engine_unavailable`，说明未做渲染验证，不假装看过页面。
+
+## 结论
+
+用 `submit_review_verdict` 给出 `approved` 或 `changes_requested`。返工必须指出文件、失败命令或缺失证据；同一问题点最多两轮，之后如实交付分歧。

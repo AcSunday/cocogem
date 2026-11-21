@@ -136,6 +136,8 @@ export function TaskBoardPage({
   const [openFilter, setOpenFilter] = useState<FilterName | "">("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  // Archived work is collapsed by default; the footer drawer opens it in place.
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -291,7 +293,11 @@ export function TaskBoardPage({
   };
 
   const primaryFor = (item: ProjectTaskView, phase: string) => {
-    if (phase === "running" || phase === "waiting_budget") {
+    if (
+      phase === "running" ||
+      phase === "waiting_budget" ||
+      (phase === "needs_answer" && (item.pending_permissions ?? 0) > 0)
+    ) {
       openExecution(item);
       return;
     }
@@ -309,7 +315,7 @@ export function TaskBoardPage({
   const listActionLabel = (item: ProjectTaskView, phase: string) => {
     switch (phase) {
       case "needs_answer":
-        return "回答";
+        return (item.pending_permissions ?? 0) > 0 ? "去审批" : "回答";
       case "needs_retry":
         return "处理";
       case "needs_revalidation":
@@ -429,9 +435,10 @@ export function TaskBoardPage({
     },
     { attention: 0, running: 0, review: 0 },
   );
-  const completedCount = filtered.filter(
-    (item) => taskFocus(item, questions) === "completed",
-  ).length;
+  const archivedCount = filtered.filter((item) => {
+    const focus = taskFocus(item, questions);
+    return focus === "completed" || focus === "canceled";
+  }).length;
   const filtering = !!(
     filters.query ||
     filters.workspace ||
@@ -536,14 +543,13 @@ export function TaskBoardPage({
               </>
             )}
           </div>
-          <div className={cx("task-focus-line")}>
-            <span className={cx("task-focus-label")}>当前</span>
-            {meta.current}
-          </div>
-          <div className={cx("task-focus-line")}>
-            <span className={cx("task-focus-label")}>下一步</span>
-            {meta.next}
-          </div>
+          {/* Normal rows stay a compact two-line layout. Only an attention or
+              failed row prints its real blocking reason, on one line. */}
+          {(meta.focus === "attention" || meta.tone === "failed") && (
+            <div className={cx("task-focus-blocker")}>
+              {meta.current}
+            </div>
+          )}
         </div>
         <div className={cx("task-focus-side")}>
           <div className={cx("task-focus-side-top")}>
@@ -994,15 +1000,26 @@ export function TaskBoardPage({
         </div>
       )}
 
-      {filters.view === "list" && !filters.status && completedCount > 0 && (
+      {filters.view === "list" && !filters.status && archivedCount > 0 && (
         <div className={cx("task-focus-foot")}>
           <button
             type="button"
             className={cx("small", "ghost")}
-            onClick={() => update({ status: "completed" })}
+            aria-expanded={drawerOpen}
+            onClick={() => setDrawerOpen((current) => !current)}
           >
-            查看已验收任务 →
+            已归档 {archivedCount} 项 {drawerOpen ? "⌄" : "›"}
           </button>
+          {drawerOpen && (
+            <div className={cx("task-focus-drawer")} aria-label="已归档任务">
+              {focused
+                .filter(
+                  ({ meta }) =>
+                    meta.focus === "completed" || meta.focus === "canceled",
+                )
+                .map(({ item }) => row(item))}
+            </div>
+          )}
         </div>
       )}
 

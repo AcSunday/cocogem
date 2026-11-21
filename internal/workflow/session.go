@@ -22,12 +22,12 @@ type sessionInput struct {
 }
 
 func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession, error) {
-	if in.run.TaskID == "" {
+	if in.run.TaskID == "" && in.run.ThreadID == "" {
 		return w.ExecutionSession{}, nil
 	}
 	// Visibility is bound to the global permission epoch frozen on this Run.
 	// Retired workspace grants are history: their epoch must not keep an old
-	// session alive after a full_access -> controlled -> full_access round trip.
+	// session alive after a full_access -> workspace_autonomous -> full_access round trip.
 	visibilityEpoch := max(1, in.run.PermissionEpoch)
 	exposed := make([]string, 0, len(in.sources))
 	for _, source := range in.sources {
@@ -36,6 +36,15 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 			return w.ExecutionSession{}, err
 		}
 		exposed = append(exposed, "source_id:"+source.ID+":"+digest)
+	}
+	// Record committed thread messages already visible at this boundary so
+	// subsequent resumed turns send only truly new messages (true delta).
+	if msgs, err := tx.Messages(in.run.ThreadID); err == nil {
+		for _, msg := range msgs {
+			if msg.Status == "completed" && strings.TrimSpace(msg.Content) != "" && msg.StepID != in.step.ID {
+				exposed = append(exposed, "message:"+msg.ID)
+			}
+		}
 	}
 	contextProtocol := "legacy-context/v1"
 	if in.run.ContextRef != "" {
@@ -67,8 +76,10 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 	slices.Sort(grantActions)
 	adapterCapabilities := slices.Clone(in.adapter.Capabilities)
 	slices.Sort(adapterCapabilities)
-	managed := in.run.EffectiveExecutionMode != "" && in.run.EffectiveExecutionMode != w.ExecutionControlled &&
-		slices.Contains(in.adapter.Capabilities, "session_resume_ack=supported")
+	// Both tiers now share the managed-session protocol: the adapter must prove
+	// resume support, and the run's mode no longer decides whether continuity
+	// exists at all.
+	managed := slices.Contains(in.adapter.Capabilities, "session_resume_ack=supported")
 	if managed {
 		contextProtocol = "contextplan/v1;delta-v1"
 	}
@@ -111,7 +122,7 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 	}
 	fingerprint := contentDigest(string(encoded))
 	contextEpoch := 1
-	existing, err := tx.Sessions(in.run.TaskID)
+	existing, err := tx.Sessions(sessionScope(in.run))
 	if err != nil {
 		return w.ExecutionSession{}, err
 	}
@@ -122,19 +133,29 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 	}
 	now := w.Now()
 	prepared := w.ExecutionSession{
-		ID: w.NewID(), TaskID: in.run.TaskID, MemberID: in.member.ID, Role: in.step.Role,
+		ID: w.NewID(), ThreadID: in.run.ThreadID, TaskID: in.run.TaskID, MemberID: in.member.ID, Role: in.step.Role,
+		WorkRoot:        in.run.ProjectRoot(),
 		ExecutionBranch: in.run.ExecutionRef, Fingerprint: fingerprint,
 		ContextEpoch: contextEpoch, VisibilityEpoch: visibilityEpoch,
 		ExposedRefs: exposed, ExposureDigest: contentDigest(strings.Join(exposed, "\n")),
 		Adapter: in.adapter.Adapter, Acknowledgement: "resume_unsupported", Status: "fresh_only",
 		CreatedAt: now, UpdatedAt: now,
 	}
-	if managed {
+	if managed && !isIndependentReview(in.step) {
 		prepared.Status, prepared.Acknowledgement = "active", "awaiting_runner_ack"
+	} else if isIndependentReview(in.step) {
+		// Disposable reviewer/critic steps MUST always start a fresh ephemeral
+		// session so round-2 reviews never try to resume a destroyed verify_dir.
+		managed = false
+		prepared.Status, prepared.Acknowledgement = "fresh_only", "ephemeral_review"
 	}
 	for _, session := range existing {
+		// A different working root (an applied or discarded candidate) has no
+		// continuous context, so it rolls a new native session.
 		if !managed || !sessionReuseEligible(session, fingerprint, visibilityEpoch) ||
-			session.MemberID != in.member.ID || session.Role != in.step.Role || session.ExecutionBranch != in.run.ExecutionRef || session.NativeSessionID == "" {
+			session.MemberID != in.member.ID || session.Role != in.step.Role ||
+			session.ExecutionBranch != in.run.ExecutionRef || session.NativeSessionID == "" ||
+			session.WorkRoot != in.run.ProjectRoot() {
 			continue
 		}
 		prepared.ID, prepared.NativeSessionID = session.ID, session.NativeSessionID
@@ -184,6 +205,39 @@ func updateNativeSession(tx *store.Tx, attempt w.Attempt, nativeSessionID string
 	if session.Status == "active" {
 		session.AcknowledgedExposedRefs = slices.Clone(session.ExposedRefs)
 	}
+	session.UpdatedAt = w.Now()
+	return tx.SaveSession(session)
+}
+
+// sessionScope is the owning scope of a managed native session: the durable task
+// when present, else the conversation.
+func sessionScope(run w.Run) string {
+	if run.TaskID != "" {
+		return run.TaskID
+	}
+	return run.ThreadID
+}
+
+// sealExecutionSession retires one native session for good. Sealing keeps the
+// ledger row (and its exposure evidence) readable while making it unusable for
+// reuse, so an overflowing or corrupt native context can never be resumed and
+// is replaced by a fresh session with a continuity capsule.
+func sealExecutionSession(tx *store.Tx, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	session, err := tx.Session(sessionID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if session.Status == "sealed" {
+		return nil
+	}
+	session.Status = "sealed"
+	session.Acknowledgement = "sealed"
 	session.UpdatedAt = w.Now()
 	return tx.SaveSession(session)
 }

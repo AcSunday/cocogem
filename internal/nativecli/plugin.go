@@ -146,8 +146,21 @@ func (b *bridge) pluginExecute(w http.ResponseWriter, ctx context.Context, raw [
 	cmd.Dir = cwd
 	output := &boundedBuffer{limit: pluginOutputLimit, truncate: true}
 	cmd.Stdout, cmd.Stderr = output, output
+	_ = configureProcess(cmd)
 	started := time.Now()
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		writePluginJSON(w, map[string]any{"ok": false, "error": "command could not start"})
+		return
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var err error
+	select {
+	case err = <-done:
+	case <-runCtx.Done():
+		terminateProcess(cmd)
+		err = <-done
+	}
 	exitCode := 0
 	if err != nil {
 		var exit *exec.ExitError

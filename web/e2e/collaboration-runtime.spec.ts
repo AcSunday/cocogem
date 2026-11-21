@@ -104,12 +104,18 @@ test("browser, server and scheduler execute research, independent review and res
   const savedWorkspace = spaces.items.find(
     (space) => space.id === workspaceID,
   )!;
+  // The built-in library is exactly these ten engineering skills.
   expect(savedWorkspace.skill_ids?.sort()).toEqual([
+    "debugging",
     "file-delivery",
     "independent-review",
+    "quality-gate",
+    "receive-review",
     "synthesize-results",
     "task-handoff",
     "task-orchestration",
+    "tdd",
+    "writing-plans",
   ]);
 
   await page

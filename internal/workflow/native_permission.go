@@ -11,6 +11,7 @@ import (
 	"github.com/AcSunday/cocogem/internal/model"
 	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -36,23 +37,38 @@ func (x *stepRuntime) nativeAuthorizer() func(context.Context, model.NativePermi
 		if action == "" {
 			action = w.ActionForNativeTool(name)
 		}
-		// The step role is an independent hard ceiling. A reviewer may verify with
-		// tests but never gains a file write or shell through an app-server request
-		// or a shared conversation grant, whatever the CLI exposes.
+		// A read-only turn (Plan-Only or parallel blind pass) never writes or runs
+		// commands and never pops an approval card.
+		if x.step.ReadOnly && (action == "write" || action == "execute") {
+			return model.NativePermissionDecision{Allow: false, Scope: model.NativeScopeDeny, Reason: "read_only_step: this step is analysis-only; file writes and commands are refused"}, nil
+		}
+		// The step role is an independent hard ceiling.
 		if !x.toolAllowedForRole(nativeAccessName(action, name)) {
 			return model.NativePermissionDecision{Allow: false, Scope: model.NativeScopeDeny, Reason: "this step's role does not permit that operation"}, nil
 		}
 		scope := x.nativeScope(action, request.Resource, request.Input)
+		// The host, not the adapter, grades the target. A sensitive credential
+		// path is never auto-allowed and never gains a conversation grant; it
+		// needs one explicit high-risk approval for that exact call.
+		risk := request.Risk
+		if risk == "" && tools.SensitivePath(scope) {
+			risk = "sensitive_path"
+		}
 		arguments := request.Input
 		if len(arguments) == 0 {
 			arguments = []byte("null")
 		}
 		run := x.snapshotRun()
+		if x.workRoot != "" && x.workRoot != run.ProjectRoot() {
+			// Reviewer executes inside verify_dir; check boundaries against verify_dir
+			// instead of the author's candidate directory.
+			run.ExecutionRoot = x.workRoot
+		}
 		service := project.New(x.engine.Store)
 		admission := project.AccessRequest{
 			Run: run, StepID: x.step.ID, Attempt: x.attemptSnapshot().ID,
 			CallID: callID, Name: nativeAccessName(action, name), Arguments: arguments, Scope: scope,
-			Risk: request.Risk,
+			Risk: risk,
 		}
 		decision, err := service.CheckToolAccess(ctx, admission)
 		if err != nil {
@@ -92,7 +108,7 @@ func (x *stepRuntime) nativeAuthorizer() func(context.Context, model.NativePermi
 			StepID: x.step.ID, AttemptID: x.attemptSnapshot().ID, MemberID: x.agent.ID, MemberName: x.agent.DisplayName,
 			ToolCallID: callID, Origin: w.OriginNative, Adapter: request.Adapter,
 			Action: action, ToolName: nativeAccessName(action, name), NormalizedResourceScope: scope,
-			Arguments: arguments, Reason: reason, Risk: nativeRiskReason(request),
+			Arguments: arguments, Reason: reason, Risk: risk,
 		})
 		if err != nil {
 			return deny, err
@@ -168,7 +184,10 @@ func (x *stepRuntime) awaitNativeDecision(ctx context.Context, service *project.
 // directory or the bound project, never the process working directory.
 func (x *stepRuntime) nativeScope(action, resource string, input []byte) string {
 	run := x.snapshotRun()
-	if action == "network" {
+	if action == "network" || resource == "network:public" || strings.HasPrefix(resource, "external:") {
+		if resource != "" {
+			return resource
+		}
 		return "network:public"
 	}
 	target := strings.TrimSpace(resource)
@@ -178,17 +197,24 @@ func (x *stepRuntime) nativeScope(action, resource string, input []byte) string 
 	if target == "" {
 		target = "."
 	}
+	if target == "network:public" || strings.HasPrefix(target, "external:") {
+		return target
+	}
+	stepRoot := x.stepRoot()
+	if stepRoot == "" {
+		stepRoot = run.ProjectRoot()
+	}
 	if !filepath.IsAbs(target) {
-		base := run.TaskDirectory
+		base := stepRoot
 		if base == "" {
-			base = run.ProjectRoot()
+			base = run.TaskDirectory
 		}
 		if base == "" {
 			return ""
 		}
 		target = filepath.Join(base, target)
 	}
-	root := run.ProjectRoot()
+	root := stepRoot
 	if root == "" {
 		root = run.TaskDirectory
 	}

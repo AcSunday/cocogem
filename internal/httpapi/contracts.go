@@ -4,7 +4,6 @@ import (
 	"github.com/AcSunday/cocogem/internal/project"
 	"github.com/AcSunday/cocogem/internal/skills"
 	"github.com/AcSunday/cocogem/internal/store"
-	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -82,13 +81,6 @@ type ContextView struct {
 	Receipts []w.ReadReceipt   `json:"receipts"`
 }
 
-// RoutingPreview describes dispatch intent without starting execution.
-type RoutingPreview struct {
-	ProposalID string           `json:"proposal_id,omitempty"`
-	Routing    workflow.Routing `json:"routing"`
-	ExpiresIn  int              `json:"expires_in,omitempty"`
-}
-
 // WorkspaceInput contains only user-editable fields.
 type WorkspaceInput struct {
 	Name        string   `json:"name"`
@@ -102,8 +94,7 @@ type WorkspaceInput struct {
 // collaboration defaults and saving collaboration never resets the permission.
 // The path and If-Match remain authoritative for the revision.
 type SettingsInput struct {
-	DefaultCoordinatorID *string                       `json:"default_coordinator_id,omitempty"`
-	Assignments          *map[string]map[string]string `json:"assignments,omitempty"`
+	DefaultCoordinatorID *string `json:"default_coordinator_id,omitempty"`
 	// RetentionDays is optional; nil keeps the current value. An explicit
 	// out-of-range value is rejected.
 	RetentionDays *int `json:"retention_days,omitempty"`
@@ -125,7 +116,6 @@ func (in SettingsInput) patch() project.SettingsPatch {
 	}
 	return project.SettingsPatch{
 		DefaultCoordinatorID: in.DefaultCoordinatorID,
-		Assignments:          in.Assignments,
 		RetentionDays:        in.RetentionDays,
 		CollaborationBudget:  in.CollaborationBudget,
 		ExecutionMode:        in.ExecutionMode,
@@ -137,7 +127,6 @@ type ThreadUpdate struct {
 	Title         string    `json:"title"`
 	AgentIDs      *[]string `json:"agent_ids,omitempty"`
 	CoordinatorID *string   `json:"coordinator_id,omitempty"`
-	Workflow      *string   `json:"workflow,omitempty"`
 
 	// Legacy full-thread fields accept old clients; they are ignored because the
 	// path and If-Match remain authoritative for identity and revision.

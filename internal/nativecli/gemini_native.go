@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/tools"
 )
 
 // geminiNativeSession owns the per-attempt objects for a project_autonomous
@@ -35,7 +36,21 @@ func prepareGeminiNativeSession(request model.Request, base, workdir string, gat
 	if err != nil {
 		return nil, err
 	}
+	sandbox.readOnly = request.ReadOnly
+	sandbox.allowLoopback = true
+	sandbox.allowTmp = true
 	sandbox.addRoots(request.WorkspaceRoot, request.WorkingDirectory)
+	sandbox.addReadOnlyRoot(request.IOInputs)
+	if gitDir, commonGit := tools.WorktreeMeta(request.WorkspaceRoot); gitDir != "" {
+		sandbox.addRoots(gitDir)
+		if commonGit != "" {
+			sandbox.addReadOnlyRoot(commonGit)
+			sandbox.addRoots(filepath.Join(commonGit, "objects"))
+		}
+		sandbox.addDenyWrites(tools.GitMetadataDenies(request.WorkspaceRoot)...)
+	} else if denies := tools.GitMetadataDenies(request.WorkspaceRoot); len(denies) > 0 {
+		sandbox.addDenyWrites(denies...)
+	}
 	session := &geminiNativeSession{request: request, gate: gate, sandbox: sandbox, workdir: workdir, launch: launch}
 	if probeURL == "" {
 		// Real turns get the host egress proxy so dependency retrieval keeps

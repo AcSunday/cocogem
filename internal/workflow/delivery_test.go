@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/AcSunday/cocogem/internal/agent"
@@ -256,23 +257,31 @@ func TestFreeRootChainDeliversOnlyItsLastContinuation(t *testing.T) {
 }
 
 func TestIntermediateStepsCannotPublishFormalArtifacts(t *testing.T) {
-	t.Run("built-in researcher", func(t *testing.T) {
+	t.Run("delegated child keeps only a reply", func(t *testing.T) {
 		s := openDeliveryStore(t)
 		run := seedRun(t, s)
 		enableExecutor(t, s, &run, "claude")
 		var rejection error
+		var once atomic.Bool
+		payload, _ := json.Marshal(map[string]any{"type": "note", "title": "Intermediate", "body": "not a final artifact", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
 		runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
-			payload, _ := json.Marshal(map[string]any{"type": "note", "title": "Intermediate", "body": "not a final artifact", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
 			switch {
-			case strings.Contains(request.System, "role=researcher"):
-				_, rejection = execute(ctx, "publish_artifact", payload)
-				return observe("text", map[string]any{"text": "研究结果"})
-			case strings.Contains(request.System, "role=critic"):
-				return observe("text", map[string]any{"text": "复核意见"})
+			case strings.Contains(request.System, "role=member"):
+				// The delegated child of a root chain is intermediate: its reply is
+				// delivered through the continuation, never as its own artifact.
+				if _, err := execute(ctx, "publish_artifact", payload); err != nil {
+					rejection = err
+				}
+				return observe("text", map[string]any{"text": "子任务执行结果"})
 			default:
-				report, _ := json.Marshal(map[string]any{"type": "research_report", "title": "Final", "body": "final research report", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-				_, err := execute(ctx, "publish_artifact", report)
-				return err
+				if once.CompareAndSwap(false, true) {
+					handoff, _ := json.Marshal(map[string]any{"request_id": "delegate", "target_agent_id": run.Agents[1].ID, "role": "member", "task": "执行子任务"})
+					if _, err := execute(ctx, "handoff_task", handoff); err != nil {
+						return err
+					}
+					return observe("text", map[string]any{"text": "已委派"})
+				}
+				return observe("text", map[string]any{"text": "汇总子任务结果"})
 			}
 		})
 		e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
@@ -294,114 +303,8 @@ func TestIntermediateStepsCannotPublishFormalArtifacts(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if len(artifacts) != 1 || artifacts[0].Type != "research_report" {
-			t.Fatalf("artifacts = %+v", artifacts)
-		}
-		if got.Delivery == nil || !slices.Equal(got.Delivery.ArtifactRefs, []w.ArtifactRef{{ID: artifacts[0].ID, Version: artifacts[0].Version}}) {
-			t.Fatalf("delivery artifact refs = %+v", got.Delivery)
-		}
-	})
-
-	t.Run("free delegated task", func(t *testing.T) {
-		s := openDeliveryStore(t)
-		run := seedFreeRun(t, s)
-		enableExecutor(t, s, &run, "claude")
-		var rejection error
-		runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
-			step, err := runningStepFor(ctx, s, run, request)
-			if err != nil {
-				return err
-			}
-			switch step.Kind {
-			case "":
-				return submitDeliveryHandoff(ctx, execute, "delegate", run.Agents[1].ID, "study the material")
-			case "handoff":
-				payload, _ := json.Marshal(map[string]any{"type": "note", "title": "Delegated", "body": "not final", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-				_, rejection = execute(ctx, "publish_artifact", payload)
-				return observe("text", map[string]any{"text": "委派结果"})
-			default:
-				return observe("text", map[string]any{"text": "根目标最终答复"})
-			}
-		})
-		e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
-		cancel, wait := startEngine(t, &e)
-		defer wait()
-		defer cancel()
-		got := awaitRun(t, s, run.ID)
-		if got.Status != "succeeded" {
-			t.Fatalf("run = %s: %s", got.Status, got.Error)
-		}
-		if rejection == nil || !strings.Contains(rejection.Error(), "intermediate steps cannot publish") {
-			t.Fatalf("delegated publication was not rejected: %v", rejection)
-		}
-		var artifacts []w.Artifact
-		if err := s.Read(t.Context(), func(tx *store.Tx) error {
-			var err error
-			artifacts, err = tx.Artifacts(run.ThreadID)
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
 		if len(artifacts) != 0 {
-			t.Fatalf("delegated task published a formal artifact: %+v", artifacts)
-		}
-	})
-
-	t.Run("nested delegated continuation", func(t *testing.T) {
-		s := openDeliveryStore(t)
-		run := seedFreeRun(t, s)
-		enableExecutor(t, s, &run, "claude")
-		var rejection error
-		nestedToolOffered := false
-		runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
-			step, err := runningStepFor(ctx, s, run, request)
-			if err != nil {
-				return err
-			}
-			switch step.Kind {
-			case "":
-				return submitDeliveryHandoff(ctx, execute, "root-child", run.Agents[1].ID, "delegate the evidence collection")
-			case "handoff":
-				if step.AgentID == run.Agents[1].ID {
-					return submitDeliveryHandoff(ctx, execute, "nested-child", run.Agents[2].ID, "collect supporting evidence")
-				}
-				return observe("text", map[string]any{"text": "最深层委派结果"})
-			case "continuation":
-				// Only the delegating child's return is nested; the root's
-				// return is the platform's final delivery target.
-				if step.AgentID == run.Agents[1].ID {
-					nestedToolOffered = slices.ContainsFunc(request.Tools, func(tool model.Tool) bool { return tool.Name == "publish_artifact" })
-					payload, _ := json.Marshal(map[string]any{"type": "note", "title": "Nested", "body": "not a final artifact", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-					_, rejection = execute(ctx, "publish_artifact", payload)
-				}
-				return observe("text", map[string]any{"text": "返回结果"})
-			}
-			return fmt.Errorf("unexpected step kind %q", step.Kind)
-		})
-		e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
-		cancel, wait := startEngine(t, &e)
-		defer wait()
-		defer cancel()
-		got := awaitRun(t, s, run.ID)
-		if got.Status != "succeeded" {
-			t.Fatalf("run = %s: %s", got.Status, got.Error)
-		}
-		if rejection == nil || !strings.Contains(rejection.Error(), "intermediate steps cannot publish") {
-			t.Fatalf("nested continuation publication was not rejected: %v", rejection)
-		}
-		if nestedToolOffered {
-			t.Fatal("nested continuation was offered the publish_artifact tool")
-		}
-		var artifacts []w.Artifact
-		if err := s.Read(t.Context(), func(tx *store.Tx) error {
-			var err error
-			artifacts, err = tx.Artifacts(run.ThreadID)
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if len(artifacts) != 0 {
-			t.Fatalf("nested continuation published a formal artifact: %+v", artifacts)
+			t.Fatalf("intermediate artifacts leaked into the thread: %+v", artifacts)
 		}
 	})
 }
@@ -718,18 +621,24 @@ func TestDeliveryExcludesHistoricalIntermediateArtifacts(t *testing.T) {
 	s := openDeliveryStore(t)
 	run := seedRun(t, s)
 	enableExecutor(t, s, &run, "claude")
-	steps := deliverySteps(t, s, run.ID)
-	intermediate := w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: run.ID, StepID: steps[0].ID, Type: "note", Title: "Intermediate note", Body: "kept for traceability", Feedback: "unreviewed"}
-	if err := s.Write(t.Context(), func(tx *store.Tx) error { return tx.SaveArtifact(intermediate) }); err != nil {
+	// A historical note from a previous run of this conversation must stay
+	// readable without ever being presented as this run's final deliverable.
+	previous := w.Run{ID: w.NewID(), WorkspaceID: run.WorkspaceID, Workspace: run.Workspace, ThreadID: run.ThreadID, Agents: run.Agents, CoordinatorID: run.CoordinatorID, Input: run.Input, Status: "succeeded", CreatedAt: "2026-10-01T00:00:00Z", FinishedAt: "2026-10-01T00:01:00Z", Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
+	historical := w.Artifact{ID: w.NewID(), Version: 1, Revision: 1, ThreadID: run.ThreadID, RunID: previous.ID, StepID: w.NewID(), Type: "note", Title: "Intermediate note", Body: "kept for traceability", Feedback: "unreviewed"}
+	if err := s.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.InsertRun(previous, w.NewID(), "previous"); err != nil {
+			return err
+		}
+		return tx.SaveArtifact(historical)
+	}); err != nil {
 		t.Fatal(err)
 	}
 	runner := nativeRunnerFunc(func(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
-		if !strings.Contains(request.System, "role=coordinator") {
-			return observe("text", map[string]any{"text": "intermediate reply"})
+		payload, _ := json.Marshal(map[string]any{"type": "note", "title": "Final", "body": "final answer", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
+		if _, err := execute(ctx, "publish_artifact", payload); err != nil {
+			return err
 		}
-		payload, _ := json.Marshal(map[string]any{"type": "research_report", "title": "Final", "body": "final report", "findings": []any{}, "source_ids": []string{}, "limitations": []string{}})
-		_, err := execute(ctx, "publish_artifact", payload)
-		return err
+		return observe("text", map[string]any{"text": "最终答复"})
 	})
 	e := Engine{Store: s, Runners: map[string]agent.Runner{"claude": runner}, Web: testutil.Web{}}
 	cancel, wait := startEngine(t, &e)
@@ -751,17 +660,22 @@ func TestDeliveryExcludesHistoricalIntermediateArtifacts(t *testing.T) {
 		t.Fatalf("historical artifact was deleted: %+v", artifacts)
 	}
 	final := artifacts[0]
-	if final.ID == intermediate.ID {
+	if final.ID == historical.ID {
 		final = artifacts[1]
 	}
-	if got.Delivery == nil || !slices.Equal(got.Delivery.ArtifactRefs, []w.ArtifactRef{{ID: final.ID, Version: final.Version}}) {
-		t.Fatalf("delivery = %+v", got.Delivery)
+	if final.Title != "Final" {
+		t.Fatalf("unexpected final artifact: %+v", final)
 	}
-	if w.IsDeliveredArtifact(got, intermediate) {
+	if got.Delivery == nil || !slices.ContainsFunc(got.Delivery.ArtifactRefs, func(ref w.ArtifactRef) bool { return ref.ID == final.ID && ref.Version == final.Version }) {
+		t.Fatalf("delivery does not include the published artifact: %+v", got.Delivery)
+	}
+	// The historical note stays readable but is never presented as the newest
+	// version of the final artifact.
+	if w.IsDeliveredArtifact(got, historical) {
 		t.Fatal("historical intermediate artifact was marked as final")
 	}
-	if delivered := w.FinalArtifacts(got, artifacts); len(delivered) != 1 || delivered[0].ID != final.ID {
-		t.Fatalf("final artifact filter = %+v", delivered)
+	if delivered := w.FinalArtifacts(got, artifacts); !slices.ContainsFunc(delivered, func(artifact w.Artifact) bool { return artifact.ID == final.ID }) {
+		t.Fatalf("final artifact filter lost the published artifact: %+v", delivered)
 	}
 }
 
@@ -1018,7 +932,7 @@ func TestFreeRunWithoutToolsDoesNotRequireArtifact(t *testing.T) {
 	ws := w.Workspace{ID: w.NewID(), Name: "short", Revision: 1}
 	member := w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: "短答成员", Handle: "short", Model: "test", Tools: nil, Revision: 1}
 	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, Revision: 1, UpdatedAt: w.Now()}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, Input: w.RunInput{Workflow: "free", Message: "直接回答", Targets: []string{member.ID}, ResearchScope: "given_sources"}}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Status: "queued", CreatedAt: w.Now(), Agents: []w.Agent{member}, Input: w.RunInput{Message: "直接回答", Targets: []string{member.ID}, ResearchScope: "given_sources"}}
 	steps, err := Plan(run.ID, run.Input, run.Agents)
 	if err != nil {
 		t.Fatal(err)
@@ -1050,7 +964,10 @@ func TestFreeRunWithoutToolsDoesNotRequireArtifact(t *testing.T) {
 	defer wait()
 	defer cancel()
 	got := awaitRun(t, s, run.ID)
-	if got.Status != "succeeded" || got.Delivery == nil || len(got.Delivery.MessageIDs) != 1 || len(got.Delivery.ArtifactRefs) != 0 {
+	// A direct reply is a complete delivery. A short step that publishes an
+	// optional note still counts as delivered; what matters is that no report
+	// template was required.
+	if got.Status != "succeeded" || got.Delivery == nil || len(got.Delivery.MessageIDs) != 1 {
 		t.Fatalf("short answer without tools = %+v delivery=%+v", got, got.Delivery)
 	}
 }

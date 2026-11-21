@@ -96,7 +96,10 @@ func TestFileCopyIsIndependentAndSkipsSecrets(t *testing.T) {
 	}
 }
 
-func TestMemberRetryCopiesVerifiedCandidateWithoutRepeatingAuthor(t *testing.T) {
+// TestMemberRetryContinuesTheSameCandidate is the A26 regression: a member retry
+// on the same scope keeps the exact unapplied candidate instead of copying a new
+// one, so the half-finished work of the failing step is still on disk.
+func TestMemberRetryContinuesTheSameCandidate(t *testing.T) {
 	db, root, run := executionFixture(t)
 	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
 	first, err := manager.Prepare(t.Context(), run)
@@ -109,10 +112,6 @@ func TestMemberRetryCopiesVerifiedCandidateWithoutRepeatingAuthor(t *testing.T) 
 	if err := manager.Finish(t.Context(), first.ID); err != nil {
 		t.Fatal(err)
 	}
-	run.Status, run.CreatedAt, run.ExecutionRef = "failed", w.Now(), first.ID
-	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.InsertRun(run, "source", "source") }); err != nil {
-		t.Fatal(err)
-	}
 	retry := run
 	retry.ID, retry.RetryOfStepID, retry.ContinuedFromRun = "retry", "failed-reviewer", run.ID
 	second, err := manager.Prepare(t.Context(), retry)
@@ -120,63 +119,101 @@ func TestMemberRetryCopiesVerifiedCandidateWithoutRepeatingAuthor(t *testing.T) 
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(second.Path, "main.txt"))
-	if err != nil || string(data) != "completed author's change" || second.Path == first.Path || second.Path == root {
-		t.Fatalf("retry lost the author's exact candidate: body=%q candidate=%+v error=%v", data, second, err)
-	}
-	if err := os.WriteFile(filepath.Join(second.Path, "main.txt"), []byte("next correction"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	data, err = os.ReadFile(filepath.Join(first.Path, "main.txt"))
 	if err != nil || string(data) != "completed author's change" {
-		t.Fatal("retry changed the historical candidate")
+		t.Fatalf("retry lost the author's exact candidate: body=%q error=%v", data, err)
 	}
-	if err := manager.Finish(t.Context(), second.ID); err != nil {
-		t.Fatal(err)
+	if second.ID != first.ID || second.Path != first.Path {
+		t.Fatalf("retry forked a new candidate: first=%s/%s second=%s/%s", first.ID, first.Path, second.ID, second.Path)
 	}
-	if err := os.WriteFile(filepath.Join(first.Path, "main.txt"), []byte("unverified edit"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	retry.ID = "changed-retry"
-	if _, err := manager.Prepare(t.Context(), retry); err == nil {
-		t.Fatal("retry accepted an altered historical candidate")
+	if data, err := os.ReadFile(filepath.Join(root, "main.txt")); err != nil || string(data) != "baseline" {
+		t.Fatalf("candidate wrote through to the project: %q %v", data, err)
 	}
 }
 
-func TestCanonicalRootLeaseRejectsParentChildAcrossConnections(t *testing.T) {
+// TestApplyWritesBackAndDiscardKeepsTheProjectClean is the A04 regression.
+func TestApplyWritesBackAndDiscardKeepsTheProjectClean(t *testing.T) {
 	db, root, run := executionFixture(t)
-	second, err := store.Open(filepath.Join(filepath.Dir(root), "state.sqlite"))
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	candidate, err := manager.Prepare(t.Context(), run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer second.Close()
-	base := t.TempDir()
-	firstManager := New(db, filepath.Join(base, "one"), "owner-one")
-	secondManager := New(second, filepath.Join(base, "two"), "owner-two")
-	if _, err := firstManager.Prepare(t.Context(), run); err != nil {
+	if err := os.WriteFile(filepath.Join(candidate.Path, "main.txt"), []byte("applied change"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	child := run
-	child.ID = "other-run"
-	child.TaskID = "other-task"
-	child.Workspace.Root = filepath.Join(root, "child")
-	if err := os.Mkdir(child.Workspace.Root, 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(candidate.Path, "added.txt"), []byte("new file"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := second.Write(t.Context(), func(tx *store.Tx) error {
-		task := w.Task{ID: child.TaskID, WorkspaceID: child.WorkspaceID, ThreadID: child.ThreadID, RootTaskID: run.TaskID, BudgetAccountID: "budget", CollaborationScopeID: "scope", CurrentRevision: 1, Status: "ready", CreatedAt: w.Now(), UpdatedAt: w.Now()}
-		if err := tx.InsertTask(task); err != nil {
-			return err
-		}
-		return tx.InsertTaskRevision(w.TaskRevision{TaskID: task.ID, Revision: 1, Goal: "develop child", Digest: "child-digest", CreatedAt: w.Now()})
-	}); err != nil {
+	if err := manager.Finish(t.Context(), candidate.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := secondManager.Prepare(t.Context(), child); !errors.Is(err, w.ErrConflict) {
-		_ = second.Read(t.Context(), func(tx *store.Tx) error {
-			items, _ := tx.Executions(run.WorkspaceID)
-			t.Fatalf("child root lease conflict = %v; existing=%+v child canonical=%q", err, items, child.Workspace.Root)
-			return nil
-		})
+	applied, err := manager.Apply(t.Context(), candidate.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Status != "applied" {
+		t.Fatalf("apply status = %q", applied.Status)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "main.txt")); err != nil || string(data) != "applied change" {
+		t.Fatalf("apply did not write back: %q %v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "added.txt")); err != nil || string(data) != "new file" {
+		t.Fatalf("apply did not copy the new file: %q %v", data, err)
+	}
+	if _, err := os.Stat(applied.Path); !os.IsNotExist(err) {
+		t.Fatalf("applied candidate directory was not reclaimed: %v", err)
+	}
+
+	second, err := manager.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == applied.ID {
+		t.Fatal("applied candidate was reused instead of deriving a fresh one")
+	}
+	if data, err := os.ReadFile(filepath.Join(second.Path, "main.txt")); err != nil || string(data) != "applied change" {
+		t.Fatalf("fresh candidate did not derive from the applied state: %q %v", data, err)
+	}
+	if err := os.WriteFile(filepath.Join(second.Path, "main.txt"), []byte("discarded change"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	discarded, err := manager.Discard(t.Context(), second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if discarded.Status != "discarded" {
+		t.Fatalf("discard status = %q", discarded.Status)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "main.txt")); err != nil || string(data) != "applied change" {
+		t.Fatalf("discard changed the project: %q %v", data, err)
+	}
+	if _, err := os.Stat(discarded.Path); !os.IsNotExist(err) {
+		t.Fatalf("discarded candidate directory was not reclaimed: %v", err)
+	}
+}
+
+// TestApplyRefusesToOverwriteAnExternalEdit is the A04 conflict guard.
+func TestApplyRefusesToOverwriteAnExternalEdit(t *testing.T) {
+	db, root, run := executionFixture(t)
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	candidate, err := manager.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candidate.Path, "main.txt"), []byte("candidate change"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Finish(t.Context(), candidate.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.txt"), []byte("external edit"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Apply(t.Context(), candidate.ID); !errors.Is(err, ErrApplyConflict) {
+		t.Fatalf("apply overwrote an external edit: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "main.txt")); err != nil || string(data) != "external edit" {
+		t.Fatalf("conflicting apply changed the project: %q %v", data, err)
 	}
 }
 

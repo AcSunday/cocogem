@@ -154,30 +154,17 @@ func TestRetentionDaysValidation(t *testing.T) {
 	}
 }
 
-func TestSettingsRejectUnknownRolesAndUnavailableMembers(t *testing.T) {
+func TestSettingsValidateOnlyAnAvailableDefaultCoordinator(t *testing.T) {
 	agents := []Agent{{ID: "a", DisplayName: "一", Handle: "one", Model: "default"}, {ID: "b", DisplayName: "二", Handle: "two", Model: "default"}, {ID: "off", DisplayName: "停用", Handle: "off", Model: "default", Disabled: true}}
-	valid := Settings{Revision: 1, DefaultCoordinatorID: "a", Assignments: map[string]map[string]string{
-		"discussion":    {"coordinator": "b"},
-		"research":      {"researcher": "a", "critic": "b", "coordinator": "a"},
-		"code_analysis": {"analyst": "a", "reviewer": "b"},
-	}}
-	if err := ValidateSettings(valid, agents); err != nil {
+	if err := ValidateSettings(Settings{Revision: 1, DefaultCoordinatorID: "a"}, agents); err != nil {
 		t.Fatalf("valid settings rejected: %v", err)
 	}
-	if err := ValidateSettings(Settings{Revision: 1, Assignments: map[string]map[string]string{}}, agents); err != nil {
-		t.Fatalf("empty reset rejected: %v", err)
+	if err := ValidateSettings(Settings{Revision: 1}, agents); err != nil {
+		t.Fatalf("an empty reset must stay valid: %v", err)
 	}
 	for name, value := range map[string]Settings{
-		"unknown workflow": {Assignments: map[string]map[string]string{"writing": {"coordinator": "a"}}},
-		"unknown role":     {Assignments: map[string]map[string]string{"research": {"writer": "a"}}},
-		"unknown member":   {DefaultCoordinatorID: "missing"},
-		"disabled member":  {Assignments: map[string]map[string]string{"research": {"critic": "off"}}},
-		"research duplicate": {Assignments: map[string]map[string]string{"research": {
-			"researcher": "a", "critic": "a",
-		}}},
-		"analysis duplicate": {Assignments: map[string]map[string]string{"code_analysis": {
-			"analyst": "a", "reviewer": "a",
-		}}},
+		"unknown member":  {DefaultCoordinatorID: "missing"},
+		"disabled member": {DefaultCoordinatorID: "off"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := ValidateSettings(value, agents); err == nil {
@@ -214,14 +201,5 @@ func TestNativeExecutorUsesItsOwnModelSelection(t *testing.T) {
 				t.Fatal("multiline model accepted")
 			}
 		})
-	}
-}
-
-func TestEngineeringIsAlwaysWritable(t *testing.T) {
-	if WorkflowIsReadOnly(RunInput{Workflow: "engineering"}) {
-		t.Fatal("engineering must not be read-only")
-	}
-	if !WorkflowIsReadOnly(RunInput{Workflow: "code_analysis"}) {
-		t.Fatal("legacy code_analysis must stay read-only")
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	w "github.com/AcSunday/cocogem/internal/workspace"
@@ -30,12 +31,18 @@ type Store struct {
 	db      *sql.DB
 	mu      sync.Mutex
 	changed chan struct{}
+	queries atomic.Int64
 }
+
+// QueryCount returns the total number of SQL queries executed through Store
+// helpers, allowing tests to assert bounded query counts on list surfaces.
+func (s *Store) QueryCount() int64 { return s.queries.Load() }
 
 // Tx exposes operations that must commit together.
 type Tx struct {
-	ctx context.Context
-	tx  *sql.Tx
+	ctx     context.Context
+	tx      *sql.Tx
+	queries *atomic.Int64
 }
 
 // Open initializes a private SQLite database with the current schema.
@@ -63,17 +70,9 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err = db.Exec(schema); err != nil {
+	if err = resetStaleSchema(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize schema: %w", err)
-	}
-	if err = migrateExecutionPolicy(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate global execution policy: %w", err)
-	}
-	if err = migrateTaskThreads(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate task conversations: %w", err)
 	}
 	return &Store{db: db, changed: make(chan struct{})}, nil
 }
@@ -102,7 +101,7 @@ func (s *Store) transaction(ctx context.Context, write bool, fn func(*Tx) error)
 		return err
 	}
 	defer tx.Rollback()
-	if err = fn(&Tx{ctx: ctx, tx: tx}); err != nil {
+	if err = fn(&Tx{ctx: ctx, tx: tx, queries: &s.queries}); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {
@@ -116,6 +115,9 @@ func (s *Store) transaction(ctx context.Context, write bool, fn func(*Tx) error)
 }
 
 func get[T any](t *Tx, q string, args ...any) (T, error) {
+	if t.queries != nil {
+		t.queries.Add(1)
+	}
 	var value T
 	var body string
 	err := t.tx.QueryRowContext(t.ctx, q, args...).Scan(&body)
@@ -129,6 +131,9 @@ func get[T any](t *Tx, q string, args ...any) (T, error) {
 	return value, err
 }
 func list[T any](t *Tx, q string, args ...any) ([]T, error) {
+	if t.queries != nil {
+		t.queries.Add(1)
+	}
 	values := []T{}
 	rows, err := t.tx.QueryContext(t.ctx, q, args...)
 	if err != nil {
@@ -160,12 +165,13 @@ func body(v any) string {
 	return string(b)
 }
 
-// Workspaces lists workspaces in creation order. Missing modes are legacy controlled projects.
+// Workspaces lists workspaces in creation order. Missing modes fall back to the
+// default workspace-autonomous boundary, never to full access.
 func (t *Tx) Workspaces() ([]w.Workspace, error) {
 	values, err := list[w.Workspace](t, "SELECT body FROM workspaces ORDER BY rowid")
 	for i := range values {
 		if values[i].ExecutionMode == "" {
-			values[i].ExecutionMode = w.ExecutionControlled
+			values[i].ExecutionMode = w.ExecutionWorkspaceAutonomous
 		}
 	}
 	return values, err
@@ -175,7 +181,7 @@ func (t *Tx) Workspaces() ([]w.Workspace, error) {
 func (t *Tx) Workspace(id string) (w.Workspace, error) {
 	value, err := get[w.Workspace](t, "SELECT body FROM workspaces WHERE id=?", id)
 	if value.ExecutionMode == "" {
-		value.ExecutionMode = w.ExecutionControlled
+		value.ExecutionMode = w.ExecutionWorkspaceAutonomous
 	}
 	return value, err
 }
@@ -183,7 +189,7 @@ func (t *Tx) Workspace(id string) (w.Workspace, error) {
 // SaveWorkspace creates or replaces a workspace in the current transaction.
 func (t *Tx) SaveWorkspace(v w.Workspace) error {
 	if v.ExecutionMode == "" {
-		v.ExecutionMode = w.ExecutionControlled
+		v.ExecutionMode = w.ExecutionWorkspaceAutonomous
 	}
 	return t.exec("INSERT INTO workspaces(id,revision,body) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body", v.ID, v.Revision, body(v))
 }
@@ -200,11 +206,18 @@ func (t *Tx) ThreadsAny(workspaceID string) ([]w.Thread, error) {
 }
 
 func (t *Tx) threads(workspaceID string, includeDeleted bool) ([]w.Thread, error) {
+	if t.queries != nil {
+		t.queries.Add(1)
+	}
 	const query = `SELECT th.body,
 		COALESCE((SELECT r.status FROM runs r WHERE r.thread_id=th.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1),''),
 		COALESCE((SELECT r.id FROM runs r WHERE r.thread_id=th.id ORDER BY r.created_at DESC,r.id DESC LIMIT 1),''),
 		COALESCE((SELECT r.status FROM runs r WHERE r.thread_id=th.id AND r.status IN ('queued','running','canceling') ORDER BY r.created_at DESC,r.id DESC LIMIT 1),''),
-		COALESCE((SELECT r.id FROM runs r WHERE r.thread_id=th.id AND r.status IN ('queued','running','canceling') ORDER BY r.created_at DESC,r.id DESC LIMIT 1),'')
+		COALESCE((SELECT r.id FROM runs r WHERE r.thread_id=th.id AND r.status IN ('queued','running','canceling') ORDER BY r.created_at DESC,r.id DESC LIMIT 1),''),
+		(SELECT COUNT(*) FROM tool_permission_requests p WHERE p.thread_id=th.id AND p.status='pending'),
+		COALESCE((SELECT COUNT(*) FROM questions q WHERE q.task_id=COALESCE(json_extract(th.body,'$.task_id'),'') AND q.task_id<>'' AND q.status='open'),0),
+		COALESCE((SELECT t.status FROM tasks t WHERE t.id=COALESCE(json_extract(th.body,'$.task_id'),'') LIMIT 1),''),
+		COALESCE((SELECT json_extract(t.body,'$.waiting_reason') FROM tasks t WHERE t.id=COALESCE(json_extract(th.body,'$.task_id'),'') LIMIT 1),'')
 		FROM threads th WHERE th.workspace_id=? ORDER BY th.updated_at DESC,th.id DESC`
 	rows, err := t.tx.QueryContext(t.ctx, query, workspaceID)
 	if err != nil {
@@ -215,7 +228,9 @@ func (t *Tx) threads(workspaceID string, includeDeleted bool) ([]w.Thread, error
 	for rows.Next() {
 		var body string
 		var lastStatus, lastID, activeStatus, activeID string
-		if err := rows.Scan(&body, &lastStatus, &lastID, &activeStatus, &activeID); err != nil {
+		var pendingPermissions, openQuestions int
+		var taskStatus, taskWaitingReason string
+		if err := rows.Scan(&body, &lastStatus, &lastID, &activeStatus, &activeID, &pendingPermissions, &openQuestions, &taskStatus, &taskWaitingReason); err != nil {
 			return nil, err
 		}
 		var value w.Thread
@@ -227,6 +242,8 @@ func (t *Tx) threads(workspaceID string, includeDeleted bool) ([]w.Thread, error
 		}
 		value.LastRunID, value.LastRunStatus = lastID, lastStatus
 		value.ActiveRunID, value.ActiveRunStatus = activeID, activeStatus
+		value.PendingPermissions, value.OpenQuestions = pendingPermissions, openQuestions
+		value.TaskStatus, value.TaskWaitingReason = taskStatus, taskWaitingReason
 		values = append(values, value)
 	}
 	return values, rows.Err()
@@ -270,6 +287,8 @@ func (t *Tx) ExpiredThreads(now string) ([]w.Thread, error) {
 
 // SaveThread persists configuration and activity order.
 func (t *Tx) SaveThread(v w.Thread) error {
+	v.LastRunID, v.LastRunStatus, v.ActiveRunID, v.ActiveRunStatus = "", "", "", ""
+	v.PendingPermissions, v.OpenQuestions, v.TaskStatus, v.TaskWaitingReason = 0, 0, "", ""
 	return t.exec("INSERT INTO threads(id,workspace_id,updated_at,revision,body) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at,revision=excluded.revision,body=excluded.body", v.ID, v.WorkspaceID, v.UpdatedAt, v.Revision, body(v))
 }
 
@@ -568,8 +587,8 @@ func (t *Tx) DeleteThread(id string) error {
 		"DELETE FROM task_creation_receipts WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM questions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM effect_records WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
-		"DELETE FROM execution_sessions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
-		"DELETE FROM workspace_executions WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM execution_sessions WHERE thread_id=? OR task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
+		"DELETE FROM workspace_executions WHERE thread_id=? OR task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM completion_records WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM task_dependencies WHERE producer_task_id IN (SELECT id FROM tasks WHERE thread_id=?) OR consumer_task_id IN (SELECT id FROM tasks WHERE thread_id=?)",
 		"DELETE FROM read_receipts WHERE manifest_id IN (SELECT id FROM context_manifests WHERE task_id IN (SELECT id FROM tasks WHERE thread_id=?))",

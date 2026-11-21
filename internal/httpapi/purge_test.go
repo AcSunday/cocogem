@@ -45,7 +45,7 @@ func TestPurgeRollbackReturnsZero(t *testing.T) {
 	if _, err := raw.Exec(`CREATE TRIGGER review_force_rollback BEFORE DELETE ON threads WHEN OLD.id='t2' BEGIN SELECT RAISE(ABORT,'forced rollback'); END`); err != nil {
 		t.Fatal(err)
 	}
-	s := Server{store: db, proposals: map[string]proposal{}}
+	s := Server{store: db}
 	count, err := s.PurgeExpiredThreads(t.Context())
 	if err == nil {
 		t.Fatal("expected injected transaction failure")

@@ -12,8 +12,11 @@ import (
 	"github.com/AcSunday/cocogem/internal/model"
 )
 
-func TestClaudeManagedSessionPersistsAndResumesFromPrivateStorage(t *testing.T) {
+func TestClaudeManagedSessionKeepsTheCLIsOwnStateAndResumes(t *testing.T) {
 	workspace := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	storage := filepath.Join(t.TempDir(), "server-session")
 	request := model.Request{
 		ExecutionMode: "full_access", NativeTools: []string{"Write", "Bash"},
@@ -29,14 +32,17 @@ func TestClaudeManagedSessionPersistsAndResumesFromPrivateStorage(t *testing.T) 
 	if cwd != workspace && !strings.Contains(cwd, strings.TrimPrefix(workspace, "/private")) {
 		t.Fatalf("native execution cwd=%q, want authorized workspace %q", cwd, workspace)
 	}
-	if !strings.Contains(env, "CLAUDE_CONFIG_DIR="+filepath.Join(storage, ".cocogem", "config")+"\n") {
-		t.Fatalf("managed Claude mixed its session with terminal configuration: %s", env)
+	// A managed session now stays in the CLI's own state directory so OAuth
+	// refresh, prompt cache and the user's own history are preserved. The
+	// server-owned storage key is a ledger identity, not a temporary home.
+	if !strings.Contains(env, "CLAUDE_CONFIG_DIR="+filepath.Join(home, ".claude")+"\n") {
+		t.Fatalf("managed Claude did not keep its native state: %s", env)
 	}
 	if info, err := os.Stat(storage); err != nil || info.Mode().Perm() != 0700 {
 		t.Fatalf("managed session storage is not private: info=%v err=%v", info, err)
 	}
 	if _, err := os.Stat(filepath.Join(storage, ".cocogem", "config", "settings.json")); err != nil {
-		t.Fatalf("managed CLI state was removed after the attempt: %v", err)
+		t.Fatalf("the scoped MCP settings snapshot was not kept: %v", err)
 	}
 
 	request.SessionMode, request.SessionID = "resume", "11111111-1111-4111-8111-111111111111"

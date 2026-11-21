@@ -56,11 +56,8 @@ func TestLiveTaskIntakeDecisions(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var th w.Thread
-			api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: tc.name, AgentIDs: []string{member.ID}, CoordinatorID: member.ID, Workflow: "free"}, nil, 200, &th)
-			in := w.RunInput{Message: tc.prompt, Workflow: "free", ResearchScope: "given_sources"}
-			var preview RoutingPreview
-			api.call("POST", "/api/v1/threads/"+th.ID+"/routing-preview", in, nil, 200, &preview)
-			in.ProposalID = preview.ProposalID
+			api.call("POST", "/api/v1/workspaces/"+ws.ID+"/threads", w.Thread{Title: tc.name, AgentIDs: []string{member.ID}, CoordinatorID: member.ID}, nil, 200, &th)
+			in := w.RunInput{Message: tc.prompt, ResearchScope: "given_sources"}
 			var run w.Run
 			api.call("POST", "/api/v1/threads/"+th.ID+"/runs", in, map[string]string{"Idempotency-Key": w.NewID()}, 202, &run)
 			for {

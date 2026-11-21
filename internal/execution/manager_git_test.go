@@ -43,12 +43,14 @@ func TestGitCloneUsesIndependentCandidateAndPreservesSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidate.Kind != "git_clone" || candidate.BaseRevision != base {
+	if candidate.Kind != "git_worktree" || candidate.BaseRevision != base {
 		t.Fatalf("candidate base = %+v, want %s", candidate, base)
 	}
+	// A worktree shares the source object pool; its .git is a file that points
+	// back at the source repository's worktree metadata.
 	gitInfo, err := os.Lstat(filepath.Join(candidate.Path, ".git"))
-	if err != nil || !gitInfo.IsDir() || gitInfo.Mode()&os.ModeSymlink != 0 {
-		t.Fatalf("candidate .git is not an independent directory: %v, %v", gitInfo, err)
+	if err != nil || gitInfo.IsDir() {
+		t.Fatalf("candidate .git is not a worktree pointer: %v, %v", gitInfo, err)
 	}
 	if filepath.Clean(candidate.Path) == filepath.Clean(root) {
 		t.Fatal("candidate reused the source directory")

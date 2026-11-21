@@ -52,9 +52,6 @@ func validateThread(th w.Thread, agents []w.Agent) error {
 		}
 		seen[id] = true
 	}
-	if !slices.Contains([]string{"free", "discussion", "research", "code_analysis", "engineering"}, th.Workflow) {
-		return errors.New("不支持的默认流程")
-	}
 	return nil
 }
 
@@ -69,9 +66,6 @@ func (s *Server) createThread(rw http.ResponseWriter, r *http.Request) {
 	th.UpdatedAt = w.Now()
 	th.DeletedAt, th.PurgeAt = "", ""
 	th.LastRunID, th.LastRunStatus, th.ActiveRunID, th.ActiveRunStatus = "", "", "", ""
-	if th.Workflow == "" {
-		th.Workflow = "free"
-	}
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
 		agents, err := tx.Agents(th.WorkspaceID)
 		if err != nil {
@@ -82,9 +76,6 @@ func (s *Server) createThread(rw http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		applyThreadDefaults(&th, agents, settings)
-		if th.Workflow == "code_analysis" {
-			return errors.New("code_analysis 仅用于历史兼容，请选择工程协作")
-		}
 		if err := validateThread(th, agents); err != nil {
 			return err
 		}
@@ -109,7 +100,7 @@ func (s *Server) updateThread(rw http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		th.Title = in.Title
-		if in.AgentIDs == nil && in.CoordinatorID == nil && in.Workflow == nil {
+		if in.AgentIDs == nil && in.CoordinatorID == nil {
 			// A title-only edit must still work after a member is disabled.
 			if err := validateThreadTitle(th.Title); err != nil {
 				return err
@@ -120,9 +111,6 @@ func (s *Server) updateThread(rw http.ResponseWriter, r *http.Request) {
 			}
 			if in.CoordinatorID != nil {
 				th.CoordinatorID = *in.CoordinatorID
-			}
-			if in.Workflow != nil {
-				th.Workflow = *in.Workflow
 			}
 			agents, err := tx.Agents(th.WorkspaceID)
 			if err != nil {

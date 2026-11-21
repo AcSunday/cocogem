@@ -279,3 +279,15 @@
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
+
+/* A sensitive credential target is a one-shot risk acknowledgement; the card
+ * says so before the buttons instead of relying on a disabled title alone. */
+.risk {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+}

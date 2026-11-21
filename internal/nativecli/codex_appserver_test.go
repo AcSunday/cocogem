@@ -88,7 +88,7 @@ func TestInstalledCodexAppServerApproval(t *testing.T) {
 			var callback atomic.Int32
 			var capabilityNotice atomic.Int32
 			request := model.Request{
-				Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "project_autonomous",
+				Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "workspace_autonomous",
 				System: "fixture", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "run one command"}}}},
 				NativeTools: []string{nativeCodexCommand, nativeBash}, WorkspaceRoot: root, FirstResponseTimeout: 40 * time.Second, StallTimeout: 40 * time.Second, StallAction: "stop",
 				AuthorizeNative: func(_ context.Context, request model.NativePermissionRequest) (model.NativePermissionDecision, error) {
@@ -156,7 +156,7 @@ func TestInstalledCodexAppServerInProjectApproval(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	var callback atomic.Int32
 	request := model.Request{
-		Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "project_autonomous",
+		Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "workspace_autonomous",
 		System: "fixture", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "run one command"}}}},
 		NativeTools: []string{nativeCodexCommand, nativeBash}, WorkspaceRoot: root,
 		FirstResponseTimeout: 40 * time.Second, StallTimeout: 40 * time.Second, StallAction: "stop",
@@ -276,7 +276,7 @@ func TestInstalledCodexPermissionProfileDeniesExternalRead(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	var callbacks atomic.Int32
 	request := model.Request{
-		Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "project_autonomous",
+		Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "workspace_autonomous",
 		System: "fixture", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "run the project script"}}}},
 		NativeTools: []string{nativeCodexCommand, nativeBash}, WorkspaceRoot: root,
 		FirstResponseTimeout: 40 * time.Second, StallTimeout: 40 * time.Second, StallAction: "stop",
@@ -348,7 +348,7 @@ func TestInstalledCodexHardlinkDenied(t *testing.T) {
 	var callbacks atomic.Int32
 	var isolated atomic.Int32
 	request := model.Request{
-		Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "project_autonomous",
+		Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "workspace_autonomous",
 		System: "fixture", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "run the linked script"}}}},
 		NativeTools: []string{nativeCodexCommand, nativeBash}, WorkspaceRoot: root,
 		FirstResponseTimeout: 40 * time.Second, StallTimeout: 40 * time.Second, StallAction: "stop",
@@ -468,7 +468,7 @@ supports_websockets = false
 		t.Fatal(err)
 	}
 	request := model.Request{
-		Executor: "codex", Model: "cocogem-fixture", ThinkingLevel: "high", ExecutionMode: "project_autonomous",
+		Executor: "codex", Model: "cocogem-fixture", ThinkingLevel: "high", ExecutionMode: "workspace_autonomous",
 		System: "fixture", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "run env"}}}},
 		NativeTools: []string{nativeCodexCommand, nativeBash, nativeCodexImage}, WorkspaceRoot: root,
 		FirstResponseTimeout: 40 * time.Second, StallTimeout: 40 * time.Second, StallAction: "stop",
@@ -561,7 +561,7 @@ func TestInstalledCodexAppServerStrictConfigFailsBounded(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	var callbacks atomic.Int32
 	request := model.Request{
-		Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "project_autonomous",
+		Executor: "codex", Model: "cocogem-fixture", ExecutionMode: "workspace_autonomous",
 		System: "fixture", Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "should not run"}}}},
 		NativeTools: []string{nativeCodexCommand, nativeBash}, WorkspaceRoot: root,
 		FirstResponseTimeout: 20 * time.Second, StallTimeout: 20 * time.Second, StallAction: "stop",

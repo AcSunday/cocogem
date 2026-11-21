@@ -18,7 +18,7 @@ func route(request model.Request) (model.Response, error) {
 	if !found || json.Unmarshal([]byte(strings.TrimPrefix(catalog, "Candidate members: ")), &candidates) != nil {
 		return model.Response{}, errors.New("invalid routing test input")
 	}
-	routing := w.Routing{Decision: "discuss", Workflow: "free", Explanation: "测试路由结果"}
+	routing := w.Routing{Decision: "discuss", Explanation: "测试路由结果"}
 	assign := true
 	for _, word := range []string{"不要", "别让", "do not", "如果", "假如", "我觉得", "怎么样", "会有什么"} {
 		if strings.Contains(input, word) {
@@ -29,7 +29,6 @@ func route(request model.Request) (model.Response, error) {
 		routing.Decision = "assign"
 		for _, candidate := range candidates {
 			routing.Targets = append(routing.Targets, candidate.ID)
-			routing.Evidence = append(routing.Evidence, w.RoutingEvidence{AgentID: candidate.ID, Quote: input})
 		}
 	}
 	payload, err := json.Marshal(routing)

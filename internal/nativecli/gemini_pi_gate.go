@@ -421,13 +421,29 @@ func (b *gateBroker) scopeCommand(ctx context.Context, request gateRequest, call
 	// by this call's approved scopes, or nothing runs. The approved working
 	// directory is included because the sandbox must be able to start there.
 	approved := append(append([]string{}, authorization.ReadScopes...), authorization.WriteScopes...)
-	for _, token := range shellPathTokens(command) {
-		target := resolveTarget(token, cwd)
-		if target == "" || withinAnyRoot(target, b.approver.roots) {
-			continue
+	parsed, parseErr := parseShellCommand(command)
+	if parseErr == nil {
+		// The structural targets are the exact redirect destinations and path
+		// arguments; device redirects and program literals never appear here.
+		for _, target := range resolveShellTargets(parsed, cwd) {
+			if withinAnyRoot(target, b.approver.roots) {
+				continue
+			}
+			if !scopeApproved(approved, target) {
+				return nil, nil, "the command touches an outside path this call was not approved for (" + target + "); it was not executed", nil
+			}
 		}
-		if !scopeApproved(approved, target) {
-			return nil, nil, "the command touches an outside path this call was not approved for (" + target + "); it was not executed", nil
+	} else {
+		// An unparseable command keeps the conservative token scan so an
+		// incomplete heredoc still cannot smuggle an unapproved target.
+		for _, token := range shellPathTokens(command) {
+			target := resolveTarget(token, cwd)
+			if target == "" || withinAnyRoot(target, b.approver.roots) {
+				continue
+			}
+			if !scopeApproved(approved, target) {
+				return nil, nil, "the command touches an outside path this call was not approved for (" + target + "); it was not executed", nil
+			}
 		}
 	}
 	profile, err := b.sandbox.profile("gate-"+safeToken(request.CallID), authorization.ReadScopes, authorization.WriteScopes)

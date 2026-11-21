@@ -127,7 +127,6 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 			return err
 		}
 		input := effectiveInput(current)
-		input.ProposalID = ""
 		input.RetryOfRunID = current.ID
 		if strings.TrimSpace(input.Message) == "" || len([]rune(input.Message)) > 16000 {
 			return errors.New("问题必须为 1–16000 个字符")
@@ -139,9 +138,6 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 			if _, err := tools.ValidateURL(u); err != nil {
 				return err
 			}
-		}
-		if (input.Workflow == "code_analysis" || input.Workflow == "engineering") && workspace.Root == "" {
-			return errors.New("代码分析与工程协作需要绑定允许的资料目录")
 		}
 		for _, ref := range input.ArtifactRefs {
 			artifact, err := tx.Artifact(ref.ID, ref.Version)
@@ -233,16 +229,14 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 		if err := tx.ReserveTaskRun(&run); err != nil {
 			return err
 		}
-		for _, skill := range skills.List() {
+		for _, skill := range skills.ListFor(workspace.Root) {
 			if workspace.SkillIDs == nil || slices.Contains(workspace.SkillIDs, skill.ID) {
 				run.SkillVersions[skill.ID] = skill.Version
 			}
 		}
-		if input.Workflow == "free" || input.Workflow == "" {
-			run.SkillSnapshot, err = skills.SnapshotHash(workspace.SkillIDs)
-			if err != nil {
-				return err
-			}
+		run.SkillSnapshot, err = skills.SnapshotHashFor(workspace.Root, workspace.SkillIDs)
+		if err != nil {
+			return err
 		}
 		for _, step := range steps {
 			index := slices.IndexFunc(agents, func(agent w.Agent) bool { return agent.ID == step.AgentID })
@@ -257,14 +251,11 @@ func (e *Engine) retry(ctx context.Context, id, stepID, requestKey string) (w.Ru
 				thread.AgentIDs = append(thread.AgentIDs, member.ID)
 			}
 		}
-		// A free run reaches teammates through handoffs, so its retry needs the
-		// conversation roster a new submission would get. A built-in workflow
-		// keeps the members of its accepted plan.
-		if input.Workflow == "free" || input.Workflow == "" {
-			for _, member := range agents {
-				if !member.Disabled && slices.Contains(thread.AgentIDs, member.ID) && !slices.ContainsFunc(run.Agents, func(agent w.Agent) bool { return agent.ID == member.ID }) {
-					run.Agents = append(run.Agents, member)
-				}
+		// A run reaches teammates through handoffs, so its retry needs the whole
+		// conversation roster a new submission would get.
+		for _, member := range agents {
+			if !member.Disabled && slices.Contains(thread.AgentIDs, member.ID) && !slices.ContainsFunc(run.Agents, func(agent w.Agent) bool { return agent.ID == member.ID }) {
+				run.Agents = append(run.Agents, member)
 			}
 		}
 		if len(thread.AgentIDs) > 10 {

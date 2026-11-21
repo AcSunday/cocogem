@@ -37,8 +37,8 @@ func TestLiveCodexCoordinatorHandoff(t *testing.T) {
 		agents = append(agents, w.Agent{ID: w.NewID(), WorkspaceID: ws.ID, DisplayName: name, Handle: "codex-check-" + string(rune('a'+index)), Executor: "codex", Model: model, Tools: []string{}, Revision: 1})
 	}
 	thread := w.Thread{ID: w.NewID(), WorkspaceID: ws.ID, AgentIDs: []string{agents[0].ID, agents[1].ID}, CoordinatorID: agents[0].ID, Revision: 1, UpdatedAt: w.Now()}
-	in := w.RunInput{Workflow: "free", ResearchScope: "given_sources", Message: "这是一轮合成的协调交接验收。请协调成员先使用 CLI 的 list_mcp_resources 检查 server=cocogem 的资源（预期没有资源接口），再尝试 read_mcp_resource，server=cocogem、uri=cocogem://not-present（预期拒绝）。收到没有资源的反馈后继续，使用 read_skill 读取 task-handoff，再用 handoff_task 把‘只回复验收数字42’交给答题成员。不要直接替答题成员回答，不选择内置流程、不发布产物，不联网、不读写文件。交接后结束当前调用；平台回传后，由协调成员用一句话总结已收到42。"}
-	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Agents: agents, CoordinatorID: agents[0].ID, Input: in, Status: "queued", CreatedAt: w.Now(), Routing: w.Routing{Decision: "discuss", Workflow: "free", Targets: []string{agents[0].ID}}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
+	in := w.RunInput{ResearchScope: "given_sources", Message: "这是一轮合成的协调交接验收。请协调成员先使用 CLI 的 list_mcp_resources 检查 server=cocogem 的资源（预期没有资源接口），再尝试 read_mcp_resource，server=cocogem、uri=cocogem://not-present（预期拒绝）。收到没有资源的反馈后继续，使用 read_skill 读取 task-handoff，再用 handoff_task 把‘只回复验收数字42’交给答题成员。不要直接替答题成员回答，不发布产物，不联网、不读写文件。交接后结束当前调用；平台回传后，由协调成员用一句话总结已收到42。"}
+	run := w.Run{ID: w.NewID(), WorkspaceID: ws.ID, Workspace: ws, ThreadID: thread.ID, Agents: agents, CoordinatorID: agents[0].ID, Input: in, Status: "queued", CreatedAt: w.Now(), Routing: w.Routing{Decision: "discuss", Targets: []string{agents[0].ID}}, Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}}}
 	planInput := in
 	planInput.Targets = []string{agents[0].ID}
 	steps, err := Plan(run.ID, planInput, agents)
@@ -82,7 +82,6 @@ func TestLiveCodexCoordinatorHandoff(t *testing.T) {
 			t.Fatal(err)
 		}
 		if w.Terminal(current.Status) {
-			logRunSummary(t, s, run)
 			if current.Status != "succeeded" {
 				t.Fatalf("Codex coordinator failed: %s", current.Error)
 			}

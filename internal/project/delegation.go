@@ -138,7 +138,7 @@ func (s *Service) delegateTask(ctx context.Context, in DelegateTaskInput, userSu
 			ID: w.NewID(), WorkspaceID: parent.WorkspaceID, Workspace: workspace,
 			ThreadID: thread.ID, TaskID: child.Task.ID, TaskRevision: 1,
 			Status: "queued", CreatedAt: now, Agents: []w.Agent{member}, CoordinatorID: member.ID,
-			Input:                 w.RunInput{Message: in.Goal, Workflow: "free", ResearchScope: "given_sources"},
+			Input:                 w.RunInput{Message: in.Goal, ResearchScope: "given_sources"},
 			Delivery:              &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}},
 			AutomaticContinuation: true,
 		}

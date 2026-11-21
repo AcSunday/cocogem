@@ -96,7 +96,19 @@ func (b *hostExecutionBroker) runCommand(ctx context.Context, authorization nati
 	cmd.Dir = cwd
 	output := &boundedBuffer{limit: pluginOutputLimit, truncate: true}
 	cmd.Stdout, cmd.Stderr = output, output
-	err := cmd.Run()
+	_ = configureProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		return "", true, errors.New("host command could not start")
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var err error
+	select {
+	case err = <-done:
+	case <-runCtx.Done():
+		terminateProcess(cmd)
+		err = <-done
+	}
 	if err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {

@@ -37,7 +37,7 @@ func seedTaskRun(t *testing.T) (*store.Store, project.TaskView, w.Run) {
 	run := w.Run{
 		ID: "budget-run", WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID,
 		TaskID: created.Task.ID, TaskRevision: 1, Status: "queued", CreatedAt: w.Now(),
-		Input: w.RunInput{Message: "继续", Workflow: "free"}, AutomaticContinuation: true,
+		Input: w.RunInput{Message: "继续"}, AutomaticContinuation: true,
 		Delivery: &w.Delivery{MessageIDs: []string{}, ArtifactRefs: []w.ArtifactRef{}},
 	}
 	return db, created, run

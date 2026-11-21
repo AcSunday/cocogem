@@ -106,7 +106,7 @@ func TestOpenCodeManagedSessionAcknowledgement(t *testing.T) {
 func TestManagedSessionRequiresSupportedExecutorAndIdentity(t *testing.T) {
 	provider := Provider{command: fakeProvider("success").command}
 	request := testRequest()
-	request.Executor = "codex"
+	request.Executor = "unsupported_cli"
 	request.SessionStorageRoot = t.TempDir()
 	err := provider.run(t.Context(), request, func(context.Context, string, json.RawMessage) (string, error) { return "", nil }, func(string, map[string]any) error { return nil }, runOptions{skipCheck: true})
 	if err == nil || !strings.Contains(err.Error(), "does not support") {

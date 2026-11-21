@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,7 +44,7 @@ func text(description string) map[string]any {
 // Definitions returns schemas only for explicitly allowed capabilities.
 func Definitions(names []string) []model.Tool {
 	defs := map[string]model.Tool{
-		"run_command":    {Name: "run_command", Description: "Execute an argv command in this task's persistent working directory using explicitly authorized full access. Use Python, document/image libraries, converters and installed tools as needed; inspect available programs first. This is not a sandbox: local files, network and existing credentials may be accessible. Work on copies, preserve inputs, obey the user's objective and publish actual output files with publish_file. No shell is inserted; use an explicit shell argv only when needed. Captures exit code and bounded output. Never rerun an uncertain external write.", Schema: object(map[string]any{"argv": map[string]any{"type": "array", "minItems": 1, "maxItems": 128, "items": text("An exact argv element")}, "cwd": text("Relative directory under the task working directory; default ."), "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600}}, "argv")},
+		"run_command":    {Name: "run_command", Description: "Execute an argv command in this workspace or task working directory. Under workspace_autonomous it runs inside the host OS sandbox (allowing the bound worktree, IO exchange directories, /tmp and loopback); under full_access it runs directly with host credentials. Work on copies, preserve inputs, obey the user's objective and publish actual output files with publish_file. No shell is inserted; use an explicit shell argv only when needed. Captures exit code and bounded output. Never rerun an uncertain external write.", Schema: object(map[string]any{"argv": map[string]any{"type": "array", "minItems": 1, "maxItems": 128, "items": text("An exact argv element")}, "cwd": text("Relative directory under the working directory; default ."), "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600}}, "argv")},
 		"view_image":     {Name: "view_image", Description: "Return actual image pixels to the model, with a captured source ID. Supply either a path in the bound project/task directory or an authorized image source_id. Do not infer image contents from filenames. PNG, JPEG and GIF are decoded; use available conversion tools for other image formats.", Schema: object(map[string]any{"path": text("Relative image path, or an absolute path inside this task/project"), "source_id": text("Authorized image source ID")})},
 		"publish_file":   {Name: "publish_file", Description: "Deliver real files created in this task's working directory. The host snapshots the bytes, computes hashes and adds download links to the final deliverable. Accepts any file format; a filename alone is not a delivery. Verify the file opens and the requested content/format is correct before publication. Intermediate authors leave files in the task directory and return exact paths to the final publisher.", Schema: object(map[string]any{"paths": map[string]any{"type": "array", "minItems": 1, "maxItems": 10, "items": text("Relative output file path under the task working directory")}, "title": text("Deliverable title"), "body": text("What was delivered, checks and remaining limitations")}, "paths", "title", "body")},
 		"read_source":    {Name: "read_source", Description: "Page an exact captured source visible in this step's input snapshot. Does not refresh the original.", Schema: object(map[string]any{"source_id": text("Captured source UUID"), "cursor": text("Opaque next_cursor from the previous page"), "max_bytes": map[string]any{"type": "integer", "minimum": 1, "maximum": w.MaxTextPageBytes}}, "source_id")},
@@ -54,7 +55,9 @@ func Definitions(names []string) []model.Tool {
 		"fetch_url":      {Name: "fetch_url", Description: "Read a public original text page and capture its exact source. Search-engine result pages are captured as leads, not originals.", Schema: object(map[string]any{"url": text("Public HTTP(S) URL")}, "url")},
 		"write_file":     {Name: "write_file", Description: "Create or replace one UTF-8 text file inside the bound project (at most 32 KiB). Replacing an existing file requires its current expected_sha256; creating a new path requires that path to be absent. Symlinks, hard links, sensitive paths, non-regular files, oversized content and stale hashes are rejected. Returns the new SHA-256 and a captured diff source ID. Retrying the exact same content is idempotent. Use patch_file, when granted, for a targeted edit of a larger existing file. This tool is only available to the developer role in an authorized develop action.", Schema: object(map[string]any{"path": text("Relative file path inside the bound project"), "content": text("Complete UTF-8 file content"), "expected_sha256": text("Current complete-file SHA-256 from read_file; required when the file already exists, empty for a new path")}, "path", "content")},
 		"patch_file":     {Name: "patch_file", Description: "Replace one exact occurrence of old_text with new_text in an existing UTF-8 file. old_text must occur exactly once and the file must match expected_sha256, the complete-file SHA-256 from read_file. Full files may be up to 1 MiB; old_text and new_text together may be at most 32 KiB. Symlinks, hard links, sensitive paths, non-regular files, ambiguous or missing matches and stale hashes are rejected. Returns the new SHA-256 and a captured diff source ID. An identical retry that provably was already applied returns changed=false and is not applied again. This tool is only available to the developer role in an authorized develop action.", Schema: object(map[string]any{"path": text("Relative file path inside the bound project"), "expected_sha256": text("Current complete-file SHA-256 from read_file"), "old_text": text("Exact fragment to replace; must occur exactly once"), "new_text": text("Replacement fragment")}, "path", "expected_sha256", "old_text", "new_text")},
-		"run_test":       {Name: "run_test", Description: "Run the project's own tests under the host OS sandbox. No shell is used and no network, user home or credentials are available. toolchain=go runs go test -count=1 ./...; toolchain=npm runs npm test. target is a relative project directory. A nonzero exit is returned as a tool error with captured evidence; only exit code 0 verifies tests. Other toolchains are not supported.", Schema: object(map[string]any{"toolchain": map[string]any{"type": "string", "enum": []string{"go", "npm"}}, "target": text("Relative project directory; defaults to ."), "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600, "description": "Bounded execution limit; defaults to 120 seconds"}}, "toolchain")},
+		"preview_page":   {Name: "preview_page", Description: "Render one page from the bound project in a private headless browser. It accepts no URL and no port: mode=static serves the project-relative entry read-only on a host-chosen loopback origin, and mode=command runs the exact preview argv on a host-assigned random port in its own process group. A CDP interceptor aborts every request outside that single origin (other local ports and the public internet included), so an SSRF attempt cannot reach the network. Returns a screenshot as an image source, console errors and an AX-tree summary. No file is written into the project or candidate worktree; if no browser engine exists this reports browser_engine_unavailable instead of claiming a rendered page.", Schema: object(map[string]any{"mode": map[string]any{"type": "string", "enum": []string{"static", "command"}}, "entry": text("Project-relative HTML entry for mode=static; defaults to index.html"), "argv": map[string]any{"type": "array", "maxItems": 16, "items": text("Exact preview command argument")}, "width": map[string]any{"type": "integer", "minimum": 200, "maximum": 2560}, "height": map[string]any{"type": "integer", "minimum": 200, "maximum": 2560}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 120}}, "mode")},
+		"git_inspect":    {Name: "git_inspect", Description: "Deterministically inspect the bound repository without running project code: subcommand=status (working tree and branch), diff (unstaged changes), log (bounded recent history) or show (one commit). External diff drivers, textconv and repository hooks are disabled; no network remote is contacted. path is a repository-relative scope; revision is a branch, tag or commit. This tool is read-only and is available in plan-only and review steps.", Schema: object(map[string]any{"subcommand": map[string]any{"type": "string", "enum": []string{"status", "diff", "log", "show"}}, "path": text("Repository-relative path; defaults to ."), "revision": text("Branch, tag or commit for log/show"), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 200}}, "subcommand")},
+		"run_test":       {Name: "run_test", Description: "Run the project's own tests, typecheck, lint or build under the host OS sandbox. No shell, network, user home or credentials are available. toolchain=auto detects the project manifest; go/npm/pnpm/yarn/pytest/cargo are explicit. kind=test verifies behaviour; typecheck/lint/build are supporting evidence only. filter selects one test (go -run or pytest -k or a package-manager script argument) and is validated to a bounded character set. target is a relative project directory. A nonzero exit is returned as a tool error with captured evidence; only exit code 0 verifies.", Schema: object(map[string]any{"toolchain": map[string]any{"type": "string", "enum": []string{"auto", "go", "npm", "pnpm", "yarn", "pytest", "cargo"}}, "kind": map[string]any{"type": "string", "enum": []string{"test", "typecheck", "lint", "build"}}, "filter": text("Single test selector, ^[A-Za-z0-9_./:-]+$, at most 240 characters"), "target": text("Relative project directory; defaults to ."), "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600, "description": "Bounded execution limit; defaults to 120 seconds"}}, "toolchain")},
 		"publish_artifact": {Name: "publish_artifact", Description: "Submit this step's deliverable. Use captured source IDs only; for native CLI observations obtain server-assigned IDs via list_sources and never invent them. Code findings require file evidence. Supported findings require a read original source; search snippets, search result pages and native search leads are not evidence. Native web output is a CLI-processed observation, not raw page text. Research reports include scope, methods, findings, disagreements, limitations and next steps in the body.", Schema: object(map[string]any{
 			"type": map[string]any{"type": "string", "enum": []string{"note", "research_report", "code_analysis"}}, "title": text("Title"), "body": text("Markdown body"), "source_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "limitations": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"findings": map[string]any{"type": "array", "items": object(map[string]any{"title": text("Finding title"), "detail": text("Evidence and reasoning"), "status": map[string]any{"type": "string", "enum": []string{"supported", "confirmed", "disputed", "insufficient_evidence"}}, "severity": map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}}, "source_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}, "title", "detail", "status", "source_ids")}}, "type", "title", "body", "findings", "source_ids", "limitations")},
@@ -95,6 +98,17 @@ type WebClient interface {
 	Search(context.Context, string) ([]w.Source, error)
 }
 
+// toolBudget is the generic read-tool budget. Tools that validate and apply
+// their own bounded timeout return 0 so the registry never silently truncates
+// them: run_test, run_command and preview_page all declare an explicit limit.
+func toolBudget(name string) time.Duration {
+	switch name {
+	case "run_test", "run_command", "preview_page":
+		return 0
+	}
+	return 20 * time.Second
+}
+
 // Scope limits a tool call to its workspace and exact evidence capture callback.
 type Scope struct {
 	Root          string
@@ -111,10 +125,25 @@ type Scope struct {
 	// a mode that does not run commands autonomously. It runs under the project
 	// sandbox with writes limited to the project and any approved roots.
 	ApprovedCommand bool
+	// IOInputs is this scope's read-only attachment exchange directory
+	// ($COCOGEM_DATA_DIR/io/<scope>/inputs). It is an explicit sandbox allow, not
+	// part of the code root, so an uploaded attachment stays readable while the
+	// candidate diff stays clean.
+	IOInputs string
+	// IOOutputs is the writable deliverable directory of the same exchange area.
+	IOOutputs string
+	// ReadOnly is the plan-only / parallel-pass lock. A read-only step never
+	// starts project code, so a command-mode preview is refused.
+	ReadOnly bool
+	// AllowSensitive marks an exact sensitive file path approved once by the user.
+	AllowSensitive bool
 }
 
-// Execute returns a JSON observation for a registered host operation. run_test
-// applies its own bounded timeout instead of the short read-tool budget.
+// Execute returns a JSON observation for a registered host operation. run_test,
+// run_command and preview_page apply their own bounded timeout instead of the
+// short read-tool budget: a browser cold start plus a real page render cannot
+// fit in the generic budget on a loaded machine, and preview_page already
+// validates and applies its own 1–120 second timeout.
 func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope) (string, error) {
 	if len(scope.ApprovedRoots) > 0 && rebindApprovedTarget(name, &raw, &scope) {
 		// The scope now points at exactly the approved location.
@@ -147,9 +176,9 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 			}
 		}
 	}
-	if name != "run_test" && name != "run_command" {
+	if budget := toolBudget(name); budget > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 20*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, budget)
 		defer cancel()
 	}
 	var result any
@@ -185,20 +214,79 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 			return "", err
 		}
 		return observeWrite(scope, write)
-	case "run_test":
-		var in struct {
-			Toolchain      string `json:"toolchain"`
-			Target         string `json:"target"`
-			TimeoutSeconds int    `json:"timeout_seconds"`
-		}
+	case "preview_page":
+		var in PreviewInput
 		if err := Decode(raw, &in); err != nil {
 			return "", err
 		}
-		test, err := RunTest(ctx, scope.Root, RunTestInput{Toolchain: in.Toolchain, Target: in.Target, TimeoutSeconds: in.TimeoutSeconds})
+		if scope.ReadOnly && strings.EqualFold(strings.TrimSpace(in.Mode), "command") {
+			return "", errors.New("read_only_step: a command-mode preview starts project code; use mode=static in a read-only turn")
+		}
+		in.TrustedCommand = scope.ExecutionMode == w.ExecutionFullAccess
+		preview, err := RunPreview(ctx, scope.Root, in)
 		if err != nil {
 			return "", err
 		}
-		source, err := scope.Capture(w.Source{Kind: "test", Title: test.Command, Path: test.Target, SHA256: test.WorkspaceSHA256, Content: test.Output, CapturedAt: w.Now(), Truncated: test.Truncated, ExitCode: test.ExitCode, TimedOut: test.TimedOut})
+		if preview.EngineUnavailable != "" {
+			encoded, encodeErr := json.Marshal(map[string]any{"rendered": false, "reason": preview.EngineUnavailable, "origin": preview.Origin})
+			if encodeErr != nil {
+				return "", encodeErr
+			}
+			return string(encoded), nil
+		}
+		if len(preview.ScreenshotPNG) == 0 {
+			result = map[string]any{
+				"rendered": false, "origin": preview.Origin, "title": preview.Title,
+				"console_errors": preview.ConsoleErrors, "page_errors": preview.PageErrors,
+				"ax_tree_summary": preview.AXTree, "duration_ms": preview.DurationMS,
+				"worktree_changed": false,
+			}
+			return marshalObservation(result)
+		}
+		var sourceID string
+		if scope.Capture != nil {
+			image, captureErr := scope.Capture(w.Source{
+				Kind: "image", Title: "页面预览 " + preview.Title, URL: preview.Origin,
+				Content:         base64.StdEncoding.EncodeToString(preview.ScreenshotPNG),
+				OriginalContent: base64.StdEncoding.EncodeToString(preview.ScreenshotPNG),
+				MediaType:       "image/png", FileSize: len(preview.ScreenshotPNG),
+				SHA256: sha256Hex(preview.ScreenshotPNG), CapturedAt: w.Now(),
+				ParseStatus: "parsed", ParseQuality: "browser_render",
+			})
+			if captureErr != nil {
+				return "", captureErr
+			}
+			sourceID = image.ID
+		}
+		result = map[string]any{
+			"rendered": true, "origin": preview.Origin, "title": preview.Title,
+			"console_errors": preview.ConsoleErrors, "page_errors": preview.PageErrors,
+			"ax_tree_summary": preview.AXTree, "duration_ms": preview.DurationMS,
+			"source_id": sourceID, "worktree_changed": false,
+		}
+		return marshalObservation(result)
+	case "git_inspect":
+		var in GitInspectInput
+		if err := Decode(raw, &in); err != nil {
+			return "", err
+		}
+		return GitInspect(ctx, scope.Root, in)
+	case "run_test":
+		var in RunTestInput
+		if err := Decode(raw, &in); err != nil {
+			return "", err
+		}
+		test, err := RunTest(ctx, scope.Root, in)
+		if err != nil {
+			return "", err
+		}
+		// Only kind="test" verifies behaviour and may transition a candidate to
+		// verified; typecheck/lint/build are recorded as supporting "check" sources.
+		sourceKind := "test"
+		if test.Kind != "" && test.Kind != TestKindTest {
+			sourceKind = "check"
+		}
+		source, err := scope.Capture(w.Source{Kind: sourceKind, Title: test.Command, Path: test.Target, SHA256: test.WorkspaceSHA256, Content: test.Output, CapturedAt: w.Now(), Truncated: test.Truncated, ExitCode: test.ExitCode, TimedOut: test.TimedOut})
 		if err != nil {
 			return "", err
 		}
@@ -209,7 +297,7 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 			}
 			return "", fmt.Errorf("test_failed: %s; command=%s; source_id=%s; output:\n%s", reason, test.Command, source.ID, utf8Prefix(test.Output, 4096))
 		}
-		result = map[string]any{"passed": true, "toolchain": test.Toolchain, "target": test.Target, "command": test.Command, "exit_code": 0, "duration_ms": test.DurationMS, "truncated": test.Truncated, "workspace_sha256": test.WorkspaceSHA256, "workspace_changed": test.WorkspaceChanged, "evidence_reason": test.EvidenceReason, "source_id": source.ID, "output_preview": utf8Prefix(test.Output, 4096)}
+		result = map[string]any{"passed": true, "toolchain": test.Toolchain, "kind": test.Kind, "filter": test.Filter, "target": test.Target, "command": test.Command, "exit_code": 0, "duration_ms": test.DurationMS, "truncated": test.Truncated, "workspace_sha256": test.WorkspaceSHA256, "workspace_changed": test.WorkspaceChanged, "evidence_reason": test.EvidenceReason, "source_id": source.ID, "output_preview": utf8Prefix(test.Output, 4096)}
 		return marshalObservation(result)
 	case "list_files":
 		var in struct {
@@ -235,7 +323,13 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 		if in.Path == "" {
 			return "", errors.New("path is required")
 		}
-		source, err := ReadFile(ctx, scope.Root, in.Path, in.Start, in.End)
+		var source w.Source
+		var err error
+		if scope.AllowSensitive {
+			source, err = ReadFileApproved(ctx, scope.Root, in.Path, in.Start, in.End)
+		} else {
+			source, err = ReadFile(ctx, scope.Root, in.Path, in.Start, in.End)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -316,6 +410,11 @@ func observeWrite(scope Scope, write WriteResult) (string, error) {
 	}
 	observation["source_id"] = source.ID
 	observation["diff_preview"] = utf8Prefix(write.Diff, 4096)
+	// A stacked-fallback smell is a non-blocking hint, never a failure: the
+	// author sees it beside the exact diff and the reviewer can weigh it.
+	if hints := AnalyzeDiffHygiene(write.Diff); len(hints) > 0 {
+		observation["hygiene_hint"] = DiffHygieneSummary(hints)
+	}
 	return marshalObservation(observation)
 }
 
@@ -450,12 +549,14 @@ func rebindApprovedTarget(name string, raw *json.RawMessage, scope *Scope) bool 
 	for _, approved := range scope.ApprovedRoots {
 		root := approved
 		local := ""
+		exactApproved := false
 		if resolved == root {
 			// An exact file approval: operate on its parent with its base name.
 			if info, err := os.Lstat(resolved); err == nil && info.IsDir() {
 				local = "."
 			} else {
 				root, local = filepath.Dir(resolved), filepath.Base(resolved)
+				exactApproved = true
 			}
 		} else if rel, err := filepath.Rel(root, resolved); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			local = rel
@@ -463,7 +564,10 @@ func rebindApprovedTarget(name string, raw *json.RawMessage, scope *Scope) bool 
 			continue
 		}
 		if DeniedPath(local) {
-			return false
+			if !exactApproved {
+				return false
+			}
+			scope.AllowSensitive = true
 		}
 		scope.Root, scope.WorkDir = root, ""
 		args["path"], _ = json.Marshal(local)

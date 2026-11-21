@@ -11,7 +11,7 @@ import (
 func runningTaskFixture(t *testing.T, db *store.Store) (*Service, w.Thread, TaskView, w.Run) {
 	t.Helper()
 	service := New(db)
-	ws := w.Workspace{ID: "wake-ws", Name: "wake", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionControlled}
+	ws := w.Workspace{ID: "wake-ws", Name: "wake", Revision: 1, CreatedAt: w.Now(), ExecutionMode: w.ExecutionWorkspaceAutonomous}
 	th := w.Thread{ID: "wake-thread", WorkspaceID: ws.ID, CoordinatorID: "owner", AgentIDs: []string{"owner"}, Revision: 1, UpdatedAt: w.Now()}
 	if err := db.Write(t.Context(), func(tx *store.Tx) error {
 		if err := tx.SaveWorkspace(ws); err != nil {
@@ -33,7 +33,7 @@ func runningTaskFixture(t *testing.T, db *store.Store) (*Service, w.Thread, Task
 		ID: "wake-original-run", WorkspaceID: ws.ID, Workspace: ws, ThreadID: th.ID,
 		TaskID: created.Task.ID, TaskRevision: 1, Status: "queued", CreatedAt: w.Now(),
 		Agents: []w.Agent{member}, CoordinatorID: member.ID, AutomaticContinuation: true,
-		Input:        w.RunInput{Message: "wait and resume", Workflow: "free"},
+		Input:        w.RunInput{Message: "wait and resume"},
 		ExecutionRef: "old-execution", ExecutionRoot: "/old/candidate",
 	}
 	attempt := w.Attempt{ID: "wake-attempt", RunID: run.ID, StepID: "wake-step", Number: 1, Status: "running", StartedAt: w.Now()}

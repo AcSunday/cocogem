@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/AcSunday/cocogem/internal/store"
-	"github.com/AcSunday/cocogem/internal/workflow"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -62,7 +61,7 @@ func (s *Server) startTaskRun(ctx context.Context, taskID string) (w.Run, error)
 				title = strings.SplitN(revision.Goal, "\n", 2)[0]
 				title = string([]rune(title)[:min(100, len([]rune(title)))])
 			}
-			th = w.Thread{ID: w.NewID(), WorkspaceID: task.WorkspaceID, TaskID: task.ID, Title: title, CoordinatorID: task.OwnerMemberID, Workflow: "free", Revision: 1, UpdatedAt: w.Now(), Internal: task.ParentID != ""}
+			th = w.Thread{ID: w.NewID(), WorkspaceID: task.WorkspaceID, TaskID: task.ID, Title: title, CoordinatorID: task.OwnerMemberID, Revision: 1, UpdatedAt: w.Now(), Internal: task.ParentID != ""}
 			applyThreadDefaults(&th, agents, settings)
 			if !slices.Contains(th.AgentIDs, th.CoordinatorID) {
 				th.AgentIDs = append([]string{th.CoordinatorID}, th.AgentIDs...)
@@ -93,27 +92,8 @@ func (s *Server) startTaskRun(ctx context.Context, taskID string) (w.Run, error)
 		if err != nil {
 			return err
 		}
-		in := w.RunInput{Message: revision.Goal, Workflow: th.Workflow, ResearchScope: "auto"}
-		if in.Workflow == "" || in.Workflow == "free" {
-			in.Workflow = "free"
-			in.Targets = []string{th.CoordinatorID}
-		}
-		route := w.Routing{Decision: "discuss", Workflow: "free", Targets: []string{th.CoordinatorID}, Explanation: "交给任务负责人推进"}
-		if in.Workflow != "free" {
-			route, err = workflow.ResolveRouting(ctx, nil, in, th, agents)
-			if err != nil {
-				return err
-			}
-		}
-		if route.Decision == "clarify" {
-			return errors.New(route.Clarification)
-		}
-		in.Workflow, in.Targets, in.Assignments = route.Workflow, route.Targets, route.Assignments
-		in, err = applySettingsDefaults(in, th, agents, settings)
-		if err != nil {
-			return err
-		}
-		route.Assignments = in.Assignments
+		in := w.RunInput{Message: revision.Goal, Targets: []string{th.CoordinatorID}, ResearchScope: "auto"}
+		route := w.Routing{Decision: "discuss", Targets: []string{th.CoordinatorID}, Explanation: "交给任务负责人推进"}
 		run, err = s.queueRunInTx(tx, th, in, route, "task-launch-"+task.ID, digest(in))
 		return err
 	})
