@@ -964,6 +964,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/usage": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["usageReport"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/wake-events": {
     parameters: {
       query?: never;
@@ -1292,12 +1308,15 @@ export interface components {
     };
     Attempt: {
       adapter?: string;
+      cache_creation_tokens?: number;
+      cache_read_tokens?: number;
       checkpoint_digest?: string;
       checkpoint_start_digest?: string;
       cli_identity?: string;
       cli_program?: string;
       cli_version?: string;
       connection_identity?: string;
+      cost_known?: boolean;
       draft_artifact?: {
         body: string;
         created_at: string;
@@ -1363,6 +1382,7 @@ export interface components {
       reason?: string;
       recovered_from?: string;
       recovery?: string;
+      reported_cost_usd?: number;
       resolved_model?: string;
       run_id: string;
       session_fingerprint?: string;
@@ -3074,12 +3094,15 @@ export interface components {
       attempts:
         | {
             adapter?: string;
+            cache_creation_tokens?: number;
+            cache_read_tokens?: number;
             checkpoint_digest?: string;
             checkpoint_start_digest?: string;
             cli_identity?: string;
             cli_program?: string;
             cli_version?: string;
             connection_identity?: string;
+            cost_known?: boolean;
             draft_artifact?: {
               body: string;
               created_at: string;
@@ -3145,6 +3168,7 @@ export interface components {
             reason?: string;
             recovered_from?: string;
             recovery?: string;
+            reported_cost_usd?: number;
             resolved_model?: string;
             run_id: string;
             session_fingerprint?: string;
@@ -4583,6 +4607,221 @@ export interface components {
             workspace_name: string;
           }[]
         | null;
+    };
+    UsageBreakdown: {
+      attempts: number;
+      attempts_known: number;
+      attempts_with_cost: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      input_tokens: number;
+      key: string;
+      label: string;
+      output_tokens: number;
+      reported_cost_usd: number;
+      secondary?: string;
+      total_tokens: number;
+    };
+    UsageBucket: {
+      attempts: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      input_tokens: number;
+      key: string;
+      label: string;
+      output_tokens: number;
+      reported_cost_usd: number;
+      total_tokens: number;
+    };
+    UsageEntry: {
+      agent_id?: string;
+      agent_name?: string;
+      attempt_id: string;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      cost_known?: boolean;
+      deleted?: boolean;
+      executor?: string;
+      finished_at?: string;
+      input_tokens: number;
+      model?: string;
+      output_tokens: number;
+      reported_cost_usd?: number;
+      run_id: string;
+      started_at: string;
+      status: string;
+      task_id?: string;
+      thread_id: string;
+      title: string;
+      total_tokens: number;
+      usage_completeness?: string;
+      usage_known: boolean;
+      workspace_id: string;
+      workspace_name: string;
+    };
+    UsageReport: {
+      by_agent: {
+        attempts: number;
+        attempts_known: number;
+        attempts_with_cost: number;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        input_tokens: number;
+        key: string;
+        label: string;
+        output_tokens: number;
+        reported_cost_usd: number;
+        secondary?: string;
+        total_tokens: number;
+      }[];
+      by_executor: {
+        attempts: number;
+        attempts_known: number;
+        attempts_with_cost: number;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        input_tokens: number;
+        key: string;
+        label: string;
+        output_tokens: number;
+        reported_cost_usd: number;
+        secondary?: string;
+        total_tokens: number;
+      }[];
+      by_model: {
+        attempts: number;
+        attempts_known: number;
+        attempts_with_cost: number;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        input_tokens: number;
+        key: string;
+        label: string;
+        output_tokens: number;
+        reported_cost_usd: number;
+        secondary?: string;
+        total_tokens: number;
+      }[];
+      by_workspace: {
+        attempts: number;
+        attempts_known: number;
+        attempts_with_cost: number;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        input_tokens: number;
+        key: string;
+        label: string;
+        output_tokens: number;
+        reported_cost_usd: number;
+        secondary?: string;
+        total_tokens: number;
+      }[];
+      executors: string[];
+      granularity: string;
+      members: {
+        [key: string]: string;
+      };
+      range: string;
+      recent: {
+        agent_id?: string;
+        agent_name?: string;
+        attempt_id: string;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        cost_known?: boolean;
+        deleted?: boolean;
+        executor?: string;
+        finished_at?: string;
+        input_tokens: number;
+        model?: string;
+        output_tokens: number;
+        reported_cost_usd?: number;
+        run_id: string;
+        started_at: string;
+        status: string;
+        task_id?: string;
+        thread_id: string;
+        title: string;
+        total_tokens: number;
+        usage_completeness?: string;
+        usage_known: boolean;
+        workspace_id: string;
+        workspace_name: string;
+      }[];
+      series: {
+        attempts: number;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        input_tokens: number;
+        key: string;
+        label: string;
+        output_tokens: number;
+        reported_cost_usd: number;
+        total_tokens: number;
+      }[];
+      top_targets: {
+        attempts: number;
+        attempts_with_cost: number;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        deleted?: boolean;
+        input_tokens: number;
+        last_at: string;
+        output_tokens: number;
+        reported_cost_usd: number;
+        task_id?: string;
+        thread_id: string;
+        title: string;
+        total_tokens: number;
+        workspace_id: string;
+        workspace_name: string;
+      }[];
+      totals: {
+        attempts_failed: number;
+        attempts_known: number;
+        attempts_total: number;
+        attempts_unknown: number;
+        attempts_with_cost: number;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        input_tokens: number;
+        output_tokens: number;
+        reported_cost_usd: number;
+        total_tokens: number;
+      };
+      workspaces: {
+        [key: string]: string;
+      };
+    };
+    UsageTarget: {
+      attempts: number;
+      attempts_with_cost: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      deleted?: boolean;
+      input_tokens: number;
+      last_at: string;
+      output_tokens: number;
+      reported_cost_usd: number;
+      task_id?: string;
+      thread_id: string;
+      title: string;
+      total_tokens: number;
+      workspace_id: string;
+      workspace_name: string;
+    };
+    UsageTotals: {
+      attempts_failed: number;
+      attempts_known: number;
+      attempts_total: number;
+      attempts_unknown: number;
+      attempts_with_cost: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      input_tokens: number;
+      output_tokens: number;
+      reported_cost_usd: number;
+      total_tokens: number;
     };
     UserDelegationInput: {
       context_refs?: string[] | null;
@@ -7245,6 +7484,41 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["TrashList"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  usageReport: {
+    parameters: {
+      query?: {
+        range?: "today" | "7d" | "30d" | "all";
+        workspace_id?: string;
+        executor?: string;
+        agent_id?: string;
+        tz_offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UsageReport"];
         };
       };
       /** @description Structured error */

@@ -246,6 +246,10 @@ func (e *Engine) persistStepCompletion(ctx context.Context, c stepCompletion) (w
 			stored.UsageCompleteness = attempt.UsageCompleteness
 			stored.InputTokens = attempt.InputTokens
 			stored.OutputTokens = attempt.OutputTokens
+			stored.CacheReadTokens = attempt.CacheReadTokens
+			stored.CacheCreationTokens = attempt.CacheCreationTokens
+			stored.ReportedCostUSD = attempt.ReportedCostUSD
+			stored.CostKnown = attempt.CostKnown
 			stored.FinishedAt = attempt.FinishedAt
 			attempt = stored
 		}

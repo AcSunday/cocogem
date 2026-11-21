@@ -63,6 +63,21 @@ func intValue(value any) int {
 	}
 }
 
+func floatValue(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	default:
+		return 0
+	}
+}
+
 // sourceIDs snapshots the exact source authority an attempt was dispatched
 // with; later sibling captures cannot enter its plan or checkpoint.
 func sourceIDs(sources []w.Source) []string {

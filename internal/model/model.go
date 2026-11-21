@@ -150,11 +150,15 @@ type Connection struct {
 
 // Response confirms the provider's termination and actual observed usage.
 type Response struct {
-	Blocks       []Block
-	StopReason   string
-	InputTokens  int
-	OutputTokens int
-	UsageKnown   bool
+	Blocks              []Block
+	StopReason          string
+	InputTokens         int
+	OutputTokens        int
+	CacheReadTokens     int
+	CacheCreationTokens int
+	ReportedCostUSD     float64
+	CostKnown           bool
+	UsageKnown          bool
 }
 
 // Model implementations stream only visible text; the host executes tools.

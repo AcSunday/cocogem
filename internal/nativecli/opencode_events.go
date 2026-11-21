@@ -122,19 +122,29 @@ func runOpenCodeTurn(ctx context.Context, client *http.Client, endpoint, dir, pa
 }
 
 type openCodeEventData struct {
-	SessionID string                       `json:"sessionID"`
-	MessageID string                       `json:"assistantMessageID"`
-	Ordinal   *int                         `json:"ordinal"`
-	Delta     string                       `json:"delta"`
-	Text      string                       `json:"text"`
-	ID        string                       `json:"id"`
-	Name      string                       `json:"name"`
-	Action    string                       `json:"action"`
-	Resources []string                     `json:"resources"`
-	Message   string                       `json:"message"`
-	Finish    string                       `json:"finish"`
-	Error     json.RawMessage              `json:"error"`
-	Tokens    struct{ Input, Output *int } `json:"tokens"`
+	SessionID string          `json:"sessionID"`
+	MessageID string          `json:"assistantMessageID"`
+	Ordinal   *int            `json:"ordinal"`
+	Delta     string          `json:"delta"`
+	Text      string          `json:"text"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Action    string          `json:"action"`
+	Resources []string        `json:"resources"`
+	Message   string          `json:"message"`
+	Finish    string          `json:"finish"`
+	Error     json.RawMessage `json:"error"`
+	Cost      *float64        `json:"cost"`
+	Tokens    struct {
+		Input  *int `json:"input"`
+		Output *int `json:"output"`
+		Cache  *struct {
+			Read  *int `json:"read"`
+			Write *int `json:"write"`
+		} `json:"cache"`
+		CacheRead  *int `json:"cacheRead"`
+		CacheWrite *int `json:"cacheWrite"`
+	} `json:"tokens"`
 }
 
 type openCodeEvent struct {
@@ -202,6 +212,8 @@ func parseOpenCodeEvents(ctx context.Context, reader *openCodeEvents, session st
 	message, lastFinish := "", ""
 	stepOpen := false
 	input, output := 0, 0
+	cacheRead, cacheWrite := 0, 0
+	costUSD, costKnown := 0.0, false
 	known := true
 	for {
 		event, err := reader.next()
@@ -317,18 +329,47 @@ func parseOpenCodeEvents(ctx context.Context, reader *openCodeEvents, session st
 					return newFailure(FailureProtocol, "OpenCode ended a step with incomplete text")
 				}
 			}
+			maxInt := int(^uint(0) >> 1)
 			if data.Tokens.Input == nil || data.Tokens.Output == nil {
 				known = false
 			} else {
-				maxInt := int(^uint(0) >> 1)
 				if *data.Tokens.Input < 0 || *data.Tokens.Output < 0 || *data.Tokens.Input > maxInt-input || *data.Tokens.Output > maxInt-output {
 					return newFailure(FailureProtocol, "OpenCode returned invalid token usage")
 				}
 				input += *data.Tokens.Input
 				output += *data.Tokens.Output
 			}
+			var stepCacheRead, stepCacheWrite *int
+			if data.Tokens.Cache != nil {
+				stepCacheRead, stepCacheWrite = data.Tokens.Cache.Read, data.Tokens.Cache.Write
+			}
+			stepCacheRead = firstIntPtr(stepCacheRead, data.Tokens.CacheRead)
+			stepCacheWrite = firstIntPtr(stepCacheWrite, data.Tokens.CacheWrite)
+			if stepCacheRead != nil {
+				if *stepCacheRead < 0 || *stepCacheRead > maxInt-cacheRead {
+					return newFailure(FailureProtocol, "OpenCode returned invalid token usage")
+				}
+				cacheRead += *stepCacheRead
+			}
+			if stepCacheWrite != nil {
+				if *stepCacheWrite < 0 || *stepCacheWrite > maxInt-cacheWrite {
+					return newFailure(FailureProtocol, "OpenCode returned invalid token usage")
+				}
+				cacheWrite += *stepCacheWrite
+			}
+			if data.Cost != nil {
+				if !validCost(data.Cost) {
+					return newFailure(FailureProtocol, "OpenCode returned invalid token usage")
+				}
+				costUSD += *data.Cost
+				costKnown = true
+			}
 			gate.mu.Lock()
 			gate.inputTokens, gate.outputTokens, gate.usageKnown = input, output, known
+			gate.cacheReadTokens, gate.cacheCreationTokens = cacheRead, cacheWrite
+			if costKnown {
+				gate.reportedCostUSD, gate.costKnown = costUSD, true
+			}
 			gate.mu.Unlock()
 			if data.Finish != "stop" && data.Finish != "tool-calls" {
 				return newFailure(FailureProtocol, "OpenCode did not confirm a complete reply")

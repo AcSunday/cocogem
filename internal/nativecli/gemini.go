@@ -369,7 +369,9 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 				return err
 			}
 		case "result":
-			if err := gate.recordUsage(event.Stats); err != nil {
+			stats := event.Stats
+			stats.InputIncludesCache = true
+			if err := gate.recordUsage(stats); err != nil {
 				return err
 			}
 			if reported != nil {
@@ -389,7 +391,9 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			}
 			finished = true
 		case "error":
-			if err := gate.recordUsage(event.Stats); err != nil {
+			stats := event.Stats
+			stats.InputIncludesCache = true
+			if err := gate.recordUsage(stats); err != nil {
 				return err
 			}
 			if event.Severity == "warning" {

@@ -10,6 +10,14 @@ const paths = {
       <path d="m7 9 1.5 1.5L11 8M7 15l1.5 1.5L11 14M14 9h4M14 15h4" />
     </>
   ),
+  usage: (
+    <>
+      <path d="M4 19.5h16" />
+      <rect x="5.5" y="12" width="3.5" height="7.5" rx="0.8" />
+      <rect x="10.25" y="6.5" width="3.5" height="13" rx="0.8" />
+      <rect x="15" y="9.5" width="3.5" height="10" rx="0.8" />
+    </>
+  ),
   gear: (
     <>
       <circle cx="12" cy="12" r="3" />

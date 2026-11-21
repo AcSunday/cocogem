@@ -21,7 +21,9 @@ func slowLaunchCLI(t *testing.T, delay time.Duration) func(string, ...string) *e
 	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	return func(_ string, args ...string) *exec.Cmd { return exec.Command(path, args...) }
+	return func(_ string, args ...string) *exec.Cmd {
+		return exec.Command("/bin/sh", append([]string{path}, args...)...)
+	}
 }
 
 // Measured on macOS: the first launch of a freshly written 344 MB Claude Code
@@ -65,7 +67,9 @@ func TestCapabilityProbeKeepsFailureDistinctFromTimeout(t *testing.T) {
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 3\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	info, err := check(t.Context(), "codex", func(_ string, args ...string) *exec.Cmd { return exec.Command(path, args...) })
+	info, err := check(t.Context(), "codex", func(_ string, args ...string) *exec.Cmd {
+		return exec.Command("/bin/sh", append([]string{path}, args...)...)
+	})
 	if err == nil || info.Supported || strings.Contains(info.Reason, "超时") {
 		t.Fatalf("a failing CLI was reported as %q / %v", info.Reason, err)
 	}

@@ -152,23 +152,41 @@ func writePiMCP(dir string, gate *bridge) error {
 }
 
 type piUsage struct {
-	Input  *int `json:"input"`
-	Output *int `json:"output"`
+	Input      *int `json:"input"`
+	Output     *int `json:"output"`
+	CacheRead  *int `json:"cacheRead"`
+	CacheWrite *int `json:"cacheWrite"`
+	Cost       *struct {
+		Total *float64 `json:"total"`
+	} `json:"cost"`
 }
 
 // Pi reports cumulative usage per assistant response, not per invocation.
 type piUsageTotals struct {
-	input, output               int
-	currentInput, currentOutput int
-	inputKnown, outputKnown     bool
-	previousKnown               bool
+	input, output                     int
+	cacheRead, cacheWrite             int
+	costUSD                           float64
+	currentInput, currentOutput       int
+	currentCacheRead, currentCacheWrt int
+	currentCostUSD                    float64
+	inputKnown, outputKnown           bool
+	currentCostKnown, anyCostKnown    bool
+	previousKnown                     bool
 }
 
 func (u *piUsageTotals) next() {
 	u.input += u.currentInput
 	u.output += u.currentOutput
+	u.cacheRead += u.currentCacheRead
+	u.cacheWrite += u.currentCacheWrt
+	if u.currentCostKnown {
+		u.costUSD += u.currentCostUSD
+		u.anyCostKnown = true
+	}
 	u.previousKnown = u.previousKnown && u.inputKnown && u.outputKnown
 	u.currentInput, u.currentOutput = 0, 0
+	u.currentCacheRead, u.currentCacheWrt = 0, 0
+	u.currentCostUSD, u.currentCostKnown = 0, false
 	u.inputKnown, u.outputKnown = false, false
 }
 
@@ -186,9 +204,33 @@ func (u *piUsageTotals) record(gate *bridge, usage piUsage) error {
 		}
 		u.currentOutput, u.outputKnown = *usage.Output, true
 	}
+	if usage.CacheRead != nil {
+		if *usage.CacheRead < 0 || *usage.CacheRead > maxInt-u.cacheRead {
+			return newFailure(FailureProtocol, "native CLI returned invalid token usage")
+		}
+		u.currentCacheRead = *usage.CacheRead
+	}
+	if usage.CacheWrite != nil {
+		if *usage.CacheWrite < 0 || *usage.CacheWrite > maxInt-u.cacheWrite {
+			return newFailure(FailureProtocol, "native CLI returned invalid token usage")
+		}
+		u.currentCacheWrt = *usage.CacheWrite
+	}
+	if usage.Cost != nil && usage.Cost.Total != nil {
+		if !validCost(usage.Cost.Total) {
+			return newFailure(FailureProtocol, "native CLI returned invalid token usage")
+		}
+		u.currentCostUSD, u.currentCostKnown = *usage.Cost.Total, true
+	}
 	gate.mu.Lock()
 	defer gate.mu.Unlock()
 	gate.inputTokens, gate.outputTokens = u.input+u.currentInput, u.output+u.currentOutput
+	gate.cacheReadTokens = u.cacheRead + u.currentCacheRead
+	gate.cacheCreationTokens = u.cacheWrite + u.currentCacheWrt
+	if u.anyCostKnown || u.currentCostKnown {
+		gate.reportedCostUSD = u.costUSD + u.currentCostUSD
+		gate.costKnown = true
+	}
 	gate.usageKnown = u.previousKnown && u.inputKnown && u.outputKnown
 	return nil
 }

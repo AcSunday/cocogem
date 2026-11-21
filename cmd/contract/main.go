@@ -29,6 +29,8 @@ func schema(t reflect.Type) map[string]any {
 		return map[string]any{"type": "boolean"}
 	case reflect.Int, reflect.Int64:
 		return map[string]any{"type": "integer"}
+	case reflect.Float32, reflect.Float64:
+		return map[string]any{"type": "number"}
 	case reflect.Slice:
 		return map[string]any{"type": []string{"array", "null"}, "items": schema(t.Elem())}
 	case reflect.Map:
@@ -54,7 +56,7 @@ func schema(t reflect.Type) map[string]any {
 func ref(name string) map[string]any { return map[string]any{"$ref": "#/components/schemas/" + name} }
 func main() {
 	schemas := map[string]any{}
-	for _, value := range []any{w.Workspace{}, w.Agent{}, w.WorkspaceMember{}, w.Settings{}, w.Thread{}, w.RunInput{}, w.Run{}, w.Delivery{}, w.Step{}, w.Attempt{}, w.ProcessRef{}, w.Message{}, w.Source{}, w.SourceImport{}, httpapi.SourceImportList{}, w.Artifact{}, w.Event{}, w.Finding{}, w.ArtifactRef{}, w.ArtifactFile{}, skills.Info{}, httpapi.SystemInfo{}, httpapi.ThreadView{}, httpapi.RunView{}, httpapi.RetryInput{}, httpapi.WorkspaceInput{}, httpapi.SettingsInput{}, httpapi.ThreadUpdate{}, httpapi.AuthStatus{}, httpapi.PasswordInput{}, httpapi.SessionReply{}, httpapi.FeedbackInput{}, httpapi.VerifyReply{}, httpapi.VerifyInput{}, httpapi.ExecutorInfo{}, httpapi.DeleteReply{}, httpapi.TrashItem{}, httpapi.TrashList{}, httpapi.DirectoryListing{}, workflow.Routing{}, store.MessageContentPage{}, store.EventPage{}, w.BudgetPolicy{}, w.BudgetPolicyOverride{}, w.BudgetSources{}, w.BudgetAccount{}, w.AcceptanceCriterion{}, w.TaskRevision{}, w.Task{}, w.ProjectRecord{}, w.TaskDependency{}, w.CriterionResult{}, w.CompletionRecord{}, w.Grant{}, w.ToolPermissionRequest{}, w.ConversationGrant{}, w.ToolInvocationAdmission{}, project.TaskDeliveries{}, httpapi.PermissionRequestList{}, httpapi.ConversationGrantList{}, httpapi.PermissionDecisionInput{}, project.SettingsPatch{}, w.WorkspaceExecution{}, w.ExecutionSession{}, w.EffectRecord{}, w.InboxItem{}, w.Question{}, w.CollaborationMessage{}, w.DeliveryReceipt{}, w.Wakeup{}, w.HandoffSummary{}, w.MemoryRecord{}, w.Claim{}, w.DatasetManifest{}, w.ContextEntry{}, w.EligibleScope{}, w.ContextBudget{}, w.ContextItem{}, w.ContextManifest{}, w.ReadReceipt{}, httpapi.ContextView{}, project.TaskView{}, project.Overview{}, project.TaskBoard{}, project.TaskDeletion{}, project.CreateTaskInput{}, project.ReviseTaskInput{}, project.RecordCompletionInput{}, project.SubmitInboxInput{}, httpapi.TaskList{}, httpapi.InboxList{}, httpapi.RevisionList{}, httpapi.DependencyList{}, httpapi.RecordList{}, httpapi.TaskActionInput{}, httpapi.TaskBudgetInput{}, httpapi.TaskDeleteInput{}, httpapi.ExecutionPolicyInput{}, httpapi.QuestionList{}, httpapi.QuestionAnswerInput{}, httpapi.TaskMessageInput{}, project.MessageView{}, httpapi.CollaborationMessageList{}, httpapi.CandidateList{}, httpapi.CandidateDiffReply{}, httpapi.CandidateBranchReply{}, execution.CandidateVerification{}, httpapi.UserDelegationInput{}, project.DelegationView{}, httpapi.HandoffInput{}, httpapi.WakeupList{}, httpapi.WakeEventInput{}, httpapi.ClaimList{}, httpapi.DatasetList{}, httpapi.MemoryList{}, httpapi.BootstrapInput{}, httpapi.BootstrapReply{}} {
+	for _, value := range []any{w.Workspace{}, w.Agent{}, w.WorkspaceMember{}, w.Settings{}, w.Thread{}, w.RunInput{}, w.Run{}, w.Delivery{}, w.Step{}, w.Attempt{}, w.ProcessRef{}, w.Message{}, w.Source{}, w.SourceImport{}, httpapi.SourceImportList{}, w.Artifact{}, w.Event{}, w.Finding{}, w.ArtifactRef{}, w.ArtifactFile{}, skills.Info{}, httpapi.SystemInfo{}, httpapi.ThreadView{}, httpapi.RunView{}, httpapi.RetryInput{}, httpapi.WorkspaceInput{}, httpapi.SettingsInput{}, httpapi.ThreadUpdate{}, httpapi.AuthStatus{}, httpapi.PasswordInput{}, httpapi.SessionReply{}, httpapi.FeedbackInput{}, httpapi.VerifyReply{}, httpapi.VerifyInput{}, httpapi.ExecutorInfo{}, httpapi.DeleteReply{}, httpapi.TrashItem{}, httpapi.TrashList{}, httpapi.DirectoryListing{}, workflow.Routing{}, store.MessageContentPage{}, store.EventPage{}, w.BudgetPolicy{}, w.BudgetPolicyOverride{}, w.BudgetSources{}, w.BudgetAccount{}, w.AcceptanceCriterion{}, w.TaskRevision{}, w.Task{}, w.ProjectRecord{}, w.TaskDependency{}, w.CriterionResult{}, w.CompletionRecord{}, w.Grant{}, w.ToolPermissionRequest{}, w.ConversationGrant{}, w.ToolInvocationAdmission{}, project.TaskDeliveries{}, httpapi.PermissionRequestList{}, httpapi.ConversationGrantList{}, httpapi.PermissionDecisionInput{}, project.SettingsPatch{}, w.WorkspaceExecution{}, w.ExecutionSession{}, w.EffectRecord{}, w.InboxItem{}, w.Question{}, w.CollaborationMessage{}, w.DeliveryReceipt{}, w.Wakeup{}, w.HandoffSummary{}, w.MemoryRecord{}, w.Claim{}, w.DatasetManifest{}, w.ContextEntry{}, w.EligibleScope{}, w.ContextBudget{}, w.ContextItem{}, w.ContextManifest{}, w.ReadReceipt{}, httpapi.ContextView{}, project.TaskView{}, project.Overview{}, project.TaskBoard{}, project.TaskDeletion{}, project.UsageTotals{}, project.UsageBucket{}, project.UsageBreakdown{}, project.UsageTarget{}, project.UsageEntry{}, project.UsageReport{}, project.CreateTaskInput{}, project.ReviseTaskInput{}, project.RecordCompletionInput{}, project.SubmitInboxInput{}, httpapi.TaskList{}, httpapi.InboxList{}, httpapi.RevisionList{}, httpapi.DependencyList{}, httpapi.RecordList{}, httpapi.TaskActionInput{}, httpapi.TaskBudgetInput{}, httpapi.TaskDeleteInput{}, httpapi.ExecutionPolicyInput{}, httpapi.QuestionList{}, httpapi.QuestionAnswerInput{}, httpapi.TaskMessageInput{}, project.MessageView{}, httpapi.CollaborationMessageList{}, httpapi.CandidateList{}, httpapi.CandidateDiffReply{}, httpapi.CandidateBranchReply{}, execution.CandidateVerification{}, httpapi.UserDelegationInput{}, project.DelegationView{}, httpapi.HandoffInput{}, httpapi.WakeupList{}, httpapi.WakeEventInput{}, httpapi.ClaimList{}, httpapi.DatasetList{}, httpapi.MemoryList{}, httpapi.BootstrapInput{}, httpapi.BootstrapReply{}} {
 		t := reflect.TypeOf(value)
 		schemas[t.Name()] = schema(t)
 	}
@@ -114,6 +116,12 @@ func main() {
 	}
 	props("ThreadView")["messages"].(map[string]any)["properties"].(map[string]any)["items"].(map[string]any)["type"] = "array"
 	props("EventPage")["items"].(map[string]any)["type"] = "array"
+	for _, name := range []string{"series", "by_model", "by_executor", "by_agent", "by_workspace", "top_targets", "recent", "executors"} {
+		props("UsageReport")[name].(map[string]any)["type"] = "array"
+	}
+	for _, name := range []string{"workspaces", "members"} {
+		props("UsageReport")[name].(map[string]any)["type"] = "object"
+	}
 	schemas["Error"] = map[string]any{"type": "object", "required": []string{"error"}, "properties": map[string]any{"error": map[string]any{"type": "object", "required": []string{"code", "message", "request_id", "details"}, "properties": map[string]any{"code": map[string]any{"type": "string"}, "message": map[string]any{"type": "string"}, "request_id": map[string]any{"type": "string"}, "details": map[string]any{"type": "object"}}}}}
 	paths := map[string]any{}
 	add := func(path, method, name, response string, request string) {
@@ -171,7 +179,7 @@ func main() {
 		{"/api/v1/workspaces/{id}/threads", "get", "threads", "ThreadList", ""}, {"/api/v1/workspaces/{id}/threads", "post", "createThread", "Thread", "ThreadInput"}, {"/api/v1/threads/{id}", "get", "thread", "ThreadView", ""}, {"/api/v1/threads/{id}", "patch", "updateThread", "Thread", "ThreadUpdate"}, {"/api/v1/threads/{id}", "delete", "deleteThread", "DeleteReply", ""},
 		{"/api/v1/trash", "get", "trash", "TrashList", ""}, {"/api/v1/threads/{id}/restore", "post", "restoreThread", "Thread", "EmptyInput"}, {"/api/v1/threads/{id}/permanent", "delete", "permanentDeleteThread", "DeleteReply", ""},
 		{"/api/v1/threads/{id}/runs", "post", "submitRun", "Run", "RunRequest"}, {"/api/v1/runs/{id}", "get", "run", "RunView", ""}, {"/api/v1/runs/{id}/context", "get", "runContext", "ContextView", ""}, {"/api/v1/runs/{id}/cancel", "post", "cancelRun", "Run", "EmptyInput"}, {"/api/v1/runs/{id}/resume", "post", "resumeRun", "Run", "EmptyInput"}, {"/api/v1/runs/{id}/retry", "post", "retryRun", "Run", "RetryInput"},
-		{"/api/v1/tasks", "get", "projectTaskBoard", "TaskBoard", ""}, {"/api/v1/tasks/delete", "post", "deleteProjectTasks", "TaskDeletion", "TaskDeleteInput"}, {"/api/v1/workspaces/{id}/overview", "get", "projectOverview", "Overview", ""}, {"/api/v1/workspaces/{id}/tasks", "get", "projectTasks", "TaskList", ""}, {"/api/v1/workspaces/{id}/tasks", "post", "createProjectTask", "TaskView", "CreateTaskInput"}, {"/api/v1/tasks/{id}", "get", "projectTask", "TaskView", ""},
+		{"/api/v1/tasks", "get", "projectTaskBoard", "TaskBoard", ""}, {"/api/v1/usage", "get", "usageReport", "UsageReport", ""}, {"/api/v1/tasks/delete", "post", "deleteProjectTasks", "TaskDeletion", "TaskDeleteInput"}, {"/api/v1/workspaces/{id}/overview", "get", "projectOverview", "Overview", ""}, {"/api/v1/workspaces/{id}/tasks", "get", "projectTasks", "TaskList", ""}, {"/api/v1/workspaces/{id}/tasks", "post", "createProjectTask", "TaskView", "CreateTaskInput"}, {"/api/v1/tasks/{id}", "get", "projectTask", "TaskView", ""},
 		{"/api/v1/tasks/{id}/revisions", "get", "projectTaskRevisions", "RevisionList", ""}, {"/api/v1/tasks/{id}/revisions", "post", "reviseProjectTask", "TaskView", "ReviseTaskInput"}, {"/api/v1/tasks/{id}/dependencies", "get", "taskDependencies", "DependencyList", ""}, {"/api/v1/tasks/{id}/dependencies", "post", "addTaskDependency", "TaskDependency", "TaskDependency"}, {"/api/v1/tasks/{id}/completions", "post", "completeProjectTask", "CompletionRecord", "RecordCompletionInput"}, {"/api/v1/tasks/{id}/inbox", "get", "taskInbox", "InboxList", ""}, {"/api/v1/tasks/{id}/inbox", "post", "submitTaskInbox", "InboxItem", "SubmitInboxInput"},
 		{"/api/v1/tasks/{id}/actions", "post", "projectTaskAction", "Task", "TaskActionInput"},
 		{"/api/v1/tasks/{id}/start", "post", "startProjectTask", "Run", "EmptyInput"},
@@ -196,6 +204,15 @@ func main() {
 			}
 			if path == "/api/v1/directories" {
 				params = append(params, map[string]any{"in": "query", "name": "path", "description": "Existing local directory; empty starts at allowed roots or the home directory. Does not bind a workspace.", "schema": map[string]any{"type": "string", "maxLength": 4096}})
+			}
+			if path == "/api/v1/usage" {
+				params = append(params,
+					map[string]any{"in": "query", "name": "range", "schema": map[string]any{"type": "string", "enum": []string{"today", "7d", "30d", "all"}, "default": "7d"}},
+					map[string]any{"in": "query", "name": "workspace_id", "schema": map[string]any{"type": "string"}},
+					map[string]any{"in": "query", "name": "executor", "schema": map[string]any{"type": "string"}},
+					map[string]any{"in": "query", "name": "agent_id", "schema": map[string]any{"type": "string"}},
+					map[string]any{"in": "query", "name": "tz_offset", "schema": map[string]any{"type": "integer", "minimum": -840, "maximum": 840}},
+				)
 			}
 			if method != "get" && !strings.HasPrefix(path, "/auth/") {
 				params = append(params, map[string]any{"in": "header", "name": "X-CSRF-Token", "required": true, "schema": map[string]any{"type": "string"}})

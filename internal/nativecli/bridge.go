@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -23,53 +24,57 @@ import (
 )
 
 type bridge struct {
-	ctx              context.Context
-	server           *http.Server
-	addr             string
-	token            string
-	tools            []model.Tool
-	schemas          map[string]*jsonschema.Schema
-	execute          agent.Execute
-	observe          agent.Observe
-	mu               sync.Mutex
-	execMu           sync.Mutex
-	calls            int
-	err              error
-	observeFailed    bool
-	stop             context.CancelFunc
-	closed           bool
-	nativePrefix     string
-	usageKnown       bool
-	inputTokens      int
-	outputTokens     int
-	inputKnown       bool
-	outputKnown      bool
-	required         []string
-	listed           map[string]bool
-	listSeen         bool
-	native           map[string]bool
-	trustedNative    bool
-	sessionMode      string
-	sessionID        string
-	managedSession   bool
-	readOnly         bool
-	live             *liveness
-	approver         *nativeApprover
-	sandbox          *nativeSandbox
-	nativeBoundary   bool
-	modelGateway     *modelGateway
-	cwd              string
-	nativeFullAccess bool
-	pluginToken      string
-	pluginTokenFile  string
-	pluginDecisions  map[string]*pluginDecision
-	notices          int
-	toolLimit        time.Duration
-	lastInputKey     string
-	inputRepeats     int
-	repeatNotice     bool
-	activityAt       time.Time
-	now              func() time.Time
+	ctx                 context.Context
+	server              *http.Server
+	addr                string
+	token               string
+	tools               []model.Tool
+	schemas             map[string]*jsonschema.Schema
+	execute             agent.Execute
+	observe             agent.Observe
+	mu                  sync.Mutex
+	execMu              sync.Mutex
+	calls               int
+	err                 error
+	observeFailed       bool
+	stop                context.CancelFunc
+	closed              bool
+	nativePrefix        string
+	usageKnown          bool
+	inputTokens         int
+	outputTokens        int
+	cacheReadTokens     int
+	cacheCreationTokens int
+	reportedCostUSD     float64
+	costKnown           bool
+	inputKnown          bool
+	outputKnown         bool
+	required            []string
+	listed              map[string]bool
+	listSeen            bool
+	native              map[string]bool
+	trustedNative       bool
+	sessionMode         string
+	sessionID           string
+	managedSession      bool
+	readOnly            bool
+	live                *liveness
+	approver            *nativeApprover
+	sandbox             *nativeSandbox
+	nativeBoundary      bool
+	modelGateway        *modelGateway
+	cwd                 string
+	nativeFullAccess    bool
+	pluginToken         string
+	pluginTokenFile     string
+	pluginDecisions     map[string]*pluginDecision
+	notices             int
+	toolLimit           time.Duration
+	lastInputKey        string
+	inputRepeats        int
+	repeatNotice        bool
+	activityAt          time.Time
+	now                 func() time.Time
 	// toolSeen records that the CLI requested or ran any tool, host or native,
 	// during this invocation. reportsEveryTool is set for adapters whose
 	// protocol shows every tool request before it runs, so only for them does
@@ -317,28 +322,83 @@ type rpcRequest struct {
 }
 
 type tokenUsage struct {
-	Input  *int `json:"input_tokens"`
-	Output *int `json:"output_tokens"`
+	Input              *int `json:"input_tokens"`
+	Output             *int `json:"output_tokens"`
+	CacheRead          *int `json:"cache_read_input_tokens"`
+	CacheCreation      *int `json:"cache_creation_input_tokens"`
+	CachedInput        *int `json:"cached_input_tokens"`
+	Cached             *int `json:"cached"`
+	InputTokensDetails *struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"input_tokens_details"`
+	ReportedCostUSD    *float64 `json:"-"`
+	InputIncludesCache bool     `json:"-"`
+}
+
+func firstIntPtr(values ...*int) *int {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func validCost(cost *float64) bool {
+	if cost == nil {
+		return true
+	}
+	return !math.IsNaN(*cost) && !math.IsInf(*cost, 0) && *cost >= 0
 }
 
 func (b *bridge) recordUsage(usage tokenUsage) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if usage.Input == nil && usage.Output == nil {
+	var detailsCached *int
+	if usage.InputTokensDetails != nil {
+		detailsCached = usage.InputTokensDetails.CachedTokens
+	}
+	cacheRead := firstIntPtr(usage.CacheRead, usage.CachedInput, usage.Cached, detailsCached)
+	cacheCreation := usage.CacheCreation
+	if usage.Input == nil && usage.Output == nil && cacheRead == nil && cacheCreation == nil && usage.ReportedCostUSD == nil {
 		return nil
 	}
-	if (usage.Input != nil && *usage.Input < 0) || (usage.Output != nil && *usage.Output < 0) {
+	if (usage.Input != nil && *usage.Input < 0) ||
+		(usage.Output != nil && *usage.Output < 0) ||
+		(cacheRead != nil && *cacheRead < 0) ||
+		(cacheCreation != nil && *cacheCreation < 0) ||
+		!validCost(usage.ReportedCostUSD) {
 		return newFailure(FailureProtocol, "native CLI returned invalid token usage")
+	}
+	// Normalize providers whose input_tokens includes cached prompt tokens
+	// (Codex, Gemini) to disjoint uncached input + cache_read so total tokens
+	// and cache hit ratios never double-count.
+	inputVal := usage.Input
+	if usage.InputIncludesCache && inputVal != nil && cacheRead != nil {
+		uncached := *inputVal - *cacheRead
+		if uncached < 0 {
+			uncached = 0
+		}
+		inputVal = &uncached
 	}
 	// Usage is assigned, never summed: the same cumulative values can be
 	// reported by more than one frame. A partial report must not overwrite a
 	// complete known value on the failure path; partial known fields are kept
 	// until the other side makes the pair complete.
-	if usage.Input != nil && (!b.usageKnown || usage.Output != nil) {
-		b.inputTokens, b.inputKnown = *usage.Input, true
+	if inputVal != nil && (!b.usageKnown || usage.Output != nil) {
+		b.inputTokens, b.inputKnown = *inputVal, true
 	}
-	if usage.Output != nil && (!b.usageKnown || usage.Input != nil) {
+	if usage.Output != nil && (!b.usageKnown || inputVal != nil) {
 		b.outputTokens, b.outputKnown = *usage.Output, true
+	}
+	if cacheRead != nil && (!b.usageKnown || (inputVal != nil && usage.Output != nil) || b.cacheReadTokens == 0) {
+		b.cacheReadTokens = *cacheRead
+	}
+	if cacheCreation != nil && (!b.usageKnown || (inputVal != nil && usage.Output != nil) || b.cacheCreationTokens == 0) {
+		b.cacheCreationTokens = *cacheCreation
+	}
+	if usage.ReportedCostUSD != nil {
+		b.reportedCostUSD, b.costKnown = *usage.ReportedCostUSD, true
 	}
 	b.usageKnown = b.inputKnown && b.outputKnown
 	return nil
@@ -354,7 +414,18 @@ func (b *bridge) emitUsage() error {
 	if b.observeFailed {
 		return b.err
 	}
-	if err := b.observe("usage", map[string]any{"known": b.usageKnown, "input_tokens": b.inputTokens, "output_tokens": b.outputTokens}); err != nil {
+	payload := map[string]any{
+		"known":                 b.usageKnown,
+		"input_tokens":          b.inputTokens,
+		"output_tokens":         b.outputTokens,
+		"cache_read_tokens":     b.cacheReadTokens,
+		"cache_creation_tokens": b.cacheCreationTokens,
+	}
+	if b.costKnown {
+		payload["cost_known"] = true
+		payload["reported_cost_usd"] = b.reportedCostUSD
+	}
+	if err := b.observe("usage", payload); err != nil {
 		// Keep an earlier protocol failure as the attempt's primary kind; the
 		// observation error is still returned and joined by the caller.
 		if b.err == nil {

@@ -387,6 +387,10 @@ type Attempt struct {
 	UsageCompleteness   string           `json:"usage_completeness,omitempty"`
 	InputTokens         int64            `json:"input_tokens,omitempty"`
 	OutputTokens        int64            `json:"output_tokens,omitempty"`
+	CacheReadTokens     int64            `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty"`
+	ReportedCostUSD     float64          `json:"reported_cost_usd,omitempty"`
+	CostKnown           bool             `json:"cost_known,omitempty"`
 	LivenessWarning     *LivenessWarning `json:"liveness_warning,omitempty"`
 	Process             *ProcessRef      `json:"process,omitempty"`
 	StartedAt           string           `json:"started_at"`

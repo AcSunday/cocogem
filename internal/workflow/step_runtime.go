@@ -565,6 +565,9 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 		known, _ := data["known"].(bool)
 		turn := stringValue(data["semantics"]) == "turn"
 		input, output := int64(intValue(data["input_tokens"])), int64(intValue(data["output_tokens"]))
+		cacheRead, cacheCreation := int64(intValue(data["cache_read_tokens"])), int64(intValue(data["cache_creation_tokens"]))
+		costKnown, _ := data["cost_known"].(bool)
+		costUSD := floatValue(data["reported_cost_usd"])
 		// Native usage is emitted after cancellation/stall cleanup, so the write
 		// cannot depend on the stopped step context.
 		usageCtx, usageCancel := context.WithTimeout(context.WithoutCancel(x.ctx), 5*time.Second)
@@ -578,6 +581,8 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 				if known {
 					current.InputTokens += input
 					current.OutputTokens += output
+					current.CacheReadTokens += cacheRead
+					current.CacheCreationTokens += cacheCreation
 					if current.UsageCompleteness == "" || current.UsageCompleteness == "known" {
 						current.UsageCompleteness = "known"
 					} else {
@@ -588,16 +593,35 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 				} else {
 					current.UsageCompleteness = "unknown"
 				}
+				if costKnown && costUSD >= 0 {
+					current.ReportedCostUSD += costUSD
+					current.CostKnown = true
+				}
 			} else if known {
 				current.InputTokens, current.OutputTokens = input, output
+				current.CacheReadTokens, current.CacheCreationTokens = cacheRead, cacheCreation
+				if costKnown && costUSD >= 0 {
+					current.ReportedCostUSD = costUSD
+					current.CostKnown = true
+				}
 				current.UsageCompleteness = "known"
-			} else if input > 0 || output > 0 {
+			} else if input > 0 || output > 0 || cacheRead > 0 || cacheCreation > 0 {
 				// The native CLI can report one side of a cumulative pair.
 				if input > 0 {
 					current.InputTokens = input
 				}
 				if output > 0 {
 					current.OutputTokens = output
+				}
+				if cacheRead > 0 {
+					current.CacheReadTokens = cacheRead
+				}
+				if cacheCreation > 0 {
+					current.CacheCreationTokens = cacheCreation
+				}
+				if costKnown && costUSD >= 0 {
+					current.ReportedCostUSD = costUSD
+					current.CostKnown = true
 				}
 				current.UsageCompleteness = "partial"
 			} else if current.UsageCompleteness == "" {
