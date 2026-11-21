@@ -15,7 +15,7 @@ const hostToolDeadline = 20 * time.Second
 const testToolDeadline = 10 * time.Minute
 
 func toolDeadline(name string) time.Duration {
-	if name == "run_test" || name == "run_command" {
+	if name == "run_test" || name == "run_command" || name == "preview_page" {
 		return testToolDeadline
 	}
 	return hostToolDeadline

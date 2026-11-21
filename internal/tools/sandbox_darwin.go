@@ -48,6 +48,18 @@ func prepareCommandSandbox(ctx context.Context, spec sandboxSpec) (sandboxPlan, 
 
 func darwinProfile(spec sandboxSpec) string {
 	readPaths := []string{"/usr", "/bin", "/sbin", "/System", "/dev", spec.Root, spec.Temp, spec.Toolchain.GoRoot, spec.Toolchain.GoModCache, spec.Toolchain.NPMRoot, spec.Toolchain.NodePath}
+	readPaths = append(readPaths, spec.Toolchain.ExecRoots...)
+	readPaths = append(readPaths, spec.Toolchain.ReadRoots...)
+	if spec.AllowUserToolchains {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			for _, rel := range []string{".nvm", ".pyenv", ".cargo", ".rustup/toolchains", ".bun", ".volta", ".asdf/installs", ".local/bin", ".local/share/mise", ".local/share/pnpm", ".local/share/uv", ".cache/uv", "go/pkg/mod", "go/bin"} {
+				readPaths = append(readPaths, filepath.Join(home, rel))
+			}
+		}
+	}
+	if spec.AllowTmp {
+		readPaths = append(readPaths, "/tmp", "/private/tmp")
+	}
 	// The scope's attachment inputs are an explicit read-only allow; they are
 	// never a write root, so a delivered file can never be silently replaced.
 	readPaths = append(readPaths, spec.ExtraReads...)
@@ -57,12 +69,20 @@ func darwinProfile(spec sandboxSpec) string {
 	readLiterals = append(readLiterals, spec.ExtraWrites...)
 	execPaths := []string{"/bin/sh", "/bin/bash", "/usr/bin/env", spec.Root, spec.Temp, spec.Toolchain.GoRoot, spec.Toolchain.NPMRoot, spec.Toolchain.NodePath}
 	execPaths = append(execPaths, spec.Toolchain.ExecRoots...)
+	if spec.AllowTmp {
+		execPaths = append(execPaths, "/tmp", "/private/tmp")
+	}
 	if len(spec.Toolchain.Command) > 0 {
 		readPaths = append(readPaths, spec.Toolchain.Command[0])
 		execPaths = append(execPaths, spec.Toolchain.Command[0])
 	}
 	var out strings.Builder
 	out.WriteString("(version 1)\n(deny default)\n(deny network*)\n(deny appleevent-send)\n")
+	if spec.AllowLoopback {
+		out.WriteString("(allow network-bind (local ip \"localhost:*\"))\n")
+		out.WriteString("(allow network-inbound (local ip \"localhost:*\"))\n")
+		out.WriteString("(allow network-outbound (remote ip \"localhost:*\"))\n")
+	}
 	out.WriteString("(allow file-read-metadata)\n")
 	// The literal root directory is needed for path resolution; content access
 	// stays limited to the exact subtrees below.
@@ -76,7 +96,15 @@ func darwinProfile(spec sandboxSpec) string {
 	out.WriteString(")\n")
 	out.WriteString("(allow file-write*")
 	// Writing devices other than /dev/null is neither needed nor allowed.
-	for _, path := range append([]string{spec.Root, spec.Temp}, spec.ExtraWrites...) {
+	writeTargets := []string{spec.Temp}
+	if !spec.ReadOnly {
+		writeTargets = append([]string{spec.Root}, writeTargets...)
+		if spec.AllowTmp {
+			writeTargets = append(writeTargets, "/tmp", "/private/tmp")
+		}
+		writeTargets = append(writeTargets, spec.ExtraWrites...)
+	}
+	for _, path := range writeTargets {
 		if path == "" {
 			continue
 		}
@@ -88,6 +116,13 @@ func darwinProfile(spec sandboxSpec) string {
 		}
 	}
 	out.WriteString(" (literal \"/dev/null\"))\n")
+	if spec.ReadOnly && spec.Root != "" {
+		out.WriteString("(deny file-write* (literal " + sbplString(spec.Root) + ") (subpath " + sbplString(spec.Root) + "))\n")
+	}
+	if spec.AllowTmp {
+		// Never expose ssh-agent sockets inside /tmp.
+		out.WriteString("(deny file-read* file-write* (regex #\"^(/private)?/tmp/ssh-[^/]+(/|$)\"))\n")
+	}
 	// A denylist emitted after the write allows overrides them; a source repo's
 	// hooks, config and branch refs must never be rewritten by a command.
 	for _, path := range spec.DenyWrites {
@@ -114,12 +149,32 @@ func darwinProfile(spec sandboxSpec) string {
 	// Deny rules come last: they override the subtree allows. The two system
 	// helpers stay unreadable as well as non-executable, so test code cannot copy
 	// them into the project and exec the copy; Seatbelt does not fully filter
-	// launchd XPC traffic, so this matters. Secrets inside the project are denied
-	// case by case, including files created after profile build.
+	// launchd XPC traffic, so this matters. Secrets inside the project and user
+	// credential directories are denied by default.
 	out.WriteString("(deny file-read-data (literal \"/bin/launchctl\") (literal \"/usr/bin/osascript\"))\n")
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if resolvedHome, err := filepath.EvalSymlinks(home); err == nil {
+			home = resolvedHome
+		}
+		for _, rel := range []string{".ssh", ".aws", ".gnupg", ".kube", ".git-credentials", ".npmrc", ".netrc"} {
+			p := filepath.Join(home, rel)
+			out.WriteString("(deny file-read* file-write* (literal " + sbplString(p) + ") (subpath " + sbplString(p) + "))\n")
+		}
+	}
 	sensitive := sensitiveRegex(spec.Root)
 	out.WriteString("(deny file-read-data (regex #\"" + sensitive + "\"))\n")
 	out.WriteString("(deny file-write* (regex #\"" + sensitive + "\"))\n")
+	// Single-use explicitly approved sensitive file exemptions are emitted AFTER
+	// the sensitive deny rules so one-shot human approval genuinely takes effect.
+	for _, path := range spec.AllowSensitive {
+		if path == "" {
+			continue
+		}
+		out.WriteString("(allow file-read-data (literal " + sbplString(path) + "))\n")
+		if !spec.ReadOnly {
+			out.WriteString("(allow file-write* (literal " + sbplString(path) + "))\n")
+		}
+	}
 	return out.String()
 }
 

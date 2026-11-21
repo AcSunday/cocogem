@@ -10,7 +10,7 @@ description: "Use when a task needs delegation, review or synthesis across membe
 
 ## 车道
 
-读取 [共享参考：车道选择](references/../_shared/references/lane-selection.md)（通过 `read_skill`，`skill_id="_shared"`，`resource="references/lane-selection.md"`），按可逆性、影响面、证据可得性、异构性和持续性五个轴判断：
+读取 [共享参考：车道选择](../_shared/references/lane-selection.md)（通过 `read_skill`，`skill_id="_shared"`，`resource="references/lane-selection.md"`），按可逆性、影响面、证据可得性、异构性和持续性五个轴判断：
 
 - 局部、可逆、证据充分 → 单人直达。
 - 有风险但边界清楚 → `handoff_task(mode="relay")` 交给执行者，由执行者直接找独立复核者。

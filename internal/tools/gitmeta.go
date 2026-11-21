@@ -34,6 +34,9 @@ func WorktreeMeta(root string) (worktreeGitDir, commonGitDir string) {
 		gitDir = filepath.Join(root, gitDir)
 	}
 	gitDir = filepath.Clean(gitDir)
+	if resolved, err := filepath.EvalSymlinks(gitDir); err == nil {
+		gitDir = resolved
+	}
 	if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
 		return "", ""
 	}
@@ -45,28 +48,37 @@ func WorktreeMeta(root string) (worktreeGitDir, commonGitDir string) {
 		}
 		common = filepath.Clean(common)
 	}
+	if resolved, err := filepath.EvalSymlinks(common); err == nil {
+		common = resolved
+	}
 	return gitDir, common
 }
 
 // GitMetadataDenies lists the source repository paths a sandboxed command must
 // never write: hooks, repository config, branch refs and the packed refs file.
+// Paths are emitted unconditionally (even if packed-refs or config.worktree do
+// not exist yet) so a command cannot create them either.
 func GitMetadataDenies(root string) []string {
 	_, common := WorktreeMeta(root)
 	if common == "" {
+		// Also protect a normal checkout's .git directory when running directly.
+		gitPath := filepath.Join(root, ".git")
+		if info, err := os.Lstat(gitPath); err == nil && info.IsDir() {
+			if resolved, err := filepath.EvalSymlinks(gitPath); err == nil {
+				common = resolved
+			} else {
+				common = gitPath
+			}
+		}
+	}
+	if common == "" {
 		return nil
 	}
-	paths := []string{
+	return []string{
 		filepath.Join(common, "hooks"),
 		filepath.Join(common, "config"),
 		filepath.Join(common, "config.worktree"),
 		filepath.Join(common, "refs", "heads"),
 		filepath.Join(common, "packed-refs"),
 	}
-	out := []string{}
-	for _, path := range paths {
-		if _, err := os.Lstat(path); err == nil {
-			out = append(out, path)
-		}
-	}
-	return out
 }

@@ -44,7 +44,7 @@ func text(description string) map[string]any {
 // Definitions returns schemas only for explicitly allowed capabilities.
 func Definitions(names []string) []model.Tool {
 	defs := map[string]model.Tool{
-		"run_command":    {Name: "run_command", Description: "Execute an argv command in this task's persistent working directory using explicitly authorized full access. Use Python, document/image libraries, converters and installed tools as needed; inspect available programs first. This is not a sandbox: local files, network and existing credentials may be accessible. Work on copies, preserve inputs, obey the user's objective and publish actual output files with publish_file. No shell is inserted; use an explicit shell argv only when needed. Captures exit code and bounded output. Never rerun an uncertain external write.", Schema: object(map[string]any{"argv": map[string]any{"type": "array", "minItems": 1, "maxItems": 128, "items": text("An exact argv element")}, "cwd": text("Relative directory under the task working directory; default ."), "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600}}, "argv")},
+		"run_command":    {Name: "run_command", Description: "Execute an argv command in this workspace or task working directory. Under workspace_autonomous it runs inside the host OS sandbox (allowing the bound worktree, IO exchange directories, /tmp and loopback); under full_access it runs directly with host credentials. Work on copies, preserve inputs, obey the user's objective and publish actual output files with publish_file. No shell is inserted; use an explicit shell argv only when needed. Captures exit code and bounded output. Never rerun an uncertain external write.", Schema: object(map[string]any{"argv": map[string]any{"type": "array", "minItems": 1, "maxItems": 128, "items": text("An exact argv element")}, "cwd": text("Relative directory under the working directory; default ."), "timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600}}, "argv")},
 		"view_image":     {Name: "view_image", Description: "Return actual image pixels to the model, with a captured source ID. Supply either a path in the bound project/task directory or an authorized image source_id. Do not infer image contents from filenames. PNG, JPEG and GIF are decoded; use available conversion tools for other image formats.", Schema: object(map[string]any{"path": text("Relative image path, or an absolute path inside this task/project"), "source_id": text("Authorized image source ID")})},
 		"publish_file":   {Name: "publish_file", Description: "Deliver real files created in this task's working directory. The host snapshots the bytes, computes hashes and adds download links to the final deliverable. Accepts any file format; a filename alone is not a delivery. Verify the file opens and the requested content/format is correct before publication. Intermediate authors leave files in the task directory and return exact paths to the final publisher.", Schema: object(map[string]any{"paths": map[string]any{"type": "array", "minItems": 1, "maxItems": 10, "items": text("Relative output file path under the task working directory")}, "title": text("Deliverable title"), "body": text("What was delivered, checks and remaining limitations")}, "paths", "title", "body")},
 		"read_source":    {Name: "read_source", Description: "Page an exact captured source visible in this step's input snapshot. Does not refresh the original.", Schema: object(map[string]any{"source_id": text("Captured source UUID"), "cursor": text("Opaque next_cursor from the previous page"), "max_bytes": map[string]any{"type": "integer", "minimum": 1, "maximum": w.MaxTextPageBytes}}, "source_id")},
@@ -135,6 +135,8 @@ type Scope struct {
 	// ReadOnly is the plan-only / parallel-pass lock. A read-only step never
 	// starts project code, so a command-mode preview is refused.
 	ReadOnly bool
+	// AllowSensitive marks an exact sensitive file path approved once by the user.
+	AllowSensitive bool
 }
 
 // Execute returns a JSON observation for a registered host operation. run_test,
@@ -220,6 +222,7 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 		if scope.ReadOnly && strings.EqualFold(strings.TrimSpace(in.Mode), "command") {
 			return "", errors.New("read_only_step: a command-mode preview starts project code; use mode=static in a read-only turn")
 		}
+		in.TrustedCommand = scope.ExecutionMode == w.ExecutionFullAccess
 		preview, err := RunPreview(ctx, scope.Root, in)
 		if err != nil {
 			return "", err
@@ -230,6 +233,15 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 				return "", encodeErr
 			}
 			return string(encoded), nil
+		}
+		if len(preview.ScreenshotPNG) == 0 {
+			result = map[string]any{
+				"rendered": false, "origin": preview.Origin, "title": preview.Title,
+				"console_errors": preview.ConsoleErrors, "page_errors": preview.PageErrors,
+				"ax_tree_summary": preview.AXTree, "duration_ms": preview.DurationMS,
+				"worktree_changed": false,
+			}
+			return marshalObservation(result)
 		}
 		var sourceID string
 		if scope.Capture != nil {
@@ -268,7 +280,13 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 		if err != nil {
 			return "", err
 		}
-		source, err := scope.Capture(w.Source{Kind: "test", Title: test.Command, Path: test.Target, SHA256: test.WorkspaceSHA256, Content: test.Output, CapturedAt: w.Now(), Truncated: test.Truncated, ExitCode: test.ExitCode, TimedOut: test.TimedOut})
+		// Only kind="test" verifies behaviour and may transition a candidate to
+		// verified; typecheck/lint/build are recorded as supporting "check" sources.
+		sourceKind := "test"
+		if test.Kind != "" && test.Kind != TestKindTest {
+			sourceKind = "check"
+		}
+		source, err := scope.Capture(w.Source{Kind: sourceKind, Title: test.Command, Path: test.Target, SHA256: test.WorkspaceSHA256, Content: test.Output, CapturedAt: w.Now(), Truncated: test.Truncated, ExitCode: test.ExitCode, TimedOut: test.TimedOut})
 		if err != nil {
 			return "", err
 		}
@@ -305,7 +323,13 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 		if in.Path == "" {
 			return "", errors.New("path is required")
 		}
-		source, err := ReadFile(ctx, scope.Root, in.Path, in.Start, in.End)
+		var source w.Source
+		var err error
+		if scope.AllowSensitive {
+			source, err = ReadFileApproved(ctx, scope.Root, in.Path, in.Start, in.End)
+		} else {
+			source, err = ReadFile(ctx, scope.Root, in.Path, in.Start, in.End)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -525,12 +549,14 @@ func rebindApprovedTarget(name string, raw *json.RawMessage, scope *Scope) bool 
 	for _, approved := range scope.ApprovedRoots {
 		root := approved
 		local := ""
+		exactApproved := false
 		if resolved == root {
 			// An exact file approval: operate on its parent with its base name.
 			if info, err := os.Lstat(resolved); err == nil && info.IsDir() {
 				local = "."
 			} else {
 				root, local = filepath.Dir(resolved), filepath.Base(resolved)
+				exactApproved = true
 			}
 		} else if rel, err := filepath.Rel(root, resolved); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			local = rel
@@ -538,7 +564,10 @@ func rebindApprovedTarget(name string, raw *json.RawMessage, scope *Scope) bool 
 			continue
 		}
 		if DeniedPath(local) {
-			return false
+			if !exactApproved {
+				return false
+			}
+			scope.AllowSensitive = true
 		}
 		scope.Root, scope.WorkDir = root, ""
 		args["path"], _ = json.Marshal(local)

@@ -169,7 +169,12 @@ func load(source fs.FS) (*library, error) {
 // folded/literal multi-line blocks for `description`, and rejects unknown keys so
 // a skill cannot smuggle executable configuration through metadata.
 func parseInfo(id, content string) (Info, error) {
+	return parseInfoWithMarkers(id, content, true)
+}
+
+func parseInfoWithMarkers(id, content string, requireMarkers bool) (Info, error) {
 	info := Info{ID: id}
+	content = strings.ReplaceAll(content, "\r\n", "\n")
 	if !strings.HasPrefix(content, "---\n") {
 		return info, fmt.Errorf("skill %q requires frontmatter", id)
 	}
@@ -200,18 +205,32 @@ func parseInfo(id, content string) (Info, error) {
 		}
 		switch value {
 		case ">", "|", ">-", "|-":
-			// A folded or literal block: every following indented line belongs to
-			// this value. Blank lines separate paragraphs for the `>` form.
+			// A folded or literal block: every following indented (or blank
+			// separator) line belongs to this value.
 			block := []string{}
-			for index+1 < len(lines) && (strings.HasPrefix(lines[index+1], " ") || strings.HasPrefix(lines[index+1], "\t")) {
-				index++
-				block = append(block, strings.TrimSpace(lines[index]))
+			for index+1 < len(lines) {
+				next := lines[index+1]
+				if strings.HasPrefix(next, " ") || strings.HasPrefix(next, "\t") {
+					index++
+					block = append(block, strings.TrimSpace(next))
+					continue
+				}
+				if strings.TrimSpace(next) == "" && index+2 < len(lines) && (strings.HasPrefix(lines[index+2], " ") || strings.HasPrefix(lines[index+2], "\t")) {
+					index++
+					block = append(block, "")
+					continue
+				}
+				break
 			}
 			separator := " "
 			if strings.HasPrefix(value, "|") {
 				separator = "\n"
 			}
 			value = strings.TrimSpace(strings.Join(block, separator))
+		default:
+			if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+				value = strings.TrimSpace(value[1 : len(value)-1])
+			}
 		}
 		fields[key] = value
 	}
@@ -225,9 +244,11 @@ func parseInfo(id, content string) (Info, error) {
 	if len([]rune(description)) > maxDescription {
 		return info, fmt.Errorf("skill %q description is %d characters, over the %d-character budget", id, len([]rune(description)), maxDescription)
 	}
-	for _, marker := range requiredDescriptionMarkers {
-		if !strings.Contains(description, marker) {
-			return info, fmt.Errorf("skill %q description must contain %q", id, marker)
+	if requireMarkers {
+		for _, marker := range requiredDescriptionMarkers {
+			if !strings.Contains(description, marker) {
+				return info, fmt.Errorf("skill %q description must contain %q", id, marker)
+			}
 		}
 	}
 	info.Name, info.Description, info.Category = fields["name"], description, fields["category"]
@@ -365,7 +386,20 @@ func projectSkills(root string) ([]Info, map[string]string, error) {
 	if root == "" {
 		return infos, resources, nil
 	}
-	dir := filepath.Join(root, ".agents", "skills")
+	// Check BOTH .agents and .agents/skills with Lstat so a symlinked .agents
+	// parent directory cannot escape the bound project root.
+	agentsDir := filepath.Join(root, ".agents")
+	agentsInfo, err := os.Lstat(agentsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return infos, resources, nil
+		}
+		return infos, resources, nil
+	}
+	if agentsInfo.Mode()&os.ModeSymlink != 0 || !agentsInfo.IsDir() {
+		return infos, resources, fmt.Errorf("project .agents path is not a real directory")
+	}
+	dir := filepath.Join(agentsDir, "skills")
 	info, err := os.Lstat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -392,10 +426,10 @@ func projectSkills(root string) ([]Info, map[string]string, error) {
 		ids = append(ids, entry.Name())
 	}
 	slices.Sort(ids)
-	if len(ids) > maxProjectSkills {
-		ids = ids[:maxProjectSkills]
-	}
 	for _, id := range ids {
+		if len(infos) >= maxProjectSkills {
+			break
+		}
 		skillDir := filepath.Join(dir, id)
 		if entryInfo, err := os.Lstat(skillDir); err != nil || entryInfo.Mode()&os.ModeSymlink != 0 {
 			continue
@@ -430,48 +464,10 @@ func projectSkills(root string) ([]Info, map[string]string, error) {
 	return infos, resources, nil
 }
 
-// parseProjectInfo applies the same bounded metadata rules to a project skill
-// without requiring the built-in wording markers, because a project skill is the
-// project's own convention. The size and line budgets still apply.
+// parseProjectInfo applies the same bounded metadata rules and unknown-key
+// checks to a project skill without requiring the built-in wording markers.
 func parseProjectInfo(id, content string) (Info, error) {
-	info, err := parseInfo(id, content)
-	if err != nil {
-		// Retry without the built-in marker requirement by measuring directly.
-		return parseProjectInfoLenient(id, content)
-	}
-	return info, nil
-}
-
-func parseProjectInfoLenient(id, content string) (Info, error) {
-	info := Info{ID: id}
-	if !strings.HasPrefix(content, "---\n") {
-		return info, fmt.Errorf("project skill %q requires frontmatter", id)
-	}
-	frontmatter, body, ok := strings.Cut(content[4:], "\n---\n")
-	if !ok || strings.TrimSpace(body) == "" {
-		return info, fmt.Errorf("project skill %q requires instructions", id)
-	}
-	if lines := strings.Count(strings.TrimRight(body, "\n"), "\n") + 1; lines > maxBodyLines {
-		return info, fmt.Errorf("project skill %q body exceeds the %d-line budget", id, maxBodyLines)
-	}
-	name, description := "", ""
-	for _, line := range strings.Split(frontmatter, "\n") {
-		key, value, found := strings.Cut(line, ":")
-		if !found {
-			continue
-		}
-		switch strings.TrimSpace(key) {
-		case "name":
-			name = strings.TrimSpace(value)
-		case "description":
-			description = strings.TrimSpace(value)
-		}
-	}
-	if name != id || description == "" || len([]rune(description)) > maxDescription {
-		return info, fmt.Errorf("project skill %q has invalid metadata", id)
-	}
-	info.Name, info.Description = name, description
-	return info, nil
+	return parseInfoWithMarkers(id, content, false)
 }
 
 // sensitivePath mirrors the host file-tool deny policy for discovery: a project

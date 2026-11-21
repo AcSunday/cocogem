@@ -92,17 +92,44 @@ func TestPreviewCommandStopsTheOwnedGroup(t *testing.T) {
 	if _, err := execLookPathForTest(t, "/bin/sh"); err != nil {
 		t.Skip("sh is unavailable")
 	}
+	root := t.TempDir()
 	script := "printf 'preview up on %s\\n' \"$PORT\"; sleep 60"
-	origin, cmd, err := startPreviewCommand(context.Background(), []string{"/bin/sh", "-c", "sleep 1; " + script})
+	origin, cmd, cleanup, err := startPreviewCommand(context.Background(), root, []string{"/bin/sh", "-c", "sleep 1; " + script}, false)
 	if err == nil {
 		stopPreviewCommand(cmd)
+		if cleanup != nil {
+			cleanup()
+		}
 		t.Fatalf("a command that never answered was reported ready: %s", origin)
 	}
 	if !strings.Contains(err.Error(), "did not answer") {
 		t.Fatalf("unexpected preview command error: %v", err)
 	}
-	if _, _, err := startPreviewCommand(context.Background(), nil); err == nil {
+	if _, _, _, err := startPreviewCommand(context.Background(), root, nil, false); err == nil {
 		t.Fatal("an empty preview command was accepted")
+	}
+}
+
+func TestServeStaticProjectRejectsSymlinkDirectoryEscape(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.html"), []byte("<h1>secret</h1>"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(project, "site")); err != nil {
+		t.Fatal(err)
+	}
+	if _, closeFn, err := ServeStaticProject(context.Background(), project, "site/secret.html"); err == nil {
+		closeFn()
+		t.Fatal("ServeStaticProject followed a symlinked directory outside the project root")
+	}
+}
+
+func TestPreviewAXTreeDecodesCDPAccessibilityNodes(t *testing.T) {
+	raw := []byte(`[{"role":{"type":"role","value":"RootWebArea"},"name":{"type":"computedString","value":"Dashboard"},"childIds":["2","3"]},{"role":{"type":"role","value":"heading"},"name":{"type":"computedString","value":"Hello"}}]`)
+	summary := previewAXTree(raw)
+	if !strings.Contains(summary, "RootWebArea: Dashboard") || !strings.Contains(summary, "2 nodes") || !strings.Contains(summary, "2 child nodes") {
+		t.Fatalf("unexpected AXTree summary: %q", summary)
 	}
 }
 

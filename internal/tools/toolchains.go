@@ -32,9 +32,9 @@ const (
 	TestKindBuild     = "build"
 )
 
-// testFilterPattern keeps the filter to a single test selector, so it cannot be
-// read as another flag or a shell fragment.
-var testFilterPattern = regexp.MustCompile(`^[A-Za-z0-9_./:-]{1,240}$`)
+// testFilterPattern keeps the filter to a single test selector, forbidding
+// leading `-` flag injection and `..` path traversal.
+var testFilterPattern = regexp.MustCompile(`^[A-Za-z0-9_./:][A-Za-z0-9_./:-]{0,239}$`)
 
 // normalizeTestInput validates the enum and derives the exact argv. It never
 // accepts an arbitrary command.
@@ -58,8 +58,8 @@ func normalizeTestInput(in RunTestInput) (RunTestInput, error) {
 		return in, errors.New("unsupported test kind: use test, typecheck, lint or build")
 	}
 	filter := strings.TrimSpace(in.Filter)
-	if filter != "" && !testFilterPattern.MatchString(filter) {
-		return in, errors.New("test filter must match ^[A-Za-z0-9_./:-]+$ and be at most 240 characters")
+	if filter != "" && (!testFilterPattern.MatchString(filter) || strings.Contains(filter, "..")) {
+		return in, errors.New("test filter must match ^[A-Za-z0-9_./:][A-Za-z0-9_./:-]{0,239}$ without .. traversal")
 	}
 	if in.TimeoutSeconds != 0 && (in.TimeoutSeconds < 1 || in.TimeoutSeconds > 600) {
 		return in, errors.New("timeout_seconds must be between 1 and 600")
@@ -104,8 +104,11 @@ func toolchainCommand(kind, toolchain, filter string) ([]string, error) {
 		case TestKindTest:
 			args := []string{"test", "-count=1"}
 			if filter != "" {
-				// The filter is either a package path or a run expression.
-				if strings.Contains(filter, "/") && !strings.ContainsAny(filter, "^$*[]()|+?") {
+				// Standard Go subtest filters (TestFoo/SubTest, BenchmarkFoo/Sub)
+				// must go to `-run`, while an explicit relative package path
+				// (e.g. `./pkg/sub` or `internal/foo`) targets that package.
+				isSubtest := strings.HasPrefix(filter, "Test") || strings.HasPrefix(filter, "Benchmark") || strings.HasPrefix(filter, "Example") || strings.HasPrefix(filter, "Fuzz")
+				if !isSubtest && strings.Contains(filter, "/") && !strings.ContainsAny(filter, "^$*[]()|+?") && filepath.IsLocal(strings.TrimPrefix(filter, "./")) {
 					args = append(args, "./"+strings.TrimPrefix(filter, "./"))
 				} else {
 					args = append(args, "-run", filter, "./...")
@@ -273,9 +276,10 @@ func resolveNodeToolchain(ctx context.Context, toolchain, target, filter, temp s
 		}
 		root := resolvePackageManagerRoot(managerPath, "pnpm")
 		return toolchainSpec{
-			Command: []string{managerPath, "run", "test"},
-			Display: "pnpm run test",
-			Env:     nodeTestEnv(temp, nodePath, managerPath, "pnpm"),
+			Command:  []string{resolveExecutable(managerPath)},
+			Display:  "pnpm",
+			NodePath: nodePath,
+			Env:      nodeTestEnv(temp, nodePath, managerPath, "pnpm"),
 			ExecRoots: []string{
 				filepath.Dir(nodePath), filepath.Dir(managerPath), root,
 			},
@@ -287,9 +291,10 @@ func resolveNodeToolchain(ctx context.Context, toolchain, target, filter, temp s
 		}
 		root := resolvePackageManagerRoot(managerPath, "yarn")
 		return toolchainSpec{
-			Command: []string{managerPath, "test"},
-			Display: "yarn test",
-			Env:     nodeTestEnv(temp, nodePath, managerPath, "yarn"),
+			Command:  []string{resolveExecutable(managerPath)},
+			Display:  "yarn",
+			NodePath: nodePath,
+			Env:      nodeTestEnv(temp, nodePath, managerPath, "yarn"),
 			ExecRoots: []string{
 				filepath.Dir(nodePath), filepath.Dir(managerPath), root,
 			},
@@ -304,7 +309,7 @@ func resolveNodeToolchain(ctx context.Context, toolchain, target, filter, temp s
 	if err != nil {
 		return toolchainSpec{}, err
 	}
-	return toolchainSpec{Command: command, Display: "npm test --silent", NodePath: nodePath, NPMRoot: npmRoot, Env: nodeTestEnv(temp, nodePath, npmPath, "npm"),
+	return toolchainSpec{Command: command, Display: "npm", NodePath: nodePath, NPMRoot: npmRoot, Env: nodeTestEnv(temp, nodePath, npmPath, "npm"),
 		ExecRoots: []string{filepath.Dir(nodePath), filepath.Dir(npmPath), npmRoot}}, nil
 }
 
@@ -352,18 +357,16 @@ func resolvePytestToolchain(ctx context.Context, target, filter, temp string) (t
 		"PATH="+strings.Join([]string{filepath.Dir(interpreter), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, ":"),
 		"PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1", "PYTHONHASHSEED=0", "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
 	)
-	args := []string{"-q"}
-	if filter != "" {
-		args = append(args, "-k", filter)
-	}
 	roots := []string{filepath.Dir(interpreter), filepath.Dir(pytestPath)}
 	if root := pythonPackageRoot(pytestPath); root != "" {
 		roots = append(roots, root)
 	}
+	// Return only the executable prefix; toolchainCommand supplies -q/-k/--collect-only.
 	return toolchainSpec{
-		Command: append([]string{interpreter, pytestPath}, args...),
-		Display: "pytest " + strings.Join(args, " "),
-		Env:     env, ExecRoots: roots,
+		Command:   []string{interpreter, pytestPath},
+		Display:   "pytest",
+		Env:       env,
+		ExecRoots: roots,
 	}, nil
 }
 
@@ -372,22 +375,35 @@ func resolveCargoToolchain(ctx context.Context, target, filter, temp string) (to
 	if err != nil {
 		return toolchainSpec{}, errors.New("cargo is not installed")
 	}
-	cargoRoot := filepath.Dir(filepath.Dir(resolveExecutable(cargoPath)))
+	resolvedCargo := resolveExecutable(cargoPath)
+	cargoRoot := filepath.Dir(filepath.Dir(resolvedCargo))
+	rustupHome := filepath.Join(temp, "rustup-home")
+	readRoots := []string{}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		userRustup := filepath.Join(home, ".rustup")
+		if info, statErr := os.Stat(userRustup); statErr == nil && info.IsDir() {
+			rustupHome = userRustup
+			readRoots = append(readRoots, userRustup)
+		}
+		userCargo := filepath.Join(home, ".cargo")
+		if info, statErr := os.Stat(userCargo); statErr == nil && info.IsDir() {
+			readRoots = append(readRoots, userCargo)
+		}
+	}
 	env := commonTestEnv(temp)
 	env = append(env,
 		"PATH="+strings.Join([]string{filepath.Dir(cargoPath), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, ":"),
 		"CARGO_HOME="+filepath.Join(temp, "cargo-home"),
-		"RUSTUP_HOME="+filepath.Join(temp, "rustup-home"),
+		"RUSTUP_HOME="+rustupHome,
 		"CARGO_NET_OFFLINE=true", "CARGO_TERM_COLOR=never", "CARGO_INCREMENTAL=0",
 	)
-	args := []string{"test"}
-	if filter != "" {
-		args = append(args, filter)
-	}
+	// Return only the executable prefix; toolchainCommand supplies test/check/clippy + filter.
 	return toolchainSpec{
-		Command: append([]string{resolveExecutable(cargoPath)}, args...),
-		Display: "cargo " + strings.Join(args, " "),
-		Env:     env, ExecRoots: []string{filepath.Dir(cargoPath), cargoRoot},
+		Command:   []string{resolvedCargo},
+		Display:   "cargo",
+		Env:       env,
+		ExecRoots: []string{filepath.Dir(cargoPath), cargoRoot},
+		ReadRoots: readRoots,
 	}, nil
 }
 

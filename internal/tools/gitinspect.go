@@ -39,16 +39,29 @@ const (
 var gitRevisionPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_./~^@-]{0,199}$`)
 
 // gitInspectArgs composes the fixed argv for one subcommand. The harden prefix
-// disables external diff drivers, textconv filters and repository hooks so a
-// command cannot execute project code as a side effect of reading history.
+// disables external diff drivers, textconv filters, fsmonitor helpers and
+// repository hooks so a command cannot execute project code as a side effect.
 func gitInspectArgs(in GitInspectInput, path string) ([]string, error) {
-	prefix := []string{"-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.pager=cat", "--no-pager"}
+	prefix := []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "diff.external=", "-c", "core.pager=cat", "--no-pager"}
+	sensitiveExcludes := []string{
+		":(exclude).env", ":(exclude).env.*", ":(exclude)**/.env", ":(exclude)**/.env.*",
+		":(exclude)*.pem", ":(exclude)**/*.pem", ":(exclude)*.key", ":(exclude)**/*.key",
+		":(exclude)secrets/**", ":(exclude)**/secrets/**", ":(exclude).cocogem/**",
+		":(exclude)*.sqlite", ":(exclude)**/*.sqlite", ":(exclude).git-credentials", ":(exclude)**/.git-credentials",
+	}
 	switch in.Subcommand {
 	case gitInspectStatus:
 		args := append(prefix, "status", "--porcelain=v1", "--branch", "--untracked-files=all", "--no-renames", "--", path)
 		return args, nil
 	case gitInspectDiff:
-		args := append(prefix, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--", path)
+		args := append(prefix, "diff", "--no-ext-diff", "--no-textconv", "--no-color")
+		if revision := strings.TrimSpace(in.Revision); revision != "" {
+			args = append(args, revision)
+		}
+		args = append(args, "--", path)
+		if path == "." {
+			args = append(args, sensitiveExcludes...)
+		}
 		return args, nil
 	case gitInspectLog:
 		limit := in.Limit
@@ -69,6 +82,9 @@ func gitInspectArgs(in GitInspectInput, path string) ([]string, error) {
 		args := append(prefix, "show", "--no-ext-diff", "--no-textconv", "--no-color", "--stat", "--format=fuller", revision)
 		if path != "" && path != "." {
 			args = append(args, "--", path)
+		} else {
+			args = append(args, "--", ".")
+			args = append(args, sensitiveExcludes...)
 		}
 		return args, nil
 	}
@@ -106,22 +122,29 @@ func GitInspect(ctx context.Context, root string, in GitInspectInput) (string, e
 	if path != "." && (len(path) > 512 || !filepath.IsLocal(path) || strings.HasPrefix(path, "-")) {
 		return "", errors.New("path must be a repository-relative path")
 	}
+	if path != "." && (DeniedPath(path) || SensitivePath(path)) {
+		return "", errors.New("git_inspect refuses sensitive or credential paths")
+	}
 	args, err := gitInspectArgs(in, path)
 	if err != nil {
 		return "", err
 	}
+	tmpHome, err := os.MkdirTemp("", "cocogem-git-inspect-*")
+	if err != nil {
+		return "", errors.New("could not prepare git_inspect environment")
+	}
+	defer os.RemoveAll(tmpHome)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = resolvedRoot
 	// The child receives a credential-free environment and never a user hook,
 	// SSH agent or credential helper.
 	cmd.Env = []string{
 		"PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-		"HOME=" + filepath.Join(os.TempDir(), "cocogem-git-inspect-home"),
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0",
+		"HOME=" + tmpHome,
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0",
 		"GIT_ASKPASS=/bin/false", "SSH_ASKPASS=/bin/false", "GIT_SSH_COMMAND=/bin/false",
 		"LANG=C", "LC_ALL=C", "TZ=UTC",
 	}
-	_ = os.MkdirAll(filepath.Join(os.TempDir(), "cocogem-git-inspect-home"), 0700)
 	output := &boundedBuffer{limit: maxGitInspectOutputBytes}
 	cmd.Stdout, cmd.Stderr = output, output
 	cmd.WaitDelay = 2e9
@@ -140,6 +163,7 @@ func GitInspect(ctx context.Context, root string, in GitInspectInput) (string, e
 		terminateTestGroup(cmd)
 		waitErr = <-done
 	}
+	_ = cleanupTestGroup(cmd)
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}

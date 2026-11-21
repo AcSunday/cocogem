@@ -17,13 +17,14 @@ type DiffHygiene struct {
 	Hint string
 }
 
-// fallbackBranchMarkers count the added control-flow shapes that typically signal
-// "stacked fallback" fixes. They are semantic markers, not a parser: the hint is
-// advisory and a reviewer still reads the diff.
+// fallbackBranchMarkers count added control-flow shapes that typically signal
+// "stacked fallback" fixes without flagging idiomatic Go error checks
+// (`if err != nil {` or `return nil`).
 var fallbackBranchMarkers = []string{
-	"else if", "else {", "?? ", "?: ", "catch (", "catch {",
-	"|| []", "|| {}", "|| \"\"", "|| 0", "return nil",
-	"if err != nil {", "if (err", "if err ==", "recover()",
+	"else if", "elif ", "?? ", "??\"", "??'", "?: ",
+	"catch (", "catch(", "catch {", "except ", "except:",
+	"|| []", "|| {}", "|| \"\"", "|| ''", "|| 0", "|| null", "|| false",
+	"unwrap_or", "if err ==", "recover()",
 }
 
 // AnalyzeDiffHygiene inspects added lines per file and returns a hint for any file

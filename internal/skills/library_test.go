@@ -466,3 +466,54 @@ func TestProjectSkillsAreCappedAndIgnoreTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestBuiltInSkillMarkdownLinksResolveAndAgentsDirSymlinkRejected(t *testing.T) {
+	t.Parallel()
+	files := bundledFiles(t)
+	for path, file := range files {
+		if !strings.HasSuffix(path, ".md") {
+			continue
+		}
+		text := string(file.Data)
+		for idx := 0; idx < len(text); {
+			open := strings.Index(text[idx:], "](")
+			if open < 0 {
+				break
+			}
+			start := idx + open + 2
+			end := strings.Index(text[start:], ")")
+			if end < 0 {
+				break
+			}
+			link := strings.TrimSpace(text[start : start+end])
+			idx = start + end + 1
+			if link == "" || strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://") || strings.HasPrefix(link, "#") {
+				continue
+			}
+			if hash := strings.Index(link, "#"); hash >= 0 {
+				link = link[:hash]
+			}
+			target := filepath.ToSlash(filepath.Clean(filepath.Join(filepath.Dir(path), link)))
+			if _, ok := files[target]; !ok {
+				t.Errorf("%s has dead markdown link %q (resolved to %q)", path, link, target)
+			}
+		}
+	}
+
+	// Verify symlinked .agents parent directory is rejected.
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "skills", "escape"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "skills", "escape", "SKILL.md"), []byte("---\nname: escape\ndescription: escaped\n---\nBody\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".agents")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	infos, _, err := projectSkills(root)
+	if err == nil {
+		t.Fatalf("symlinked .agents directory should return an error, got %+v", infos)
+	}
+}

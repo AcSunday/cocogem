@@ -30,6 +30,9 @@ type PreviewInput struct {
 	// EntryRoot is the host-bound project root. It is filled by the host tool
 	// dispatcher and never by model input (the field is ignored on decode).
 	EntryRoot string `json:"-"`
+	// TrustedCommand marks full_access mode where the command preview runs
+	// without the OS sandbox. Filled only by the host dispatcher.
+	TrustedCommand bool `json:"-"`
 	// Viewport is a bounded width/height for the screenshot.
 	Width  int `json:"width"`
 	Height int `json:"height"`
@@ -94,12 +97,19 @@ func browserEngine() (string, string) {
 			return candidate, ""
 		}
 	}
-	// A Playwright cache uses a versioned directory; inspect the glob explicitly.
+	// A Playwright cache uses a versioned directory; inspect the glob explicitly
+	// on both macOS and Linux.
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		if entries, err := filepath.Glob(filepath.Join(home, "Library", "Caches", "ms-playwright", "chromium-*", "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium")); err == nil {
-			for _, entry := range entries {
-				if info, statErr := os.Stat(entry); statErr == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
-					return entry, ""
+		patterns := []string{
+			filepath.Join(home, "Library", "Caches", "ms-playwright", "chromium-*", "chrome-mac*", "Chromium.app", "Contents", "MacOS", "Chromium"),
+			filepath.Join(home, ".cache", "ms-playwright", "chromium-*", "chrome-linux*", "chrome"),
+		}
+		for _, pattern := range patterns {
+			if entries, err := filepath.Glob(pattern); err == nil {
+				for _, entry := range entries {
+					if info, statErr := os.Stat(entry); statErr == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
+						return entry, ""
+					}
 				}
 			}
 		}
@@ -125,20 +135,43 @@ func ServeStaticProject(ctx context.Context, root, entry string) (origin string,
 	if len(cleanEntry) > 512 || !filepath.IsLocal(cleanEntry) {
 		return "", nil, errors.New("preview entry must be a project-relative file")
 	}
-	absEntry := filepath.Join(resolved, cleanEntry)
-	info, err := os.Stat(absEntry)
-	if err != nil || !info.Mode().IsRegular() {
-		return "", nil, errors.New("preview entry file does not exist")
-	}
 	if DeniedPath(cleanEntry) {
 		return "", nil, errors.New("preview entry is a sensitive path")
 	}
-	baseDir := filepath.Dir(absEntry)
+	// Open through os.OpenRoot(resolved) so no symlink component in cleanEntry
+	// can ever escape the bound project directory.
+	projectRoot, err := os.OpenRoot(resolved)
+	if err != nil {
+		return "", nil, errors.New("source directory is unavailable")
+	}
+	entryFile, err := projectRoot.Open(filepath.FromSlash(cleanEntry))
+	if err != nil {
+		projectRoot.Close()
+		return "", nil, errors.New("preview entry file does not exist")
+	}
+	info, err := entryFile.Stat()
+	entryFile.Close()
+	if err != nil || !info.Mode().IsRegular() {
+		projectRoot.Close()
+		return "", nil, errors.New("preview entry file does not exist")
+	}
+	relDir := filepath.Dir(filepath.FromSlash(cleanEntry))
+	var serveRoot *os.Root
+	if relDir == "." || relDir == "" {
+		serveRoot = projectRoot
+	} else {
+		serveRoot, err = projectRoot.OpenRoot(relDir)
+		projectRoot.Close()
+		if err != nil {
+			return "", nil, errors.New("preview entry directory is unavailable")
+		}
+	}
 	server := &http.Server{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
-		// Only files under the entry's own directory are reachable, and the
-		// request path is resolved with the same open-root guard as the file tools.
+		// Only files under the entry's own directory inside the bound project are
+		// reachable, and every open is confined to serveRoot without following
+		// symlinks outside it.
 		requestPath := strings.TrimPrefix(r.URL.Path, "/")
 		if requestPath == "" {
 			requestPath = filepath.Base(cleanEntry)
@@ -147,16 +180,22 @@ func ServeStaticProject(ctx context.Context, root, entry string) (origin string,
 			http.NotFound(rw, r)
 			return
 		}
-		file, local, err := openUnder(baseDir, requestPath)
+		file, err := serveRoot.Open(filepath.FromSlash(requestPath))
 		if err != nil {
 			http.NotFound(rw, r)
 			return
 		}
 		defer file.Close()
-		http.ServeContent(rw, r, local, info.ModTime(), file)
+		fileInfo, err := file.Stat()
+		if err != nil || !fileInfo.Mode().IsRegular() {
+			http.NotFound(rw, r)
+			return
+		}
+		http.ServeContent(rw, r, filepath.FromSlash(requestPath), fileInfo.ModTime(), file)
 	})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		serveRoot.Close()
 		return "", nil, errors.New("preview listener could not start")
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
@@ -169,27 +208,9 @@ func ServeStaticProject(ctx context.Context, root, entry string) (origin string,
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 		_ = listener.Close()
+		_ = serveRoot.Close()
 	}
 	return fmt.Sprintf("http://127.0.0.1:%d", port), closeFn, nil
-}
-
-// openUnder opens one file below baseDir without following a symlink out of it.
-func openUnder(baseDir, path string) (*os.File, string, error) {
-	root, err := os.OpenRoot(baseDir)
-	if err != nil {
-		return nil, "", err
-	}
-	defer root.Close()
-	file, err := root.Open(filepath.FromSlash(path))
-	if err != nil {
-		return nil, "", err
-	}
-	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		file.Close()
-		return nil, "", errors.New("preview path is not a regular file")
-	}
-	return file, filepath.FromSlash(path), nil
 }
 
 // PreviewOrigin is the only origin the CDP interceptor admits. Any other
@@ -225,35 +246,61 @@ func ParsePreviewScreenshot(encoded string) ([]byte, error) {
 	return data, nil
 }
 
-// previewAXTree renders a compact AXTree summary from the raw protocol JSON. The
-// full tree is a nested array of nodes; the summary names the root and counts
-// descendants so a reviewer sees structure without a huge payload.
+// previewAXTree renders a compact AXTree summary from the raw protocol JSON.
+// Supports both real cdproto/accessibility.Node payloads (where role/name/value
+// are objects with a `value` field and children are `childIds`) and flat test
+// fixtures with plain string fields.
 func previewAXTree(raw []byte) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	var nodes []struct {
-		Name  string `json:"name"`
-		Role  string `json:"role"`
-		Value string `json:"value"`
-		Child []any  `json:"children"`
-	}
-	if err := json.Unmarshal(raw, &nodes); err != nil || len(nodes) == 0 {
+	var items []map[string]any
+	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
 		return ""
 	}
-	root := nodes[0]
+	extract := func(m map[string]any, key string) string {
+		v, ok := m[key]
+		if !ok || v == nil {
+			return ""
+		}
+		if s, ok := v.(string); ok {
+			return strings.TrimSpace(s)
+		}
+		if obj, ok := v.(map[string]any); ok {
+			if inner, ok := obj["value"]; ok && inner != nil {
+				return strings.TrimSpace(fmt.Sprint(inner))
+			}
+		}
+		return ""
+	}
+	root := items[0]
+	role := extract(root, "role")
+	name := extract(root, "name")
+	value := extract(root, "value")
+	childCount := 0
+	if ids, ok := root["childIds"].([]any); ok {
+		childCount = len(ids)
+	} else if kids, ok := root["children"].([]any); ok {
+		childCount = len(kids)
+	}
 	parts := []string{}
-	if root.Role != "" || root.Name != "" {
-		parts = append(parts, strings.TrimSpace(root.Role+": "+root.Name))
+	if role != "" || name != "" {
+		if role != "" && name != "" {
+			parts = append(parts, role+": "+name)
+		} else if role != "" {
+			parts = append(parts, role)
+		} else {
+			parts = append(parts, name)
+		}
 	}
-	if len(nodes) > 1 {
-		parts = append(parts, fmt.Sprintf("%d nodes", len(nodes)))
+	if len(items) > 1 {
+		parts = append(parts, fmt.Sprintf("%d nodes", len(items)))
 	}
-	if len(root.Child) > 0 {
-		parts = append(parts, fmt.Sprintf("%d child nodes", len(root.Child)))
+	if childCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d child nodes", childCount))
 	}
-	if root.Value != "" {
-		parts = append(parts, "value="+boundedField(root.Value, 80))
+	if value != "" {
+		parts = append(parts, "value="+boundedField(value, 80))
 	}
 	return strings.Join(parts, " | ")
 }
@@ -264,9 +311,9 @@ func stopPreviewCommand(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}
-	_ = configureTestProcess(cmd)
 	terminateTestGroup(cmd)
 	_ = cmd.Wait()
+	_ = cleanupTestGroup(cmd)
 }
 
 // boundedField trims one metadata field without cutting a UTF-8 code point.

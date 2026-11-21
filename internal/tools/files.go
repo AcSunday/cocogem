@@ -21,9 +21,9 @@ import (
 // sandbox regex. Keeping one list prevents the write policy, read tools and OS
 // test sandbox from drifting apart.
 var (
-	sensitiveNames    = []string{".git", ".cocogem", ".ssh", "secrets"}
-	sensitivePrefixes = []string{".env", "id_rsa", ".git-credentials"}
-	sensitiveSuffixes = []string{".pem", ".key", ".sqlite"}
+	sensitiveNames    = []string{".git", ".cocogem", ".ssh", ".aws", ".gnupg", ".kube", "secrets", "keychains", ".netrc", ".npmrc", "login data", "key4.db", "logins.json"}
+	sensitivePrefixes = []string{".env", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", ".git-credentials"}
+	sensitiveSuffixes = []string{".pem", ".key", ".sqlite", ".keychain", ".keychain-db"}
 )
 
 func sensitiveComponent(part string) bool {
@@ -62,13 +62,17 @@ func DeniedPath(path string) bool {
 }
 
 func openPath(root, path string) (*os.Root, string, error) {
+	return openPathWithOptions(root, path, false)
+}
+
+func openPathWithOptions(root, path string, allowSensitive bool) (*os.Root, string, error) {
 	if root == "" {
 		return nil, "", errors.New("no source directory is bound")
 	}
 	if path == "" {
 		path = "."
 	}
-	if !filepath.IsLocal(path) || DeniedPath(path) {
+	if !filepath.IsLocal(path) || (!allowSensitive && DeniedPath(path)) {
 		return nil, "", errors.New("path is outside the allowed source scope")
 	}
 	r, err := os.OpenRoot(root)
@@ -91,12 +95,22 @@ func openPath(root, path string) (*os.Root, string, error) {
 	return r, filepath.Clean(path), nil
 }
 
+// ReadFileApproved reads one exact file path that received an explicit one-shot
+// human approval (including a single-use sensitive_path acknowledgement).
+func ReadFileApproved(ctx context.Context, root, path string, start, end int) (w.Source, error) {
+	return readFileInternal(ctx, root, path, start, end, true)
+}
+
 // ReadFile captures exact bytes and line coordinates within an os.Root boundary.
 func ReadFile(ctx context.Context, root, path string, start, end int) (w.Source, error) {
+	return readFileInternal(ctx, root, path, start, end, false)
+}
+
+func readFileInternal(ctx context.Context, root, path string, start, end int, allowSensitive bool) (w.Source, error) {
 	if err := ctx.Err(); err != nil {
 		return w.Source{}, err
 	}
-	r, local, err := openPath(root, path)
+	r, local, err := openPathWithOptions(root, path, allowSensitive)
 	if err != nil {
 		return w.Source{}, err
 	}

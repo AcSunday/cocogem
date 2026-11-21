@@ -119,23 +119,33 @@ func RunTest(ctx context.Context, root string, in RunTestInput) (TestResult, err
 	if err != nil {
 		return TestResult{}, err
 	}
-	// The resolver chooses the real executable; the host-composed enum argv
-	// supplies the subcommand, kind and validated filter. A package manager
-	// owns its own entry point, so only its script arguments are appended.
-	switch {
-	case len(spec.Command) == 0:
+	// Every toolchain resolver returns only the executable prefix; append the
+	// validated enum command (subcommand, kind, filter) once without duplication.
+	if len(spec.Command) == 0 {
 		spec.Command = command
-	case toolchain == ToolchainGo || toolchain == ToolchainCargo:
+	} else {
 		spec.Command = append(spec.Command, command...)
-	case toolchain == ToolchainPytest:
-		// spec.Command is the interpreter plus the pytest entry point; the
-		// pytest arguments (including -k filter) come from the enum.
-		spec.Command = append(spec.Command, command...)
-	case toolchain == ToolchainNPM || toolchain == ToolchainPNPM || toolchain == ToolchainYarn:
-		spec.Command = append(spec.Command, command[2:]...)
+		if toolchain == ToolchainNPM && in.Kind == TestKindTest {
+			spec.Command = append(spec.Command, "--silent")
+		}
 	}
 	spec.Display = displayCommand(spec)
-	plan, err := prepareSandbox(ctx, sandboxSpec{Root: resolvedRoot, Temp: temp, Toolchain: spec})
+	sbSpec := sandboxSpec{
+		Root:      resolvedRoot,
+		Temp:      temp,
+		AllowTmp:  true,
+		Toolchain: spec,
+	}
+	if worktreeGit, commonGit := WorktreeMeta(resolvedRoot); worktreeGit != "" {
+		sbSpec.ExtraReads = append(sbSpec.ExtraReads, worktreeGit)
+		if commonGit != "" {
+			sbSpec.ExtraReads = append(sbSpec.ExtraReads, commonGit)
+		}
+		sbSpec.DenyWrites = append(sbSpec.DenyWrites, GitMetadataDenies(resolvedRoot)...)
+	} else if denies := GitMetadataDenies(resolvedRoot); len(denies) > 0 {
+		sbSpec.DenyWrites = append(sbSpec.DenyWrites, denies...)
+	}
+	plan, err := prepareSandbox(ctx, sbSpec)
 	if err != nil {
 		return TestResult{}, err
 	}
@@ -275,7 +285,7 @@ func resolveNPMCommand(ctx context.Context, npmPath, npmResolved, nodePath, temp
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		return []string{nodePath, entry, "test", "--silent"}, root, nil
+		return []string{nodePath, entry}, root, nil
 	}
 	return nil, "", errors.New("npm CLI package could not be resolved safely")
 }
@@ -481,6 +491,16 @@ type sandboxSpec struct {
 	Root      string
 	Temp      string
 	Toolchain toolchainSpec
+	// ReadOnly forbids writes to Root and external paths (plan-only / parallel lock).
+	ReadOnly bool
+	// AllowLoopback permits 127.0.0.1/localhost inbound and outbound sockets
+	// (e.g. httptest.NewServer and preview_page command servers).
+	AllowLoopback bool
+	// AllowTmp permits /tmp (/private/tmp) read/write/exec while denying /tmp/ssh-*.
+	AllowTmp bool
+	// AllowUserToolchains adds read-only user language toolchain directories
+	// (~/.cargo, ~/.nvm, ~/.local/share/mise, etc.) for sandboxed project commands.
+	AllowUserToolchains bool
 	// ExtraWrites are exact approved outside roots a project-autonomous command
 	// may write, plus this scope's IO outputs directory.
 	ExtraWrites []string
@@ -490,6 +510,9 @@ type sandboxSpec struct {
 	// DenyWrites are exact paths that stay denied even when a parent subtree is
 	// writable, such as the source repository's hooks and branch refs.
 	DenyWrites []string
+	// AllowSensitive lists exact sensitive file paths explicitly approved for
+	// this single invocation (emitted after the default sensitive deny rules).
+	AllowSensitive []string
 }
 
 type sandboxPlan struct {
