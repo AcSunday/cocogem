@@ -32,20 +32,20 @@
 | 编号 | 决定 |
 | --- | --- |
 | D01 | **退役预设死板流程，收敛为单一动态协作内核**：全面移除 `engineering`、`research`、`discussion`、`code_analysis` 预设流程模板（含 Composer 工作方式选择器、`/` 方法菜单、Welcome 模式卡、设置页固定流程角色槽位、`choose_workflow` 工具及 `routing.go` 的 workflow 分类分支）。所有会话与任务统一运行在单一动态协作内核之上。 |
-| D02 | **采用彻底硬切（Fresh Start, Clean Cutover）**：本项目处于早期阶段，通过物理删除旧 Schema、执行“清零重构”，不再维护旧数据兼容性与迁移脚本。阶段 1 启动时直接重置数据库，保障架构纯粹性，降低维护成本与兼容性故障风险。 |
-| D03 | **升级为统一双层 Git Worktree 毫秒级隔离 + 元数据保护与孤儿回收**：将作者工作台（`Candidate`）与 Reviewer 验证台（`verify_dir`）统一升级为位于 `$COCOGEM_DATA_DIR/executions/` 下的 **`git worktree add --detach`**（共享原仓对象池，同步原工作区未提交 tracked/untracked 变更；非 Git 目录回退受界 `file_copy`）；调整 `workspace_executions` 外键与唯一索引以同时支持**普通会话级（Thread-scoped）候选区**与**多子任务并行写分支**；在 OS 沙箱层按“先放行 worktree 元数据、后置覆盖锁死 `.git/hooks`、`.git/config`、`.git/refs/heads/*` 与 `packed-refs`”保护原主仓；并在服务启动与会话/任务删除时自动执行 `git worktree remove/prune` 回收孤儿句柄。 |
-| D04 | **下沉硬底座一 —— 多轮候选连续性、变更验证守卫与 Apply/Discard 闭环**：① 同一 Run 内多人并行步（`@A @B`）固定为步骤级只读直连源目录；单写者步（含普通会话快车道及 `promote_to_task` 升级后的接续步）挂载 `Candidate` worktree；② **多轮连续性**：同会话/同任务在 `Candidate` 未应用前自动复用同一 worktree 持续演进，点击「应用到项目目录（Apply）」或「丢弃候选变更（Discard）」终结后，下轮写操作再从最新原目录派生新 `Candidate`；③ 结算自动计算 `CandidateVerification`（`verified` / `unverified_mutation`），Apply 前校验原目录受影响文件基线哈希防覆盖冲突。 |
-| D05 | **下沉硬底座二 —— 非作者互斥与 Reviewer 独立 Worktree 验证沙箱**：任何 `role="reviewer" \| "critic"` 独立复核：① 硬性拦截目标成员等于原作者；② **在 `prepareStep` 启动子进程前即刻物化独立 `verify_dir` worktree**，复核会话固定采用 **`fresh_only` 全新会话**（既防销毁临时目录撞碎原生 CLI `--resume`，又保障无旧印象污染的独立视角）；③ 在全局权限模式内向 Reviewer 完整开放 `verify_dir` 下的命令、定向测试、临时反例脚本编写与页面预览；④ **作者 `Candidate` 目录保持物理 0 字节回写**，审结自动清理 `verify_dir` 并断言作者 `TreeDigest` 不变。 |
-| D06 | **下沉硬底座三 —— 一手来源托管守卫（Original Source Custody）**：保留 `publish_artifact`（`note`、`research_report`）与 `save_claim` 的来源真实性校验，搜索摘要（`lead`）不能充当已证实结论证据。 |
-| D07 | **收敛全局权限为 `沙箱自主（默认） / 完全访问` 两档 + 单轮「仅规划」与步骤级只读锁**：① 移除尴尬的全局 `controlled` 档位，全局仅设 **`workspace_autonomous`（沙箱自主，默认档）** 与 **`full_access`（完全访问）** 两档；② 在 `workspace_autonomous` 下，`Candidate / verify_dir` worktree + `/tmp`（`/private/tmp`）临时复现区 + 本地 `127.0.0.1` 回环端口完全免批自主读写与执行（**日常开发 0 弹窗**），改用 AST 命令解析根除 `2>/dev/null`、`//`、正则与本机只读工具链误报，并对 `~/.ssh`、`~/.aws` 等敏感资产采用**“内核默认硬拒绝 + `Risk="sensitive_path"` 预拦截单次高危审批豁免（禁建持续授权）”**——仅跨界访问宿主其他目录、触碰高敏路径或执行不可逆外部写操作才弹审批卡；③ **“只读”下沉为单轮/步骤级保护**：Composer 提供仅作用于当次发送的轻量 **「仅规划（Plan-Only）」** 开关（配合多人并行步自动只读锁），启用时保留五家 CLI 原生高速只读工具与 `git_inspect`、内核硬禁写文件并直接拦截副作用工具引导输出方案，**绝不推进全局 `permission_epoch`、不误伤后台其他活跃任务**；④ **持续授权（`ConversationGrant`）升级为 `动作层级 + 物理目录子树包含匹配`**。 |
-| D08 | **双向交接契约：接球验真（Receive Handoff Grounding）与防乒乓收敛阀**：队友交接描述一律视为 T2 候选声明，执行副作用前在可用工具内用 T0（用户原话/`TaskRevision`/真实文件）或 T1（宿主 `diff/test/image` Source）独立核验；能自查不打回，同一问题点对点 `relay` 返工硬上限 **2 轮**，超限收敛交付分歧或交协调者/`ask_question` 裁决。 |
-| D09 | **视觉证据第 0 步分流闸门（Vision Gate-0）与防 SSRF 受控页面探针（`preview_page`）**：纯后端/CLI/算法改动硬性豁免截图要求；新增 `preview_page` 仅连接宿主自建随机 loopback 实例并开启 CDP 非同源请求硬拦截（杜绝访问 Cocogem 自身 API 等本机端口 SSRF），截图直接存为宿主 `Source{Kind: "image"}` 零源码树污染；无浏览器引擎时诚实披露未渲染范围。 |
-| D10 | **拓宽宿主受控工程验证工具与 Diff 兜底诊断**：`run_test` 扩展支持 `filter` 单测过滤及 `go/npm/pnpm/pytest/cargo` 与 `typecheck/lint/build`（补齐 Linux 运行态 `bwrap` 可用性探针，兼容 Ubuntu AppArmor 受限 CI 诚实降级），新增确定性只读 `git_inspect`；内置 `AnalyzeDiffHygiene` 对单文件净增 ≥3 层兜底分支附加非阻塞根因核查提示。 |
-| D11 | **固定 10 个核心内置技能并严控上下文预算**：支持受限 YAML frontmatter、`_shared/` 参考层与项目本地 `.agents/skills/` 安全只读发现；固定 10 个正交内置技能 ID，单条描述 ≤240 字符（`BOOTSTRAP` 总索引 ≤1.2K tokens），单篇正文 ≤90 行。 |
-| D12 | **五轴风险路由替代固定串联流水线**：局部可逆小改走单成员产品快车道（自测 + 变更守卫即交付）；触及状态机/持久化/安全权限/公共契约/不可逆轴时拉起跨成员（优先跨 CLI/模型家族）独立复核；跨阶段大目标升级持久 `Task` 分治推进。 |
-| D13 | **统一“球权/注意力”状态同步与任务清单视觉减负**：后端采用批量预取（零 N+1）一次性组装挂起权限、未决问题、子任务状态并修复已验收会话追问重激活；前端统一唯一 `taskPhaseMeta` 与 SSE 实时刷新；任务清单砍掉常态两行重复套话，落地“紧凑两行卡片 + 仅异常态亮 `3px` 左边单行露因 + 底部已完折叠抽屉 + 双向消息定位”。 |
-| D14 | **补齐步内断点续接与人工继续解锁（Intra-Step Checkpoint Continuation）**：在保留步间精准续接（`RetryStep`）基础上，打通同一步骤中途失败/超时的断点恢复——① 原生 CLI 流吐出 `session_id` 首事件即刻落盘，同 `Candidate` worktree 下人工继续优先 `--resume` 原生会话；② 无法 `--resume` 时自动注入 `Checkpoint Digest`（当前 worktree 已改文件摘要 + 已完成工具轨迹 + 中断原因）接着做而非推倒重来；③ 机器自动重试遇未知副作用继续停机保护，但**用户显式点击「继续 / 重试该成员」直接解锁基于当前 worktree 现场续跑**，不再抛 `ErrRecoveryUncertain` 卡死。 |
-| D15 | **五家 CLI 原生目录会话落盘与全会话跨轮续聊（Native-Home Session Persistence）**：借鉴 `clowder-ai` 做法，不再用临时目录覆盖 `CODEX_HOME / CLAUDE_CONFIG_DIR` 或传 `--ephemeral / --no-session` 丢弃会话——① 打通普通会话（`Thread`）与持久任务（`Task`），Cocogem 数据库按 `(thread_id, member_id, work_root)` 记录 `native_session_id` 与已暴露上下文增量账本，真实会话文件统一交回 Claude、Codex、Gemini、Pi、OpenCode **各自原生管理目录**维护（保住 OAuth 令牌自动续期、Prompt Cache 命中与外部终端直连排查），当次 MCP 与规则仅靠命令行参数隔离；② 沙箱仅精准放行**当前成员所属那一家 CLI 的原生状态目录**；③ 仅一次性 Reviewer 验证副本（`verify_dir`）开启无痕模式（防已销毁临时目录污染原生历史列表），`Candidate` 在 Apply/Discard 切换目录根时自动滚动新原生会话。 |
+| D02 | **采用彻底硬切（Fresh Start, Clean Cutover）**：本项目当前处于内测阶段，不维护旧数据兼容性与迁移脚本；启动时**仅在明确检测到未初始化（缺 `schema_meta`）或旧 `schema_baseline` 时**清空并重建新 Schema，任何瞬时 SQLite 错误（如 `SQLITE_BUSY` / I/O 错）必须直接失败退出，严禁误清库。 |
+| D03 | **分流直写与双层 Git Worktree 隔离 + 原生基线快照与孤儿回收**：① **普通未升级的单人对话默认直写用户绑定项目目录**（不自动创建 `Task`、不派生 `Candidate`、无 Apply 摩擦，IDE/热重载即时可见）；② **持久 `Task` 与并行 `delegate_task` 子任务启用位于 `$COCOGEM_DATA_DIR/executions/` 下的 `git worktree add --detach`**（共享原仓对象池，同步原工作区未提交 tracked/untracked 变更，并在 detached HEAD 上记录内部基线快照 `base_snapshot_oid`；非 Git 目录或 unborn `HEAD` 回退受界 `file_copy` 并以 `BaseFiles` 清单追踪增删改）；③ 调整 `workspace_executions` 唯一索引支持多子任务并行写分支；④ 在 OS 沙箱层放行 `<commonGitDir>/objects` 与 `.git/worktrees/<id>`、后置覆盖锁死 `.git/hooks`、`.git/config`、`.git/refs/heads/*` 与 `packed-refs`（含尚不存在的文件）；⑤ 服务启动与彻底删除/到期清理/删工作空间时**先采集记录再删库**，自动回收 worktree 与 IO 目录并对原主仓执行 `git worktree prune`。 |
+| D04 | **下沉硬底座一 —— 多轮候选连续性、Diff 审阅、受影响文件级合并与分支逃生口**：① 同一 Run 内多人并行步（`@A @B`）固定为步骤级只读直连源目录（不建 Task、不派生写 Worktree）；普通单人对话直写源目录；持久 `Task`（含 `promote_to_task` 升级后的接续步）与并行子任务挂载 `Candidate` worktree；② **多轮连续性**：同任务在 `Candidate` 未应用前自动复用同一 worktree 持续演进，点击 Apply 或 Discard 终结后，下轮写操作再基于最新原目录派生新 `Candidate`；③ **Diff 审阅与验证守卫**：提供 Candidate 实时统一 Diff 接口供 `CandidateBar` 在 Apply 前审阅；结算自动计算 `CandidateVerification`（仅 `kind="test"` 通过且无后续改写记 `verified`，`typecheck/lint/build` 仅作支持性证据）；④ **文件级冲突检测与逃生口**：Apply 基于 `base_snapshot_oid` 仅比对**受影响文件**（支持互不重叠的并行子任务顺序无冲突 Apply，且兼容 Agent 在 Candidate 内 `git commit`），运行态禁止 Apply 并做原子写回；若与原工作区存在行级冲突（`409`），提供「导出为本地 Git 分支（`cocogem/cand-<short_id>`）」逃生口（或交协调者整合），绝不让用户卡死。 |
+| D05 | **下沉硬底座二 —— 非作者互斥与 Reviewer 独立 Worktree 验证沙箱**：任何 `role="reviewer" \| "critic"` 独立复核：① 硬性拦截目标成员等于原作者（含中转自审）；② **在 `prepareStep` 派发前即刻物化独立 `verify_dir` worktree**（持久任务基于当前 `Candidate`，普通直写会话基于原项目当前树状态；非 Git 同步支持 `file_copy` 副本；保留工作区未提交 diff 形态使 `git diff`/`git_inspect` 可见），复核会话在 `prepareExecutionSession` 中硬性锁定 **`fresh_only` 无痕会话**；③ 在全局权限模式内向 `reviewer` 与 `critic` 同等开放 `verify_dir` 内的命令、定向测试、临时反例脚本编写与页面预览，且权限边界以 `verify_dir` 为根不误弹越界卡；④ **源树/作者 `Candidate` 保持物理 0 字节回写**，审结自动清理 `verify_dir` 并断言被审树 `TreeDigest` 不变（若被篡改必须令复核步骤失败）。 |
+| D06 | **下沉硬底座三 —— 一手来源托管守卫（Original Source Custody）**：`publish_artifact`（`note`、`research_report`）与 `save_claim` 均强制执行来源真实性校验，搜索摘要（`lead`）不能充当已证实结论证据。 |
+| D07 | **收敛全局权限为 `沙箱自主（默认） / 完全访问` 两档 + 单轮「仅规划」与诚实分层沙箱**：① 移除全局 `controlled` 档位，全局仅设 **`workspace_autonomous`（沙箱自主，默认档）** 与 **`full_access`（完全访问）**；② **认证隔离 + 凭据隔离为硬防线，AST 仅作 UX 降噪**：子进程绝不注入 Cocogem Web Session/Admin 凭据、MCP 网关仅认单步最小权限 Token，从而在 `workspace_autonomous` 下安全放行 `localhost:*` 双向回环；同时放行工作台 + `/tmp`（排除 `/tmp/ssh-*`）与只读语言工具链；内核默认硬拒高敏凭据路径（`~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.kube`、macOS Keychain 收紧 `mach-lookup`、浏览器凭据库、`.git-credentials`、`.npmrc`、外部 `.env`/私钥），显式请求命中敏感路径时走 `Risk="sensitive_path"` 单次高危审批（禁建持续授权且单次批准须在宿主工具与沙箱层真正放行该单一目标）；③ **Linux `bwrap` 不可用时诚实降级**：UI 显式提示无内核沙箱，只读工具直跑、子进程执行降级为显式逐次审批（或用户手动切 `full_access`）；④ **单轮「仅规划（Plan-Only）」与并行只读锁**：Composer 提供仅作用于当次发送的轻量开关，内核沙箱硬写 `(deny file-write*)`、禁用 `run_test` 与 `preview_page(mode="command")`（含 `full_access + PlanOnly` 组合），保留五家 CLI 原生只读工具与 `git_inspect`，越界写操作先判定只读直接确定性拒绝（不弹审批卡），绝不推进全局 `permission_epoch`；⑤ **持续授权（`ConversationGrant`）拆分 `read < write < execute` 三档 + 物理目录子树匹配**，审批 API 与 UI 显式支持 `grant_scope: once | file | directory`，且统一应用于 `CheckToolAccess`、`WaitForDecision` 与同级请求唤醒。 |
+| D08 | **双向交接契约：接球验真（Receive Handoff Grounding）与防乒乓收敛阀**：队友交接描述一律视为 T2 候选声明，执行副作用前在可用工具内用 T0（用户原话/`TaskRevision`/真实文件）或 T1（宿主 `diff/test/image` Source）独立核验；能自查不打回，同一问题点对点 `relay` 返工硬上限 **2 轮**，超限阻止第 3 次返工并**如实记录分歧（严禁把 `changes_requested` 静默改写成 `approved`）**，交协调者或 `ask_question` 裁决。 |
+| D09 | **视觉证据第 0 步分流闸门（Vision Gate-0）与受控页面探针（`preview_page`）**：纯后端/CLI/算法改动硬性豁免截图要求；`preview_page` 禁止任意 URL/端口输入：`mode="static"` 仅在 `os.OpenRoot(projectRoot)` 内只读托管（防软链逃逸），`mode="command"` 按 **`execute` 动作受权限与 OS 沙箱约束且锁死 `cmd.Dir`**、独立进程组清场；无头 Chromium 开启 CDP 非同源硬拦截（含 **WebSocket 与 `Target.setAutoAttach`** 防弹窗/OOPIF/Worker 旁路 SSRF），真实采集 `console_errors`、`page_errors` 与 `AXTree`，截图存为宿主 `Source{Kind: "image"}` 零目录污染（渲染失败严禁存 0 字节图或报 `rendered: true`）；无浏览器引擎时诚实返回 `browser_engine_unavailable`。 |
+| D10 | **拓宽宿主受控工程验证工具与 Diff 兜底诊断**：`run_test` 枚举化组装正确 `argv` 支持 `filter` 单测过滤（防前导 `-` 参数注入与 `../` 路径穿越、兼容 Go `TestFoo/SubTest`）及 `go/npm/pnpm/yarn/pytest/cargo` × `test/typecheck/lint/build`（仅 `kind="test"` 可将候选标为 `verified`，macOS 沙箱完整放行工具链 `ExecRoots` 读权限）；新增确定性只读 `git_inspect`（禁用 hooks/ext-diff/textconv/`core.fsmonitor` 并过滤敏感文件）；`AnalyzeDiffHygiene` 对实际候选累计 diff（覆盖原生 CLI 修改）检出 ≥3 层异常兜底分支时附加非阻塞提示（不误报正常 Go `if err != nil` / `return nil`）。 |
+| D11 | **固定 10 个核心内置技能并严控上下文预算**：支持受限 YAML frontmatter、`_shared/` 参考层（全部参考文件名在索引/技能中可发现且零死链）与项目本地 `.agents/skills/` 安全只读发现（含 `.agents` 父目录软链校验）；固定 10 个正交内置技能 ID，单条描述 ≤240 字符（`BOOTSTRAP` 总索引 ≤1.2K tokens），单篇正文 ≤90 行。 |
+| D12 | **五轴风险路由替代固定串联流水线**：局部可逆小改走单成员普通会话直写快车道（自测 + 变更守卫即交付）；触及状态机/持久化/安全权限/公共契约/不可逆轴时拉起跨成员（优先跨 CLI/模型家族）独立复核；跨阶段大目标升级持久 `Task` 启用 Worktree 分治推进。 |
+| D13 | **统一“球权/注意力”状态同步与任务清单视觉减负**：后端 `TaskBoard()` 批量预取与 `taskInTx()` 单任务接口共享完整投影字段（待批权限、未决问题、子任务数、候选状态）并排除 `verify_dir`；`BindRunTask` 自动推进已验收任务 `CurrentRevision + 1` 重激活；前端左侧栏、顶栏胶囊、任务清单/看板与详情页统一唯一 `taskPhaseMeta` 与 SSE 实时刷新；任务清单落地紧凑两行卡片、仅异常态亮 `3px` 左边单行露因、底部已完抽屉计入 `completed + canceled`、待批权限卡直达关联会话审批卡与双向消息锚点定位。 |
+| D14 | **步内断点续接、人工继续解锁与统一连续性胶囊（Continuity Capsule）**：在保留步间精准续接（`RetryStep`）基础上，打通同一步骤中途失败/超时的断点恢复——① 原生 CLI 流吐出 `session_id` 首事件即刻落盘，同 `work_root` 下人工继续优先 `--resume` 原生会话；② 收口唯一的结构化状态交接单 **`BuildContinuityCapsule`（交接单本身 ≤1.5K tokens，不限制总对话上下文）**，包含当前目标、工作台改动清单、中断原因/草稿尾部与 `read_context/read_source` 按需索引指针，同时服务 `RetryStep` 断点续接、Stop 损坏自愈、超限换桌与 `promote_to_task` 切根；③ 机器自动重试遇未知副作用继续停机保护，**用户显式点击「继续 / 重试该成员」（含 `RetryStep` 与 `Resume`）传 `humanConfirmed = true` 解锁基于当前现场续跑**。 |
+| D15 | **五家 CLI 原生目录会话落盘与全会话跨轮续聊（Native-Home Session Persistence）**：坚持五家全通——Claude（`--resume`）、Codex（app-server `thread/start` & `thread/resume`，去掉临时 `CODEX_HOME` 与 `ephemeral: true`）、Gemini（`--resume`）、Pi（`--session`，去掉 `--no-session`）、OpenCode（原生存储与 session 续接）统一将真实会话文件交回各自原生管理目录维护（保住 OAuth 自动续期、Prompt Cache 与外部终端排查），当次 MCP 与规则仅靠命令行参数隔离；严格按成员已确认消息 ID 水位线执行纯增量注入（彻底禁止在 `resume` 轮重复拼接全量 `Shared history`）；任何 `--resume` 协议失败、Stop 残损或上下文超限由 Continuity Handshake 自动 `seal` 旧会话并透明重开新会话 + 注入 `Continuity Capsule`；仅一次性 Reviewer `verify_dir` 走无痕模式。 |
 
 ### 1.3 继续成立的系统不变量
 
@@ -74,73 +74,70 @@
 
 ## 3. 统一动态协作内核与双层 Git Worktree 隔离架构
 
-### 3.1 一次性 SQLite 迁移与 Clean Cutover 物理清理
+### 3.1 Fresh Start 启动初始化与 Clean Cutover 物理清理（内测无历史迁移包袱）
 
-1. **启动迁移（`internal/store/migrations.go`）**：
-   - 将未终态旧预设 `Run` 结算为 `canceled`；
-   - 将全局权限模式平滑归一至新两档（原 `controlled` 与 `project_autonomous` 统一升级为 `workspace_autonomous`，`full_access` 保持 `full_access`，全新数据库初始默认值为 `workspace_autonomous`）；
-   - 重建 `workspace_executions` 与 `execution_sessions` 表：统一新增 `thread_id TEXT NOT NULL REFERENCES threads(id)`，将 `task_id` 改为可空 `TEXT REFERENCES tasks(id)`（使普通未升级对话也能挂载 `Candidate` worktree 并持久化各家 CLI 原生会话映射；调用 `promote_to_task` 升级时原地补填 `task_id` 无缝继承已有 worktree 与全部成员原生会话），并将活跃执行唯一索引调整为 `UNIQUE(COALESCE(task_id, thread_id), canonical_root) WHERE status IN ('active','quarantined','uncertain')`；
-   - 清理 `threads`、`runs`、`settings` 中的废弃 `workflow` 与 `assignments` 字段。
+1. **安全基线检测（`internal/store/schema.go`）**：
+   - 彻底移除旧迁移脚本，采用单一权威基线 `schemaBaseline`；
+   - **仅当 `schema_meta` 不存在（`no such table` / `sql.ErrNoRows`）或 `err == nil && baseline != schemaBaseline` 时**执行 `dropAllTables` 并初始化新 Schema；**任何 `SQLITE_BUSY` / I/O 等真实数据库错误必须直接返回错误失败退出，严禁误清库**；
+   - `workspace_executions` 与 `execution_sessions` 同时支持 `thread_id` 与可空 `task_id`（upsert 语句必须同步更新 `task_id`；`SealThreadSessions` 同步更新索引列 `status='sealed'` 与 JSON `body`），活跃执行唯一索引为 `UNIQUE(COALESCE(task_id, thread_id), canonical_root) WHERE status IN ('active','quarantined','uncertain')`。
 2. **代码与契约零残留**：物理删除 `choose_workflow`、`routing.go` 的 workflow 分类器、`plan.go` 四套死板步骤模板，以及 OpenAPI 与前端 schema 中的 `Workflow` 枚举与 `assignments` 字段。
 
-### 3.2 双层 Git Worktree 物理隔离、Seatbelt 规则顺序与孤儿回收
+### 3.2 直写快车道与双层 Git Worktree 隔离、Diff 审阅与分支逃生口
 
-所有派生工作台统一存放在 `$COCOGEM_DATA_DIR/executions/worktrees/` 私有目录下，绝不污染用户项目目录或同级父目录：
+按协作形态分流，兼顾日常编码零摩擦与持久/并行任务强隔离：
 
-```text
-用户绑定项目根目录 (Workspace.ProjectPath) —— 始终保持原样，未点 Apply 前 0 字节改动
-  └── .git/
-       ├── objects/ & worktrees/<curr_id>/  ──► [Seatbelt/bwrap 先置 allow：保障 git status/add/diff 正常锁 index 与写对象]
-       └── hooks/, config, packed-refs, refs/heads/* ──► [Seatbelt 后置覆盖 deny / bwrap --ro-bind：硬防篡改主分支与注入恶意 hook]
-```
-
-1. **Author Candidate Worktree 创建与脏工作区完整同步**：
-   - 执行 `git -C <ProjectPath> worktree add --detach <cand_dir> HEAD`（若目标为非 Git 普通目录，或刚 `git init` 尚无任何提交的 unborn `HEAD` 空仓，自动回退为受界 `file_copy` 隔离快照）；
-   - 若用户原项目存在未提交改动，同步应用 `git diff --binary HEAD`（覆盖已跟踪文本与二进制改动），并按 `git ls-files -z --others --exclude-standard` 拷贝非忽略、非敏感的未跟踪新建文件；记录此时受影响工作集快照 `base_tree_digest`。
-2. **多轮对话连续性与 Apply / Discard 状态机**：
-   - **未应用续写（Continuity）**：同一会话（或同一持久任务）存在活跃未应用的 `Candidate` 时，后续非只读轮次默认复用该 `Candidate` worktree 持续迭代，保留上一轮未应用改动；
-   - **应用回原项目（Apply Candidate）**：用户点击「应用到项目目录」时，宿主逐文件校核原 `ProjectPath` 当前状态相对 `base_tree_digest` 未发生冲突改动后原子写回（含新建与删除），将该 `Candidate` 标记为 `applied` 并执行 `git worktree remove --force` 回收；此后新一轮写操作将基于最新 `ProjectPath` 重新派生干净 `Candidate`；
-   - **丢弃变更（Discard Candidate）**：用户点击「丢弃候选变更」时，标记 `discarded` 并立即清理该 worktree，原目录毫发无损。
+1. **普通未升级单人对话（直写工作区快车道）**：
+   - 未显式升级为持久 `Task`、非 `PlanOnly` 且非多人并行的单人对话，绑定项目后**默认直写用户绑定项目根目录（`Workspace.Root`）**，不自动创建 `Task`、不派生 `Candidate` worktree、无需手工 Apply，本地 IDE 与热重载即时生效；
+   - 若在普通对话中调用 `promote_to_task` 升级，宿主基于当前最新项目工作区物化 `Candidate` worktree，自动更新 `task_id` 并因 `work_root` 变更滚动新原生会话（注入连续性胶囊）。
+2. **持久 `Task` 与并行 `delegate_task` 子任务（双层 Worktree 隔离）**：
+   - 所有派生工作台统一存放在 `$COCOGEM_DATA_DIR/executions/worktrees/` 私有目录下，绝不污染用户项目目录：
+     ```text
+     用户绑定项目根目录 (Workspace.ProjectPath) —— 持久任务未点 Apply 前 0 字节改动
+       └── .git/
+            ├── objects/ & worktrees/<curr_id>/  ──► [Seatbelt/bwrap 先置 allow：保障 git status/add/diff 正常锁 index 与写对象]
+            └── hooks/, config, config.worktree, packed-refs, refs/heads/* ──► [Seatbelt 后置覆盖 deny / bwrap --ro-bind：无论文件是否存在均硬锁]
+     ```
+   - **Author Candidate 创建与基线快照（`base_snapshot_oid`）**：
+     - 执行 `git -C <ProjectPath> worktree add --detach <cand_dir> HEAD`（非 Git 目录或 unborn `HEAD` 回退受界 `file_copy` 并以 `BaseFiles` 完整追踪增删改）；
+     - 若原工作区存在未提交改动，屏蔽 `~/.gitconfig`（`GIT_CONFIG_GLOBAL=/dev/null`）同步 `git diff --binary HEAD` 与非敏感未跟踪文件，并在 detached `HEAD` 上打一个内部基线快照提交 `base_snapshot_oid`（不改主仓任何分支）；后续无论 Agent 是直接改文件还是在 Candidate 内执行了 `git commit`，真实改动统一按 `base_snapshot_oid..worktree` 计算，杜绝丢改动与脏基线误报。
+   - **多轮连续性、实时 Diff 审阅、受影响文件级 Apply 与冲突分支逃生口**：
+     - **未应用续写（Continuity）**：同任务存在活跃未应用 `Candidate` 时，后续非只读轮次默认复用该 worktree；
+     - **Apply 前 Diff 审阅**：提供 `GET /api/v1/candidates/{id}/diff` 返回实时统一 Diff，前端 `CandidateBar` 内建可展开 Diff 审阅视图，彻底告别“盲点 Apply”；
+     - **运行态锁定 + 受影响文件级合并 + 原子写回**：运行中（`status == "active"`）禁止 Apply；Apply 基于 `base_snapshot_oid` 仅校核**本候选实际触及的文件**（含外部删除与新增检测），互不重叠的并行子任务可顺序无冲突 Apply；同文件重叠时先尝试内存级三方合并，无冲突块自动合入；最终通过临时文件 + 原子替换写回原目录并回收 worktree；
+     - **冲突逃生口（`Export Branch`）**：当原目录同文件存在行级冲突返回 `409` 时，提供「导出为本地 Git 分支（`cocogem/cand-<short_id>`）」接口与按钮（基于 `base_snapshot_oid` 在主仓创建本地分支但不切换用户当前分支），或允许交协调者整合冲突，绝不让用户进退两难；
+     - **丢弃变更（Discard Candidate）**：标记 `discarded` 并立即清理该 worktree。
 3. **Reviewer Verification Worktree（`verify_dir`）**：
-   - 在 `prepareStep` 派发前基于当前 `Candidate` 精确树状态派生独立 `rev-<step_id>` worktree，复核会话固定设为 **`fresh_only`**；
-   - 作者 `Candidate.Path` 与原 `ProjectPath` 对 Reviewer 内核级只读（0 字节回写）；审结自动销毁 `rev-<step_id>` 并断言作者 `Candidate` 的 `TreeDigest` 逐字节不变。
+   - 在 `prepareStep` 派发前物化独立 `rev-<step_id>`（持久任务基于当前 `Candidate`，普通直写会话基于原项目当前树；非 Git 目录支持 `file_copy`），同步未提交变更时**保留工作区未提交 diff 形态**（使 Reviewer 跑 `git status/diff/git_inspect` 直接看到作者改动）；
+   - `prepareExecutionSession` 对 `role="reviewer" | "critic"` 硬性锁定 **`fresh_only`**，权限边界以 `verify_dir` 为根（绝不拿作者目录误判越界），`reviewer` 与 `critic` 享有同等命令/测试/反例脚本/预览权限；
+   - 被审目录对 Reviewer 内核级只读（0 字节回写）；审结自动销毁 `rev-<step_id>` 并断言被审树 `TreeDigest` 逐字节不变——**若检测到篡改必须令该复核步骤失败**。
 4. **崩溃恢复与孤儿 Worktree 清扫**：
-   - 服务启动恢复（Startup Reconciliation）以及删除会话/删除任务（`DeleteThread` / `DeleteTasks`）时，扫描 `$COCOGEM_DATA_DIR/executions/worktrees/` 与已终结执行记录，自动移除残留目录并对关联 `ProjectPath` 执行 `git worktree prune --expire now`，确保用户主仓 `.git/worktrees` 零僵尸残留。
+   - 服务启动恢复（`Prune`）与永久删除/到期清理/删工作空间（`permanentDeleteThread`、`PurgeExpiredThreads`、`deleteWorkspace`）必须**先读取关联 execution 与主仓路径，再删数据库记录**，随后回收 worktree 与 `$COCOGEM_IO_DIR` 并对主仓执行 `git worktree prune --expire now`。
 
-### 3.3 步间与步内双层断点续接合同（`retry.go` & `session.go`）
+### 3.3 步间与步内断点续接及统一连续性胶囊（`retry.go` & `session.go`）
 
-确保某一步报错、网络中断、超时或自动重试耗尽后，用户人工点击继续时**既不重跑已完成队友，也不丢弃该成员已经做完的半程工作**：
+确保某一步报错、网络中断、超时或强杀停止后，续跑时既不重跑已完成队友，也不丢弃半程现场：
 
-1. **步间精准续接（保持并适配动态图）**：`RetryStep` 完整保留已成功的上游步骤结果与产物引用，仅从目标失败/中断步骤重新调度并唤醒受阻下游，且标记 `AutomaticContinuation = false`（人工恢复不受自动续办/修复次数上限阻拦）。
-2. **工作区文件现场零丢失**：中途失败或超时不会回滚或销毁作者 `Candidate` worktree，成员中断前已写入磁盘的代码改动完整保留。
-3. **流启动即刻持久化 `NativeSessionID` + 优先原会话 `--resume`**：
-   - 原生 CLI 流收到首个会话标识事件（如 Claude `system/init`、Codex `thread/started` 等）时，**立即事务落盘 `NativeSessionID`（标记 `started_resumable`）**，不再等整步成功结束才写入；
-   - 人工续跑时，只要绑定同一 `Candidate` worktree 路径且指纹/可见性 epoch 未变，优先直接以 `--resume <NativeSessionID>` 唤醒原 CLI 会话接着中断点继续执行。
-4. **兜底注入「中断现场摘要（Checkpoint Digest）」**：
-   - 若对应 CLI 不支持 `--resume` 或原生会话恢复失败回退至新会话，宿主自动在续跑输入头部注入结构化 `Checkpoint Digest`：**当前 `Candidate` worktree 的已修改/新建文件清单（`git status --short` + `diff --stat`）+ 上次尝试已完成的最后若干条工具调用回执 + 未完草稿尾部摘要 + 具体中断/报错原因**，明确指示成员核对现有文件后接着完成剩余部分，严禁无视现场从零重写。
-5. **人工显式继续解锁 `uncertain` 状态**：
-   - 后台机器自动重试遇到已发生文件修改或命令副作用的中断（`mutated / uncertain`）时，继续严格停机防盲目重放；
-   - 当**用户人工点击「继续 / 重试该成员」**时，视为对当前 `Candidate` 现场的明确人工确认：宿主重新校准当前 `Candidate` 树摘要并放行续跑，不再硬抛 `ErrRecoveryUncertain` 锁死恢复路径（若用户不想要半程脏改动，可先点 Discard 再重跑）。
+1. **步间精准续接**：`RetryStep` 完整保留已成功上游结果与产物引用，仅从目标失败/中断步骤重新调度并唤醒受阻下游，且标记 `AutomaticContinuation = false`。
+2. **工作区现场零丢失**：中途失败或超时不回滚/销毁工作区与 `Candidate` worktree。
+3. **流启动即刻持久化 `NativeSessionID` + 优先原会话 `--resume`**：收到首个会话标识事件即落盘 `NativeSessionID`，同 `work_root` 下优先 `--resume <NativeSessionID>` 续跑。
+4. **统一连续性胶囊（`BuildContinuityCapsule`，单张交接单 ≤1.5K tokens）**：
+   - 合并原 `Checkpoint Digest` 与换桌胶囊为唯一生成器，**仅限制交接单本身 ≤1.5K tokens（不限制整体对话或任务上下文窗口）**，固定包含：① 当前目标与生效 `TaskRevision` 约束；② 当前工作台改动摘要（`git status --short` + `diff --stat` 或非 Git 变更清单）；③ 上次中断/报错原因与未完草稿尾部 + 最后若干工具回执；④ 可按需查阅原文的 `read_context` / `read_source` 索引指针；
+   - 统一服务 `RetryStep`（含新建 `step.ID` 的重试）、Stop 损坏自愈、上下文超限换桌与 `promote_to_task` 切根四个场景。
+5. **人工显式继续解锁 `uncertain` 状态**：后台自动重试遇 `uncertain` 严格停机；**用户人工点击「继续 / 重试该成员」（含 `RetryStep` 与 `Resume`）统一传 `humanConfirmed = true`**，重新校准树摘要并放行续跑，不再抛 `ErrRecoveryUncertain` 卡死。
 
-### 3.4 五家 CLI 原生目录会话保留、增量游标与上下文生命周期合同（`session.go`, `contextplan` & `nativecli/`）
+### 3.4 五家 CLI 原生目录会话保留、严格纯增量与自愈换桌（`session.go` & `nativecli/`）
 
-借鉴 `clowder-ai` 的会话原生落盘与增量上下文架构，并与 Cocogem 现有的 `ContextPlan` + `read_context / read_source` 精确分页底座融合：
-
-1. **统一交回各家 CLI 原生目录管理，参数级隔离当次 MCP/规则**：
-   - 移除覆盖型临时 `CODEX_HOME`、`CLAUDE_CONFIG_DIR` 及常规轮次的 `--ephemeral / --no-session-persistence / --no-session` 参数（尊重用户自身环境变量配置，默认使用 `~/.claude`、`~/.codex`、`~/.gemini`、`~/.pi` 与 OpenCode 原生存储）；
-   - 当次宿主 MCP Server、工具白名单与禁用全局指令（如 `--mcp-config <tmp> --strict-mcp-config --setting-sources ""`、Codex `-c mcp_servers.cocogem...`）全部通过**单次启动参数**注入，零污染用户全局 CLI 配置；
-   - **五家 CLI 续聊协议对齐**：Claude（`--resume <id>`）、Codex（app-server `thread/start` & `thread/resume` / exec `resume`）、Gemini（`--resume <id>`）、Pi（`--session` 持久化续接）、OpenCode（`--session <id>`）。
-2. **按成员水位线的“纯增量注入（True Delta）”——根除 `O(N²)` 历史重复拼接**：
-   - 打通普通对话（`Thread`）与持久任务（`Task`）（解除 `request.go:sessionDeltaRequest` 与 `contextplan` 强依赖 `TaskID != ""` 的限制），按 `(thread_id, member_id, work_root)` 记录每位成员的 `NativeSessionID` 与已确认消费水位线 `AcknowledgedExposedRefs`；
-   - **修复现代码 `request.go` 在 `resume` 轮仍重复拼接全量 `Shared history` 的膨胀缺陷**：确认进入 `resume` 时，跳过静态系统引导前缀与该原生会话已签收的历史消息（包含该成员自己的旧回复），**仅注入上次退场后新增的用户消息、其他队友已送达回复（自动剔除已取消/未送达/错误占位消息防上下文污染）及变更的任务约束**。
-3. **真实握手验真（Continuity Handshake）与超限封存换桌（Auto-Seal Capsule）**：
-   - **不盲信本地绑定记录**：适配器核对 CLI 实际返回的运行时会话回执；仅当确认命中原会话时才走纯增量；
-   - **超限/损坏无感换桌**：当长会话内部累积工具输出触及窗口预警/上限（`context_length_exceeded`），或因前轮强行停止导致原生会话损坏（如残缺 thinking 签名被拒）时，宿主自动将旧 `ExecutionSession` 标记为 `sealed/retired`，**透明重开全新原生会话**，并注入一张紧凑的**连续性胶囊（Continuity Capsule：当前活跃 `Candidate` worktree 路径与变更摘要 + 关键进展 + `ContextPlan` 有界状态与 `read_context/read_source` 分页引用）**，实现无限长会话不断忆、不报错卡死。
-4. **头 40% + 尾 60% 预览截断（Head-Tail Truncation）**：
-   - 将消息与来源摘要截断策略从“仅留头部”升级为 **保留前 40% + `[...省略 N 字节，用 read_context/read_source 翻阅原件...]` + 保留后 60%**（防止截丢位于消息末尾的核心结论与验收条件），并对回复引用内联短预览减少冗余工具往返。
-5. **最小权限沙箱放行与一次性审查无痕例外**：
-   - OS 沙箱每次**仅放行当前成员所属那一家 CLI 的原生状态目录读写**；
-   - 仅 `role="reviewer" | "critic"` 的一次性 `verify_dir` 复核步开启无痕会话（防短期已毁目录堆积在原生历史列表中）；`Candidate` 在 Apply/Discard 切换目录根后自动滚动新原生会话。
+1. **五家 CLI 全部回归原生管理目录与真实续聊（无例外缩水）**：
+   - 移除覆盖型临时 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`GEMINI_CLI_HOME`、`PI_CODING_AGENT_DIR`、私有 `OPENCODE_DB` 及常规轮次的 `--ephemeral / --no-session-persistence / --no-session`；
+   - **五家协议全部打通并过实机探针**：Claude（`--resume <id>`）、Codex（app-server `thread/start` & `thread/resume`）、Gemini（`--resume <id>`）、Pi（`--session` 持久化续接）、OpenCode（原生存储 + session 续接）；当次 MCP 与规则仅通过单次启动参数隔离，零污染用户全局配置；
+   - 仅一次性 Reviewer `verify_dir` 开启无痕模式；`Candidate` 在 Apply/Discard 或 `promote_to_task` 切换 `work_root` 时自动滚动新原生会话。
+2. **按成员已确认消息水位线的严格纯增量注入（彻底消除 `O(N²)` 与双倍历史）**：
+   - 按 `(thread_id, member_id, work_root)` 持久化 `NativeSessionID` 与已确认消息集合 `AcknowledgedMessageIDs`；
+   - 确认进入 `resume` 时，**严禁再将包含全量 `Shared history` 的 `stepDynamicText` 拼回消息体**，仅注入上次退场后新增的用户消息、其他队友已送达回复及真正发生变化的约束（未变更约束绝不误标 `SupersededConstraints`）。
+3. **真实握手验真（Continuity Handshake）与无感自愈换桌**：
+   - 适配器核对 CLI 实际返回的运行时会话回执；
+   - 一旦 `--resume` 遭遇上下文超限（`context_length_exceeded`）、Stop 强杀导致的会话残损（如残缺 thinking 签名报 400）或外部终端修改导致协议不匹配，宿主**在当次运行内透明 `seal` 旧会话、自动重开全新原生会话并注入 `Continuity Capsule` 继续执行**，不报错中断给用户。
+4. **头 40% + 尾 60% 预览截断（Head-Tail Truncation）**：保留前 40% + 省略字节提示 + 后 60%，支持 `read_context/read_source` 精确翻页。
 
 ---
 
@@ -155,10 +152,10 @@
 | **核心定位** | 95% 日常编码、调试、`/tmp` 复现、测试与本地联调主力档（**工作台内 0 弹窗**） | 跨多仓联动改造、安装系统软件、宿主机全局运维 |
 | **Candidate / Verify Worktree 内读写与执行命令** | **全自动沙箱放行（0 弹窗）** | 全自动放行 |
 | **`/tmp`（`/private/tmp`）与私有 `$TMPDIR` 临时复现** | **直接放行读写与执行（0 弹窗）**（排除系统敏感 socket 如 `/tmp/ssh-*`） | 全自动放行 |
-| **本地回环网络（`127.0.0.1` / `localhost`）** | **允许子进程绑定随机本地端口并回环自连**（阻断直连 Cocogem 自身监听端口） | 全自动放行 |
-| **公共互联网只读检索与包依赖拉取** | 允许检索与通过受控代理拉取依赖 | 全自动放行 |
+| **本地回环网络（`127.0.0.1` / `localhost`）** | **允许子进程双向回环自连**（保护 Cocogem 管理 API 依赖认证隔离：子进程绝不注入 Web Session/Admin 凭据，MCP 网关仅认单步最小权限 Token） | 全自动放行 |
+| **公共互联网只读检索与包依赖拉取** | 允许检索与通过受控代理拉取依赖（沙箱凭据隔离天然阻断无授权外部推送/发布） | 全自动放行 |
 | **本机语言工具链只读调用**<br>（`/opt/homebrew`、`/Library/Developer`、`~/.cargo`、`~/.nvm`、`~/.pyenv`、`~/.volta`、`~/.local/share/mise`） | **只读与执行自动放行，试图写入/篡改工具链目录硬拦截** | 全自动放行 |
-| **高敏凭据路径**<br>（`~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.kube`、钥匙串、浏览器凭据库、外部 `.env`/私钥） | **内核默认硬拒绝 + `Risk="sensitive_path"` 单次高危审批**（禁建持续授权） | 按完全访问执行（硬链接越界保留高危提示） |
+| **高敏凭据路径**<br>（`~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.kube`、macOS Keychain 收紧 `mach-lookup`、浏览器凭据库、`.git-credentials`、`.npmrc`、外部 `.env`/私钥） | **内核默认硬拒绝 + `Risk="sensitive_path"` 单次高危审批**（禁建持续授权，批准后宿主工具与当次沙箱 profile 真正放行该单一目标） | 按完全访问执行（硬链接越界保留高危提示） |
 | **跨出项目与 `/tmp` 访问宿主机其他目录**<br>（如 `../other-repo`、`~/Documents`） | **弹卡申请**（支持按目录子树授权本会话持续复用） | 全自动放行 |
 | **不可逆外部写副作用**<br>（`git push`、公网非只读外部写请求、系统级 `sudo`/全局安装） | **弹卡申请** | 全自动放行 |
 
@@ -169,25 +166,26 @@
 1. **触发入口**：
    - **手动入口**：Composer 输入栏提供轻量的单轮切换开关 **「仅规划」**（发送该条消息时携带 `plan_only: true`）；
    - **自动入口**：同一 `Run` 内的多人并行盲评步（`len(parallelSteps) > 1`）自动设置 `Step.ReadOnly = true`。
-2. **执行期硬保障（零弹窗、零改写）**：
+2. **执行期硬保障（零弹窗、零改写，对 `workspace_autonomous` 与 `full_access` 同等生效）**：
    - 不派生写 `Candidate` worktree，直连源目录（或当前已有未应用 `Candidate`）做只读分析；
-   - **保留五家 CLI 原生高速只读工具**（如 Claude `--permission-mode plan`、Codex `--sandbox read-only`、原生 `Read / Glob / Grep`）以及宿主只读工具（`read_file`、`search_content`、`git_inspect`、`preview_page(static)`、`web_search`、`fetch_url`）；
-   - OS 内核沙箱强制挂载项目树与外部目录为只读（`(deny file-write*)`，仅放行 CLI 进程必需的最小私有运行缓存）；
-   - 若模型在 `PlanOnly / ReadOnly` 轮次尝试调用写文件或副作用命令，宿主与原生门禁**直接返回确定性拒绝提示（不弹审批卡打断用户）**，引导模型基于只读证据输出分析与实施方案。
+   - **保留五家 CLI 原生高速只读工具**（如 Claude `--permission-mode plan`、Codex `--sandbox read-only`、原生 `Read / Glob / Grep`）以及宿主只读工具（`read_file`、`search_content`、`git_inspect`、`preview_page(static)`、`web_search`、`fetch_url`）；禁用 `run_test` 与 `preview_page(mode="command")`；
+   - `model.Request` 与 OS 内核沙箱显式传递 `ReadOnly: true`，强制挂载项目树与外部目录为只读（`(deny file-write*)`，仅放行 CLI 进程必需的最小私有运行缓存）；
+   - 若模型在 `PlanOnly / ReadOnly` 轮次尝试调用写文件或副作用命令（无论目标在项目内还是项目外），宿主**先于权限审批**直接返回确定性 `read_only_step` 拒绝提示（绝不弹审批卡打断用户）。
 
 ### 4.3 根治误报弹窗与提升授权灵活性的四项底层改造
 
-1. **标准 Shell AST 解析替代手工切词（重构 `nativecli/approval.go`）**：
-   - 引入 POSIX Shell AST 解析器（如 `mvdan.cc/sh/v3/syntax`）提取真实命令节点、重定向文件目标与路径参数；
-   - 彻底根除 `2>/dev/null`（放行 `/dev/null`、`/dev/zero`、`/dev/urandom`、`/dev/fd/*`）、`jq '.a // empty'`（字符串字面量不再误判为根目录 `/`）、`awk '/ERR/'` 正则字面量及本机工具链可执行路径导致的假越界弹窗。
-2. **敏感路径“内核默认拒绝 + 单次审批豁免”闭环**：
-   - 未获批状态下，Seatbelt / `bwrap` 默认对全部高敏凭据路径写入 `(deny file-read* file-write*)` 规则（防复合 shell 绕过偷读）；
-   - 当工具或 AST 明确命中高敏路径时，标记 `Risk = "sensitive_path"` 发起高危单次审批（UI 醒目警示且**禁用“本会话持续允许”按钮**）；仅当用户点击“仅本次允许”后，当次专属沙箱 profile 才精准放行该单一目标，执行完立即失效。
-3. **`ConversationGrant` 升级为「动作层级 + 物理目录子树包含」**：
-   - 授权匹配从 `tool_name == X && scope == exact_file_path` 升级为 **`grant.ActionLevel 覆盖请求动作（read < write_execute） && w.ScopeContains(grant.NormalizedResourceScope, target)`**（基于 `EvalSymlinks` 后的真实物理路径比较）；
-   - 批准外部目录 `../other-repo` 后，同会话内宿主工具与原生 CLI 访问该子目录下任意文件均直接命中放行；审批卡对外部路径请求同时提供「仅允许此文件」与「本会话允许所在目录 `<parent_dir>/`」（硬禁将 `/`、`$HOME`、`/Users`、顶层 `/tmp` 存为宽泛目录授权）。
-4. **五家原生 CLI 适配器全面对齐（清理 `internal/nativecli/` 全部 63 处旧模式判断）**：
-   - 统一更新 Claude（control 协议）、Codex（app-server）、Gemini（gate）、Pi（gate）、OpenCode（HTTP gateway）：按 `Step.ReadOnly` 优先施加只读锁，否则按 `workspace_autonomous`（双层 Worktree + `/tmp` + loopback 沙箱 + 越界回调）或 `full_access`（无沙箱 + 实时 epoch 核验）运行。
+1. **标准 Shell AST 解析作 UX 预检降噪，OS 沙箱与凭据隔离作硬防线（重构 `nativecli/approval.go` & `shellast.go`）**：
+   - 引入 POSIX Shell AST 解析器（`mvdan.cc/sh/v3/syntax`）提取真实命令节点、重定向文件目标与路径参数（递归解析 `-c` 嵌套脚本，正确展开 `~` 与清理引号内 `//`/`/./`/末尾 `/` 路径，不将 `network:public` 误拼入项目目录）；
+   - 彻底根除 `2>/dev/null`（放行 `/dev/null`、`/dev/zero`、`/dev/urandom`、`/dev/fd/*`）、`jq '.a // empty'`、`awk '/ERR/'` 与本机工具链路径误报；明确识别 `git push` / `sudo` / 外部写作为审批触发，同时始终以 OS 内核沙箱 + 凭据隔离作为硬边界。
+2. **敏感路径“内核默认拒绝 + 单次审批真放行”闭环**：
+   - 未获批状态下，Seatbelt / `bwrap` 默认对全部高敏凭据路径（`~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.kube`、浏览器凭据库、`.git-credentials`、`.npmrc`、`id_*` 私钥、外部 `.env`）写入 `(deny file-read* file-write*)` 并收紧 `mach-lookup`；
+   - 无论 `read` / `write` / `execute` 动作命中高敏路径，均标记 `Risk = "sensitive_path"` 发起高危单次审批（UI 醒目警示且禁用持续授权）；仅当用户点击「仅本次允许」后，宿主文件工具与当次专属沙箱 profile 才精准放行该单一目标，执行完立即失效。
+3. **`ConversationGrant` 升级为「三档动作层级 + 物理目录子树包含」**：
+   - 动作层级严格拆分为 **`read (1) < write (2) < execute (3)`**（批准写文件绝不自动放开执行命令）；匹配条件为 `ActionLevel(grant) >= ActionLevel(req) && ScopeContains(grant.NormalizedResourceScope, target)`（基于 `EvalSymlinks` 后的真实物理路径），统一应用于 `CheckToolAccess`、`WaitForDecision` 与 `settleSiblingsUnderGrant`；
+   - 审批后端 `DecisionInput` 与前端卡片显式支持 `grant_scope: "once" | "file" | "directory"`（外部普通路径提供「仅本次允许」「本会话允许此文件」「本会话允许所在目录 `<parent_dir>/`」，硬禁将 `/`、`$HOME`、`/Users`、顶层 `/tmp` 存为宽泛授权，但允许 `/tmp/<subdir>`）。
+4. **五家原生 CLI 适配器全面对齐与 Linux 诚实降级**：
+   - 统一更新 Claude、Codex、Gemini、Pi、OpenCode：按 `Step.ReadOnly` 优先施加内核只读锁（覆盖 `full_access + PlanOnly`），否则按 `workspace_autonomous` 或 `full_access` 运行；
+   - 当 Linux `bwrap` 运行态探针报告 `linux_bwrap_userns_unavailable` 时，UI 显式提示无内核沙箱，只读工具直跑，所有子进程执行降级为显式逐次审批（标注无内核沙箱），不再永久静默失败。
 
 ---
 
@@ -195,26 +193,26 @@
 
 ### 5.1 拓宽受控检查工具（`run_test`）与确定性只读 `git_inspect`
 
-1. **`run_test` 拓宽 schema**（由宿主按枚举构造确定性 `argv`，零 shell 拼接）：
+1. **`run_test` 拓宽 schema**（由宿主按枚举构造确定性 `argv`，零 shell 拼接，各工具链无重复子命令）：
    - `toolchain`: `"auto | go | npm | pnpm | yarn | pytest | cargo"`
-   - `kind`: `"test | typecheck | lint | build"`
+   - `kind`: `"test | typecheck | lint | build"`（**仅 `kind="test"` 可产出验证行为的 `test` 证据将候选标为 `verified`**，`typecheck/lint/build` 仅记录支持性证据）
    - `target`: 相对子目录或包路径（默认 `"."`）
-   - `filter`: 可选单个测试匹配名（严格校验合法字符集 `^[A-Za-z0-9_./:-]+$`，支撑 TDD 单测秒级红绿循环）
-   - **Linux 沙箱实测探针（兼容 Ubuntu 24.04 AppArmor CI）**：运行最小无害 `bwrap` 实测探针（而非仅查 `LookPath`）；当宿主机内核启用受限 AppArmor 阻止非特权 userns 时，按 `AGENTS.md` 诚实报告 `linux_bwrap_userns_unavailable` 能力状态并安全回退审批，不伪造沙箱已生效，也不导致 GitHub Actions `ubuntu-latest` 单测意外崩溃。
+   - `filter`: 可选单个测试匹配名（严禁前导 `-` 与 `..` 路径穿越，兼容 Go 子测试 `TestFoo/SubTest`）
+   - **macOS 沙箱完整放行工具链 `ExecRoots` 只读权限**；**Linux 沙箱实测探针**在受限 AppArmor 下报告 `linux_bwrap_userns_unavailable` 并降级至显式逐次审批。
 2. **新增确定性只读 `git_inspect` 工具**：
-   - 支持 `subcommand: "status | diff | log | show"` 与受限安全参数（硬编码附带 `--no-ext-diff --no-textconv -c core.hooksPath=/dev/null`），在单轮「仅规划」及所有只读步骤中零风险查看仓库变更与提交历史。
+   - 支持 `subcommand: "status | diff | log | show"` 与受限安全参数（硬编码附带 `--no-ext-diff --no-textconv -c core.hooksPath=/dev/null -c core.fsmonitor=false`，并过滤敏感路径防默认 `diff` 泄露 `.env`/私钥），在单轮「仅规划」及所有只读步骤中零风险查看仓库变更与提交历史。
 
 ### 5.2 防 SSRF 的宿主受控页面探针（`preview_page`）
 
-1. **零任意地址输入 + CDP 浏览器非同源硬拦截**：
-   - 不接受任何 URL 或端口号参数，仅接受绑定项目内的相对入口（`mode="static"` 由宿主起内存 `127.0.0.1:0` 只读静态服务，在 `PlanOnly` 下亦可安全使用；`mode="command"` 在独立进程组启动项目预设预览脚本并注入随机空闲端口，在 `workspace_autonomous` 与 `full_access` 下自动运行，退出时 `kill -PGID` 整组清场）；
-   - 无头 Chromium/Chrome 实例启用 CDP 请求拦截器——**仅放行宿主当次创建的唯一 `http://127.0.0.1:<ephemeral_port>` Origin 及 `data:/blob:`**，任何指向 Cocogem 管理端口、其他本机端口或公网的请求一律 `Abort`。
-2. **零目录污染**：
-   - 截图直接写入宿主附件存储并注册为 `Source{Kind: "image"}`（返回 `source_id` 供 `view_image` 读取真实像素），同步返回 `console_errors`、`uncaught_page_errors` 与 AXTree 摘要；**Worktree 目录 0 文件新增，绝不破坏 `TreeDigest`**；无可用浏览器内核时返回 `browser_engine_unavailable`。
+1. **零任意地址输入 + 沙箱约束 + 全通道 CDP 非同源硬拦截**：
+   - 不接受任何 URL 或端口号参数：`mode="static"` 通过 `os.OpenRoot(projectRoot)` 托管项目内只读静态文件（防软链越界），在 `PlanOnly` 下亦可安全使用；`mode="command"` **按 `execute` 动作受权限与 OS 沙箱约束、锁定 `cmd.Dir = workRoot`**，在独立进程组启动项目预览脚本并注入随机空闲端口，退出时 `kill -PGID` 整组清场；原生 CLI MCP 桥 `liveness` 豁免 20s 通用超时；
+   - 无头 Chromium/Chrome 实例启用 CDP 请求拦截器 + **`Target.setAutoAttach` 与 WebSocket 拦截**——仅放行宿主当次创建的唯一 `http://127.0.0.1:<ephemeral_port>` Origin 及 `data:/blob:`，任何指向其他本机端口或公网的 HTTP/WS/弹窗/OOPIF/Worker 请求一律 `Abort`。
+2. **零目录污染与真实可观测输出**：
+   - 真实采集 `console_errors`、`uncaught_page_errors` 与 `AXTree` 摘要；仅在截图成功非空时写入宿主附件存储并注册为 `Source{Kind: "image"}`（渲染失败绝不写 0 字节图或返回 `rendered: true`）；**Worktree 目录 0 文件新增，绝不破坏 `TreeDigest`**；无可用浏览器内核时返回 `browser_engine_unavailable`。
 
 ### 5.3 候选 Diff 静态坏味道提示（`AnalyzeDiffHygiene`）
 
-单文件净增 ≥3 层兜底控制流分支（连续新增 `else if`、空值回退或吞错分支）时，在观测与复核摘要中附加非阻塞提示，引导检查根因与状态契约。
+基于实际候选累计 diff（覆盖原生 CLI 与宿主工具全部改动，而非单次编辑或历史旧 diff），仅对单文件净增 ≥3 层异常兜底控制流分支（排除常规 Go `if err != nil` / `return nil` 等惯用错误处理）在观测与复核摘要中附加非阻塞提示。
 
 ---
 
@@ -245,15 +243,15 @@
 
 ## 7. 任务 ↔ 会话统一状态同步与任务清单视觉重塑合同
 
-1. **后端批量预取与统一球权投影（零 N+1 查询）**：
-   - `TaskBoard()` 单次读事务批量拉取任务、最新 `Runs`、`open Questions`、`pending ToolPermissionRequests`，内存 `O(N)` 组装 `pending_permissions`、`open_questions`、`active_children_count`、`attention_children_count` 与 `candidate_verification`；
-   - `AskQuestion(blockingScope="task")` 原子写入 `WaitingReason="question"`；`active_children_count > 0` 时父任务保持 `running` 严禁抢跑进 `review`；`completed` 任务的关联会话收到新推进消息时自动推进 `CurrentRevision + 1` 平顺重激活，消除 `409 Conflict`。
+1. **后端批量预取与统一球权投影（零 N+1 查询，单任务接口零缺字段）**：
+   - `TaskBoard()` 单次读事务批量拉取任务、最新 `Runs`、`open Questions`、`pending ToolPermissionRequests`、`UnappliedExecutions`（排除 `kind='verify_dir'`），内存 `O(N)` 组装 `pending_permissions`、`open_questions`、`active_children_count`、`attention_children_count` 与 `candidate_verification`；**`taskInTx()`（供单任务详情、会话顶栏胶囊、项目概览使用）必须填充完全一致的 5 项投影字段**；
+   - `AskQuestion(blockingScope="task")` 原子写入 `WaitingReason="question"`；`active_children_count > 0` 时父任务保持 `running` 严禁抢跑进 `review`；`BindRunTask` 检测 `completed` 任务的关联会话收到新推进消息时自动推进 `CurrentRevision + 1` 与 `EvaluationGeneration` 平顺重激活，消除 `409 Conflict`。
 2. **前端唯一 `taskPhaseMeta` 与 SSE 实时同步**：
-   - 删除 `TaskTodoList.tsx` 重复分类器，左侧会话栏、会话顶栏关联任务胶囊、任务清单/看板与详情页 100% 共享唯一分类逻辑；SSE 事件实时触发顶栏胶囊与侧边栏状态标刷新。
-3. **任务清单视觉减负（`YarnBall` 轻量层级）**：
+   - 删除 `TaskTodoList.tsx` 重复分类器，左侧会话栏、会话顶栏关联任务胶囊、任务清单/看板与详情页 100% 共享唯一分类逻辑与一致色调；SSE 事件（含运行态、权限审批、提问变化）实时触发顶栏胶囊与侧边栏状态标刷新。
+3. **任务清单视觉减负与精准跳转（`YarnBall` 轻量层级）**：
    - 移除常态任务行固定渲染的两行重复套话（`当前 / 下一步`），收敛为紧凑两行呼吸感布局；
    - 常态 `1px` 细边框，**仅 `attention`（待授权/待回答）与 `failed` 卡片亮起 `3px` 语义警示左边框并单行直出真实阻塞原因**；
-   - `completed / canceled` 默认收拢进底部折叠抽屉（`已验收 N 项 ›`）；支持会话顶栏轻量任务概览与来源/待批消息双向锚点定位。
+   - `completed / canceled` 默认共同统计并收拢进底部折叠抽屉（`已归档 N 项 ›`）；待批权限任务卡直达对应会话审批卡（含锚点滚动），支持会话顶栏紧凑任务概览与来源消息双向锚点定位。
 
 ---
 
@@ -266,30 +264,30 @@
 - **冲突根因**：现代码 `request.go:462` 将 `WorkingDirectory` 指向 `TaskDirectory`（存放上传附件 `inputs/` 与自动收集交付物 `outputs/`），若代码任务将 `cwd` 切至 `Candidate` worktree，直接混用会导致：① 上传附件相对路径失效；② 生成的导出文件落入代码树污染 Git 状态并破坏 `CandidateVerification`；③ 普通未转任务的对话因 `TaskDirectory == ""` 无法使用 `publish_file` 与自动产物收集。
 - **正交方案**：
   - 为每个涉及附件或文件产物的会话/任务分配独立于代码树的宿主文件交换区 `$COCOGEM_IO_DIR/{inputs,outputs}`（位于 `$COCOGEM_DATA_DIR/io/` 下，普通 `Thread` 与 `Task` 通用）；
-  - 绑定本地代码项目时，子进程 `cwd` 固定为 `Candidate`（或 `verify_dir` / 只读源目录），同时通过环境变量与上下文明确传入 `$COCOGEM_IO_DIR` 的 `inputs/`（只读）与 `outputs/`（可写）绝对路径并在沙箱中放行；未绑定代码项目时，子进程 `cwd` 直接指向 `$COCOGEM_IO_DIR`；
-  - `collectOutputFiles()` 统一从 `$COCOGEM_IO_DIR/outputs/` 采集交付件，确保办公文档交付与代码 Git Worktree 互不污染。
+  - 绑定本地代码项目时，子进程 `cwd` 固定为工作根（普通对话为 `Workspace.Root`，持久任务为 `Candidate`，复核为 `verify_dir`，无论 `workspace_autonomous` 还是 `full_access` 均不覆写为 IO 目录），同时通过环境变量（`COCOGEM_IO_DIR`/`COCOGEM_IO_INPUTS`/`COCOGEM_IO_OUTPUTS`，原生 CLI 与 Codex `shell_environment_policy` 均显式放行）与上下文明确传入 `inputs/`（只读）与 `outputs/`（可写）绝对路径并在沙箱中放行；未绑定代码项目时，子进程 `cwd` 直接指向 `$COCOGEM_IO_DIR`；
+  - `collectOutputFiles()` 统一从 `$COCOGEM_IO_DIR/outputs/` 采集交付件，确保办公文档交付与代码目录/Git Worktree 互不污染。
 
 ### 8.2 回收站软删保留、误删恢复与到期清理（`trash.go` & `workspaces.go`）
 
-- **冲突根因**：侧边栏删除会话走的是回收站软删除（`thread.DeletedAt`），保留到期后才由 `PurgeExpiredThreads` 物理清理。若软删时立刻销毁 `Candidate` worktree，用户点「恢复」会丢失未应用代码改动；反之若永久删除、到期自动清理或 `deleteWorkspace` 未调执行管理器，会在磁盘和用户主仓 `.git/worktrees` 留下永久孤儿。
+- **冲突根因**：侧边栏删除会话走的是回收站软删除（`thread.DeletedAt`），保留到期后才由 `PurgeExpiredThreads` 物理清理。若软删时立刻销毁 `Candidate` worktree，用户点「恢复」会丢失未应用代码改动；反之若永久删除、到期自动清理或 `deleteWorkspace` 先删 SQLite 记录再反查 execution/roots，会在磁盘和用户主仓 `.git/worktrees` 留下永久孤儿。
 - **联动方案**：
   - **移入回收站（`deleteThread`）**：撤销会话持续授权、取消挂起审批，**冻结保留未应用的 `Candidate` worktree**，保证从回收站恢复后未应用代码改动完好无损；
-  - **永久删除 / 到期自动清理 / 删除工作空间（`permanentDeleteThread`、`PurgeExpiredThreads`、`deleteWorkspace`）**：同步销毁关联的 `Candidate` worktree 与 `$COCOGEM_IO_DIR`，并对原绑定仓库执行 `git worktree prune`。
+  - **永久删除 / 到期自动清理 / 删除工作空间（`permanentDeleteThread`、`PurgeExpiredThreads`、`deleteWorkspace`）**：**必须先在删库前采集全部关联 execution、主仓路径与 task/thread IO 目录**，删库后同步销毁关联 `Candidate` worktree 与 `$COCOGEM_IO_DIR`，并对原绑定仓库执行 `git worktree prune`。
 
 ### 8.3 工作空间更换或清空绑定项目路径（`updateWorkspace` 变更 `Root`）防串台
 
 - **冲突根因**：现代码 `workspaces.go:75` 只要当前无 `running` Run 就允许直接修改 `Workspace.Root`。改路径后若旧会话仍挂着指向上一个仓库的未应用 `Candidate` 或旧仓库 `NativeSessionID`，下一轮对话会写错仓库或跨仓串忆。
-- **联动方案**：当 `updateWorkspace` 修改或清空 `Workspace.Root` 时，若该工作空间下存在 `unapplied` 状态的 `Candidate` 变更，返回明确 `409 Conflict` 提示用户先在对应会话选择「应用或丢弃现有候选变更」（或显式确认丢弃）；路径变更提交后，自动将该工作空间下绑定旧 `CanonicalRoot` 的全部 `ExecutionSession` 标记为 `sealed`，下一轮在新项目路径下自动开启新原生会话。
+- **联动方案**：当 `updateWorkspace` 修改或清空 `Workspace.Root` 时，按工作空间维度（含 `thread_id IS NULL` 的任务级候选）检查是否存在 `unapplied` 状态的 `Candidate` 变更，存在则返回 `409 Conflict` 提示用户先应用、导出分支或丢弃；路径变更提交后，同步将绑定旧 `CanonicalRoot` 的全部 `ExecutionSession` 的索引列 `status` 与 JSON `body` 一并标记为 `sealed`，下一轮在新项目路径下自动开启新原生会话。
 
 ### 8.4 移除成员或吊销权限（`revocation.go`）不触碰用户原生 CLI 目录
 
-- **冲突根因**：现代码 `cleanupRevokedNativeSessions` 假定会话文件存在宿主私有目录并执行 `os.RemoveAll`。切回五家 CLI 各自原生目录（`~/.claude`、`~/.codex` 等）后，绝不能去删用户的原生目录文件，但又必须阻止被吊销前的会话被继续复用。
-- **联动方案**：成员移除、禁用或权限收紧时，仅在 Cocogem 自身 SQLite `execution_sessions` 表中将对应记录硬标记为 `revoked`（永不再发起 `--resume`），停用旧私有会话目录物理删除逻辑，**0 字节触碰用户本机 CLI 原生目录**。
+- **冲突根因**：现代码 `cleanupRevokedNativeSessions` 假定会话文件存在宿主私有目录并执行 `os.RemoveAll`。切回五家 CLI 各自原生目录（`~/.claude`、`~/.codex` 等）后，绝不能去删用户的原生目录文件，但又必须阻止被吊销前的会话（含全部带 `task_id` 的任务级会话）被继续复用。
+- **联动方案**：成员移除、禁用或权限收紧时，按 `(workspace_id, member_id)`（覆盖所有普通会话与持久任务级会话）在 Cocogem 自身 SQLite `execution_sessions` 表中将 `status` 索引列与 JSON `body` 硬标记为 `revoked` 并清空 `NativeSessionID`（永不再发起 `--resume`），停用旧私有会话目录物理删除逻辑，**0 字节触碰用户本机 CLI 原生目录**。
 
 ### 8.5 点击「停止协作（Stop）」的整进程组清场与残损原生会话自愈
 
-- **冲突根因**：用户中途点停止（`CancelRun`）强杀进程时：① `preview_page(command)` 或 `run_test` 派生的后台孙进程若未按进程组清理会残留占端口；② 原生 CLI 在生成中途（如 thinking 签名未闭合）被信号中断后，部分供应商下一轮 `--resume` 会返回会话格式损坏 400 错误。
-- **联动方案**：所有宿主执行工具与原生 CLI 统一启用独立进程组 `Setpgid: true`，取消/超时一律向 `-PGID` 整组清场；强杀中断后的下一轮 `--resume` 若被 CLI 判定会话残损，由第 `3.4` 节 **Continuity Handshake 自动捕获并无感切换新原生会话 + 注入连续性胶囊续跑**，绝不向用户抛错卡死。
+- **冲突根因**：用户中途点停止（`CancelRun`）强杀进程时：① `preview_page(command)`、`run_test`、`run_command`、OpenCode plugin 或 `host_exec` 派生的后台孙进程若未按进程组清理会残留占端口；② 原生 CLI 在生成中途（如 thinking 签名未闭合）被信号中断后，部分供应商下一轮 `--resume` 会返回会话格式损坏 400 错误。
+- **联动方案**：所有宿主执行工具（含 `command_project.go`、`run_test`、`preview_page`、`git_inspect`）与原生 CLI（含 OpenCode plugin、`host_exec`）统一启用独立进程组 `Setpgid: true`，取消/超时一律向 `-PGID` 整组清场；强杀中断后的下一轮 `--resume` 若被 CLI 判定会话残损，由第 `3.4` 节 **Continuity Handshake 自动捕获并无感切换新原生会话 + 注入连续性胶囊续跑**，绝不向用户抛错卡死。
 
 ### 8.6 退役前置慢速模型预路由（`/routing-preview` 串行往返清理）
 
@@ -335,48 +333,48 @@
 
 | 编号 | 验收场景与必须结果 |
 | --- | --- |
-| **A01** | **Fresh Start 初始化与零污染**：启动时自动识别数据库为空并执行全套 Schema 初始化；业务层、OpenAPI 与前端 0 旧数据残留；验证启动后无任何废弃 `workflow`、`assignments` 或 `choose_workflow` 逻辑。 |
-| **A02** | **双层 Git Worktree、脏工作区同步与多分支并行**：① 普通未升级会话快车道与持久 `Task` 均可挂载 `Candidate` worktree；② 原项目含未提交 tracked 与 untracked 新建文件时，`Candidate` 完整可见；③ 两个并行 `delegate_task` 子任务可在同一绑定项目上同时创建各自独立的 `Candidate` worktree 不触发唯一索引冲突。 |
-| **A03** | **主仓 `.git` 元数据保护与孤儿清扫**：沙箱内执行 `git status / add / diff` 正常成功，但尝试修改原主仓 `.git/hooks`、`.git/config`、`packed-refs` 或主仓分支引用被内核拒绝；启动恢复与永久删除后主仓 `git worktree list` 无僵尸残留。 |
-| **A04** | **多轮候选连续性与 Apply / Discard 冲突保护**：未点 Apply 前同会话第 2 轮修改自动延续第 1 轮 `Candidate` 内容；点击 Apply 在原目录无冲突时原子写回并回收 worktree，原目录文件已被外部修改时拒绝覆盖并返回冲突路径；点击 Discard 干净销毁候选且原目录 0 改动。 |
-| **A05** | **动态路由与并行只读保护**：`@A` 单人执行、`@A @B` 多人并行独立盲答（本轮草稿互不可见且并行步自动挂载 `Step.ReadOnly` 禁写项目目录）、`promote_to_task` 原子继承/挂载 `Candidate` worktree 均正确工作。 |
-| **A06** | **通用变更验证守卫**：修改后运行覆盖改动的检查通过则记 `verified`，未测、失败或测后又改文件记 `unverified_mutation`。 |
-| **A07** | **Reviewer 独立验证 Worktree 与 `fresh_only` 会话**：禁止派给作者自审；Reviewer 在派发前物化的独立 `verify_dir` 内可跑命令、跑多语言测试、写临时反例脚本；审结 `verify_dir` 已销毁且作者 `Candidate` `TreeDigest` 逐字节不变，越界写 `Candidate` 被硬拦截。 |
-| **A08** | **防乒乓收敛上限**：`approved` 匹配候选摘要即刻结束；同链连续 `changes_requested` 满 2 轮后阻止第 3 次返工 `relay` 并如实交付现状与分歧。 |
-| **A09** | **单轮「仅规划（Plan-Only）」隔离性**：开启 `plan_only` 发送消息时，五家 CLI 原生只读检索与宿主 `git_inspect` 正常可用，项目目录内核锁死只读，写文件或副作用命令直接返回只读拒绝提示（不弹卡打断用户）；且不改变全局 `ExecutionMode`、不推进 `permission_epoch`、不打断其他后台活跃任务。 |
-| **A10** | **`workspace_autonomous`（沙箱自主）零误报体验**：在候选 worktree 与 `/tmp`（`/private/tmp`）内读写复现文件、运行含 `2>/dev/null`、`jq '//'`、正则、只读调用本机 `~/.cargo`/`~/.nvm` 工具链以及绑定本地 `127.0.0.1:0` 端口跑 `httptest` 均 **0 弹窗直接成功**。 |
-| **A11** | **`workspace_autonomous` 敏感路径双保险与越界硬拦截**：① 复合 shell 试图偷读 `~/.ssh` 被内核默认拒绝；显式工具访问 `~/.ssh` 触发 `Risk="sensitive_path"` 单次高危审批（禁建持续授权）；② 跨出项目与 `/tmp` 访问 `../other-repo` 或发起 `git push`/外部写请求准确弹卡，且无法直连 Cocogem 自身管理监听端口。 |
-| **A12** | **目录子树级 `ConversationGrant` 跨工具复用**：批准“本会话允许所在目录 `/path/to/ext-dir/`”后，同会话内宿主工具与原生 CLI 操作该子目录下多个新文件均直接命中放行；禁止创建 `/`、`$HOME`、`/Users`、顶层 `/tmp` 宽泛授权。 |
-| **A13** | **拓宽版 `run_test` 与 `git_inspect`**：`run_test` 支持 `filter` 单测过滤与主流工具链，Linux 运行态 `bwrap` 探针在受限 CI 环境不误崩；`git_inspect` 禁用外部 diff/hook 安全返回仓库状态。 |
-| **A14** | **`preview_page` 渲染与防 SSRF**：CDP 拦截器阻断对其他本机端口与公网的请求；生成 `Source{Kind: "image"}`，Worktree `TreeDigest` 零变化且无残留子进程。 |
+| **A01** | **Fresh Start 初始化与误清库防护**：启动时仅在空库或明确旧 `schema_baseline` 时执行重建，遇到 `SQLITE_BUSY`/I/O 错误直接失败不误清库；业务层、OpenAPI 与前端 0 废弃 `workflow`、`assignments`、`choose_workflow` 残留。 |
+| **A02** | **普通直写快车道与持久/并行 Worktree 隔离**：① 普通未升级单人对话直写 `Workspace.Root` 且不自动建 Task；② 持久 `Task`（含 `promote_to_task` 升级）与并行 `delegate_task` 子任务各自创建独立 `Candidate` worktree（同步原工作区未提交 tracked/untracked 变更并记录 `base_snapshot_oid`），不触发唯一索引冲突。 |
+| **A03** | **主仓 `.git` 元数据保护与孤儿清扫**：沙箱内放行 `<commonGitDir>/objects` 与 `.git/worktrees/<id>` 使 `git status / add / diff` 正常成功，后置锁死 `.git/hooks`、`.git/config`、`config.worktree`、`packed-refs`（含尚不存在的文件）与主仓分支引用；启动恢复与永久删除后主仓 `git worktree list` 无僵尸残留。 |
+| **A04** | **多轮候选连续性、Diff 审阅、受影响文件级 Apply 与冲突分支逃生口**：未点 Apply 前同任务第 2 轮修改自动延续第 1 轮 `Candidate`；Apply 前可通过 Diff 接口查看真实统一 Diff；Apply 基于 `base_snapshot_oid` 仅比对受影响文件（互不重叠并行子任务可顺序无冲突 Apply，且兼容 Candidate 内 `git commit` 与外部删除检测），运行中禁止 Apply 并原子写回；原目录行级冲突返回 `409` 且支持一键「导出为本地 Git 分支」；Discard 干净销毁候选且原目录 0 改动。 |
+| **A05** | **动态路由与并行只读保护**：`@A` 单人执行、`@A @B` 多人并行独立盲答（本轮草稿互不可见、不自动建 Task、不派生写 Worktree 且自动挂载 `Step.ReadOnly`）、`promote_to_task` 正确绑定 `task_id` 与创建/继承 `Candidate` worktree 均正确工作。 |
+| **A06** | **通用变更验证守卫**：仅 `kind="test"` 通过且无后续改写记 `verified`（`typecheck/lint/build` 仅作支持性证据不伪标 `verified`），未测、失败或测后又改文件记 `unverified_mutation`。 |
+| **A07** | **Reviewer 独立验证 Worktree 与 `fresh_only` 会话**：禁止派给作者自审（含中转自审）；`reviewer` 与 `critic` 均在派发前物化的独立 `verify_dir`（保留未提交 diff 形态，支持非 Git）内以 `fresh_only` 无痕会话跑命令、测试、反例脚本与预览且不误弹越界审批卡；审结销毁 `verify_dir` 并断言被审树 `TreeDigest` 逐字节不变（若被篡改必须令步骤失败）。 |
+| **A08** | **防乒乓收敛上限**：`approved` 匹配候选摘要即刻结束；同链连续 `changes_requested` 满 2 轮后阻止第 3 次返工 `relay` 并如实交付现状与分歧（严禁静默改写为 `approved`）。 |
+| **A09** | **单轮「仅规划（Plan-Only）」内核级隔离**：无论全局为 `workspace_autonomous` 还是 `full_access`，开启 `plan_only` 后五家 CLI 原生只读检索与 `git_inspect` 正常可用，`model.Request` 与 OS 内核沙箱强制锁死只读，禁用 `run_test` 与 `preview_page(mode="command")`，越界写操作先判定只读直接返回 `read_only_step`（绝不弹审批卡）；不改变全局 `ExecutionMode` 与 `permission_epoch`。 |
+| **A10** | **`workspace_autonomous`（沙箱自主）零误报体验**：工作台与 `/tmp`（排除 `/tmp/ssh-*`）内读写复现文件、运行含 `2>/dev/null`、`jq '//'`、正则、只读调用本机工具链以及 `127.0.0.1` 双向回环跑 `httptest` 均 **0 弹窗直接成功**。 |
+| **A11** | **`workspace_autonomous` 敏感路径与认证/凭据硬防线**：① 内核默认拒绝 `~/.ssh`、`~/.aws`、`~/.gnupg`、`~/.kube`、Keychain（收紧 `mach-lookup`）、浏览器凭据库、`.git-credentials`、`.npmrc`、外部 `.env`/私钥；② 无论 `read/write/execute` 命中敏感路径（含 `~` 展开与引号非规范路径）均触发 `Risk="sensitive_path"` 单次高危审批（禁建持续授权），批准「仅本次允许」后宿主工具与当次沙箱真正放行该单一目标；③ 跨出项目与 `/tmp`、`git push`、`sudo`、原生 `Bash` 外部网络准确弹卡；子进程无权凭无认证/单步令牌访问 Cocogem 管理 API。 |
+| **A12** | **三档动作层级 + 目录子树级 `ConversationGrant`**：动作层级拆分 `read < write < execute`（批准写绝不放开执行）；审批卡与后端支持 `once / file / directory` 选择，批准目录后 `CheckToolAccess`、`WaitForDecision`、`settleSiblingsUnderGrant` 统一复用子树匹配；禁建 `/`、`$HOME`、`/Users`、顶层 `/tmp`（允许 `/tmp/<subdir>`）。 |
+| **A13** | **拓宽版 `run_test` 与 `git_inspect`**：`run_test` 6 个工具链 × 4 种 `kind` 组装正确无重复 `argv`（支持 Go `TestFoo/SubTest`、禁前导 `-` 与 `..` 穿越、macOS 沙箱放行 `ExecRoots`），Linux 受限 AppArmor 诚实降级为显式逐次审批；`git_inspect` 禁用 hooks/ext-diff/textconv/`core.fsmonitor` 并过滤敏感文件。 |
+| **A14** | **`preview_page` 沙箱化、防 SSRF 与真实可观测性**：`mode="static"` 通过 `os.OpenRoot(projectRoot)` 防软链越界；`mode="command"` 按 `execute` 受权限与 OS 沙箱约束且锁死 `cmd.Dir`；CDP 拦截非同源 HTTP、WebSocket 及 `Target.setAutoAttach` 子目标；原生 CLI MCP 桥豁免 20s 强杀；真实返回 `console_errors`、`page_errors`、`AXTree`；渲染失败不存 0 字节图不报 `rendered: true`；Worktree `TreeDigest` 零变化且无残留子进程。 |
 | **A15** | **视觉 Gate-0 豁免**：纯后端改动硬豁免截图要求；`browser_engine_unavailable` 时如实披露未渲染验证。 |
 | **A16** | **接球验真（Claim Grounding）**：上游 T2 声明与真实文件/测试结果（T0/T1）冲突时，接球方识别 `mismatch` 并带证据拒绝盲目推进。 |
-| **A17** | **Diff 兜底堆叠诊断**：单文件净增 ≥3 层兜底分支时产出非阻塞提示。 |
-| **A18** | **10 项固定技能门禁与上下文预算**：精确包含第 6.2 节 10 个技能 ID、单描述 ≤240 字符、正文 ≤90 行、零死链、零品牌名耦合，改动任一技能或 `_shared` 均更新 `SnapshotHash`。 |
-| **A19** | **项目本地只读技能安全挂载**：合规 `.agents/skills/` 可被只读发现并计入快照哈希；符号链接越界与覆盖内置同名技能均被拒绝。 |
-| **A20** | **待批权限直通任务状态**：挂起 `ToolPermissionRequest` 时，任务清单、顶栏胶囊与左侧会话行同步变为“需要你（等待授权）”，点击直达对应会话审批卡。 |
-| **A21** | **提问状态零分裂**：`AskQuestion` 后列表、顶栏与详情状态 100% 一致，解答后自动恢复。 |
-| **A22** | **父子任务收敛与批量预取零 N+1**：存在未收敛子任务时父任务保持“进行中”不抢跑进“待验收”；`TaskBoard` SQLite 查询次数恒定不随任务数线性增长。 |
-| **A23** | **已验收会话平顺重激活**：`completed` 任务的关联会话发新推进指令自动演进新 `TaskRevision` 激活执行，不再报 `409 Conflict`。 |
-| **A24** | **一手来源守卫**：`publish_artifact` 与 `save_claim` 继续拦截拿搜索列表页（`lead`）充当已证实结论证据。 |
+| **A17** | **Diff 兜底堆叠诊断**：基于实际候选累计 diff（覆盖原生 CLI 修改）检出单文件净增 ≥3 层异常兜底分支时产出非阻塞提示（不误报常规 Go `if err != nil` / `return nil`）。 |
+| **A18** | **10 项固定技能门禁与上下文预算**：精确包含第 6.2 节 10 个技能 ID、单描述 ≤240 字符、正文 ≤90 行、零死链（含 `_shared/references` 全部文件名可发现）、零品牌名耦合，改动任一技能或 `_shared` 均更新 `SnapshotHash`。 |
+| **A19** | **项目本地只读技能安全挂载**：合规 `.agents/skills/` 可被只读发现并计入快照哈希；`.agents` 父目录与子目录符号链接越界、敏感路径及覆盖内置同名技能均被拒绝。 |
+| **A20** | **待批权限直通全部任务视图**：挂起 `ToolPermissionRequest` 时，任务清单、`taskInTx` 单任务详情、会话顶栏胶囊与左侧会话栏同步变为“需要你（等待授权）”，点击直接跳转对应会话审批卡（含滚动定位）。 |
+| **A21** | **提问状态零分裂**：`AskQuestion` 后列表、顶栏胶囊、侧边栏与详情状态 100% 一致，解答后自动恢复。 |
+| **A22** | **父子任务收敛与批量预取零 N+1**：存在未收敛子任务时父任务在任务板、顶栏胶囊和详情页均保持“进行中”不抢跑进“待验收”；`TaskBoard` SQLite 查询次数经实测恒定（且 `UnappliedExecutions` 排除 `verify_dir`）。 |
+| **A23** | **已验收会话平顺重激活**：通过真实 HTTP `POST /api/v1/threads/{id}/runs` 向 `completed` 任务的关联会话发新推进指令时，`BindRunTask` 自动演进新 `TaskRevision` 与 `EvaluationGeneration` 激活执行，不再报 `409 Conflict`。 |
+| **A24** | **一手来源守卫**：`publish_artifact` 与 `save_claim` 均拦截拿搜索列表页（`lead`）充当已证实结论证据。 |
 | **A25** | **实时权限收紧失效**：运行中从 `full_access` 切回 `workspace_autonomous` 时，推进 `permission_epoch`，立即停止不可收紧的越界原生执行并使旧挂起请求失效。 |
-| **A26** | **步内断点续接与人工继续解锁**：成员在步骤中途已修改 `Candidate` 文件后中断时，已改文件保留、流启动已落盘 `NativeSessionID`、人工点击继续解锁 `uncertain` 并优先 `--resume` 或通过 `Checkpoint Digest` 续跑。 |
-| **A27** | **五家 CLI 原生目录会话保留、纯增量防膨胀与超限自动换桌**：① 五家 CLI 会话均保存在各自原生目录，沙箱仅放行当前成员对应 CLI 目录；② `@A -> @B -> @A` 交错对话时，`A` 在 `resume` 轮跳过静态前缀与已签收历史（仅收纯增量，消除 `O(N²)` 重复历史），长消息预览采用头 40% + 尾 60% 截断；③ 模拟原生会话超限或强杀残损时，Continuity Handshake 自动封存旧会话、透明重开新会话并注入连续性胶囊不报错中断。 |
-| **A28** | **附件交付目录与代码 Worktree 正交隔离**：在绑定 Git 仓库的普通会话或任务中上传附件并导出交付文件时，附件读取与 `publish_file` 正常走 `$COCOGEM_IO_DIR/{inputs,outputs}`，代码 `Candidate` worktree 保持干净且不误将导出办公文件混入源码 diff。 |
-| **A29** | **回收站软删恢复与硬删/换根联动**：会话移入回收站再恢复后，未应用的 `Candidate` 代码改动完好保留；从回收站彻底删除、到期 `Purge` 或删除工作空间后，对应 worktree 与 IO 目录被彻底清理且主仓无残留；存在未应用 `Candidate` 时修改 `Workspace.Root` 返回冲突保护提示，换根后旧会话自动滚动不跨仓串台。 |
-| **A30** | **成员吊销与手动停止清场**：移除成员仅将 SQLite `execution_sessions` 标记为 `revoked` 而不删除用户本机 `~/.claude` 等原生目录文件；运行中点击 Stop 整进程组回收 `run_test` / `preview_page` 子进程无端口残留。 |
+| **A26** | **步内断点续接、人工继续解锁与统一连续性胶囊**：成员中途已修改文件后中断时，已改文件保留、流启动已落盘 `NativeSessionID`、`RetryStep` 与 `Resume` 人工点击继续统一传 `humanConfirmed = true` 解锁 `uncertain`，优先 `--resume` 或自动注入 `Continuity Capsule`（≤1.5K tokens 交接单）续跑。 |
+| **A27** | **五家 CLI 原生目录会话保留、严格纯增量与无感换桌**：① Claude/Codex/Gemini/Pi/OpenCode 五家全部回归原生目录并打通真实 `--resume` / `thread/resume` / `--session`；② `@A -> @B -> @A` 交错对话时，`A` 在 `resume` 轮跳过静态前缀与已确认消息 ID（彻底不拼回全量 `Shared history`，仅收纯增量），长消息预览采用头 40% + 尾 60% 截断；③ 模拟原生会话超限、Stop 强杀残损或外部改动时，Continuity Handshake 自动封存旧会话、在当次运行内透明重开新会话并注入 `Continuity Capsule` 不报错中断。 |
+| **A28** | **附件交付目录与代码目录正交隔离**：无论 `workspace_autonomous` 还是 `full_access`，原生 CLI 与宿主工具在绑定项目时 `cwd` 固定为工作根，`$COCOGEM_IO_DIR/{inputs,outputs}` 通过环境变量透传（含 Codex）且读写正常，代码树/Candidate 保持干净。 |
+| **A29** | **回收站软删恢复与硬删/换根联动**：会话移入回收站再恢复后，未应用 `Candidate` 完好保留；彻底删除、到期 `Purge` 或删除工作空间**先采集后删库**并彻底回收 worktree、thread/task IO 目录及执行 `git worktree prune`；存在未应用 `Candidate` 时修改 `Workspace.Root` 返回 `409`，换根后旧会话索引列与 JSON 一并 `sealed`。 |
+| **A30** | **成员吊销与手动停止清场**：移除成员按 `(workspace_id, member_id)` 将所有普通会话与任务级会话 `status` 标记为 `revoked` 而不触碰用户原生 CLI 目录；运行中点击 Stop 对 `run_test` / `preview_page` / `run_command` / OpenCode plugin / `host_exec` 及五家 CLI 整进程组 `-PGID` 回收无残留。 |
 
 ### 10.2 前端与交互验收（V01–V07）
 
 | 编号 | 视觉与交互检查标准 |
 | --- | --- |
-| **V01** | Composer 无旧工作方式选择器与 `/` 模式菜单；底部清晰展示全局两档（沙箱自主 / 完全访问，与设置页实时同步）及单轮轻量「仅规划」开关。 |
+| **V01** | Composer 无旧工作方式选择器、无 `/` 模式菜单与旧流程提示文案；底部清晰展示全局两档（沙箱自主 / 完全访问，与设置页实时同步）及单轮轻量「仅规划」开关（切换会话自动复位，运行态禁用）。 |
 | **V02** | 欢迎页无旧三模式卡片；深色、浅色、暖色三套主题及桌面（1440×1000）与窄屏（390×844）布局协调无溢出。 |
-| **V03** | “设置 → 协作”仅保留默认协调者与未来根任务预算配置；“设置 → 权限”展示全局两档并支持查看与撤销目录级会话持续授权。 |
-| **V04** | 会话交付条与任务人工验收弹窗清晰展示 `CandidateVerification` 状态及“应用到项目目录 / 丢弃变更”操作。 |
-| **V05** | 任务清单移除常态两行重复套话，保持紧凑两行呼吸感卡片；常规 `1px` 细边，仅“需要你 / 执行失败”亮 `3px` 语义左边并单行露因；已验收/已取消默认收拢于底部折叠抽屉。 |
-| **V06** | 左侧会话栏、会话顶栏任务胶囊、任务清单与看板四处对同一任务的状态文案与色调 100% 一致，由 SSE 实时驱动刷新。 |
-| **V07** | 会话顶栏点击关联任务可就地查看紧凑概览或进入验收；任务卡片跳转精确回到关联会话及待批权限卡 / 来源消息锚点。 |
+| **V03** | “设置 → 协作”仅保留默认协调者与未来根任务预算配置（无旧“模式分工”文案）；“设置 → 权限”展示全局两档、Linux 沙箱状态提示与目录级会话持续授权撤销列表。 |
+| **V04** | 会话交付条（`CandidateBar`）与任务人工验收弹窗清晰展示 `CandidateVerification` 状态、**可展开的实时统一 Diff 审阅视图**、“应用到项目目录 / 丢弃变更”操作，以及 `409` 冲突时的「导出为本地 Git 分支」逃生操作。 |
+| **V05** | 任务清单移除常态两行重复套话，保持紧凑两行呼吸感卡片；常规 `1px` 细边，仅“需要你 / 执行失败”亮 **`3px`** 语义左边并单行露因；`completed + canceled` 共同统计并默认收拢于底部折叠抽屉。 |
+| **V06** | 左侧会话栏、会话顶栏任务胶囊、任务清单/看板与详情页四处对同一任务的状态文案与色调 100% 一致，由 SSE 实时驱动刷新（含运行中权限/提问变更）。 |
+| **V07** | 会话顶栏点击关联任务可就地查看紧凑概览或进入验收；待批权限任务卡直接跳转关联会话并滚动锚定到审批卡 / 来源消息。 |
 
 ### 10.3 标准验证命令
 
