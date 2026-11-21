@@ -41,8 +41,8 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 	if request.AuthorizeNative == nil {
 		return errors.New("project-autonomous native execution requires the host approval callback")
 	}
-	if request.ExecutionMode != "workspace_autonomous" {
-		return errors.New("the gated native path is only for project_autonomous")
+	if request.ExecutionMode != "workspace_autonomous" && !request.ReadOnly {
+		return errors.New("the gated native path is only for workspace_autonomous or read-only turns")
 	}
 	adapterInfo, err := p.Check(ctx, adapter)
 	if err != nil {
@@ -66,8 +66,8 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 	gate.trustedNative = true
 	gate.setRequired(request.RequiredTools)
 	gate.sessionMode, gate.sessionID = request.SessionMode, request.SessionID
-	if request.SessionStorageRoot != "" {
-		return errors.New("a native gated attempt does not support a managed resumable session")
+	if request.SessionMode == "resume" && (!managedNativeSession(request) || request.SessionID == "") {
+		return errors.New("a managed session resume requires its exact native session identity")
 	}
 	base, err := os.MkdirTemp("", "cocogem-native-*")
 	if err != nil {

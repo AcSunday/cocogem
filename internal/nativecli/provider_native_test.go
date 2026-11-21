@@ -163,6 +163,8 @@ func TestNativeFileToolsDropWhenSettingsShareTheAliasedRootLocation(t *testing.T
 }
 
 func TestNativeWebReceivesResolvedProxyWithoutLosingLoopbackBypass(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("HTTP_PROXY", "")
 	t.Setenv("NO_PROXY", "internal.example")
 	t.Setenv("no_proxy", "lowercase.example")
 	args, env, _ := runNativeFixture(t, model.Request{NativeTools: []string{"WebSearch", "WebFetch"}, NativeProxy: "http://127.0.0.1:7897"}, "")

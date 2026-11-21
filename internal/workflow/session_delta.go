@@ -74,15 +74,22 @@ func (e *Engine) sessionDeltaRequest(ctx context.Context, run w.Run, step w.Step
 		if err := collectDeltaMessages(tx, run, step, seen, &payload); err != nil {
 			return err
 		}
-		// Constraint refs that the ledger already contained may be replaced by a
-		// newer revision; they are named so the model knows they no longer govern.
+		// Only mark a previously acknowledged constraint ref as superseded when
+		// the current turn carries a DIFFERENT digest for the same constraint key.
+		currentByPrefix := map[string]string{}
 		for _, ref := range session.ExposedRefs {
-			base, _, _ := strings.Cut(ref, ":")
-			switch base {
-			case "task", "work", "project", "memory":
-				if _, ok := seen[ref]; ok && len(payload.SupersededConstraints) < 100 {
-					payload.SupersededConstraints = append(payload.SupersededConstraints, ref)
-				}
+			if prefix, digest, ok := constraintRefParts(ref); ok {
+				currentByPrefix[prefix] = digest
+			}
+		}
+		for _, ref := range session.AcknowledgedExposedRefs {
+			prefix, oldDigest, ok := constraintRefParts(ref)
+			if !ok {
+				continue
+			}
+			newDigest, stillPresent := currentByPrefix[prefix]
+			if (!stillPresent || newDigest != oldDigest) && len(payload.SupersededConstraints) < 100 {
+				payload.SupersededConstraints = append(payload.SupersededConstraints, ref)
 			}
 		}
 		if err := collectDeltaWork(tx, run, seen, &payload); err != nil {
@@ -194,6 +201,22 @@ func candidateSummary(run w.Run) string {
 		return ""
 	}
 	return root
+}
+
+func constraintRefParts(ref string) (prefix, digest string, ok bool) {
+	base, rest, found := strings.Cut(ref, ":")
+	if !found {
+		return "", "", false
+	}
+	switch base {
+	case "task", "work", "project", "memory":
+		lastColon := strings.LastIndex(rest, ":")
+		if lastColon <= 0 {
+			return base + ":" + rest, "", true
+		}
+		return base + ":" + rest[:lastColon], rest[lastColon+1:], true
+	}
+	return "", "", false
 }
 
 // ErrSessionSealed means the bound native session can no longer be resumed; the

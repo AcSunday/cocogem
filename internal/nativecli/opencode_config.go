@@ -231,6 +231,18 @@ func openCodeCredentials(ctx context.Context) ([]openCodeCredential, error) {
 	return credentials, nil
 }
 
+func openCodeNativeEnv(dir string, managed bool) map[string]string {
+	env := openCodeScopedEnv(dir)
+	if managed {
+		if nativeRoot := nativeStateRoot("opencode"); nativeRoot != "" {
+			_ = os.MkdirAll(nativeRoot, 0700)
+			env["OPENCODE_DB"] = filepath.Join(nativeRoot, "opencode.db")
+			env["XDG_DATA_HOME"] = filepath.Dir(nativeRoot)
+		}
+	}
+	return env
+}
+
 func openCodeScopedEnv(dir string) map[string]string {
 	return map[string]string{
 		"PWD": dir, "OPENCODE_CONFIG_DIR": dir, "OPENCODE_CONFIG": "", "OPENCODE_CONFIG_CONTENT": "{}", "OPENCODE_CLI_CONFIG_CONTENT": "{}",

@@ -238,19 +238,25 @@ func claudeArgs(configPath, settingsPath string, native []string) []string {
 func claudeBidirectionalArgs(configPath, settingsPath string, native []string, request model.Request) []string {
 	builtins := []string{}
 	for _, name := range native {
+		if request.ReadOnly && (name == "Write" || name == "Edit" || name == "Bash" || name == "NotebookEdit" || name == "MultiEdit") {
+			continue
+		}
 		if slices.Contains(claudeAutonomousNames, name) {
 			builtins = append(builtins, name)
 		}
 	}
 	toolSet := strings.Join(builtins, ",")
 	allowed := "mcp__cocogem__*"
-	if request.ExecutionMode == "full_access" && request.TrustedExecution {
+	permissionMode := "manual"
+	if request.ReadOnly {
+		permissionMode = "plan"
+	} else if request.ExecutionMode == "full_access" && request.TrustedExecution {
 		toolSet = "default"
 		allowed = "*"
 	}
 	args := []string{
 		"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-		"--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
+		"--permission-mode", permissionMode, "--permission-prompts", "host", "--permission-prompt-tool", "stdio",
 		"--tools", toolSet,
 		"--strict-mcp-config", "--mcp-config", configPath,
 		"--allowedTools", allowed,
@@ -269,12 +275,15 @@ func claudeBidirectionalArgs(configPath, settingsPath string, native []string, r
 
 func claudeExecutionArgs(configPath, settingsPath string, native []string, request model.Request) []string {
 	known := claudeNativeNames
-	fullAccess := request.ExecutionMode == "full_access"
+	fullAccess := request.ExecutionMode == "full_access" && !request.ReadOnly
 	if fullAccess {
 		known = claudeFullAccessNames
 	}
 	builtins := []string{}
 	for _, name := range native {
+		if request.ReadOnly && (name == "Write" || name == "Edit" || name == "Bash" || name == "NotebookEdit" || name == "MultiEdit") {
+			continue
+		}
 		if slices.Contains(known, name) {
 			builtins = append(builtins, name)
 		}
@@ -282,7 +291,10 @@ func claudeExecutionArgs(configPath, settingsPath string, native []string, reque
 	allowed := append(append([]string{}, builtins...), "mcp__cocogem__*")
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}
 	permissionMode := "dontAsk"
-	if fullAccess {
+	if request.ReadOnly {
+		permissionMode = "plan"
+		args = append(args, "--restricted")
+	} else if fullAccess {
 		permissionMode = "bypassPermissions"
 	} else {
 		args = append(args, "--restricted")

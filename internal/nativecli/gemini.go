@@ -173,7 +173,18 @@ func prepareGemini(request model.Request, workdir string, gate *bridge, launch *
 		return nil, nil, errors.New("write scoped Gemini settings")
 	}
 	args := []string{"--output-format", "stream-json", "--approval-mode", "default", "--skip-trust", "--extensions", "none", "--allowed-mcp-server-names", serverName, "--policy", policyDir, "--admin-policy", policyDir, "--prompt", "Read the task on stdin; only use the supplied collaboration MCP tools and complete this step."}
-	if gate.trustedNative {
+	if managedNativeSession(request) && request.SessionMode == "resume" && request.SessionID != "" {
+		args = append(args, "--resume", request.SessionID)
+	}
+	if managedNativeSession(request) {
+		if nativeRoot := nativeStateRoot("gemini"); nativeRoot != "" {
+			nativeTmp := filepath.Join(nativeRoot, "tmp")
+			if err := os.MkdirAll(nativeTmp, 0700); err == nil {
+				_ = os.Symlink(nativeTmp, filepath.Join(dir, "tmp"))
+			}
+		}
+	}
+	if gate.trustedNative && !request.ReadOnly {
 		for i, value := range args {
 			if value == "default" {
 				args[i] = "yolo"

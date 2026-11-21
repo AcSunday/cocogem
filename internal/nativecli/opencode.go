@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -47,19 +48,25 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 	for _, tool := range request.Tools {
 		permissions = append(permissions, map[string]any{"action": "cocogem_" + tool.Name, "resource": "*", "effect": "allow"})
 	}
-	if gate.approver != nil {
+	readOnlyActions := []string{"read", "webfetch", "websearch", "glob", "grep", "list", "view_image"}
+	allActions := []string{"bash", "shell", "edit", "write", "read", "webfetch", "websearch", "glob", "grep", "list", "patch", "apply_patch", "view_image"}
+	if request.ReadOnly {
+		for _, action := range readOnlyActions {
+			permissions = append(permissions, map[string]any{"action": action, "resource": "*", "effect": "allow"})
+		}
+	} else if gate.approver != nil {
 		// The private execute.before plugin is the single gate; it asks the host
 		// before every tool and runs native commands through the host's
 		// per-call sandbox. Do not also emit permission.asked for the same call.
-		for _, action := range []string{"bash", "shell", "edit", "write", "read", "webfetch", "websearch", "glob", "grep", "list", "patch", "apply_patch", "view_image"} {
+		for _, action := range allActions {
 			permissions = append(permissions, map[string]any{"action": action, "resource": "*", "effect": "allow"})
 		}
 	} else if (request.ExecutionMode == "workspace_autonomous" || request.ExecutionMode == "full_access") && !gate.trustedNative {
-		for _, action := range []string{"bash", "shell", "edit", "write", "read", "webfetch", "websearch", "glob", "grep", "list", "patch", "apply_patch", "view_image"} {
+		for _, action := range allActions {
 			permissions = append(permissions, map[string]any{"action": action, "resource": "*", "effect": "ask"})
 		}
 	}
-	if gate.trustedNative {
+	if gate.trustedNative && !request.ReadOnly {
 		permissions = []any{map[string]any{"action": "*", "resource": "*", "effect": "allow"}}
 	}
 	config["permissions"] = permissions
@@ -115,7 +122,14 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 		}
 		args = append(args, "--model", selected)
 	}
-	return args, openCodeScopedEnv(filepath.Clean(dir)), nil
+	env := openCodeNativeEnv(filepath.Clean(dir), managedNativeSession(request))
+	if managedNativeSession(request) && gate.sandbox != nil {
+		if nativeRoot := nativeStateRoot("opencode"); nativeRoot != "" {
+			_ = os.MkdirAll(nativeRoot, 0700)
+			gate.sandbox.addRoots(nativeRoot)
+		}
+	}
+	return args, env, nil
 }
 
 // openCodeModelGateway points the sandboxed CLI at a loopback reverse proxy so

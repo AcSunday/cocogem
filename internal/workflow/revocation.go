@@ -106,26 +106,20 @@ func (e *Engine) reconcileRevocations(ctx context.Context) error {
 // those directories.
 func (e *Engine) sealRevokedNativeSessions(ctx context.Context, workspaceID, memberID string) error {
 	return e.Store.Write(ctx, func(tx *store.Tx) error {
-		threads, err := tx.ThreadsAny(workspaceID)
+		sessions, err := tx.SessionsByMember(workspaceID, memberID)
 		if err != nil {
 			return err
 		}
-		for _, thread := range threads {
-			sessions, err := tx.Sessions(thread.ID)
-			if err != nil {
-				return err
+		for _, session := range sessions {
+			if session.Status == "revoked" {
+				continue
 			}
-			for _, session := range sessions {
-				if session.MemberID != memberID || session.Status == "revoked" {
-					continue
-				}
-				session.Status = "revoked"
-				session.NativeSessionID = ""
-				session.Acknowledgement = "revoked"
-				session.UpdatedAt = w.Now()
-				if err := tx.SaveSession(session); err != nil {
-					return err
-				}
+			session.Status = "revoked"
+			session.NativeSessionID = ""
+			session.Acknowledgement = "revoked"
+			session.UpdatedAt = w.Now()
+			if err := tx.SaveSession(session); err != nil {
+				return err
 			}
 		}
 		return nil

@@ -106,10 +106,27 @@ func preparePi(request model.Request, workdir string, gate *bridge, probeURL str
 	}
 	// --no-extensions would also disable the built-in MCP extension, so user
 	// extensions are excluded through the scoped agent directory instead.
-	args := []string{"--mode", "json", "--print", "--no-session", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-builtin-tools"}
-	if gate.trustedNative {
+	args := []string{"--mode", "json", "--print"}
+	if managedNativeSession(request) {
+		if nativeRoot := nativeStateRoot("pi"); nativeRoot != "" {
+			sessionDir := filepath.Join(nativeRoot, "sessions")
+			if err := os.MkdirAll(sessionDir, 0700); err == nil {
+				args = append(args, "--session-dir", sessionDir)
+			}
+		}
+		if request.SessionMode == "resume" && request.SessionID != "" {
+			args = append(args, "--session", request.SessionID)
+		}
+	} else {
+		args = append(args, "--no-session")
+	}
+	args = append(args, "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-builtin-tools")
+	if gate.trustedNative && !request.ReadOnly {
 		args = args[:len(args)-1]
 		names = append(names, "read", "bash", "edit", "write", "grep", "find", "ls")
+	} else if request.ReadOnly {
+		args = args[:len(args)-1]
+		names = append(names, "read", "grep", "find", "ls")
 	}
 	if plan.piModel != "" {
 		args = append(args, "--model", plan.piModel, "--thinking", plan.piThinking)

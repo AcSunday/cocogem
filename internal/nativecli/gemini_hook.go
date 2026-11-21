@@ -117,12 +117,26 @@ func prepareGeminiNative(request model.Request, workdir string, gate *bridge, br
 		"--extensions", "none", "--allowed-mcp-server-names", serverName,
 		"--prompt", "Complete the assigned step with the supplied tools. Use the Cocogem tools for member handoff and final file delivery.",
 	}
+	if managedNativeSession(request) && request.SessionMode == "resume" && request.SessionID != "" {
+		args = append(args, "--resume", request.SessionID)
+	}
 	if request.Model != "" && request.Model != "default" {
 		args = append(args, "--model", request.Model)
 	}
-	// GEMINI_CLI_HOME scopes the CLI's own settings/history directory to this
-	// attempt, so the private hook settings are the only ones loaded while the
-	// process still starts in the real project root.
+	if managedNativeSession(request) {
+		// Link native session/cache storage into the scoped GEMINI_CLI_HOME so
+		// OAuth & resumable sessions live in ~/.gemini while per-step hook
+		// settings stay isolated in workdir without mutating user settings.json.
+		if nativeRoot := nativeStateRoot("gemini"); nativeRoot != "" {
+			nativeTmp := filepath.Join(nativeRoot, "tmp")
+			if err := os.MkdirAll(nativeTmp, 0700); err == nil {
+				_ = os.Symlink(nativeTmp, filepath.Join(dir, "tmp"))
+			}
+		}
+	}
+	// GEMINI_CLI_HOME scopes the CLI's own settings directory to this attempt,
+	// so the private hook settings are the only ones loaded while the process
+	// still starts in the real project root.
 	return args, map[string]string{
 		"GEMINI_CLI_HOME": workdir, "GEMINI_CONFIG_DIR": workdir,
 		"GEMINI_CLI_TRUST_WORKSPACE": "true", "GEMINI_SYSTEM_MD": "", "GEMINI_WRITE_SYSTEM_MD": "",

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/AcSunday/cocogem/internal/model"
+	"github.com/AcSunday/cocogem/internal/tools"
 )
 
 // piNativeSession owns the per-attempt objects for a project_autonomous Pi run.
@@ -30,8 +31,21 @@ func preparePiNativeSession(request model.Request, base, workdir string, gate *b
 	if err != nil {
 		return nil, err
 	}
+	sandbox.readOnly = request.ReadOnly
+	sandbox.allowLoopback = true
+	sandbox.allowTmp = true
 	sandbox.addRoots(request.WorkspaceRoot, request.WorkingDirectory)
 	sandbox.addReadOnlyRoot(request.IOInputs)
+	if gitDir, commonGit := tools.WorktreeMeta(request.WorkspaceRoot); gitDir != "" {
+		sandbox.addRoots(gitDir)
+		if commonGit != "" {
+			sandbox.addReadOnlyRoot(commonGit)
+			sandbox.addRoots(filepath.Join(commonGit, "objects"))
+		}
+		sandbox.addDenyWrites(tools.GitMetadataDenies(request.WorkspaceRoot)...)
+	} else if denies := tools.GitMetadataDenies(request.WorkspaceRoot); len(denies) > 0 {
+		sandbox.addDenyWrites(denies...)
+	}
 	session := &piNativeSession{request: request, gate: gate, sandbox: sandbox, workdir: workdir, launch: launch, probeURL: probeURL}
 	if probeURL == "" {
 		proxy, proxyErr := newEgressProxy(func(host, method string) {

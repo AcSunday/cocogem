@@ -37,6 +37,15 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 		}
 		exposed = append(exposed, "source_id:"+source.ID+":"+digest)
 	}
+	// Record committed thread messages already visible at this boundary so
+	// subsequent resumed turns send only truly new messages (true delta).
+	if msgs, err := tx.Messages(in.run.ThreadID); err == nil {
+		for _, msg := range msgs {
+			if msg.Status == "completed" && strings.TrimSpace(msg.Content) != "" && msg.StepID != in.step.ID {
+				exposed = append(exposed, "message:"+msg.ID)
+			}
+		}
+	}
 	contextProtocol := "legacy-context/v1"
 	if in.run.ContextRef != "" {
 		manifest, err := tx.ContextManifest(in.run.ContextRef)
@@ -132,8 +141,13 @@ func prepareExecutionSession(tx *store.Tx, in sessionInput) (w.ExecutionSession,
 		Adapter: in.adapter.Adapter, Acknowledgement: "resume_unsupported", Status: "fresh_only",
 		CreatedAt: now, UpdatedAt: now,
 	}
-	if managed {
+	if managed && !isIndependentReview(in.step) {
 		prepared.Status, prepared.Acknowledgement = "active", "awaiting_runner_ack"
+	} else if isIndependentReview(in.step) {
+		// Disposable reviewer/critic steps MUST always start a fresh ephemeral
+		// session so round-2 reviews never try to resume a destroyed verify_dir.
+		managed = false
+		prepared.Status, prepared.Acknowledgement = "fresh_only", "ephemeral_review"
 	}
 	for _, session := range existing {
 		// A different working root (an applied or discarded candidate) has no

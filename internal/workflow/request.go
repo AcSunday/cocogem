@@ -36,15 +36,12 @@ func (e *Engine) allowedTools(run w.Run, a w.Agent, step w.Step) []string {
 	// audit history and never narrows a new execution; the mode, role, task and
 	// conversation-grant checks below are the real boundary.
 	for _, name := range w.StandardToolCatalog() {
-		// run_command stays available in every mode so the member can ask for a
-		// concrete command; only full access executes it without a decision.
-		if name == "run_command" && (step.Role == "critic" || step.ReadOnly) {
+		// run_command stays available in every non-read-only step so the member can
+		// execute inside its sandbox/verify_dir or ask for an outside scope.
+		if step.ReadOnly && (name == "write_file" || name == "patch_file" || name == "run_command" || name == "run_test") {
 			continue
 		}
-		if step.ReadOnly && (name == "write_file" || name == "patch_file" || name == "run_command") {
-			continue
-		}
-		if (name == "read_file" || name == "list_files" || name == "search_content" || name == "write_file" || name == "patch_file" || name == "run_test") && run.Workspace.Root == "" && run.TaskDirectory == "" {
+		if (name == "read_file" || name == "list_files" || name == "search_content" || name == "write_file" || name == "patch_file" || name == "run_test" || name == "git_inspect") && run.Workspace.Root == "" && run.TaskDirectory == "" {
 			continue
 		}
 		if name == "web_search" && (e.Web == nil || !e.Web.SearchEnabled()) {
@@ -68,13 +65,11 @@ func (e *Engine) allowedTools(run w.Run, a w.Agent, step w.Step) []string {
 }
 
 // toolRoleAllowed applies the role semantics for mutating/executable host tools.
-// Any step that may write does so inside the bound workspace; the live mode still
-// decides whether it runs or needs a decision. Critic steps stay read-only.
+// Both reviewer and critic execute inside their own disposable verify_dir
+// worktree (with the author's candidate/project read-only) and have full
+// command, test and probe-script capabilities inside verify_dir.
 func toolRoleAllowed(run w.Run, role, name string) bool {
-	if name != "write_file" && name != "patch_file" && name != "run_test" {
-		return true
-	}
-	return role != "critic"
+	return true
 }
 
 // StepToolAllowed applies the step-level write restriction: a read-only step may
@@ -171,36 +166,48 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 		contextText.WriteString("\nThis is a user-requested retry of one failed member step. Follow this step's original role and instruction. Preserve completed peer work and reuse its exact upstream references; do not repeat completed work. Whatever this step still has to organise or deliver happens now: use the collaboration tools offered to this step for any follow-up work the task needs.\n")
 	}
 	previousBudget := 12000
+	previousDraft := ""
+	if draft != nil {
+		previousDraft = strings.TrimSpace(draft.Body)
+	}
 	for _, m := range all {
 		if m.StepID != step.ID || m.ID == message.ID || strings.TrimSpace(m.Content) == "" || previousBudget <= 0 {
 			continue
 		}
 		snippet := shortTaskResult(m.Content)
+		if previousDraft == "" {
+			previousDraft = snippet
+		}
 		if len(snippet) > previousBudget {
 			break
 		}
 		previousBudget -= len(snippet)
 		fmt.Fprintf(&contextText, "\nVisible output from a previous interrupted attempt (not a committed result; from_attempt_id=%s; use only as context and do not assume it was delivered):\n%s\n", attempt.RecoveredFrom, snippet)
 	}
-	// A continuation that cannot resume its native session still gets the exact
-	// on-disk state, so it continues the half-finished work instead of restarting.
-	if attempt.SessionMode != "resume" && attempt.RecoveredFrom != "" {
+	// Inject the unified Continuity Capsule whenever a fresh session continues
+	// from an interrupted attempt, a RetryStep, a sealed/overflowed session, or
+	// a promote_to_task work-root transition.
+	if attempt.SessionMode != "resume" && (attempt.RecoveredFrom != "" || step.RetryOfStepID != "" || attempt.Recovery == "context_fresh" || run.TaskPromotionStepID != "") {
 		var previous *w.Attempt
-		if err := e.Store.Read(ctx, func(tx *store.Tx) error {
-			candidate, err := tx.Attempt(attempt.RecoveredFrom)
-			if err != nil {
+		if attempt.RecoveredFrom != "" {
+			if err := e.Store.Read(ctx, func(tx *store.Tx) error {
+				candidate, err := tx.Attempt(attempt.RecoveredFrom)
+				if err != nil {
+					return nil
+				}
+				previous = &candidate
 				return nil
+			}); err != nil {
+				return request, err
 			}
-			previous = &candidate
-			return nil
-		}); err != nil {
-			return request, err
 		}
-		continuation, err := e.buildCheckpointDigest(ctx, run, step, previous)
+		continuation, err := e.buildCheckpointDigest(ctx, run, step, previous, previousDraft)
 		if err != nil {
 			return request, err
 		}
-		contextText.WriteString("\n" + continuation)
+		if continuation != "" {
+			contextText.WriteString("\n" + continuation)
+		}
 	}
 	collaboration, err := e.collaborationContext(ctx, run, step)
 	if err != nil {
@@ -245,9 +252,11 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 		}
 		fmt.Fprintf(&contextText, "\nShared history message_id=%s agent_id=%s step_id=%s run_id=%s status=%s (%s): %s%s\n", m.ID, m.AgentID, m.StepID, m.RunID, m.Status, m.AgentName, m.Content, marker)
 	}
+	handoffText := ""
 	if len(step.DependsOn) > 0 || len(step.ContextRefs) > 0 {
 		raw, _ := json.Marshal(handoff)
-		contextText.WriteString("\nExact upstream handoff (messages, artifact versions, findings and source IDs; bodies are bounded previews, use read_context with the exact id/version for more):\n" + string(raw) + "\n")
+		handoffText = "\nExact upstream handoff (messages, artifact versions, findings and source IDs; bodies are bounded previews, use read_context with the exact id/version for more):\n" + string(raw) + "\n"
+		contextText.WriteString(handoffText)
 	}
 	if index := artifactScopeIndex(scope); index != "" {
 		contextText.WriteString(index)
@@ -425,7 +434,8 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 		}
 	}
 	request.ExecutionMode = run.EffectiveExecutionMode
-	request.TrustedExecution = run.EffectiveExecutionMode == w.ExecutionFullAccess && slices.Contains(allowed, "run_command")
+	request.ReadOnly = step.ReadOnly
+	request.TrustedExecution = run.EffectiveExecutionMode == w.ExecutionFullAccess && !step.ReadOnly && slices.Contains(allowed, "run_command")
 	request.WorkingDirectory = run.TaskDirectory
 	if run.TaskDirectory != "" {
 		request.IOInputs = filepath.Join(run.TaskDirectory, "inputs")
@@ -435,9 +445,10 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 	// A reviewer's sandbox is destroyed after the review, so its native run must
 	// stay ephemeral: a dead directory must never enter the CLI's own history.
 	request.EphemeralSession = step.Role == "reviewer" || step.Role == "critic"
-	if attempt.ExecutionSessionRef != "" && e.NativeSessionRoot != "" && slices.Contains(adapter.Capabilities, "session_resume_ack=supported") && (a.Executor == "claude" || a.Executor == "opencode") {
+	if !request.EphemeralSession && attempt.ExecutionSessionRef != "" && e.NativeSessionRoot != "" && slices.Contains(adapter.Capabilities, "session_resume_ack=supported") {
 		// The ledger key names the Cocogem session row that may reuse this native
-		// session. The CLI's actual session files stay in its own home directory.
+		// session across all 5 CLIs (Claude, Codex, Gemini, Pi, OpenCode). The CLI's
+		// actual session files stay in its own home directory.
 		request.SessionStorageRoot = filepath.Join(e.NativeSessionRoot, attempt.ExecutionSessionRef)
 	}
 	if attempt.SessionMode == "resume" {
@@ -445,8 +456,16 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 		if deltaErr != nil {
 			return request, deltaErr
 		}
-		if len(messages) > 0 && len(messages[0].Content) > 0 && stepDynamicText != "" {
-			messages[0].Content[0].Text += "\n" + stepDynamicText
+		// True Delta: never re-append full Shared history or static prefix onto a
+		// resumed native session; attach only the exact upstream handoff when a
+		// teammate (such as a reviewer) relayed new work to this step.
+		if handoffText != "" && len(messages) > 0 {
+			last := &messages[len(messages)-1]
+			if len(last.Content) > 0 && last.Content[0].Type == "text" {
+				last.Content[0].Text += "\n" + handoffText
+			} else {
+				last.Content = append(last.Content, model.Block{Type: "text", Text: handoffText})
+			}
 		}
 		request.Messages = messages
 		request.SessionContextEpoch = epoch
