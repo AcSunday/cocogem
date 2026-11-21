@@ -143,7 +143,7 @@ it("filters by project and status, and keeps the view and filters on return", as
     screen.queryByRole("region", { name: "已验收任务" }),
   ).not.toBeInTheDocument();
   expect(
-    screen.getByRole("button", { name: /已验收 \d+ 项/ }),
+    screen.getByRole("button", { name: /已归档 \d+ 项/ }),
   ).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "看板" }));
@@ -161,7 +161,7 @@ it("filters by project and status, and keeps the view and filters on return", as
     screen.queryByRole("region", { name: "待验收任务" }),
   ).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("button", { name: /已验收 \d+ 项/ }),
+    screen.queryByRole("button", { name: /已归档 \d+ 项/ }),
   ).not.toBeInTheDocument();
 
   first.unmount();

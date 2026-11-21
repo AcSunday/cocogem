@@ -46,28 +46,78 @@ export function CandidateBar({
   locked = false,
   onApply,
   onDiscard,
+  onDiff,
+  onExportBranch,
 }: {
   items: CandidateView[];
   locked?: boolean;
   onApply: (item: CandidateView) => Promise<void>;
   onDiscard: (item: CandidateView) => Promise<void>;
+  onDiff?: (item: CandidateView) => Promise<string>;
+  onExportBranch?: (item: CandidateView) => Promise<string>;
 }) {
   const [confirm, setConfirm] = useState<{
     id: string;
     kind: "apply" | "discard";
   } | null>(null);
   const [working, setWorking] = useState("");
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [diffs, setDiffs] = useState<Record<string, { open: boolean; loading: boolean; text: string }>>({});
+  const [branches, setBranches] = useState<Record<string, string>>({});
   if (!items.length) return null;
+  const setItemError = (id: string, message: string) =>
+    setErrors((current) => {
+      if (!message) {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      }
+      return { ...current, [id]: message };
+    });
   const decide = async (item: CandidateView, kind: "apply" | "discard") => {
     setWorking(item.execution.id);
-    setError("");
+    setItemError(item.execution.id, "");
     try {
       if (kind === "apply") await onApply(item);
       else await onDiscard(item);
       setConfirm(null);
     } catch (failure) {
-      setError(errorText(failure));
+      setItemError(item.execution.id, errorText(failure));
+    } finally {
+      setWorking("");
+    }
+  };
+  const toggleDiff = async (item: CandidateView) => {
+    if (!onDiff) return;
+    const id = item.execution.id;
+    const current = diffs[id];
+    if (current?.open) {
+      setDiffs((prev) => ({ ...prev, [id]: { ...current, open: false } }));
+      return;
+    }
+    setDiffs((prev) => ({
+      ...prev,
+      [id]: { open: true, loading: true, text: current?.text ?? "" },
+    }));
+    setItemError(id, "");
+    try {
+      const text = await onDiff(item);
+      setDiffs((prev) => ({ ...prev, [id]: { open: true, loading: false, text } }));
+    } catch (failure) {
+      setDiffs((prev) => ({ ...prev, [id]: { open: false, loading: false, text: "" } }));
+      setItemError(id, errorText(failure));
+    }
+  };
+  const exportBranch = async (item: CandidateView) => {
+    if (!onExportBranch) return;
+    const id = item.execution.id;
+    setWorking(id);
+    setItemError(id, "");
+    try {
+      const branch = await onExportBranch(item);
+      setBranches((prev) => ({ ...prev, [id]: branch }));
+    } catch (failure) {
+      setItemError(id, errorText(failure));
     } finally {
       setWorking("");
     }
@@ -82,19 +132,21 @@ export function CandidateBar({
             : "未点应用前，项目目录不会有任何改动"}
         </span>
       </div>
-      {error && (
-        <p className={cx("error")} role="alert">
-          {error}
-        </p>
-      )}
       {items.map((item) => {
         const { execution, verification } = item;
         const pending = confirm?.id === execution.id ? confirm.kind : "";
         const busy = working === execution.id;
         const paths = verification.changed_paths ?? [];
+        const itemError = errors[execution.id] ?? "";
+        const diffState = diffs[execution.id];
+        const exportedBranch = branches[execution.id] ?? "";
         // A candidate whose tree still matches its derived snapshot has nothing
         // to write back; offering Apply would imply a change that does not exist.
         const nothingToApply = verification.state === "unchanged";
+        const canExportBranch =
+          !!onExportBranch &&
+          execution.kind === "git_worktree" &&
+          !nothingToApply;
         return (
           <article key={execution.id} className={cx("candidate-item")}>
             <div className={cx("candidate-item-head")}>
@@ -122,6 +174,17 @@ export function CandidateBar({
                 {verification.hygiene_hints?.join("；")}
               </p>
             )}
+            {itemError && (
+              <p className={cx("error")} role="alert">
+                {itemError}
+              </p>
+            )}
+            {exportedBranch && (
+              <p className={cx("candidate-hygiene")} role="status">
+                已导出为本地 Git 分支：<code>{exportedBranch}</code>（可使用{" "}
+                <code>git merge {exportedBranch}</code> 合并）
+              </p>
+            )}
             {paths.length > 1 && (
               <details className={cx("candidate-paths")}>
                 <summary>查看 {paths.length} 个变更文件</summary>
@@ -131,6 +194,30 @@ export function CandidateBar({
                   ))}
                 </ul>
               </details>
+            )}
+            {diffState?.open && (
+              <div className={cx("candidate-diff")}>
+                {diffState.loading ? (
+                  <p className={cx("candidate-reason")}>正在加载变更内容…</p>
+                ) : (
+                  <pre
+                    style={{
+                      margin: "8px 0 0",
+                      padding: "10px 12px",
+                      maxHeight: "320px",
+                      overflow: "auto",
+                      fontSize: "12px",
+                      lineHeight: 1.5,
+                      borderRadius: "8px",
+                      background: "var(--surface-2, rgba(0,0,0,0.04))",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {diffState.text || "（当前无文本差异）"}
+                  </pre>
+                )}
+              </div>
             )}
             {pending ? (
               <div className={cx("candidate-confirm")}>
@@ -166,6 +253,16 @@ export function CandidateBar({
               </div>
             ) : (
               <div className={cx("candidate-actions")}>
+                {onDiff && !nothingToApply && (
+                  <button
+                    type="button"
+                    className={cx("small")}
+                    disabled={busy}
+                    onClick={() => void toggleDiff(item)}
+                  >
+                    {diffState?.open ? "收起 Diff" : "查看 Diff"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className={cx("candidate-primary", "small")}
@@ -178,19 +275,30 @@ export function CandidateBar({
                         : undefined
                   }
                   onClick={() => {
-                    setError("");
+                    setItemError(execution.id, "");
                     setConfirm({ id: execution.id, kind: "apply" });
                   }}
                 >
                   应用到项目目录
                 </button>
+                {canExportBranch && (
+                  <button
+                    type="button"
+                    className={cx("small")}
+                    disabled={locked || busy}
+                    title="导出为本地 Git 分支，便于手动合并或解决冲突"
+                    onClick={() => void exportBranch(item)}
+                  >
+                    导出本地分支
+                  </button>
+                )}
                 <button
                   type="button"
                   className={cx("small")}
                   disabled={locked || busy}
                   title={locked ? "本轮协作结束后才能丢弃候选变更" : undefined}
                   onClick={() => {
-                    setError("");
+                    setItemError(execution.id, "");
                     setConfirm({ id: execution.id, kind: "discard" });
                   }}
                 >

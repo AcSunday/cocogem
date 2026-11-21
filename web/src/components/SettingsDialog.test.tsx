@@ -584,7 +584,6 @@ it("saves retention with the existing collaboration defaults intact", async () =
   await user.click(screen.getByRole("button", { name: "保存保留周期" }));
   await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
   expect(saveSettings).toHaveBeenCalledWith({
-    default_coordinator_id: "one",
     retention_days: 45,
   });
   expect(

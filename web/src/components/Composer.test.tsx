@@ -363,7 +363,7 @@ it("offers a member-specific retry above the input and preserves a draft when di
   const button = screen.getByRole("button", { name: "重试 橘猫" });
   const input = screen.getByLabelText("输入问题");
   expect(input.closest("form")).toContainElement(button);
-  expect(screen.getByText(/重试只补跑该成员并沿用原流程/)).toBeVisible();
+  expect(screen.getByText(/重试只补跑该成员并保留上下文/)).toBeVisible();
   expect(screen.getByText(/Gemini 未确认回复成功/)).toBeVisible();
   await userEvent.setup().click(button);
   expect(retry).toHaveBeenCalledWith("failed");
@@ -468,7 +468,7 @@ it("opens on mouse hover, closes when the pointer leaves, and keeps the draft", 
   await user.hover(hint);
   const tooltip = await screen.findByRole("tooltip");
   expect(tooltip).toHaveTextContent("@ 指定成员");
-  expect(tooltip).toHaveTextContent("/ 选择协作模式");
+  expect(tooltip).not.toHaveTextContent("/ 选择协作模式");
   expect(hint).toHaveAttribute("aria-describedby", tooltip.id);
   expect(input.closest("form")).not.toContainElement(tooltip);
   expect(tooltip.parentElement).toBe(document.body);

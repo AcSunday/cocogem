@@ -302,11 +302,11 @@ func TestCompletedTaskReactivatedByANewAdvancingMessage(t *testing.T) {
 }
 
 // TestTaskBoardUsesABoundedNumberOfQueries is the A22 regression: the global
-// board issues a constant number of queries regardless of task count.
+// board, workspace task list and project overview all issue a constant number
+// of SQL queries regardless of task count.
 func TestTaskBoardUsesABoundedNumberOfQueries(t *testing.T) {
 	db, service, th := setup(t)
-	// Ten independent root tasks so a per-task query would scale linearly.
-	for range 10 {
+	addTask := func() {
 		parent := w.NewID()
 		if err := db.Write(t.Context(), func(tx *store.Tx) error {
 			task := w.Task{ID: parent, WorkspaceID: th.WorkspaceID, ThreadID: th.ID, RootTaskID: parent, BudgetAccountID: w.NewID(), CurrentRevision: 1, Status: "ready", CreatedAt: w.Now(), UpdatedAt: w.Now()}
@@ -321,12 +321,71 @@ func TestTaskBoardUsesABoundedNumberOfQueries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	board, err := service.TaskBoard(t.Context())
+	addTask()
+	addTask()
+	beforeSmall := db.QueryCount()
+	smallBoard, err := service.TaskBoard(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(board.Tasks) < 10 {
-		t.Fatalf("board returned %d tasks", len(board.Tasks))
+	smallQueries := db.QueryCount() - beforeSmall
+
+	for range 10 {
+		addTask()
+	}
+	beforeLarge := db.QueryCount()
+	largeBoard, err := service.TaskBoard(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	largeQueries := db.QueryCount() - beforeLarge
+	if len(smallBoard.Tasks) < 2 || len(largeBoard.Tasks) < 12 {
+		t.Fatalf("board returned %d / %d tasks", len(smallBoard.Tasks), len(largeBoard.Tasks))
+	}
+	if smallQueries == 0 || largeQueries != smallQueries {
+		t.Fatalf("TaskBoard query count scaled with task count: small=%d large=%d", smallQueries, largeQueries)
+	}
+
+	beforeOverview := db.QueryCount()
+	if _, err := service.ProjectOverview(t.Context(), th.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	overviewQueries := db.QueryCount() - beforeOverview
+	if overviewQueries > 15 {
+		t.Fatalf("ProjectOverview executed %d queries for 12 tasks (expected bounded <= 15)", overviewQueries)
+	}
+}
+
+func TestBindRunTaskReactivatesCompletedTask(t *testing.T) {
+	db, service, th := setup(t)
+	created := create(t, service, th)
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		task := created.Task
+		task.Status = "completed"
+		task.EvaluationStatus = "current"
+		return tx.SaveTask(task, task.CurrentRevision)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var updated TaskView
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		currentThread, err := tx.Thread(th.ID)
+		if err != nil {
+			return err
+		}
+		updated, err = service.BindRunTask(tx, currentThread, w.RunInput{Message: "请追加一个接口测试"}, "msg-followup", "run-followup")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Task.Status != "ready" {
+		t.Fatalf("completed task was not reactivated: status=%q", updated.Task.Status)
+	}
+	if updated.Task.CurrentRevision != created.Task.CurrentRevision+1 {
+		t.Fatalf("completed task did not advance revision: got %d want %d", updated.Task.CurrentRevision, created.Task.CurrentRevision+1)
+	}
+	if updated.Task.EvaluationGeneration != created.Task.EvaluationGeneration+1 {
+		t.Fatalf("completed task did not advance evaluation generation: got %d want %d", updated.Task.EvaluationGeneration, created.Task.EvaluationGeneration+1)
 	}
 }
 
@@ -393,5 +452,19 @@ func TestTaskBoardProjectsAttentionAndCandidatesWithoutPerTaskQueries(t *testing
 				t.Fatalf("candidate projection = %+v", view.CandidateVerification)
 			}
 		}
+	}
+	singleRoot, err := service.Task(t.Context(), root.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if singleRoot.ActiveChildren != 1 || singleRoot.AttentionChildren != 1 {
+		t.Fatalf("single root Task() projection diverged from TaskBoard: %+v", singleRoot)
+	}
+	singleChild, err := service.Task(t.Context(), child.Task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if singleChild.OpenQuestions != 1 || singleChild.PendingPermissions != 1 || singleChild.CandidateVerification == nil || singleChild.CandidateVerification.ExecutionID != "candidate" {
+		t.Fatalf("single child Task() projection diverged from TaskBoard: %+v", singleChild)
 	}
 }

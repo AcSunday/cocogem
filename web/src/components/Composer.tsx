@@ -193,7 +193,7 @@ export function Composer({
     modeError ||
     clarification ||
     (failedNotice
-      ? "成员回复未完成，已完成的回复会保留。重试只补跑该成员并沿用原流程。"
+      ? "成员回复未完成，已完成的回复会保留。重试只补跑该成员并保留上下文。"
       : "");
   const dismissNotice = () => {
     if (error) onDismissError?.();
@@ -333,7 +333,7 @@ export function Composer({
                     className={cx("composer-retry")}
                     disabled={busy || active}
                     onClick={() => onRetryMember?.(step.id)}
-                    title="只补跑该成员并沿用原流程；输入区新选的流程不会应用"
+                    title="只补跑该成员，已完成成员的结果会保留"
                   >
                     <Icon name="refresh" size={13} />
                     重试 {step.agent_name || "成员"}
@@ -569,8 +569,12 @@ export function Composer({
               type="button"
               className={cx("plan-only-chip")}
               aria-pressed={planOnly}
-              disabled={disabled || busy}
-              title="本轮只读取证据并给出方案；不改代码、不运行有副作用的命令，也不改变全局权限"
+              disabled={disabled || busy || active}
+              title={
+                active
+                  ? "本轮协作结束后可切换仅规划"
+                  : "本轮只读取证据并给出方案；不改代码、不运行有副作用的命令，也不改变全局权限"
+              }
               onClick={() => onPlanOnlyChange(!planOnly)}
             >
               仅规划
@@ -662,7 +666,7 @@ export function Composer({
               width: hintBox.width,
             }}
           >
-            @ 指定成员，/ 选择协作模式；都不使用时由协调者按任务判断。
+            @ 指定成员；不指定时由协调者按任务判断。
           </div>,
           document.body,
         )}

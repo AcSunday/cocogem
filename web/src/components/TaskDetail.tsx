@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   applyCandidate,
+  candidateDiff,
   discardCandidate,
+  exportCandidateBranch,
   threadCandidates,
   type Agent,
   type Artifact,
@@ -30,6 +32,7 @@ import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
 import styles from "../styles/project.module.css";
+import { CandidateBar } from "./CandidateBar";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
@@ -105,9 +108,6 @@ function runStatus(status = "") {
 }
 
 function phaseStatus(phase: string, tone: string, label: string) {
-  // The shared projection still says 执行已停止 for a stopped Run. The detail
-  // page renders the single 已停止 fact; the integrator will align the shared map.
-  const text = label === "执行已停止" ? "已停止" : label;
   const badge: BadgeTone =
     phase === "completed"
       ? "success"
@@ -128,7 +128,7 @@ function phaseStatus(phase: string, tone: string, label: string) {
                   : phase === "not_started"
                     ? "neutral"
                     : "pending";
-  return { label: text, tone: badge };
+  return { label, tone: badge };
 }
 
 function StatusBadge({ label, tone }: { label: string; tone: BadgeTone }) {
@@ -526,6 +526,9 @@ export function TaskDetail({
   const primaryAction = (() => {
     switch (focus.phase) {
       case "needs_answer":
+        if ((view.pending_permissions ?? 0) > 0 && task.thread_id) {
+          return { label: focus.action.label, run: () => onOpenThread(task.thread_id) };
+        }
         return { label: focus.action.label, run: scrollToQuestions };
       case "needs_retry":
         return {
@@ -742,6 +745,39 @@ export function TaskDetail({
                 );
               })}
             </section>
+          )}
+
+          {codeCandidates.length > 0 && task.thread_id && (
+            <CandidateBar
+              items={codeCandidates}
+              locked={
+                latestRunStatus === "running" ||
+                latestRunStatus === "queued" ||
+                latestRunStatus === "canceling"
+              }
+              onApply={async (item) => {
+                await applyCandidate(task.thread_id, item.execution.id);
+                setCodeCandidates((current) =>
+                  current.filter(
+                    (entry) => entry.execution.id !== item.execution.id,
+                  ),
+                );
+                await load();
+              }}
+              onDiscard={async (item) => {
+                await discardCandidate(task.thread_id, item.execution.id);
+                setCodeCandidates((current) =>
+                  current.filter(
+                    (entry) => entry.execution.id !== item.execution.id,
+                  ),
+                );
+                await load();
+              }}
+              onDiff={(item) => candidateDiff(task.thread_id, item.execution.id)}
+              onExportBranch={(item) =>
+                exportCandidateBranch(task.thread_id, item.execution.id)
+              }
+            />
           )}
 
           <section className={cx("task-brief-section")} aria-label="最近进展">
@@ -1206,6 +1242,16 @@ export function TaskDetail({
             );
             await load();
           }}
+          onDiffCandidate={(item) =>
+            task.thread_id
+              ? candidateDiff(task.thread_id, item.execution.id)
+              : Promise.resolve("")
+          }
+          onExportCandidateBranch={(item) =>
+            task.thread_id
+              ? exportCandidateBranch(task.thread_id, item.execution.id)
+              : Promise.resolve("")
+          }
           expired={acceptanceStale}
           refresh={refreshAcceptance}
           close={() => closeAcceptance(acceptance.id)}

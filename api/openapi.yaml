@@ -1067,6 +1067,12 @@
               "last_run_status": {
                 "type": "string"
               },
+              "open_questions": {
+                "type": "integer"
+              },
+              "pending_permissions": {
+                "type": "integer"
+              },
               "purge_at": {
                 "type": "string"
               },
@@ -1074,6 +1080,12 @@
                 "type": "integer"
               },
               "task_id": {
+                "type": "string"
+              },
+              "task_status": {
+                "type": "string"
+              },
+              "task_waiting_reason": {
                 "type": "string"
               },
               "title": {
@@ -1448,6 +1460,38 @@
         ],
         "type": "object"
       },
+      "CandidateBranchReply": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "branch"
+        ],
+        "type": "object"
+      },
+      "CandidateDiffReply": {
+        "additionalProperties": false,
+        "properties": {
+          "diff": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "diff"
+        ],
+        "type": "object"
+      },
       "CandidateList": {
         "additionalProperties": false,
         "properties": {
@@ -1468,6 +1512,9 @@
                       ]
                     },
                     "base_revision": {
+                      "type": "string"
+                    },
+                    "base_snapshot_oid": {
                       "type": "string"
                     },
                     "base_tree_digest": {
@@ -6611,6 +6658,9 @@
         "additionalProperties": false,
         "properties": {
           "decision": {
+            "type": "string"
+          },
+          "grant_scope": {
             "type": "string"
           },
           "request_id": {
@@ -13251,6 +13301,12 @@
           "last_run_status": {
             "type": "string"
           },
+          "open_questions": {
+            "type": "integer"
+          },
+          "pending_permissions": {
+            "type": "integer"
+          },
           "purge_at": {
             "type": "string"
           },
@@ -13258,6 +13314,12 @@
             "type": "integer"
           },
           "task_id": {
+            "type": "string"
+          },
+          "task_status": {
+            "type": "string"
+          },
+          "task_waiting_reason": {
             "type": "string"
           },
           "title": {
@@ -13317,6 +13379,12 @@
           "last_run_status": {
             "type": "string"
           },
+          "open_questions": {
+            "type": "integer"
+          },
+          "pending_permissions": {
+            "type": "integer"
+          },
           "purge_at": {
             "type": "string"
           },
@@ -13324,6 +13392,12 @@
             "type": "integer"
           },
           "task_id": {
+            "type": "string"
+          },
+          "task_status": {
+            "type": "string"
+          },
+          "task_waiting_reason": {
             "type": "string"
           },
           "title": {
@@ -14244,6 +14318,12 @@
               "last_run_status": {
                 "type": "string"
               },
+              "open_questions": {
+                "type": "integer"
+              },
+              "pending_permissions": {
+                "type": "integer"
+              },
               "purge_at": {
                 "type": "string"
               },
@@ -14251,6 +14331,12 @@
                 "type": "integer"
               },
               "task_id": {
+                "type": "string"
+              },
+              "task_status": {
+                "type": "string"
+              },
+              "task_waiting_reason": {
                 "type": "string"
               },
               "title": {
@@ -14484,6 +14570,12 @@
               "last_run_status": {
                 "type": "string"
               },
+              "open_questions": {
+                "type": "integer"
+              },
+              "pending_permissions": {
+                "type": "integer"
+              },
               "purge_at": {
                 "type": "string"
               },
@@ -14491,6 +14583,12 @@
                 "type": "integer"
               },
               "task_id": {
+                "type": "string"
+              },
+              "task_status": {
+                "type": "string"
+              },
+              "task_waiting_reason": {
                 "type": "string"
               },
               "title": {
@@ -14567,6 +14665,12 @@
                     "last_run_status": {
                       "type": "string"
                     },
+                    "open_questions": {
+                      "type": "integer"
+                    },
+                    "pending_permissions": {
+                      "type": "integer"
+                    },
                     "purge_at": {
                       "type": "string"
                     },
@@ -14574,6 +14678,12 @@
                       "type": "integer"
                     },
                     "task_id": {
+                      "type": "string"
+                    },
+                    "task_status": {
+                      "type": "string"
+                    },
+                    "task_waiting_reason": {
                       "type": "string"
                     },
                     "title": {
@@ -15045,6 +15155,9 @@
             ]
           },
           "base_revision": {
+            "type": "string"
+          },
+          "base_snapshot_oid": {
             "type": "string"
           },
           "base_tree_digest": {
@@ -18213,6 +18326,51 @@
         }
       }
     },
+    "/api/v1/threads/{id}/candidates/{executionID}/diff": {
+      "get": {
+        "operationId": "candidateDiff",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "executionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateDiffReply"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
     "/api/v1/threads/{id}/candidates/{executionID}/discard": {
       "post": {
         "operationId": "discardCandidate",
@@ -18258,6 +18416,69 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WorkspaceExecution"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/threads/{id}/candidates/{executionID}/export-branch": {
+      "post": {
+        "operationId": "exportCandidateBranch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "executionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateBranchReply"
                 }
               }
             },

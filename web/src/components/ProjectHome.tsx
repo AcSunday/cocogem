@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type ProjectOverview, type Workspace } from "../api/client";
-import { taskPhase } from "../lib/tasks";
+import { taskFocus, taskPhase } from "../lib/tasks";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import conversation from "../styles/conversation.module.css";
@@ -70,7 +70,9 @@ export function ProjectHome({
   const completed = tasks.filter(
     (item) => taskPhase(item, questions) === "completed",
   ).length;
-  const attention = questions.length;
+  const attention = tasks.filter(
+    (item) => taskFocus(item, questions) === "attention",
+  ).length;
   const goal = summary?.records?.find((record) =>
     ["goal", "decision", "constraint", "rule"].includes(record.kind),
   )?.content;

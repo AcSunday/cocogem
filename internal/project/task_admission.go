@@ -34,6 +34,11 @@ func (s *Service) BindRunTask(tx *store.Tx, th w.Thread, in w.RunInput, messageI
 	if err != nil {
 		return TaskView{}, err
 	}
+	// A follow-up message on a completed task always reactivates it into a new
+	// revision and evaluation generation rather than staying stuck as completed.
+	if view.Task.Status == "completed" {
+		return s.EnsureThreadTask(tx, th, in, messageID, runID)
+	}
 	if !slices.Contains(view.Revision.AllowedActions, "write") {
 		return s.EnsureThreadTask(tx, th, in, messageID, runID)
 	}

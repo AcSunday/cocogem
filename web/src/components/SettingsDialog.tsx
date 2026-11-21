@@ -343,7 +343,7 @@ function CollaborationSettings({
         <section className={cx("settings-section")}>
           <h3>默认分工</h3>
           <p>
-            默认协调者和模式分工在创建会话与解析分工时使用。显式选择优先；成员未加入当前空间、已停用或不具备该角色所需能力时，回退到本会话可用成员，不会自动加入空间或授予权限。
+            默认协调者在创建会话与解析分工时使用。显式选择优先；成员未加入当前空间、已停用或不具备该角色所需能力时，回退到本会话可用成员，不会自动加入空间或授予权限。
           </p>
           <label>
             默认协调者
@@ -414,7 +414,7 @@ function ServiceSettings({
       <section className={cx("settings-section")}>
         <h3>服务状态</h3>
         <p>
-          成员调用本机 Claude、Codex 或 Gemini
+          成员调用本机 Claude、Codex、Gemini、Pi 或 OpenCode
           CLI，复用本机的模型、供应商与认证配置。网页不会读取凭证。
         </p>
         <div className={cx("settings-grid")}>
@@ -782,7 +782,6 @@ function TrashSettings({
               setSavedDays(false);
               setError("");
               void saveSettings({
-                default_coordinator_id: settings.default_coordinator_id ?? "",
                 retention_days: next,
               })
                 .then(async (saved) => {

@@ -13,6 +13,8 @@ import {
   threadCandidates,
   applyCandidate,
   discardCandidate,
+  candidateDiff,
+  exportCandidateBranch,
   EVENT_WINDOW,
   type Agent,
   type Artifact,
@@ -70,6 +72,7 @@ import {
   PermissionDecision,
   submitPermissionDecision,
   usePermissionRequests,
+  type PermissionGrantScope,
 } from "../components/PermissionDecision";
 import { PermissionQueue } from "../components/PermissionQueue";
 import { executionModeOf, useGlobalSettings } from "./useGlobalSettings";
@@ -327,7 +330,11 @@ function WorkspaceApp({
       (item) => item.id === requestID || item.request_id === requestID,
     );
   const decidePermission = useCallback(
-    async (requestID: string, decision: "allow_once" | "allow_conversation" | "deny") => {
+    async (
+      requestID: string,
+      decision: "allow_once" | "allow_conversation" | "deny",
+      grantScope?: PermissionGrantScope,
+    ) => {
       const request = permissions.items.find(
         (item) => item.id === requestID || item.request_id === requestID,
       );
@@ -337,11 +344,14 @@ function WorkspaceApp({
         throw new Error("该授权请求已不在待处理列表中，请刷新后重试。");
       }
       try {
-        await submitPermissionDecision(request, decision);
+        await submitPermissionDecision(request, decision, grantScope);
       } finally {
         // Re-read in both cases: a conflict must show the true server state
         // instead of leaving a stale card that looks decidable.
         await permissions.request();
+        if (currentWorkspace.current) {
+          void loadThreads(currentWorkspace.current).catch(() => undefined);
+        }
       }
       // The decision answers exactly this blocked call. It never submits the
       // Composer draft and never restarts the root task.
@@ -423,6 +433,7 @@ function WorkspaceApp({
       return;
     setPendingRequest(pendingSubmission.current.has(th));
     setSteeringReceipt("");
+    setPlanOnly(false);
     currentThread.current = th;
     currentWorkspace.current = ws;
     currentTask.current = task;
@@ -896,9 +907,20 @@ function WorkspaceApp({
         const next = nextLiveness(previous ?? [], event);
         return withRunWarnings(current, event.run_id, next);
       });
-      // Run lifecycle frames change the sidebar's queued/running/final state;
-      // refresh the lightweight list instead of walking every thread.
-      if (event.type.startsWith("run_")) void loadThreads(workspaceID);
+      // Run, permission, question and task lifecycle frames change sidebar &
+      // header capsule projections; refresh them immediately instead of waiting
+      // for background polling.
+      if (
+        event.type.startsWith("run_") ||
+        event.type.startsWith("permission_") ||
+        event.type.startsWith("question_") ||
+        event.type.startsWith("task_")
+      ) {
+        void loadThreads(workspaceID);
+        if (event.type.startsWith("permission_")) {
+          void permissions.request();
+        }
+      }
       // Replayed deltas predate the loaded snapshot; only newer ones update it.
       if (
         event.type === "message_delta" &&
@@ -1492,7 +1514,7 @@ function WorkspaceApp({
                 )}
                 <div className={cx("timeline-inner")}>
                   {view?.thread && <div className={cx("conversation-task-bar")}>
-                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} refreshKey={runs.map((run) => `${run.id}:${run.status}`).join("|")} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>转为任务</button>}
+                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} refreshKey={`${runs.map((run) => `${run.id}:${run.status}`).join("|")}|p:${permissions.pending.length}`} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>转为任务</button>}
                   </div>}
                   {view && (messageCursor || view.messages.next_cursor) && (
                     <div
@@ -1588,8 +1610,8 @@ function WorkspaceApp({
                             key={prompt.requestID || prompt.activityKey}
                             prompt={prompt}
                             request={permissionRequestFor(prompt.requestID)}
-                            onDecide={(decision) =>
-                              decidePermission(prompt.requestID, decision)
+                            onDecide={(decision, grantScope) =>
+                              decidePermission(prompt.requestID, decision, grantScope)
                             }
                           />
                         )}
@@ -1654,6 +1676,10 @@ function WorkspaceApp({
                     setError(errorText(error)),
                   );
                 }}
+                onDiff={(item) => candidateDiff(threadID, item.execution.id)}
+                onExportBranch={(item) =>
+                  exportCandidateBranch(threadID, item.execution.id)
+                }
               />
             )}
             {!taskID && (threadID || projectView !== "tasks") && (
@@ -1799,6 +1825,7 @@ function WorkspaceApp({
 function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string; refreshKey?: string; onOpen: () => void }) {
   const [task, setTask] = useState<ProjectTaskView>();
   const [error, setError] = useState("");
+  const [popoverOpen, setPopoverOpen] = useState(false);
   useEffect(() => {
     let canceled = false;
     const load = () => { void api<ProjectTaskView>(`/api/v1/tasks/${taskID}`).then((value) => { if (!canceled) { setTask(value); setError(""); } }).catch((failure) => { if (!canceled) setError(errorText(failure)); }); };
@@ -1809,5 +1836,72 @@ function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string;
   if (error) {
     return <span className={cx("notice")} role="status">关联任务状态暂不可用</span>;
   }
-  return <button className={cx("ghost small")} onClick={onOpen}>{task ? `${taskTitle(task)} · ${taskFocusMeta(task).label}` : "关联任务"} <span>查看任务 →</span></button>;
+  const meta = task ? taskFocusMeta(task) : undefined;
+  return (
+    <span style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+      <button className={cx("ghost small")} onClick={onOpen}>
+        {task && meta ? `${taskTitle(task)} · ${meta.label}` : "关联任务"}{" "}
+        <span>查看任务 →</span>
+      </button>
+      {task && meta && (
+        <button
+          type="button"
+          className={cx("ghost small")}
+          aria-expanded={popoverOpen}
+          aria-label="展开关联任务摘要"
+          title="查看关联任务摘要"
+          onClick={() => setPopoverOpen((open) => !open)}
+        >
+          {popoverOpen ? "▴" : "▾"}
+        </button>
+      )}
+      {popoverOpen && task && meta && (
+        <div
+          role="dialog"
+          aria-label="关联任务摘要"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            right: 0,
+            zIndex: 40,
+            width: "280px",
+            padding: "12px",
+            borderRadius: "10px",
+            border: "1px solid var(--border)",
+            background: "var(--surface)",
+            boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
+            display: "grid",
+            gap: "6px",
+            fontSize: "12px",
+          }}
+        >
+          <strong>{taskTitle(task)}</strong>
+          <div>状态：{meta.label}</div>
+          <div>当前：{meta.current}</div>
+          <div>下一步：{meta.next}</div>
+          <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+            <button
+              type="button"
+              className={cx("primary small")}
+              onClick={() => {
+                setPopoverOpen(false);
+                onOpen();
+              }}
+            >
+              {meta.phase === "review" || meta.phase === "needs_revalidation"
+                ? "去验收"
+                : "查看详情"}
+            </button>
+            <button
+              type="button"
+              className={cx("ghost small")}
+              onClick={() => setPopoverOpen(false)}
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
+    </span>
+  );
 }

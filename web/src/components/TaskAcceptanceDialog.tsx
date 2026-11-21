@@ -61,6 +61,8 @@ export function TaskAcceptanceDialog({
   candidateLocked = false,
   onApplyCandidate,
   onDiscardCandidate,
+  onDiffCandidate,
+  onExportCandidateBranch,
   expired = false,
   refresh,
   close,
@@ -78,6 +80,8 @@ export function TaskAcceptanceDialog({
   candidateLocked?: boolean;
   onApplyCandidate?: (item: CandidateView) => Promise<void>;
   onDiscardCandidate?: (item: CandidateView) => Promise<void>;
+  onDiffCandidate?: (item: CandidateView) => Promise<string>;
+  onExportCandidateBranch?: (item: CandidateView) => Promise<string>;
   expired?: boolean;
   refresh?: () => void;
   close: () => void;
@@ -186,6 +190,8 @@ export function TaskAcceptanceDialog({
               locked={candidateLocked}
               onApply={onApplyCandidate}
               onDiscard={onDiscardCandidate}
+              onDiff={onDiffCandidate}
+              onExportBranch={onExportCandidateBranch}
             />
           )}
 

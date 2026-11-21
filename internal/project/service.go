@@ -458,6 +458,70 @@ func (s *Service) taskInTx(tx *store.Tx, id string) (TaskView, error) {
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return TaskView{}, err
 	}
+	questions, err := tx.OpenQuestions()
+	if err != nil {
+		return TaskView{}, err
+	}
+	requests, err := tx.PendingPermissionRequests()
+	if err != nil {
+		return TaskView{}, err
+	}
+	executions, err := tx.UnappliedExecutions()
+	if err != nil {
+		return TaskView{}, err
+	}
+	wsTasks, err := tx.Tasks(task.WorkspaceID)
+	if err != nil {
+		return TaskView{}, err
+	}
+	runs, err := tx.LatestTaskRuns()
+	if err != nil {
+		return TaskView{}, err
+	}
+	runTask := map[string]string{}
+	for _, run := range runs {
+		runTask[run.ID] = run.TaskID
+	}
+	threadTask := map[string]string{}
+	for _, t := range wsTasks {
+		if t.ThreadID != "" {
+			threadTask[t.ThreadID] = t.ID
+		}
+	}
+	openByTask := map[string]int{}
+	for _, q := range questions {
+		openByTask[q.TaskID]++
+	}
+	pendingByTask := map[string]int{}
+	for _, req := range requests {
+		if tid := runTask[req.RunID]; tid != "" {
+			pendingByTask[tid]++
+			continue
+		}
+		if tid := threadTask[req.ThreadID]; tid != "" {
+			pendingByTask[tid]++
+		}
+	}
+	view.OpenQuestions = openByTask[task.ID]
+	view.PendingPermissions = pendingByTask[task.ID]
+	for _, execution := range executions {
+		if execution.TaskID == task.ID {
+			view.CandidateVerification = &CandidateSummary{
+				ExecutionID: execution.ID, State: "unapplied", Path: execution.Path,
+				Reason: "候选变更尚未应用；精确验证状态见会话",
+			}
+			break
+		}
+	}
+	for _, child := range wsTasks {
+		if child.ParentID != task.ID || child.Status == "completed" || child.Status == "canceled" {
+			continue
+		}
+		view.ActiveChildren++
+		if openByTask[child.ID] > 0 || pendingByTask[child.ID] > 0 {
+			view.AttentionChildren++
+		}
+	}
 	return view, nil
 }
 
@@ -1111,6 +1175,28 @@ func nonNilCompletion(values []w.CompletionRecord) []w.CompletionRecord {
 	return values
 }
 
+func batchTaskViewsForWorkspace(tx *store.Tx, workspaceID string) ([]TaskView, []w.Question, error) {
+	allViews, allQuestions, err := batchTaskViews(tx)
+	if err != nil {
+		return nil, nil, err
+	}
+	views := []TaskView{}
+	taskSet := map[string]bool{}
+	for _, view := range allViews {
+		if view.Task.WorkspaceID == workspaceID {
+			views = append(views, view)
+			taskSet[view.Task.ID] = true
+		}
+	}
+	questions := []w.Question{}
+	for _, q := range allQuestions {
+		if taskSet[q.TaskID] {
+			questions = append(questions, q)
+		}
+	}
+	return views, questions, nil
+}
+
 func (s *Service) ProjectOverview(ctx context.Context, workspaceID string) (Overview, error) {
 	var out Overview
 	err := s.store.Read(ctx, func(tx *store.Tx) error {
@@ -1122,27 +1208,11 @@ func (s *Service) ProjectOverview(ctx context.Context, workspaceID string) (Over
 		if err != nil {
 			return err
 		}
-		tasks, err := tx.Tasks(workspaceID)
+		views, questions, err := batchTaskViewsForWorkspace(tx, workspaceID)
 		if err != nil {
 			return err
 		}
-		out = Overview{Workspace: ws, Records: currentRecords(records), Tasks: []TaskView{}, NeedsAttention: []w.Question{}}
-		for _, task := range tasks {
-			view, err := s.taskInTx(tx, task.ID)
-			if err != nil {
-				return err
-			}
-			out.Tasks = append(out.Tasks, view)
-			questions, err := tx.Questions(task.ID)
-			if err != nil {
-				return err
-			}
-			for _, question := range questions {
-				if question.Status == "open" {
-					out.NeedsAttention = append(out.NeedsAttention, question)
-				}
-			}
-		}
+		out = Overview{Workspace: ws, Records: currentRecords(records), Tasks: views, NeedsAttention: questions}
 		return nil
 	})
 	return out, err

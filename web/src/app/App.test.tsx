@@ -2934,8 +2934,7 @@ it("saves retention with the current revision and keeps collaboration settings",
   await user.click(screen.getByRole("button", { name: "保存保留周期" }));
   await waitFor(() => expect(patch).toBeTruthy());
   expect(patch?.headers.get("If-Match")).toBe("7");
-  expect(patch?.body).toMatchObject({
-    default_coordinator_id: "one",
+  expect(patch?.body).toEqual({
     retention_days: 60,
   });
 });

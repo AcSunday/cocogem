@@ -114,7 +114,7 @@ it("a late previous-thread grant response never replaces the current thread", as
     <ConversationGrants threadID="thread-a" threadTitle="Conversation A" />,
   );
   rerender(<ConversationGrants threadID="thread-b" threadTitle="Conversation B" />);
-  expect(await screen.findByText("fixture-b")).toBeVisible();
+  expect(await screen.findByText(/fixture-b/)).toBeVisible();
   // The held A response resolves after B is on screen.
   await act(async () => {
     releaseA.fn?.();
@@ -122,8 +122,8 @@ it("a late previous-thread grant response never replaces the current thread", as
     await Promise.resolve();
   });
   // The list stays B's; A's grant is not shown (and so cannot be revoked).
-  expect(screen.getByText("fixture-b")).toBeVisible();
-  expect(screen.queryByText("fixture-a")).not.toBeInTheDocument();
+  expect(screen.getByText(/fixture-b/)).toBeVisible();
+  expect(screen.queryByText(/fixture-a/)).not.toBeInTheDocument();
   expect(screen.getByText("会话「Conversation B」")).toBeVisible();
   const revokePaths = fetch.mock.calls
     .map((call) => String(call[0]))

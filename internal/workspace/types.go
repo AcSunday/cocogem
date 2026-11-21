@@ -186,21 +186,25 @@ func NormalizeExecutionMode(settings Settings) Settings {
 // are a read projection of this thread's latest run, not persisted body fields.
 // A soft-deleted thread keeps its identity and full history until purge.
 type Thread struct {
-	ID              string   `json:"id"`
-	WorkspaceID     string   `json:"workspace_id"`
-	Title           string   `json:"title"`
-	AgentIDs        []string `json:"agent_ids"`
-	CoordinatorID   string   `json:"coordinator_id"`
-	TaskID          string   `json:"task_id,omitempty"`
-	Internal        bool     `json:"internal,omitempty"`
-	Revision        int      `json:"revision"`
-	UpdatedAt       string   `json:"updated_at"`
-	DeletedAt       string   `json:"deleted_at,omitempty"`
-	PurgeAt         string   `json:"purge_at,omitempty"`
-	LastRunID       string   `json:"last_run_id,omitempty"`
-	LastRunStatus   string   `json:"last_run_status,omitempty"`
-	ActiveRunID     string   `json:"active_run_id,omitempty"`
-	ActiveRunStatus string   `json:"active_run_status,omitempty"`
+	ID                 string   `json:"id"`
+	WorkspaceID        string   `json:"workspace_id"`
+	Title              string   `json:"title"`
+	AgentIDs           []string `json:"agent_ids"`
+	CoordinatorID      string   `json:"coordinator_id"`
+	TaskID             string   `json:"task_id,omitempty"`
+	Internal           bool     `json:"internal,omitempty"`
+	Revision           int      `json:"revision"`
+	UpdatedAt          string   `json:"updated_at"`
+	DeletedAt          string   `json:"deleted_at,omitempty"`
+	PurgeAt            string   `json:"purge_at,omitempty"`
+	LastRunID          string   `json:"last_run_id,omitempty"`
+	LastRunStatus      string   `json:"last_run_status,omitempty"`
+	ActiveRunID        string   `json:"active_run_id,omitempty"`
+	ActiveRunStatus    string   `json:"active_run_status,omitempty"`
+	PendingPermissions int      `json:"pending_permissions,omitempty"`
+	OpenQuestions      int      `json:"open_questions,omitempty"`
+	TaskStatus         string   `json:"task_status,omitempty"`
+	TaskWaitingReason  string   `json:"task_waiting_reason,omitempty"`
 }
 
 // RunInput is a user's request, independent of a particular provider protocol.

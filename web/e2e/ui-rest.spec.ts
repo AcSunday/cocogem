@@ -361,8 +361,7 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   const request = (await saved).request();
   expect(request.headers()["if-match"]).toBe(String(before.revision));
   const body = request.postDataJSON();
-  expect(body).toMatchObject({
-    default_coordinator_id: before.default_coordinator_id,
+  expect(body).toEqual({
     retention_days: 45,
   });
   await expect(

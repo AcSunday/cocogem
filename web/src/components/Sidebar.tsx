@@ -237,8 +237,48 @@ function threadRunStatus(thread: Thread) {
 }
 
 function ThreadStatus({ thread }: { thread: Thread }) {
+  if ((thread.pending_permissions ?? 0) > 0) {
+    const label = `需要你审批（${thread.pending_permissions}）`;
+    return (
+      <span
+        className={cx("thread-status failed")}
+        role="status"
+        aria-label={label}
+        title={label}
+      >
+        <Icon name="info" size={12} />
+      </span>
+    );
+  }
+  if ((thread.open_questions ?? 0) > 0) {
+    const label = `需要你回答（${thread.open_questions}）`;
+    return (
+      <span
+        className={cx("thread-status failed")}
+        role="status"
+        aria-label={label}
+        title={label}
+      >
+        <Icon name="info" size={12} />
+      </span>
+    );
+  }
   const state = threadRunStatus(thread);
-  if (!state) return null;
+  if (!state) {
+    if (thread.task_status === "completed") {
+      return (
+        <span
+          className={cx("thread-status succeeded")}
+          role="status"
+          aria-label="任务状态：已验收"
+          title="任务状态：已验收"
+        >
+          <Icon name="check" size={12} />
+        </span>
+      );
+    }
+    return null;
+  }
   const label = statusText[state.status] ?? state.status;
   const icon = statusIconName(state.status);
   return (

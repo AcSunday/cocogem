@@ -293,7 +293,11 @@ export function TaskBoardPage({
   };
 
   const primaryFor = (item: ProjectTaskView, phase: string) => {
-    if (phase === "running" || phase === "waiting_budget") {
+    if (
+      phase === "running" ||
+      phase === "waiting_budget" ||
+      (phase === "needs_answer" && (item.pending_permissions ?? 0) > 0)
+    ) {
       openExecution(item);
       return;
     }
@@ -311,7 +315,7 @@ export function TaskBoardPage({
   const listActionLabel = (item: ProjectTaskView, phase: string) => {
     switch (phase) {
       case "needs_answer":
-        return "回答";
+        return (item.pending_permissions ?? 0) > 0 ? "去审批" : "回答";
       case "needs_retry":
         return "处理";
       case "needs_revalidation":
@@ -431,9 +435,10 @@ export function TaskBoardPage({
     },
     { attention: 0, running: 0, review: 0 },
   );
-  const completedCount = filtered.filter(
-    (item) => taskFocus(item, questions) === "completed",
-  ).length;
+  const archivedCount = filtered.filter((item) => {
+    const focus = taskFocus(item, questions);
+    return focus === "completed" || focus === "canceled";
+  }).length;
   const filtering = !!(
     filters.query ||
     filters.workspace ||
@@ -995,7 +1000,7 @@ export function TaskBoardPage({
         </div>
       )}
 
-      {filters.view === "list" && !filters.status && completedCount > 0 && (
+      {filters.view === "list" && !filters.status && archivedCount > 0 && (
         <div className={cx("task-focus-foot")}>
           <button
             type="button"
@@ -1003,10 +1008,10 @@ export function TaskBoardPage({
             aria-expanded={drawerOpen}
             onClick={() => setDrawerOpen((current) => !current)}
           >
-            已验收 {completedCount} 项 {drawerOpen ? "⌄" : "›"}
+            已归档 {archivedCount} 项 {drawerOpen ? "⌄" : "›"}
           </button>
           {drawerOpen && (
-            <div className={cx("task-focus-drawer")} aria-label="已验收任务">
+            <div className={cx("task-focus-drawer")} aria-label="已归档任务">
               {focused
                 .filter(
                   ({ meta }) =>
