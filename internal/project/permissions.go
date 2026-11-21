@@ -652,30 +652,6 @@ func (s *Service) scopeInsideProject(run w.Run, scope string) bool {
 			return true
 		}
 	}
-	// Under workspace_autonomous, /tmp (/private/tmp) scratch paths are permitted
-	// automatically for local repros, excluding /tmp/ssh-* agent sockets and
-	// sensitive credential names.
-	if isAllowedTmpScope(scope) {
-		return true
-	}
-	return false
-}
-
-func isAllowedTmpScope(scope string) bool {
-	if scope == "" || tools.SensitivePath(scope) {
-		return false
-	}
-	clean := filepath.Clean(scope)
-	for _, prefix := range []string{"/tmp", "/private/tmp"} {
-		if clean == prefix || strings.HasPrefix(clean, prefix+"/") {
-			rest := strings.TrimPrefix(strings.TrimPrefix(clean, prefix), "/")
-			first, _, _ := strings.Cut(rest, "/")
-			if strings.HasPrefix(first, "ssh-") {
-				return false
-			}
-			return true
-		}
-	}
 	return false
 }
 
