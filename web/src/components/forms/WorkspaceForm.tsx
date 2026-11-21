@@ -1,6 +1,7 @@
 import { Select } from "../Select";
 import { useId, useRef, useState } from "react";
 import type { Workspace, System } from "../../api/client";
+import { t, useLanguage } from "../../lib/i18n";
 import { scoped } from "../../styles/classes";
 import base from "../../styles/base.module.css";
 import controls from "../../styles/controls.module.css";
@@ -28,6 +29,7 @@ export function WorkspaceForm({
   save: (value: Workspace) => Promise<void>;
   onDelete?: () => void;
 }) {
+  useLanguage();
   const [value, setValue] = useState<Workspace>(
     current ?? {
       id: "",
@@ -50,7 +52,14 @@ export function WorkspaceForm({
   const skills = system.skills ?? [];
   const enabledSkills = value.skill_ids ?? skills.map((skill) => skill.id);
   return (
-    <Modal title={current ? "编辑工作空间" : "创建工作空间"} close={close}>
+    <Modal
+      title={
+        current
+          ? t("编辑工作空间", "Edit Project")
+          : t("创建工作空间", "New Project")
+      }
+      close={close}
+    >
       <form
         id="workspace-form"
         onSubmit={(event) => {
@@ -63,7 +72,7 @@ export function WorkspaceForm({
         }}
       >
         <label>
-          名称
+          {t("名称", "Name")}
           <input
             autoFocus
             required
@@ -72,22 +81,25 @@ export function WorkspaceForm({
             onChange={(event) =>
               setValue({ ...value, name: event.target.value })
             }
-            placeholder="例如：我的研究室"
+            placeholder={t("例如：我的研究室", "e.g., Research Lab")}
           />
         </label>
         <label>
-          说明
+          {t("说明", "Description")}
           <textarea
             value={value.description}
             onChange={(event) =>
               setValue({ ...value, description: event.target.value })
             }
-            placeholder="这个空间想一起完成什么？"
+            placeholder={t(
+              "这个空间想一起完成什么？",
+              "What do you want to accomplish in this project?",
+            )}
           />
         </label>
         <div className={cx("directory-location")}>
           <label>
-            本地资料目录
+            {t("本地资料目录", "Local project directory")}
             <Select
               disabled={saving || browsing}
               value={customRoot ? "custom-root" : value.root}
@@ -98,11 +110,13 @@ export function WorkspaceForm({
                   setValue({ ...value, root: selected });
               }}
             >
-              <option value="">暂不绑定</option>
+              <option value="">{t("暂不绑定", "None (unbound)")}</option>
               {system.roots.map((root) => (
                 <option key={root}>{root}</option>
               ))}
-              <option value="custom-root">输入目录路径…</option>
+              <option value="custom-root">
+                {t("输入目录路径…", "Enter directory path…")}
+              </option>
             </Select>
           </label>
           <button
@@ -112,7 +126,7 @@ export function WorkspaceForm({
             disabled={saving}
             onClick={() => setBrowsing((current) => !current)}
           >
-            浏览目录
+            {t("浏览目录", "Browse")}
           </button>
         </div>
         {browsing && (
@@ -135,7 +149,7 @@ export function WorkspaceForm({
         {customRoot && (
           <>
             <label>
-              目录路径
+              {t("目录路径", "Directory path")}
               <input
                 disabled={saving || browsing}
                 value={value.root}
@@ -143,7 +157,10 @@ export function WorkspaceForm({
                 spellCheck={false}
                 autoComplete="off"
                 aria-describedby={rootHelpID}
-                placeholder="例如：/完整路径/项目目录"
+                placeholder={t(
+                  "例如：/完整路径/项目目录",
+                  "e.g., /full/path/to/project",
+                )}
                 onChange={(event) => {
                   setError("");
                   setValue({ ...value, root: event.target.value });
@@ -151,18 +168,30 @@ export function WorkspaceForm({
               />
             </label>
             <small id={rootHelpID}>
-              填写本机文件夹的完整路径，支持 ~/。
+              {t(
+                "填写本机文件夹的完整路径，支持 ~/。",
+                "Enter the full path to a local folder (supports ~/). ",
+              )}
               {system.roots.length > 0
-                ? "请选择上列允许目录或其子目录。"
-                : "保存时会检查目录是否存在、可读。"}
+                ? t(
+                    "请选择上列允许目录或其子目录。",
+                    "Choose one of the allowed roots above or a subdirectory.",
+                  )
+                : t(
+                    "保存时会检查目录是否存在、可读。",
+                    "Verified for existence and read access on save.",
+                  )}
             </small>
           </>
         )}
         {!!skills.length && (
           <fieldset className={cx("workspace-skills")}>
-            <legend>共享协作技能</legend>
+            <legend>{t("共享协作技能", "Shared collaboration skills")}</legend>
             <p className={cx("muted")}>
-              成员按任务读取技能，具体分工根据本轮成员名册决定。
+              {t(
+                "成员按任务需要加载技能，具体分工根据当前会话成员决定。",
+                "Members load skills on demand based on the task and current conversation roster.",
+              )}
             </p>
             {skills.map((skill) => (
               <label className={cx("check-label")} key={skill.id}>
@@ -198,16 +227,21 @@ export function WorkspaceForm({
           className={cx("primary")}
           disabled={saving || browsing}
         >
-          {saving ? "保存中…" : "保存工作空间"}
+          {saving
+            ? t("保存中…", "Saving…")
+            : t("保存工作空间", "Save project")}
         </button>
       </div>
       {onDelete && (
         <section className={cx("danger-zone")}>
           <p className={cx("muted")}>
-            删除后，此空间的成员关联、会话、来源和产物都会被永久移除。全局成员档案会保留。
+            {t(
+              "删除后，此空间的成员关联、会话、来源和产物都会被永久移除。全局成员档案会保留。",
+              "Deleting permanently removes this project's member links, conversations, sources, and deliverables. Global member profiles are kept.",
+            )}
           </p>
           <button type="button" className={cx("danger")} onClick={onDelete}>
-            删除工作空间
+            {t("删除工作空间", "Delete project")}
           </button>
         </section>
       )}

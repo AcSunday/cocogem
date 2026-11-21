@@ -1,3 +1,4 @@
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import layout from "../styles/layout.module.css";
@@ -19,13 +20,17 @@ export function ProjectRail({
   onTasks: () => void;
   onSettings: () => void;
 }) {
+  useLanguage();
   return (
-    <aside className={cx("project-rail")} aria-label="项目视图">
+    <aside
+      className={cx("project-rail")}
+      aria-label={t("项目视图", "Project views")}
+    >
       <button
         type="button"
         className={cx("rail-button")}
-        aria-label="项目首页"
-        title="项目首页"
+        aria-label={t("项目首页", "Project home")}
+        title={t("项目首页", "Project home")}
         aria-current={active === "home" ? "page" : undefined}
         onClick={onHome}
       >
@@ -34,8 +39,8 @@ export function ProjectRail({
       <button
         type="button"
         className={cx("rail-button")}
-        aria-label="任务清单"
-        title="任务清单"
+        aria-label={t("任务清单", "Tasks")}
+        title={t("任务清单", "Tasks")}
         aria-current={active === "tasks" ? "page" : undefined}
         onClick={onTasks}
       >
@@ -44,8 +49,8 @@ export function ProjectRail({
       <button
         type="button"
         className={cx("rail-button rail-settings")}
-        aria-label="设置"
-        title="设置"
+        aria-label={t("设置", "Settings")}
+        title={t("设置", "Settings")}
         onClick={onSettings}
       >
         <Icon name="gear" size={20} />

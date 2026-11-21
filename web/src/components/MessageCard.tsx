@@ -11,6 +11,7 @@ import {
   type Message,
   type MessageContentPage,
 } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -99,6 +100,7 @@ export function MessageCard({
   retryDisabled?: boolean;
   onRetry?: () => void;
 }) {
+  useLanguage();
   const user = message.role === "user";
   const model = user ? "" : messageModel(message);
   const [open, setOpen] = useState(false);
@@ -165,23 +167,24 @@ export function MessageCard({
   const hasNewContent =
     !!page && (message.content_bytes ?? 0) > (page.content_bytes ?? 0);
   const shown = open && page ? page.content : message.content;
+  const retryTarget =
+    retryLabel || message.agent_name || t("成员", "member");
   return (
     <article
       className={cx(
         `message ${user ? "user-message" : "member-message"} ${final ? "final-message" : ""}`,
       )}
-      aria-label={user ? "你的消息" : undefined}
+      aria-label={user ? t("你的消息", "Your message") : undefined}
     >
-      {!user && (
-        <Avatar
-          name={message.agent_name}
-          avatar={avatar}
-        />
-      )}
+      {!user && <Avatar name={message.agent_name} avatar={avatar} />}
       <div className={cx("message-content")}>
         <div className={cx("message-meta")}>
-          <strong>{user ? "你" : message.agent_name}</strong>
-          {model && <small className={cx("message-model")}>（{model}）</small>}
+          <strong>{user ? t("你", "You") : message.agent_name}</strong>
+          {model && (
+            <small className={cx("message-model")}>
+              {t(`（${model}）`, `(${model})`)}
+            </small>
+          )}
           {role && <span className={cx("role-chip")}>{roleLabel(role)}</span>}
           <time dateTime={message.created_at}>
             {formatMessageTime(message.created_at)}
@@ -199,7 +202,11 @@ export function MessageCard({
           <Markdown
             text={
               shown ||
-              (user ? "" : generating ? "正在准备回复…" : "本次回复没有正文。")
+              (user
+                ? ""
+                : generating
+                  ? t("正在准备回复…", "Preparing reply…")
+                  : t("本次回复没有正文。", "This reply has no text content."))
             }
             members={members}
           />
@@ -209,12 +216,16 @@ export function MessageCard({
             <button
               type="button"
               className={cx("ghost small")}
-              aria-label={`重试 ${retryLabel || message.agent_name || "成员"}`}
-              title="只补跑该成员并沿用原流程；输入区新选的流程不会应用"
+              aria-label={t(`重试 ${retryTarget}`, `Retry ${retryTarget}`)}
+              title={t(
+                "只补跑该成员并保留已有上下文",
+                "Retries only this member while preserving existing context",
+              )}
               disabled={retryDisabled}
               onClick={onRetry}
             >
-              <Icon name="refresh" size={14} />重试 {retryLabel || message.agent_name || "成员"}
+              <Icon name="refresh" size={14} />
+              {t(`重试 ${retryTarget}`, `Retry ${retryTarget}`)}
             </button>
           </div>
         )}
@@ -222,17 +233,28 @@ export function MessageCard({
           <div className={cx("message-content-paging")}>
             <small className={cx("muted")}>
               {generating
-                ? `正在生成 · 已生成 ${bytesLabel(message.content_bytes ?? total)}`
+                ? t(
+                    `正在生成 · 已生成 ${bytesLabel(message.content_bytes ?? total)}`,
+                    `Generating · ${bytesLabel(message.content_bytes ?? total)} generated`,
+                  )
                 : open
                   ? hasNewContent
-                    ? `已生成 ${bytesLabel(message.content_bytes ?? total)} · 当前页为较早快照`
-                    : `全文 ${bytesLabel(total)}`
-                  : `全文 ${bytesLabel(total)} · 当前为部分预览`}
-              {open && page?.has_more ? " · 还有更多内容" : ""}
+                    ? t(
+                        `已生成 ${bytesLabel(message.content_bytes ?? total)} · 当前页为较早快照`,
+                        `Generated ${bytesLabel(message.content_bytes ?? total)} · Viewing an earlier snapshot`,
+                      )
+                    : t(`全文 ${bytesLabel(total)}`, `Full text ${bytesLabel(total)}`)
+                  : t(
+                      `全文 ${bytesLabel(total)} · 当前为部分预览`,
+                      `Full text ${bytesLabel(total)} · Showing preview`,
+                    )}
+              {open && page?.has_more
+                ? t(" · 还有更多内容", " · More content available")
+                : ""}
             </small>
             {open && loading && (
               <small className={cx("muted")} role="status">
-                正在加载全文…
+                {t("正在加载全文…", "Loading full text…")}
               </small>
             )}
             {open && failure && (
@@ -241,10 +263,10 @@ export function MessageCard({
                 <button
                   type="button"
                   className={cx("ghost small")}
-                  aria-label="重新加载全文"
+                  aria-label={t("重新加载全文", "Reload full text")}
                   onClick={() => void load(failure.index, failure.cursor)}
                 >
-                  重试
+                  {t("重试", "Retry")}
                 </button>
               </span>
             )}
@@ -253,7 +275,7 @@ export function MessageCard({
                 <button
                   type="button"
                   className={cx("ghost small")}
-                  aria-label="查看上一页全文"
+                  aria-label={t("查看上一页全文", "Previous page of full text")}
                   disabled={
                     pageIndex === 0 || loading || pageIndex - 1 < stack.base
                   }
@@ -261,40 +283,42 @@ export function MessageCard({
                     void load(pageIndex - 1, cursorAt(pageIndex - 1))
                   }
                 >
-                  上一页
+                  {t("上一页", "Previous")}
                 </button>
                 {pageIndex > 0 && pageIndex - 1 < stack.base && (
                   <button
                     type="button"
                     className={cx("ghost small")}
-                    aria-label="回到第一页全文"
+                    aria-label={t("回到第一页全文", "First page of full text")}
                     disabled={loading}
                     onClick={() => void load(0, "")}
                   >
-                    第一页
+                    {t("第一页", "First page")}
                   </button>
                 )}
-                <small className={cx("muted")}>第 {pageIndex + 1} 页</small>
+                <small className={cx("muted")}>
+                  {t(`第 ${pageIndex + 1} 页`, `Page ${pageIndex + 1}`)}
+                </small>
                 <button
                   type="button"
                   className={cx("ghost small")}
-                  aria-label="查看下一页全文"
+                  aria-label={t("查看下一页全文", "Next page of full text")}
                   disabled={!page.has_more || loading}
                   onClick={() =>
                     void load(pageIndex + 1, page.next_cursor ?? "")
                   }
                 >
-                  下一页
+                  {t("下一页", "Next")}
                 </button>
                 {hasNewContent && (
                   <button
                     type="button"
                     className={cx("ghost small")}
-                    aria-label="查看最新全文"
+                    aria-label={t("查看最新全文", "View latest full text")}
                     disabled={loading}
                     onClick={() => void load(0, "")}
                   >
-                    查看最新全文
+                    {t("查看最新全文", "View latest full text")}
                   </button>
                 )}
               </span>
@@ -303,10 +327,16 @@ export function MessageCard({
               type="button"
               className={cx("ghost small")}
               aria-expanded={open}
-              aria-label={open ? "收起全文" : "展开全文"}
+              aria-label={
+                open
+                  ? t("收起全文", "Collapse full text")
+                  : t("展开全文", "Expand full text")
+              }
               onClick={open ? collapse : expand}
             >
-              {open ? "收起全文" : "展开全文"}
+              {open
+                ? t("收起全文", "Collapse full text")
+                : t("展开全文", "Expand full text")}
             </button>
           </div>
         )}

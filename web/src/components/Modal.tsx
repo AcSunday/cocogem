@@ -1,3 +1,4 @@
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import layout from "../styles/layout.module.css";
@@ -18,6 +19,7 @@ export function Modal({
   close: () => void;
   wide?: boolean;
 }) {
+  useLanguage();
   const ref = useRef<HTMLDialogElement>(null);
   // A file picker's own cancel/close can surface as a backdrop click or an
   // Escape cancel; neither should dismiss the dialog that opened it.
@@ -85,7 +87,7 @@ export function Modal({
           <button
             type="button"
             className={cx("icon-button")}
-            aria-label="关闭窗口"
+            aria-label={t("关闭窗口", "Close dialog")}
             onClick={close}
           >
             <Icon name="close" size={18} />

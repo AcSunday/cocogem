@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { Thread, Workspace } from "../api/client";
 import { statusText } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import layout from "../styles/layout.module.css";
@@ -53,6 +54,7 @@ export function Sidebar({
   onCreateWorkspace: () => void;
   onEditWorkspace: () => void;
 }) {
+  useLanguage();
   const [filter, setFilter] = useState("");
   const [timeTip, setTimeTip] = useState<{
     label: string;
@@ -83,13 +85,16 @@ export function Sidebar({
     }
     const rect = event.currentTarget.getBoundingClientRect();
     setTimeTip({
-      label: `更新于 ${label}`,
+      label: t(`更新于 ${label}`, `Updated ${label}`),
       top: Math.min(Math.max(28, rect.top + rect.height / 2), innerHeight - 28),
       left: Math.min(rect.right + 8, innerWidth - 180),
     });
   };
   return (
-    <aside className={cx(`sidebar ${open ? "open" : ""}`)} aria-label="导航">
+    <aside
+      className={cx(`sidebar ${open ? "open" : ""}`)}
+      aria-label={t("导航", "Navigation")}
+    >
       <div className={cx("sidebar-head")}>
         <a
           className={cx("brand")}
@@ -106,7 +111,7 @@ export function Sidebar({
         </a>
         <button
           className={cx("icon-button sidebar-close")}
-          aria-label="关闭导航"
+          aria-label={t("关闭导航", "Close navigation")}
           onClick={close}
         >
           <Icon name="close" size={18} />
@@ -115,14 +120,16 @@ export function Sidebar({
       <div className={cx("sidebar-controls")}>
         <Select
           id="workspace-switch"
-          aria-label="切换工作空间"
+          aria-label={t("切换工作空间", "Switch project")}
           value={workspaceID}
           onChange={(selected) => {
             setFilter("");
             onWorkspace(selected);
           }}
         >
-          {!workspaceID && <option value="">选择工作空间</option>}
+          {!workspaceID && (
+            <option value="">{t("选择工作空间", "Select project")}</option>
+          )}
           {workspaces.map((ws) => (
             <option key={ws.id} value={ws.id}>
               {ws.name}
@@ -134,25 +141,26 @@ export function Sidebar({
           onClick={startThread}
           disabled={!workspace}
         >
-          <Icon name="discussion" size={16} /> 新建会话
+          <Icon name="discussion" size={16} />{" "}
+          {t("新建会话", "New conversation")}
         </button>
       </div>
       <label className={cx("search")}>
         <Icon name="search" size={14} />
         <input
-          aria-label="搜索会话"
-          placeholder="搜索会话标题"
+          aria-label={t("搜索会话", "Search conversations")}
+          placeholder={t("搜索会话标题", "Search conversation titles")}
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
         />
       </label>
       <div className={cx("section-label")}>
-        <span>会话</span>
+        <span>{t("会话", "Conversations")}</span>
         <span>{threads.length}</span>
       </div>
       <nav
         className={cx("thread-list")}
-        aria-label="会话列表"
+        aria-label={t("会话列表", "Conversation list")}
         onScroll={() => setTimeTip(undefined)}
       >
         {shown.map((thread) => (
@@ -187,22 +195,32 @@ export function Sidebar({
         {!threads.length && (
           <p className={cx("empty-small")}>
             {workspace
-              ? "还没有会话，从一个问题开始。"
-              : "创建工作空间后开始。"}
+              ? t(
+                  "还没有会话，从一个问题开始。",
+                  "No conversations yet. Start with a question.",
+                )
+              : t("创建工作空间后开始。", "Create a project to get started.")}
           </p>
         )}
         {threads.length > 0 && !shown.length && (
-          <p className={cx("empty-small")}>没有匹配的会话。</p>
+          <p className={cx("empty-small")}>
+            {t("没有匹配的会话。", "No matching conversations.")}
+          </p>
         )}
       </nav>
       <div className={cx("sidebar-footer")}>
         <button onClick={onCreateWorkspace}>
-          <Icon name="plus" size={14} /> 创建工作空间
+          <Icon name="plus" size={14} /> {t("创建工作空间", "New project")}
         </button>
         <button disabled={!workspace} onClick={onEditWorkspace}>
-          <Icon name="edit" size={14} /> 编辑工作空间
+          <Icon name="edit" size={14} /> {t("编辑工作空间", "Edit project")}
         </button>
-        <p>本地工作空间 · 数据留在本机</p>
+        <p>
+          {t(
+            "本地工作空间 · 数据留在本机",
+            "Local workspace · Data stays on your machine",
+          )}
+        </p>
       </div>
       {timeTip && (
         <div
@@ -238,7 +256,10 @@ function threadRunStatus(thread: Thread) {
 
 function ThreadStatus({ thread }: { thread: Thread }) {
   if ((thread.pending_permissions ?? 0) > 0) {
-    const label = `需要你审批（${thread.pending_permissions}）`;
+    const label = t(
+      `需要你审批（${thread.pending_permissions}）`,
+      `Approval needed (${thread.pending_permissions})`,
+    );
     return (
       <span
         className={cx("thread-status failed")}
@@ -251,7 +272,10 @@ function ThreadStatus({ thread }: { thread: Thread }) {
     );
   }
   if ((thread.open_questions ?? 0) > 0) {
-    const label = `需要你回答（${thread.open_questions}）`;
+    const label = t(
+      `需要你回答（${thread.open_questions}）`,
+      `Answer needed (${thread.open_questions})`,
+    );
     return (
       <span
         className={cx("thread-status failed")}
@@ -266,12 +290,13 @@ function ThreadStatus({ thread }: { thread: Thread }) {
   const state = threadRunStatus(thread);
   if (!state) {
     if (thread.task_status === "completed") {
+      const label = t("任务状态：已验收", "Task status: Accepted");
       return (
         <span
           className={cx("thread-status succeeded")}
           role="status"
-          aria-label="任务状态：已验收"
-          title="任务状态：已验收"
+          aria-label={label}
+          title={label}
         >
           <Icon name="check" size={12} />
         </span>
@@ -281,14 +306,15 @@ function ThreadStatus({ thread }: { thread: Thread }) {
   }
   const label = statusText[state.status] ?? state.status;
   const icon = statusIconName(state.status);
+  const statusAria = t(`运行状态：${label}`, `Run status: ${label}`);
   return (
     <span
       className={cx(
         `thread-status ${state.status} ${state.active ? "active" : ""}`,
       )}
       role="status"
-      aria-label={`运行状态：${label}`}
-      title={`运行状态：${label}`}
+      aria-label={statusAria}
+      title={statusAria}
     >
       {state.active ? (
         <span className={cx("thread-spinner")} aria-hidden="true" />
@@ -372,7 +398,10 @@ function ThreadMenu({
         ref={trigger}
         type="button"
         className={cx("icon-button small thread-more")}
-        aria-label={`更多会话操作：${thread.title}`}
+        aria-label={t(
+          `更多会话操作：${thread.title}`,
+          `More actions for conversation: ${thread.title}`,
+        )}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -390,7 +419,10 @@ function ThreadMenu({
         <div
           ref={menu}
           role="menu"
-          aria-label={`${thread.title} 的会话操作`}
+          aria-label={t(
+            `${thread.title} 的会话操作`,
+            `Actions for ${thread.title}`,
+          )}
           className={cx("thread-menu")}
           style={{ left: position.left, top: position.top }}
           onKeyDown={(event) => {
@@ -420,14 +452,14 @@ function ThreadMenu({
           }}
         >
           <button type="button" role="menuitem" onClick={() => choose(onEdit)}>
-            编辑
+            {t("编辑", "Edit")}
           </button>
           <button
             type="button"
             role="menuitem"
             onClick={() => choose(onRename)}
           >
-            重命名
+            {t("重命名", "Rename")}
           </button>
           <button
             type="button"
@@ -435,7 +467,7 @@ function ThreadMenu({
             className={cx("danger")}
             onClick={() => choose(onDelete)}
           >
-            删除
+            {t("删除", "Delete")}
           </button>
         </div>
       )}

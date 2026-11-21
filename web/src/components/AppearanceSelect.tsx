@@ -1,4 +1,5 @@
 import { Select } from "./Select";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import layout from "../styles/layout.module.css";
 import { Icon } from "./Icon";
@@ -14,19 +15,20 @@ export function AppearanceSelect({
   value: Appearance;
   onChange: (value: Appearance) => void;
 }) {
+  useLanguage();
   return (
     <label className={cx("appearance-select")}>
       <Icon name="appearance" size={15} />
-      <span>外观</span>
+      <span>{t("外观", "Theme")}</span>
       <Select
-        aria-label="外观模式"
+        aria-label={t("外观模式", "Appearance mode")}
         value={value}
         onChange={(selected) => onChange(selected as Appearance)}
       >
-        <option value="system">跟随系统</option>
-        <option value="light">浅色</option>
-        <option value="dark">深色</option>
-        <option value="warm">经典暖色</option>
+        <option value="system">{t("跟随系统", "System")}</option>
+        <option value="light">{t("浅色", "Light")}</option>
+        <option value="dark">{t("深色", "Dark")}</option>
+        <option value="warm">{t("经典暖色", "Warm")}</option>
       </Select>
     </label>
   );

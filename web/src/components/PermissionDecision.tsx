@@ -11,6 +11,7 @@ import {
   type ToolPermissionRequest,
 } from "../api/client";
 import type { PermissionPrompt } from "../lib/toolActivity";
+import { isEnglish, t, useLanguage } from "../lib/i18n";
 import { errorText } from "../lib/presentation";
 import styles from "../styles/permission-decision.module.css";
 
@@ -19,7 +20,7 @@ export type PermissionDecisionKind =
 
 export type PermissionGrantScope = "file" | "directory";
 
-const activityLabels: Record<string, string> = {
+const activityLabelsZh: Record<string, string> = {
   read: "读取",
   write: "写入",
   execute: "执行",
@@ -33,6 +34,28 @@ const activityLabels: Record<string, string> = {
   native_write: "原生写入",
   native_execute: "原生执行",
 };
+
+const activityLabelsEn: Record<string, string> = {
+  read: "Read",
+  write: "Write",
+  execute: "Execute",
+  run_test: "Run tests",
+  network: "Network access",
+  publish_artifact: "Publish deliverable",
+  publish: "Publish",
+  deploy: "Deploy",
+  install: "Install software",
+  native_read: "Native read",
+  native_write: "Native write",
+  native_execute: "Native execute",
+};
+
+const activityLabels: Record<string, string> = new Proxy(activityLabelsZh, {
+  get(_target, prop: string) {
+    const dict = isEnglish() ? activityLabelsEn : activityLabelsZh;
+    return dict[prop];
+  },
+});
 
 /** Returns a safe, non-broad parent directory name for an external file scope. */
 function parentDirectoryOf(scope: string): string {
@@ -62,25 +85,39 @@ export type PendingPermission = {
   request?: ToolPermissionRequest;
 };
 
-const decisionText: Record<PermissionDecisionKind, string> = {
-  allow_once: "已允许本次操作",
-  allow_conversation: "已允许本会话中同动作、同范围的操作",
-  deny: "已拒绝该操作",
-};
+function decisionKindText(kind: PermissionDecisionKind): string {
+  switch (kind) {
+    case "allow_once":
+      return t("已允许本次操作", "Allowed for this action");
+    case "allow_conversation":
+      return t(
+        "已允许本会话中同动作、同范围的操作",
+        "Allowed for this conversation (same action & scope)",
+      );
+    case "deny":
+      return t("已拒绝该操作", "Denied this action");
+  }
+}
 
 /** The text for a persisted status, or "" while it is still pending. */
 function decisionTextOf(status: string): string {
   switch (status) {
     case "allowed_once":
-      return decisionText.allow_once;
+      return decisionKindText("allow_once");
     case "allowed_conversation":
-      return decisionText.allow_conversation;
+      return decisionKindText("allow_conversation");
     case "denied":
-      return decisionText.deny;
+      return decisionKindText("deny");
     case "expired":
-      return "该授权请求已失效，需要重新申请";
+      return t(
+        "该授权请求已失效，需要重新申请",
+        "This approval request expired and must be requested again",
+      );
     case "canceled":
-      return "该操作已取消，不再等待授权";
+      return t(
+        "该操作已取消，不再等待授权",
+        "This action was canceled and no longer awaits approval",
+      );
     default:
       return "";
   }
@@ -223,6 +260,7 @@ export function PermissionDecision({
   // and the Composer queue). Busy/decided state is therefore shared per request
   // id, not per component instance, and the persisted status is authoritative:
   // a decided or expired request never shows clickable actions again.
+  useLanguage();
   const persisted = request?.status ?? "";
   const shared = usePermissionDecisionState(
     prompt.requestID,
@@ -237,7 +275,9 @@ export function PermissionDecision({
       mounted.current = false;
     };
   }, []);
-  const settled = decisionTextOf(persisted) || (shared.decided ? decisionText[shared.decided] : "");
+  const settled =
+    decisionTextOf(persisted) ||
+    (shared.decided ? decisionKindText(shared.decided) : "");
   const busy = shared.busy;
   const readonly = !!settled;
   const decide = async (
@@ -277,7 +317,7 @@ export function PermissionDecision({
       (!!operation && rawReason.includes(operation)));
   const reason = duplicatesOperation ? "" : rawReason;
   const details = [
-    member ? `成员 ${member}` : "",
+    member ? t(`成员 ${member}`, `Member ${member}`) : "",
     action ? (activityLabels[action] ?? action) : "",
     scope,
     reason && reason !== operation ? reason : "",
@@ -286,7 +326,7 @@ export function PermissionDecision({
     <div
       className={compact ? styles.decisionCompact : styles.decision}
       role="group"
-      aria-label={`待决定授权：${prompt.label}`}
+      aria-label={t(`待决定授权：${prompt.label}`, `Pending approval: ${prompt.label}`)}
       data-permission-decision={prompt.requestID}
     >
       <div className={styles.decisionHead}>
@@ -302,30 +342,30 @@ export function PermissionDecision({
         <dl className={styles.details}>
           {member && (
             <div>
-              <dt>成员</dt>
+              <dt>{t("成员", "Member")}</dt>
               <dd>{member}</dd>
             </div>
           )}
           {action && (
             <div>
-              <dt>动作</dt>
+              <dt>{t("动作", "Action")}</dt>
               <dd>{activityLabels[action] ?? action}</dd>
             </div>
           )}
           {operation && (
             <div>
-              <dt>操作</dt>
+              <dt>{t("操作", "Operation")}</dt>
               {/* The host's own bounded, secret-free description. */}
               <dd>{operation}</dd>
             </div>
           )}
           <div>
-            <dt>范围</dt>
-            <dd>{scope || "服务器未提供范围"}</dd>
+            <dt>{t("范围", "Scope")}</dt>
+            <dd>{scope || t("服务器未提供范围", "No scope provided by server")}</dd>
           </div>
           {reason && (
             <div>
-              <dt>原因</dt>
+              <dt>{t("原因", "Reason")}</dt>
               <dd>{reason}</dd>
             </div>
           )}
@@ -333,7 +373,10 @@ export function PermissionDecision({
       )}
       {request?.risk === "sensitive_path" && !readonly && (
         <p className={styles.risk} role="alert">
-          这是高敏凭据路径，只能「仅本次允许」。系统不会保存为会话持续授权。
+          {t(
+            "这是高敏凭据路径，只能「仅本次允许」。系统不会保存为会话持续授权。",
+            "This is a sensitive credential path and can only be allowed once. It will not be saved as a session-wide permission.",
+          )}
         </p>
       )}
       {readonly ? (
@@ -348,16 +391,21 @@ export function PermissionDecision({
             disabled={!!busy}
             onClick={() => void decide("allow_once")}
           >
-            {busy === "allow_once" ? "正在允许…" : "仅本次允许"}
+            {busy === "allow_once"
+              ? t("正在允许…", "Allowing…")
+              : t("仅本次允许", "Allow once")}
           </button>
           {request?.risk === "sensitive_path" ? (
             <button
               type="button"
               className={styles.secondary}
               disabled
-              title="高敏凭据路径禁止建立会话持续授权"
+              title={t(
+                "高敏凭据路径禁止建立会话持续授权",
+                "Sensitive credential paths cannot be allowed for the whole conversation",
+              )}
             >
-              本会话持续允许
+              {t("本会话持续允许", "Allow for this conversation")}
             </button>
           ) : (() => {
             const parentDir =
@@ -374,11 +422,14 @@ export function PermissionDecision({
                   className={styles.secondary}
                   disabled={!!busy}
                   onClick={() => void decide("allow_conversation")}
-                  title="本会话内所有成员可按同一动作等级与范围使用此授权"
+                  title={t(
+                    "本会话内所有成员可按同一动作等级与范围使用此授权",
+                    "All members in this conversation can perform the same action within this scope",
+                  )}
                 >
                   {busy === "allow_conversation"
-                    ? "正在允许…"
-                    : "本会话持续允许"}
+                    ? t("正在允许…", "Allowing…")
+                    : t("本会话持续允许", "Allow for this conversation")}
                 </button>
                 {parentDir && (
                   <button
@@ -386,11 +437,14 @@ export function PermissionDecision({
                     className={styles.secondary}
                     disabled={!!busy}
                     onClick={() => void decide("allow_conversation", "directory")}
-                    title={`本会话内允许对所在目录 ${parentDir}/ 进行同等级操作`}
+                    title={t(
+                      `本会话内允许对所在目录 ${parentDir}/ 进行同等级操作`,
+                      `Allow same-level actions in directory ${parentDir}/ for this conversation`,
+                    )}
                   >
                     {busy === "allow_conversation"
-                      ? "正在允许…"
-                      : `允许目录 ${parentShort}/`}
+                      ? t("正在允许…", "Allowing…")
+                      : t(`允许目录 ${parentShort}/`, `Allow directory ${parentShort}/`)}
                   </button>
                 )}
               </>
@@ -402,12 +456,15 @@ export function PermissionDecision({
             disabled={!!busy}
             onClick={() => void decide("deny")}
           >
-            {busy === "deny" ? "正在拒绝…" : "拒绝"}
+            {busy === "deny" ? t("正在拒绝…", "Denying…") : t("拒绝", "Deny")}
           </button>
         </div>
       )}
       <p className={styles.note}>
-        本会话持续允许对同会话所有成员共享，按动作等级（只读 / 写入 / 执行）与授权范围生效；高敏凭据路径只能一次一授权。
+        {t(
+          "「本会话持续允许」由同会话所有成员共享（限定在相同操作与路径范围内）；高敏凭据路径只能单次授权。",
+          "“Allow for this conversation” is shared across all members in this conversation for the same action and path scope; sensitive credential paths only allow one-time approval.",
+        )}
       </p>
       {error && (
         <p className={styles.error} role="alert">
@@ -590,7 +647,10 @@ export async function submitPermissionDecision(
       // request must be re-evaluated instead of silently accepted.
       inFlightDecisions.delete(key);
       throw new Error(
-        "该授权请求已过期、已决定或与先前的选择冲突；请刷新待处理授权后再决定。",
+        t(
+          "该授权请求已过期、已决定或与先前的选择冲突；请刷新待处理授权后再决定。",
+          "This approval request expired, was already decided, or conflicts with an earlier choice; refresh pending requests and try again.",
+        ),
         { cause: failure },
       );
     }
@@ -617,6 +677,7 @@ export function ConversationGrants({
   settings?: Settings;
   threadTitle?: string;
 }) {
+  useLanguage();
   const [grants, setGrants] = useState<ConversationGrant[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -664,7 +725,12 @@ export function ConversationGrants({
     // arrived from another thread's late response is rejected instead of
     // revoking a grant of the wrong conversation.
     if (grant.thread_id !== threadID) {
-      setError("授权记录与当前会话不一致，请刷新后重试。");
+      setError(
+        t(
+          "授权记录与当前会话不一致，请刷新后重试。",
+          "This approval record belongs to a different conversation; please refresh and try again.",
+        ),
+      );
       return;
     }
     setBusy(grant.id);
@@ -690,21 +756,28 @@ export function ConversationGrants({
   if (!threadID) {
     return (
       <p className={styles.muted}>
-        打开一个会话后，可在此查看并撤销该会话的持续授权。
+        {t(
+          "打开一个会话后，可在此查看并撤销该会话的持续授权。",
+          "Open a conversation to view and revoke its session-wide approvals here.",
+        )}
       </p>
     );
   }
   return (
     <div className={styles.grants}>
       <div className={styles.grantsHead}>
-        <span>{threadTitle ? `会话「${threadTitle}」` : "当前会话"}</span>
+        <span>
+          {threadTitle
+            ? t(`会话「${threadTitle}」`, `Conversation “${threadTitle}”`)
+            : t("当前会话", "Current conversation")}
+        </span>
         <button
           type="button"
           className={styles.link}
           disabled={loading}
           onClick={() => void load()}
         >
-          {loading ? "正在读取…" : "刷新"}
+          {loading ? t("正在读取…", "Loading…") : t("刷新", "Refresh")}
         </button>
       </div>
       {error && (
@@ -713,10 +786,15 @@ export function ConversationGrants({
         </p>
       )}
       {!loading && !grants.length && (
-        <p className={styles.muted}>该会话没有持续授权。</p>
+        <p className={styles.muted}>
+          {t("该会话没有持续授权。", "No session-wide approvals in this conversation.")}
+        </p>
       )}
       {!!grants.length && (
-        <ul className={styles.grantList} aria-label="会话持续授权">
+        <ul
+          className={styles.grantList}
+          aria-label={t("会话持续授权", "Session-wide approvals")}
+        >
           {grants.map((grant) => {
             const current =
               !settings ||
@@ -732,12 +810,14 @@ export function ConversationGrants({
                       : ""}
                   </strong>
                   <small>
-                    {grant.normalized_resource_scope || "未提供范围"} ·{" "}
+                    {grant.normalized_resource_scope ||
+                      t("未提供范围", "No scope provided")}{" "}
+                    ·{" "}
                     {grant.status === "revoked"
-                      ? "已撤销"
+                      ? t("已撤销", "Revoked")
                       : current
-                        ? "有效"
-                        : "已随权限切换失效"}
+                        ? t("有效", "Active")
+                        : t("已随权限切换失效", "Expired after mode switch")}
                   </small>
                 </div>
                 {grant.status !== "revoked" && (
@@ -747,7 +827,9 @@ export function ConversationGrants({
                     disabled={!!busy}
                     onClick={() => void revoke(grant)}
                   >
-                    {busy === grant.id ? "正在撤销…" : "撤销"}
+                    {busy === grant.id
+                      ? t("正在撤销…", "Revoking…")
+                      : t("撤销", "Revoke")}
                   </button>
                 )}
               </li>

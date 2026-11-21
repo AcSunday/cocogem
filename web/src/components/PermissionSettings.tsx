@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ToolPermissionRequest } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { errorText } from "../lib/presentation";
 import {
   ConversationGrants,
@@ -23,8 +24,12 @@ const cx = scoped(base, controls, settingsStyles);
 
 /** One-line user-facing boundary per mode; never shows epoch/grant internals. */
 export const modeSummaries: Record<ExecutionMode, string> = {
-  workspace_autonomous: executionModes[0].summary,
-  full_access: executionModes[1].summary,
+  get workspace_autonomous() {
+    return executionModes[0].summary;
+  },
+  get full_access() {
+    return executionModes[1].summary;
+  },
 };
 
 /**
@@ -48,6 +53,7 @@ export function PermissionSettings({
   threadID?: string;
   threadTitle?: string;
 }) {
+  useLanguage();
   const selected = executionModeOf(settings);
   const [pending, setPending] = useState<ExecutionMode | "">("");
   const [saveError, setSaveError] = useState("");
@@ -64,8 +70,14 @@ export function PermissionSettings({
       await onExecutionMode(mode);
       setSaved(
         mode === "full_access"
-          ? "已切换为完全访问；新执行使用原生能力。"
-          : "已切换为沙箱自主；工作台内零弹窗，越界才申请。",
+          ? t(
+              "已切换为完全访问；新执行使用原生能力。",
+              "Switched to Full access; new runs will use native CLI capabilities.",
+            )
+          : t(
+              "已切换为沙箱自主；工作台内零弹窗，越界才申请。",
+              "Switched to Sandboxed; actions inside the workspace run without prompts.",
+            ),
       );
     } catch (failure) {
       setSaveError(errorText(failure));
@@ -75,20 +87,22 @@ export function PermissionSettings({
   };
   return (
     <section aria-labelledby="settings-permission">
-      <h2 id="settings-permission">权限</h2>
+      <h2 id="settings-permission">{t("权限", "Permissions")}</h2>
       <p className={cx("muted")}>
-        权限是整个 Cocogem
-        共享的一份全局设置，不随工作空间保存。此处与输入框下方的权限选择读写同一个值，切换空间不会改变它。
+        {t(
+          "权限是整个 Cocogem 共享的一份全局设置，不随工作空间保存。此处与输入框下方的权限选择读写同一个值，切换空间不会改变它。",
+          "Permission mode is a global setting shared across Cocogem. This page and the selector below the composer read and write the same value; switching projects does not change it.",
+        )}
       </p>
       {loading && !settings && (
         <p className={cx("muted")} role="status">
-          正在读取全局权限…
+          {t("正在读取全局权限…", "Loading global permissions…")}
         </p>
       )}
       <div
         className={cx("permission-modes")}
         role="radiogroup"
-        aria-label="执行权限模式"
+        aria-label={t("执行权限模式", "Execution permission mode")}
       >
         {executionModes.map((option) => (
           <label
@@ -113,7 +127,7 @@ export function PermissionSettings({
       </div>
       {!!pending && (
         <p className={cx("muted")} role="status">
-          正在保存权限…
+          {t("正在保存权限…", "Saving permissions…")}
         </p>
       )}
       {(saveError || error) && (
@@ -123,15 +137,23 @@ export function PermissionSettings({
       )}
       {saved && !saveError && <p role="status">{saved}</p>}
       <p className={cx("muted")}>
-        切换后，之前额外允许的操作和本会话持续授权都会失效，需要重新申请；任务预算、历史记录和已有任务不会重置。已开始的原生执行不会自动重放。
+        {t(
+          "切换权限后，之前额外允许的操作和本会话持续授权都会失效，需要重新申请；任务预算、历史记录和已有任务不会重置，正在运行的步骤也不会自动重跑。",
+          "After switching modes, previously approved one-off actions and session-wide permissions expire and must be requested again. Task budgets, history, and existing tasks are not reset, and running steps will not replay automatically.",
+        )}
       </p>
       <section
         className={cx("settings-section")}
         aria-labelledby="permission-grants"
       >
-        <h3 id="permission-grants">会话持续授权</h3>
+        <h3 id="permission-grants">
+          {t("会话持续授权", "Session-wide approvals")}
+        </h3>
         <p className={cx("muted")}>
-          “本会话持续允许”的记录在这里撤销；撤销后新执行立即被拒绝，历史记录保留。
+          {t(
+            "你选择「本会话持续允许」的操作会列在这里；撤销后新的相同操作会再次停止或申请，已有历史记录不受影响。",
+            "Operations approved with “Allow for this conversation” appear here. Revoking an item takes effect immediately for future actions while preserving history.",
+          )}
         </p>
         <ConversationGrants
           threadID={threadID ?? ""}
@@ -162,6 +184,7 @@ export function CollaborationBudget({
   settings?: SettingsState["settings"];
   save: (policy: BudgetPolicyValue) => Promise<unknown>;
 }) {
+  useLanguage();
   const current = useMemo<BudgetPolicyValue>(
     () => ({
       auto_continuations:
@@ -208,13 +231,16 @@ export function CollaborationBudget({
       }}
     >
       <section className={cx("settings-section")}>
-        <h3>协作预算</h3>
+        <h3>{t("协作预算", "Collaboration budget")}</h3>
         <p>
-          这些默认值只用于以后新建的根任务，每个根任务分别累计；子任务、修订和自动续办共享所属根账本。现有任务保持原预算，切换权限也不会重置用量。
+          {t(
+            "这些默认值仅对新建的主任务生效（子任务、后续修订与自动续办共用同一主任务额度）。已有任务的额度保持不变，切换权限也不会重置用量。",
+            "These defaults apply only to newly created main tasks (subtasks, revisions, and auto-continuations share their main task's allowance). Existing tasks keep their current budget, and switching permission modes never resets usage.",
+          )}
         </p>
         {budgetFields.map(([key, label, unit, description]) => (
           <label key={key}>
-            {label}（{unit}）
+            {t(`${label}（${unit}）`, `${label} (${unit})`)}
             <input
               type="number"
               min={1}
@@ -236,7 +262,10 @@ export function CollaborationBudget({
         ))}
         {invalid && (
           <p className={cx("error")} role="alert">
-            每个预算至少为 1；同时修改代码的分支不能大于同时推进的分支。
+            {t(
+              "每项额度至少为 1，且同时修改代码的分支数不能超过同时推进的分支总数。",
+              "Each budget value must be at least 1, and concurrent code-writing branches cannot exceed parallel branches.",
+            )}
           </p>
         )}
         <button
@@ -247,17 +276,26 @@ export function CollaborationBudget({
             setValue({ ...defaultBudgetPolicy });
           }}
         >
-          恢复推荐默认值
+          {t("恢复推荐默认值", "Restore recommended defaults")}
         </button>
         {error && (
           <p role="alert" className={cx("error")}>
             {error}
           </p>
         )}
-        {saved && <p role="status">协作预算已保存；只影响以后创建的根任务。</p>}
+        {saved && (
+          <p role="status">
+            {t(
+              "协作预算已保存；仅对新建的主任务生效。",
+              "Collaboration budget saved; applies to newly created main tasks.",
+            )}
+          </p>
+        )}
         <div className={cx("form-actions")}>
           <button className={cx("primary")} disabled={saving || invalid}>
-            {saving ? "保存中…" : "保存协作预算"}
+            {saving
+              ? t("保存中…", "Saving…")
+              : t("保存协作预算", "Save collaboration budget")}
           </button>
         </div>
       </section>

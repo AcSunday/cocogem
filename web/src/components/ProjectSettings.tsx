@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Agent, type Settings, type Workspace } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { errorText } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -28,6 +29,7 @@ export function ProjectSettings({
   agents?: Agent[];
   onWorkspaceChange?: (workspace: Workspace) => void;
 }) {
+  useLanguage();
   // The workspace mode/budget fields are inert audit data; keep the prop for
   // callers that still render the panel inside a workspace form.
   void onWorkspaceChange;
@@ -37,61 +39,111 @@ export function ProjectSettings({
     <div className={cx("project-settings-panel")}>
       <header className={cx("settings-panel-head")}>
         <div>
-          <h3>继承的全局设置</h3>
+          <h3>{t("继承的全局设置", "Inherited global settings")}</h3>
           <p>
-            权限与根任务预算属于整个 Cocogem，不在这里按工作空间覆盖。切换空间不会改变权限，历史 Run 继续使用冻结快照。
+            {t(
+              "权限与主任务预算属于整个 Cocogem 全局共享，不按工作空间单独覆盖。切换空间不会改变全局权限，历史协作记录继续保留当时的配置快照。",
+              "Permissions and main-task budgets are shared across Cocogem rather than overridden per project. Switching projects does not change permissions, and historical runs retain their frozen snapshot.",
+            )}
           </p>
         </div>
       </header>
 
-      <section className={cx("settings-card")} aria-label="当前全局权限">
+      <section
+        className={cx("settings-card")}
+        aria-label={t("当前全局权限", "Current global permissions")}
+      >
         <div className={cx("settings-card-head")}>
-          <h4>执行权限</h4>
-          <p>由设置 → 权限统一管理；输入框下方的权限选择与这里读取同一个值。</p>
+          <h4>{t("执行权限", "Execution permissions")}</h4>
+          <p>
+            {t(
+              "由「设置 → 权限」统一管理；输入框下方的权限选择与这里读取同一个值。",
+              "Managed under Settings → Permissions; the selector below the composer reads and writes the same value.",
+            )}
+          </p>
         </div>
         <p className={cx("mode-readout")} data-mode={mode}>
-          <strong>{option?.label ?? "项目内自主"}</strong>
-          <small>{option?.summary ?? "项目内自主，项目外申请"}</small>
+          <strong>{option?.label ?? t("沙箱自主", "Sandboxed")}</strong>
+          <small>
+            {option?.summary ??
+              t(
+                "工作台内零弹窗，越界才申请",
+                "Auto-run inside workspace; prompt only outside",
+              )}
+          </small>
         </p>
       </section>
 
-      <section className={cx("settings-card")} aria-label="本空间成员">
+      <section
+        className={cx("settings-card")}
+        aria-label={t("本空间成员", "Project members")}
+      >
         <div className={cx("settings-card-head")}>
-          <h4>成员与执行</h4>
+          <h4>{t("成员与执行", "Members & execution")}</h4>
           <p>
-            成员是否加入并在本空间启用仍按空间管理；成员的工具与命令边界不再按空间或成员授权，而由全局权限决定。
+            {t(
+              "成员是否加入并在本空间启用仍按空间管理；成员的工具与命令边界由全局权限统一决定。",
+              "Which members join and are enabled is managed per project; their tool and command boundaries follow the global permission mode.",
+            )}
           </p>
         </div>
         <p className={cx("project-empty")}>
           {agents.length
-            ? `${agents.length} 位成员可用于本空间。`
-            : "本空间还没有成员。可在成员管理中把全局档案加入本空间。"}
+            ? t(
+                `${agents.length} 位成员可用于本空间。`,
+                `${agents.length} member(s) available in this project.`,
+              )
+            : t(
+                "本空间还没有成员。可在成员管理中把全局档案加入本空间。",
+                "No members in this project yet. Add global member profiles from the Members dialog.",
+              )}
         </p>
       </section>
 
-      <section className={cx("settings-card")} aria-label="本空间根预算">
+      <section
+        className={cx("settings-card")}
+        aria-label={t("本空间根预算", "Default task budget")}
+      >
         <div className={cx("settings-card-head")}>
-          <h4>新根任务预算</h4>
+          <h4>{t("新建主任务预算", "New main-task budget")}</h4>
           <p>
-            新建根任务读取设置 → 协作中的全局预算默认值。已有根任务的账本、预留和子任务关联保持不变，不再有空间覆盖。
+            {t(
+              "新建主任务使用「设置 → 协作」中的全局预算默认值；已有任务的额度与子任务关联保持不变。",
+              "Newly created main tasks use the global budget defaults from Settings → Collaboration; existing tasks keep their current allowance.",
+            )}
           </p>
         </div>
         <p className={cx("project-empty")}>
           {settings?.collaboration_budget
-            ? `续办 ${settings.collaboration_budget.auto_continuations} · 并行 ${settings.collaboration_budget.parallel_branches} · 写分支 ${settings.collaboration_budget.writer_branches} · 修复 ${settings.collaboration_budget.fix_rounds} · 无进展 ${settings.collaboration_budget.no_progress_failures}`
-            : "尚未读取全局预算默认值。"}
+            ? t(
+                `续办 ${settings.collaboration_budget.auto_continuations} · 并行 ${settings.collaboration_budget.parallel_branches} · 写分支 ${settings.collaboration_budget.writer_branches} · 修复 ${settings.collaboration_budget.fix_rounds} · 无进展 ${settings.collaboration_budget.no_progress_failures}`,
+                `Auto-continue ${settings.collaboration_budget.auto_continuations} · Parallel ${settings.collaboration_budget.parallel_branches} · Writers ${settings.collaboration_budget.writer_branches} · Fix rounds ${settings.collaboration_budget.fix_rounds} · No-progress ${settings.collaboration_budget.no_progress_failures}`,
+              )
+            : t(
+                "尚未读取全局预算默认值。",
+                "Global budget defaults not loaded yet.",
+              )}
         </p>
       </section>
 
-      <section className={cx("settings-card")} aria-label="本空间持续授权">
+      <section
+        className={cx("settings-card")}
+        aria-label={t("本空间持续授权", "Session-wide approvals")}
+      >
         <div className={cx("settings-card-head")}>
-          <h4>持续授权</h4>
+          <h4>{t("持续授权", "Session-wide approvals")}</h4>
           <p>
-            持续授权按会话管理：设置 → 权限可以查看并撤销当前会话的授权记录。本空间不再保存独立授权。
+            {t(
+              "持续授权按会话管理：可在「设置 → 权限」中查看并撤销当前会话的授权记录。",
+              "Session-wide approvals are managed per conversation: view and revoke them under Settings → Permissions.",
+            )}
           </p>
         </div>
         <p className={cx("project-empty")}>
-          当前空间：{workspace.name || "未命名"}。
+          {t(
+            `当前空间：${workspace.name || "未命名"}。`,
+            `Current project: ${workspace.name || "Untitled"}.`,
+          )}
         </p>
       </section>
     </div>

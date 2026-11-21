@@ -5,6 +5,7 @@ import {
   type EventPage,
   type Source,
 } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -46,6 +47,7 @@ function EventHistoryView({
   onSource,
   close,
 }: EventHistoryProps) {
+  useLanguage();
   const initialCursor = after ? String(after) : "";
   const [page, setPage] = useState<EventPage>();
   // Page indexes are absolute from this history's start; base is the oldest
@@ -79,35 +81,40 @@ function EventHistoryView({
 
   const retry = () => setRequested((value) => value + 1);
   return (
-    <section className={cx("event-history")} aria-label="历史事件">
+    <section
+      className={cx("event-history")}
+      aria-label={t("历史事件", "Event history")}
+    >
       <div className={cx("event-history-head")}>
-        <strong>历史事件</strong>
+        <strong>{t("历史事件", "Event history")}</strong>
         <button
           type="button"
           className={cx("ghost small")}
-          aria-label="关闭历史事件"
+          aria-label={t("关闭历史事件", "Close event history")}
           onClick={close}
         >
-          关闭
+          {t("关闭", "Close")}
         </button>
       </div>
       {loading && (
         <p className={cx("muted")} role="status">
-          正在加载历史事件…
+          {t("正在加载历史事件…", "Loading event history…")}
         </p>
       )}
       {!loading && error && (
         <p className={cx("error")} role="alert">
           {error}
           <button type="button" className={cx("ghost small")} onClick={retry}>
-            重试
+            {t("重试", "Retry")}
           </button>
         </p>
       )}
       {!loading && !error && page && (
         <>
           {!page.items.length ? (
-            <p className={cx("muted")}>没有更早的事件记录。</p>
+            <p className={cx("muted")}>
+              {t("没有更早的事件记录。", "No earlier event records.")}
+            </p>
           ) : (
             <ToolTimeline
               mode="history"
@@ -121,20 +128,22 @@ function EventHistoryView({
             <button
               type="button"
               className={cx("ghost small")}
-              aria-label="查看上一页历史事件"
+              aria-label={t("查看上一页历史事件", "Previous page of event history")}
               disabled={index === stack.base || loading}
               onClick={() =>
                 setIndex((value) => Math.max(stack.base, value - 1))
               }
             >
-              上一页
+              {t("上一页", "Previous")}
             </button>
-            <small className={cx("muted")}>第 {index + 1} 页</small>
+            <small className={cx("muted")}>
+              {t(`第 ${index + 1} 页`, `Page ${index + 1}`)}
+            </small>
             {stack.base > 0 && (
               <button
                 type="button"
                 className={cx("ghost small")}
-                aria-label="回到历史事件第一页"
+                aria-label={t("回到历史事件第一页", "First page of event history")}
                 onClick={() => {
                   setStack((current) =>
                     rememberCursor(current, 0, initialCursor),
@@ -142,13 +151,13 @@ function EventHistoryView({
                   setIndex(0);
                 }}
               >
-                回到第一页
+                {t("回到第一页", "First page")}
               </button>
             )}
             <button
               type="button"
               className={cx("ghost small")}
-              aria-label="查看下一页历史事件"
+              aria-label={t("查看下一页历史事件", "Next page of event history")}
               disabled={!page.next_cursor || loading}
               onClick={() => {
                 const next = index + 1;
@@ -158,7 +167,7 @@ function EventHistoryView({
                 setIndex(next);
               }}
             >
-              下一页
+              {t("下一页", "Next")}
             </button>
           </div>
         </>

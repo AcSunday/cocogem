@@ -16,9 +16,9 @@ import controls from "../styles/controls.module.css";
 import layout from "../styles/layout.module.css";
 import conversation from "../styles/conversation.module.css";
 import panels from "../styles/panels.module.css";
-import { memberLabel, runErrorText } from "../lib/presentation";
+import { memberLabel, runErrorText, errorText } from "../lib/presentation";
+import { t, useLanguage } from "../lib/i18n";
 import { applyMention, mentionAt, mentionMatches } from "../lib/mention";
-import { errorText } from "../lib/presentation";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 
@@ -93,6 +93,7 @@ export function Composer({
   onSend: () => void;
   onStop: () => void;
 }) {
+  useLanguage();
   const input = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const textarea = input.current;
@@ -179,7 +180,7 @@ export function Composer({
     ? (routing.targets ?? [])
         .map((id) => allAgents.find((agent) => agent.id === id)?.display_name)
         .filter(Boolean)
-        .join("、")
+        .join(t("、", ", "))
     : "";
   const [modeError, setModeError] = useState("");
   const clarification =
@@ -193,7 +194,10 @@ export function Composer({
     modeError ||
     clarification ||
     (failedNotice
-      ? "成员回复未完成，已完成的回复会保留。重试只补跑该成员并保留上下文。"
+      ? t(
+          "成员回复未完成，已完成的回复会保留。重试只补跑该成员并保留上下文。",
+          "A member reply did not finish; completed replies are preserved. Retrying re-runs only that member with saved context.",
+        )
       : "");
   const dismissNotice = () => {
     if (error) onDismissError?.();
@@ -305,10 +309,16 @@ export function Composer({
     if (canSend) onSend();
   };
   const placeholder = disabled
-    ? "先创建一个工作空间，再开始提问"
+    ? t(
+        "先创建一个工作空间，再开始提问",
+        "Create a project first to start asking questions",
+      )
     : compact
-      ? "一起构建什么？"
-      : "一起构建什么？（Enter 发送 · Shift + Enter 换行）";
+      ? t("一起构建什么？", "What shall we build together?")
+      : t(
+          "一起构建什么？（Enter 发送 · Shift + Enter 换行）",
+          "What shall we build together? (Enter to send · Shift + Enter for new line)",
+        );
   return (
     <form className={cx("composer")} data-composer="" onSubmit={submit}>
       {notice && (
@@ -325,18 +335,27 @@ export function Composer({
               failedSteps.map((step) => (
                 <span key={step.id} className={cx("composer-member-failure")}>
                   <span>
-                    {step.agent_name || "成员"}：
-                    {runErrorText(step.error || "回复未完成")}
+                    {step.agent_name || t("成员", "Member")}
+                    {t("：", ": ")}
+                    {runErrorText(
+                      step.error || t("回复未完成", "Reply did not finish"),
+                    )}
                   </span>
                   <button
                     type="button"
                     className={cx("composer-retry")}
                     disabled={busy || active}
                     onClick={() => onRetryMember?.(step.id)}
-                    title="只补跑该成员，已完成成员的结果会保留"
+                    title={t(
+                      "只补跑该成员，已完成成员的结果会保留",
+                      "Retries only this member; completed members' results are preserved",
+                    )}
                   >
                     <Icon name="refresh" size={13} />
-                    重试 {step.agent_name || "成员"}
+                    {t(
+                      `重试 ${step.agent_name || "成员"}`,
+                      `Retry ${step.agent_name || "member"}`,
+                    )}
                   </button>
                 </span>
               ))}
@@ -344,8 +363,12 @@ export function Composer({
           <button
             type="button"
             className={cx("composer-notice-close")}
-            aria-label={error ? "关闭错误提示" : "关闭提示"}
-            title="关闭提示"
+            aria-label={
+              error
+                ? t("关闭错误提示", "Dismiss error")
+                : t("关闭提示", "Dismiss notice")
+            }
+            title={t("关闭提示", "Dismiss notice")}
             onClick={dismissNotice}
           >
             <Icon name="close" size={12} />
@@ -356,12 +379,13 @@ export function Composer({
       {artifactRef && (
         <div className={cx("reference-pill")}>
           <span>
-            引用：{artifactRef.title} v{artifactRef.version}
+            {t("引用：", "Ref: ")}
+            {artifactRef.title} v{artifactRef.version}
           </span>
           <button
             type="button"
             className={cx("icon-button small")}
-            aria-label="移除产物引用"
+            aria-label={t("移除产物引用", "Remove deliverable reference")}
             onClick={clearArtifactRef}
           >
             <Icon name="close" size={14} />
@@ -370,20 +394,24 @@ export function Composer({
       )}
       {uploading && (
         <p className={cx("notice")} role="status">
-          正在解析并保存资料…
+          {t("正在解析并保存资料…", "Parsing and saving attachments…")}
         </p>
       )}
       {attachments.map((attachment) => (
         <div className={cx("reference-pill")} key={attachment.id}>
           <span title={attachment.parse_error || undefined}>
-            资料：{attachment.file_name || attachment.title}
+            {t("资料：", "Attachment: ")}
+            {attachment.file_name || attachment.title}
             {attachment.kind ? ` · ${attachment.kind}` : ""}
           </span>
           {onRemoveAttachment && (
             <button
               type="button"
               className={cx("icon-button small")}
-              aria-label={`移除资料 ${attachment.file_name || attachment.title}`}
+              aria-label={t(
+                `移除资料 ${attachment.file_name || attachment.title}`,
+                `Remove attachment ${attachment.file_name || attachment.title}`,
+              )}
               onClick={() => onRemoveAttachment(attachment.id)}
             >
               <Icon name="close" size={14} />
@@ -396,7 +424,7 @@ export function Composer({
           className={cx("mention-options")}
           role="listbox"
           id="composer-options"
-          aria-label="选择成员"
+          aria-label={t("选择成员", "Select member")}
         >
           {matches.map((agent, i) => (
             <li
@@ -420,7 +448,7 @@ export function Composer({
           ref={hintButton}
           type="button"
           className={cx("composer-hint")}
-          aria-label="输入提示：@ 指定成员"
+          aria-label={t("输入提示：@ 指定成员", "Input tip: @mention a member")}
           aria-describedby={hintOpen ? hintID : undefined}
           data-open={hintOpen ? "true" : undefined}
           onPointerEnter={(event) => {
@@ -470,7 +498,7 @@ export function Composer({
           ref={input}
           id="composer-input"
           className={cx("composer-input")}
-          aria-label="输入问题"
+          aria-label={t("输入问题", "Message input")}
           placeholder={placeholder}
           value={draft}
           disabled={disabled}
@@ -553,14 +581,18 @@ export function Composer({
           {executionMode && onExecutionModeChange && (
             <span className={cx("mode-chip")}>
               <Select
-                aria-label="权限模式"
+                aria-label={t("权限模式", "Permission mode")}
                 className={cx("mode-select")}
                 value={executionMode}
                 disabled={disabled || modeSaving}
                 onChange={(selected) => void changeMode(selected)}
               >
-                <option value="workspace_autonomous">沙箱自主</option>
-                <option value="full_access">完全访问</option>
+                <option value="workspace_autonomous">
+                  {t("沙箱自主", "Sandboxed")}
+                </option>
+                <option value="full_access">
+                  {t("完全访问", "Full access")}
+                </option>
               </Select>
             </span>
           )}
@@ -572,12 +604,18 @@ export function Composer({
               disabled={disabled || busy || active}
               title={
                 active
-                  ? "本轮协作结束后可切换仅规划"
-                  : "本轮只读取证据并给出方案；不改代码、不运行有副作用的命令，也不改变全局权限"
+                  ? t(
+                      "本轮协作结束后可切换仅规划",
+                      "Plan-only mode can be toggled after the current run finishes",
+                    )
+                  : t(
+                      "本轮只读取证据并给出方案；不改代码、不运行有副作用的命令，也不改变全局权限",
+                      "Read evidence and propose a plan for this turn only — no file edits, no side-effect commands, and no change to global permissions",
+                    )
               }
               onClick={() => onPlanOnlyChange(!planOnly)}
             >
-              仅规划
+              {t("仅规划", "Plan only")}
             </button>
           )}
           {coordinator && (
@@ -586,13 +624,22 @@ export function Composer({
               role="status"
               title={
                 coordinator.fallback
-                  ? "全局默认协调者不在当前工作空间或已停用，已回退到本会话成员"
-                  : "本次会话的协调者"
+                  ? t(
+                      "全局默认协调者不在当前工作空间或已停用，已回退到本会话成员",
+                      "Global default coordinator is unavailable in this project; falling back to a conversation member",
+                    )
+                  : t("本次会话的协调者", "Coordinator for this conversation")
               }
             >
               {coordinator.fallback
-                ? `默认协调者不可用，使用${coordinator.name}`
-                : `协调者：${coordinator.name}`}
+                ? t(
+                    `默认协调者不可用，使用${coordinator.name}`,
+                    `Default coordinator unavailable; using ${coordinator.name}`,
+                  )
+                : t(
+                    `协调者：${coordinator.name}`,
+                    `Coordinator: ${coordinator.name}`,
+                  )}
             </span>
           )}
           {routeLabel && !routing?.clarification && (
@@ -609,11 +656,17 @@ export function Composer({
           {onAttach && (
             <label
               className={cx("icon-button")}
-              title={uploading ? "正在解析资料…" : "添加资料"}
+              title={
+                uploading
+                  ? t("正在解析资料…", "Parsing attachment…")
+                  : t("添加资料", "Attach file")
+              }
               aria-busy={uploading || undefined}
             >
               <Icon name="file" size={16} />
-              <span className={cx("sr-only")}>添加资料</span>
+              <span className={cx("sr-only")}>
+                {t("添加资料", "Attach file")}
+              </span>
               <input
                 type="file"
                 className={cx("sr-only")}
@@ -630,9 +683,17 @@ export function Composer({
             <button
               type="button"
               className={cx("stop composer-send")}
-              aria-label={canceling ? "正在停止" : "停止协作"}
+              aria-label={
+                canceling
+                  ? t("正在停止", "Stopping")
+                  : t("停止协作", "Stop run")
+              }
               aria-busy={canceling || undefined}
-              title={canceling ? "正在停止…" : "停止协作"}
+              title={
+                canceling
+                  ? t("正在停止…", "Stopping…")
+                  : t("停止协作", "Stop run")
+              }
               onClick={onStop}
               disabled={canceling}
             >
@@ -642,9 +703,19 @@ export function Composer({
           <button
             className={cx("primary composer-send")}
             type="submit"
-            aria-label={busy ? "正在提交" : active ? "保存补充" : "发送"}
+            aria-label={
+              busy
+                ? t("正在提交", "Submitting")
+                : active
+                  ? t("保存补充", "Save supplement")
+                  : t("发送", "Send")
+            }
             title={
-              busy ? "正在提交…" : active ? "保存补充 · Enter" : "发送 · Enter"
+              busy
+                ? t("正在提交…", "Submitting…")
+                : active
+                  ? t("保存补充 · Enter", "Save supplement · Enter")
+                  : t("发送 · Enter", "Send · Enter")
             }
             disabled={!canSend}
           >
@@ -666,7 +737,10 @@ export function Composer({
               width: hintBox.width,
             }}
           >
-            @ 指定成员；不指定时由协调者按任务判断。
+            {t(
+              "@ 指定成员；不指定时由协调者按任务判断。",
+              "@mention a member to assign directly; otherwise the coordinator decides based on the task.",
+            )}
           </div>,
           document.body,
         )}

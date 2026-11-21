@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type ProjectOverview, type Workspace } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { taskFocus, taskPhase } from "../lib/tasks";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -25,6 +26,7 @@ export function ProjectHome({
   onOpenTasks: () => void;
   onEditWorkspace: () => void;
 }) {
+  useLanguage();
   const [summary, setSummary] = useState<ProjectOverview>();
   const [compact, setCompact] = useState(
     () => window.matchMedia?.("(max-width: 700px)")?.matches ?? false,
@@ -86,30 +88,36 @@ export function ProjectHome({
         onPick={onPick}
       />
       {!compact && summary && (
-        <section className={cx("project-summary")} aria-label="项目摘要">
+        <section
+          className={cx("project-summary")}
+          aria-label={t("项目摘要", "Project summary")}
+        >
           <div className={cx("project-summary-main")}>
-            <span className={cx("eyebrow")}>项目摘要</span>
+            <span className={cx("eyebrow")}>{t("项目摘要", "Project summary")}</span>
             <p>
               {goal ||
                 workspace.description ||
-                "目标、任务和验收记录会在这里保留。"}
+                t(
+                  "目标、任务和验收记录会在这里保留。",
+                  "Objectives, tasks, and acceptance records are preserved here.",
+                )}
             </p>
           </div>
           <div className={cx("project-summary-metrics")}>
             <span>
-              <strong>{open}</strong> 待办
+              <strong>{open}</strong> {t("待办", "Open")}
             </span>
             <span className={attention ? cx("attention") : undefined}>
-              <strong>{attention}</strong> 需要你
+              <strong>{attention}</strong> {t("需要你", "Needs you")}
             </span>
             <span>
-              <strong>{completed}</strong> 已验收
+              <strong>{completed}</strong> {t("已验收", "Accepted")}
             </span>
             <button type="button" className={cx("small")} onClick={onEditWorkspace}>
-              编辑项目
+              {t("编辑项目", "Edit project")}
             </button>
             <button type="button" className={cx("small")} onClick={onOpenTasks}>
-              打开任务清单
+              {t("打开任务清单", "Open tasks")}
             </button>
           </div>
         </section>

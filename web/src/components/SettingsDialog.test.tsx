@@ -14,6 +14,7 @@ import type {
   System,
 } from "../api/client";
 import { SettingsDialog, SnapshotDialog } from "./SettingsDialog";
+import { LANGUAGE_STORAGE_KEY, setLanguage } from "../lib/i18n";
 import { chooseOption } from "../test/select";
 
 HTMLDialogElement.prototype.showModal = function () {
@@ -26,6 +27,8 @@ HTMLDialogElement.prototype.close = function () {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  localStorage.clear();
+  setLanguage("zh-CN");
 });
 
 const savedSettings = (value: SettingsInput): Settings => ({
@@ -618,4 +621,32 @@ it("shows a trash read failure with a working retry", async () => {
   fail = false;
   await user.click(screen.getByRole("button", { name: "重试" }));
   expect(await screen.findByText("回收站为空。")).toBeVisible();
+});
+
+it("switches between Chinese and English in Settings → Appearance", async () => {
+  render(
+    <SettingsDialog
+      system={serviceSystem()}
+      setSystem={() => {}}
+      close={() => {}}
+      lock={async () => {}}
+      appearance="system"
+      onAppearance={() => {}}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "外观" }));
+  await chooseOption(user, screen.getByLabelText("界面语言"), "en");
+  expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
+  expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
+  expect(screen.getByRole("tab", { name: "Appearance" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByRole("tab", { name: "Service" })).toBeVisible();
+  expect(screen.getByRole("tab", { name: "Trash" })).toBeVisible();
+
+  await chooseOption(user, screen.getByLabelText("Language"), "zh-CN");
+  expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("zh-CN");
+  expect(screen.getByRole("heading", { name: "设置" })).toBeVisible();
 });

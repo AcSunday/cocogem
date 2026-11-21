@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import type { CandidateView } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { errorText } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -32,14 +33,6 @@ export type AcceptanceSubmission = {
   candidate_refs: string[];
   results: AcceptanceResult[];
 };
-
-const judgementOptions = [
-  { value: "inconclusive", label: "无法确认" },
-  { value: "passed", label: "通过" },
-  { value: "failed", label: "未通过" },
-  { value: "not_run", label: "未验证" },
-  { value: "not_applicable", label: "不适用" },
-];
 
 function isOutcome(criterion: AcceptanceCriterion, goal: string) {
   return (
@@ -87,6 +80,14 @@ export function TaskAcceptanceDialog({
   close: () => void;
   submit: (submission: AcceptanceSubmission) => Promise<void>;
 }) {
+  useLanguage();
+  const judgementOptions = [
+    { value: "inconclusive", label: t("无法确认", "Inconclusive") },
+    { value: "passed", label: t("通过", "Passed") },
+    { value: "failed", label: t("未通过", "Failed") },
+    { value: "not_run", label: t("未验证", "Not verified") },
+    { value: "not_applicable", label: t("不适用", "Not applicable") },
+  ];
   const initialCandidate = candidates[0]?.ref ?? "";
   const [candidate, setCandidate] = useState(initialCandidate);
   const [results, setResults] = useState<Record<string, string>>({});
@@ -108,7 +109,9 @@ export function TaskAcceptanceDialog({
   };
 
   const criterionText = (statement: string) =>
-    statement.trim() === goal.trim() ? "交付满足上述任务目标" : statement;
+    statement.trim() === goal.trim()
+      ? t("交付满足上述任务目标", "Deliverable meets the task objective above")
+      : statement;
   const resultFor = (criterion: AcceptanceCriterion) =>
     results[criterion.criterion_id] || "inconclusive";
   const evidenceFor = (criterion: AcceptanceCriterion) =>
@@ -159,27 +162,33 @@ export function TaskAcceptanceDialog({
   };
 
   return (
-    <Modal title="人工验收" close={requestClose} wide>
+    <Modal title={t("人工验收", "Human Review")} close={requestClose} wide>
       <form
         className={cx("acceptance-form")}
-        aria-label="人工验收表单"
+        aria-label={t("人工验收表单", "Human review form")}
         onSubmit={onFormSubmit}
       >
         {expired && (
           <div className={cx("acceptance-expired")} role="alert">
-            <strong>验收依据已更新</strong>
+            <strong>{t("验收依据已更新", "Review basis updated")}</strong>
             <p>
-              任务目标、版本或可验收交付在弹窗打开后发生变化。旧判断不会套用到新版本；请重新核对。
+              {t(
+                "任务目标、版本或可验收交付在弹窗打开后发生变化。旧判断不会套用到新版本；请重新核对。",
+                "The task objective, revision, or available deliverables changed while this dialog was open. Please reload and review the latest version.",
+              )}
             </p>
             {refresh && (
               <button type="button" onClick={refresh} disabled={busy}>
-                重新核对
+                {t("重新核对", "Reload & review")}
               </button>
             )}
           </div>
         )}
         <p className={cx("acceptance-intro")}>
-          选择一个确切成果版本或本任务成功执行的交付回复，再逐项判断。关闭不会保存，也不会默认通过。
+          {t(
+            "选择一个确切成果版本或本任务成功执行的交付回复，再逐项判断。关闭不会保存，也不会默认通过。",
+            "Select an exact deliverable version or successful reply, then evaluate each criterion. Closing does not save or auto-approve.",
+          )}
         </p>
         {codeCandidates &&
           codeCandidates.length > 0 &&
@@ -196,7 +205,7 @@ export function TaskAcceptanceDialog({
           )}
 
         <fieldset className={cx("acceptance-candidates")}>
-          <legend>候选成果</legend>
+          <legend>{t("候选成果", "Candidate deliverables")}</legend>
           {candidates.map((item) => (
             <label
               className={cx(
@@ -229,12 +238,12 @@ export function TaskAcceptanceDialog({
               >
                 <legend>
                   {text}
-                  {criterion.required ? "（必需）" : ""}
+                  {criterion.required ? t("（必需）", " (required)") : ""}
                 </legend>
                 <label className={cx("acceptance-judgement")}>
-                  判断
+                  {t("判断", "Verdict")}
                   <select
-                    aria-label={`判断：${text}`}
+                    aria-label={t(`判断：${text}`, `Verdict: ${text}`)}
                     value={result}
                     onChange={(event) =>
                       setResults((current) => ({
@@ -252,7 +261,10 @@ export function TaskAcceptanceDialog({
                 </label>
                 <div className={cx("acceptance-evidence")}>
                   <span className={cx("acceptance-evidence-label")}>
-                    证据（标记“通过”时至少选择一项）
+                    {t(
+                      "证据（标记“通过”时至少选择一项）",
+                      "Evidence (select at least one when marked “Passed”)",
+                    )}
                   </span>
                   {candidates.map((option) => (
                     <label
@@ -286,13 +298,18 @@ export function TaskAcceptanceDialog({
 
         {missingEvidence && (
           <p className={cx("acceptance-note")} role="status">
-            标记为“通过”的验收项至少需要选择一项证据。
+            {t(
+              "标记为“通过”的验收项至少需要选择一项证据。",
+              "Criteria marked “Passed” require at least one piece of evidence.",
+            )}
           </p>
         )}
         {!missingEvidence && unresolved > 0 && (
           <p className={cx("acceptance-note")}>
-            仍有 {unresolved}{" "}
-            项必需验收未通过或未核实；提交后任务不会完成，会保留待复验记录。
+            {t(
+              `仍有 ${unresolved} 项必需验收未通过或未核实；提交后任务不会完成，会保留待复验记录。`,
+              `${unresolved} required criterion/criteria are not marked “Passed”; submitting will record the review without completing the task.`,
+            )}
           </p>
         )}
         {error && (
@@ -303,14 +320,18 @@ export function TaskAcceptanceDialog({
 
         <div className={cx("acceptance-actions")}>
           <button type="button" onClick={requestClose} disabled={busy}>
-            取消
+            {t("取消", "Cancel")}
           </button>
           <button
             type="submit"
             className={cx("primary")}
             disabled={busy || expired || !candidate || missingEvidence}
           >
-            {expired ? "验收依据已变化" : busy ? "正在保存…" : "提交验收"}
+            {expired
+              ? t("验收依据已变化", "Review basis changed")
+              : busy
+                ? t("正在保存…", "Saving…")
+                : t("提交验收", "Submit review")}
           </button>
         </div>
       </form>

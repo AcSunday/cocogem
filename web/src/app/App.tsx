@@ -76,6 +76,7 @@ import {
 } from "../components/PermissionDecision";
 import { PermissionQueue } from "../components/PermissionQueue";
 import { executionModeOf, useGlobalSettings } from "./useGlobalSettings";
+import { t, useLanguage } from "../lib/i18n";
 import {
   conversationCoordinator,
   errorText,
@@ -188,6 +189,7 @@ function WorkspaceApp({
   initialSystem: System;
   lock: () => Promise<void>;
 }) {
+  useLanguage();
   const [appearance, setAppearance] = useState<Appearance>(
     () =>
       (document.documentElement.dataset.appearance as Appearance) || "system",
@@ -341,7 +343,12 @@ function WorkspaceApp({
       if (!request) {
         // A request that is no longer listed cannot be decided from here; the
         // user must re-open the pending queue after a refresh.
-        throw new Error("该授权请求已不在待处理列表中，请刷新后重试。");
+        throw new Error(
+          t(
+            "该授权请求已不在待处理列表中，请刷新后重试。",
+            "This approval request is no longer in the pending list; please refresh and try again.",
+          ),
+        );
       }
       try {
         await submitPermissionDecision(request, decision, grantScope);
@@ -892,8 +899,8 @@ function WorkspaceApp({
     const stream = new EventSource(
       `/api/v1/runs/${id}/events${after ? `?after=${after}` : ""}`,
     );
-    setConnection("正在连接");
-    stream.onopen = () => setConnection("实时连接");
+    setConnection(t("正在连接", "Connecting"));
+    stream.onopen = () => setConnection(t("实时连接", "Live"));
     stream.onmessage = (message) => {
       const event = JSON.parse(message.data) as Event;
       // Replayed or cross-run frames must not move the cursor, apply a delta,
@@ -958,7 +965,9 @@ function WorkspaceApp({
       }
     };
     stream.onerror = () => {
-      setConnection("连接中断，正在重新连接");
+      setConnection(
+        t("连接中断，正在重新连接", "Connection interrupted, reconnecting"),
+      );
       void api<System>("/api/v1/system").catch((error) => {
         if (!(error instanceof APIError && error.status === 401))
           setError(errorText(error));
@@ -1033,11 +1042,18 @@ function WorkspaceApp({
   }
   function attach(file: File) {
     if (attachments.length >= 5) {
-      setError("每次任务最多选择 5 份上传资料");
+      setError(
+        t(
+          "每次任务最多选择 5 份上传资料",
+          "You can attach up to 5 files per message",
+        ),
+      );
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
-      setError("资料原件不能超过 8 MiB");
+      setError(
+        t("资料原件不能超过 8 MiB", "Each file cannot exceed 8 MiB"),
+      );
       return;
     }
     // Keep the original local until send. Picking a file must not create a
@@ -1087,10 +1103,16 @@ function WorkspaceApp({
     setSteeringReceipt("");
     try {
       const text = inputOverride?.message ?? draft;
-      if (!text.trim()) throw new Error("请输入问题");
-        if (active) {
+      if (!text.trim())
+        throw new Error(t("请输入问题", "Please enter a message"));
+      if (active) {
         if (!currentRun?.task_id)
-          throw new Error("这次旧版执行尚未关联持久任务，请完成后再补充。");
+          throw new Error(
+            t(
+              "当前对话尚未转为任务，请等待本轮回复完成后再继续提问。",
+              "This conversation is not linked to a task yet; please wait for the current reply to finish before sending a follow-up.",
+            ),
+          );
         const key = crypto.randomUUID();
         await api(`/api/v1/tasks/${currentRun.task_id}/inbox`, "POST", {
           source_message_id: crypto.randomUUID(),
@@ -1100,7 +1122,12 @@ function WorkspaceApp({
           application_policy: "next_boundary",
           idempotency_key: key,
         });
-        setSteeringReceipt("已收到，待在下一个执行边界应用。");
+        setSteeringReceipt(
+          t(
+            "已收到补充内容，将在当前步骤完成后立即应用。",
+            "Received your supplement; it will be applied after the current step finishes.",
+          ),
+        );
         setDrafts((current) => ({
           ...current,
           [draftKey]: current[draftKey] === text ? "" : current[draftKey],
@@ -1132,7 +1159,10 @@ function WorkspaceApp({
         pending.input.message !== input.message
       )
         throw new Error(
-          "有一次提交结果未确认，请先重试原请求；新问题已保留为草稿。",
+          t(
+            "有一次提交结果未确认，请先重试原请求；新问题已保留为草稿。",
+            "A previous submission is still unconfirmed. Please retry the original request first; your new message has been kept as a draft.",
+          ),
         );
       if (!pending || pending.threadID !== id) {
         pending = {
@@ -1300,10 +1330,10 @@ function WorkspaceApp({
           <p role="alert" className={cx("error")}>
             {error}
             <br />
-            请确认本地服务仍在运行。
+            {t("请确认本地服务仍在运行。", "Please make sure the local service is still running.")}
           </p>
         ) : (
-          <p>正在连接本地工作空间…</p>
+          <p>{t("正在连接本地工作空间…", "Connecting to local workspace…")}</p>
         )}
       </main>
     );
@@ -1314,7 +1344,7 @@ function WorkspaceApp({
   return (
     <div className={cx("app-shell")}>
       <a className={cx("skip-link")} href="#composer-input">
-        跳到输入框
+        {t("跳到输入框", "Skip to composer")}
       </a>
       <ProjectRail
         active={threadID ? "home" : taskID ? "tasks" : projectView}
@@ -1355,7 +1385,7 @@ function WorkspaceApp({
           {!hideWorkspaceSidebar && (
             <button
               className={cx("icon-button mobile-only")}
-              aria-label="打开导航"
+              aria-label={t("打开导航", "Open navigation")}
               aria-expanded={navOpen}
               onClick={() => setNavOpen(true)}
             >
@@ -1366,13 +1396,15 @@ function WorkspaceApp({
             {view ? (
               <>
                 <span>
-                  {workspace?.name} / 协作会话
+                  {workspace?.name} / {t("协作会话", "Conversation")}
                 </span>
                 <h1>{view.thread.title}</h1>
               </>
             ) : (
               <strong>
-                {projectView === "tasks" ? "任务清单" : workspace?.name ?? "Cocogem"}
+                {projectView === "tasks"
+                  ? t("任务清单", "Tasks")
+                  : workspace?.name ?? "Cocogem"}
               </strong>
             )}
           </div>
@@ -1383,19 +1415,19 @@ function WorkspaceApp({
             {view?.thread.task_id && (
               <button
                 className={cx("ghost desktop-only")}
-                aria-label="任务详情"
+                aria-label={t("任务详情", "Task details")}
                 onClick={() =>
                   navigate(workspaceID, "", true, view.thread.task_id)
                 }
               >
-                任务详情
+                {t("任务详情", "Task details")}
               </button>
             )}
             {threadID && (
               <button
                 className={cx("icon-button")}
-                aria-label="会话设置"
-                title="会话设置"
+                aria-label={t("会话设置", "Conversation settings")}
+                title={t("会话设置", "Conversation settings")}
                 onClick={() => setModal({ kind: "edit-thread" })}
               >
                 <Icon name="settings" size={18} />
@@ -1407,7 +1439,10 @@ function WorkspaceApp({
                   className={cx("ghost desktop-only")}
                   onClick={() => setModal({ kind: "agents" })}
                   disabled={!workspace}
-                  aria-label={`成员 ${agents.length}`}
+                  aria-label={t(
+                    `成员 ${agents.length}`,
+                    `Members ${agents.length}`,
+                  )}
                 >
                   <span className={cx("avatar-stack")}>
                     {agents.slice(0, 4).map((agent) => (
@@ -1419,18 +1454,25 @@ function WorkspaceApp({
                       />
                     ))}
                   </span>
-                  {agents.length} 位成员
+                  {t(
+                    `${agents.length} 位成员`,
+                    `${agents.length} member${agents.length === 1 ? "" : "s"}`,
+                  )}
                 </button>
                 <button
                   className={cx("ghost panel-toggle")}
                   id="context-toggle"
-                  aria-label={panelOpen ? "收起协作面板" : "打开协作面板"}
+                  aria-label={
+                    panelOpen
+                      ? t("收起协作面板", "Close collaboration panel")
+                      : t("打开协作面板", "Open collaboration panel")
+                  }
                   aria-expanded={panelOpen}
                   aria-controls="collaboration-panel"
                   onClick={() => setPanelOpen((current) => !current)}
                 >
                   <Icon name="panel" size={16} />
-                  <span>协作</span>
+                  <span>{t("协作", "Deliverables")}</span>
                 </button>
               </>
             )}
@@ -1441,7 +1483,7 @@ function WorkspaceApp({
             <span>{error}</span>
             <button
               className={cx("icon-button small")}
-              aria-label="关闭错误提示"
+              aria-label={t("关闭错误提示", "Dismiss error")}
               onClick={() => setError("")}
             >
               <Icon name="close" size={14} />
@@ -1514,13 +1556,13 @@ function WorkspaceApp({
                 )}
                 <div className={cx("timeline-inner")}>
                   {view?.thread && <div className={cx("conversation-task-bar")}>
-                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} refreshKey={`${runs.map((run) => `${run.id}:${run.status}`).join("|")}|p:${permissions.pending.length}`} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>转为任务</button>}
+                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} refreshKey={`${runs.map((run) => `${run.id}:${run.status}`).join("|")}|p:${permissions.pending.length}`} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>{t("转为任务", "Convert to task")}</button>}
                   </div>}
                   {view && (messageCursor || view.messages.next_cursor) && (
                     <div
                       className={cx("timeline-paging")}
                       role="group"
-                      aria-label="消息分页"
+                      aria-label={t("消息分页", "Message pagination")}
                     >
                       {messageCursor && (
                         <button
@@ -1529,7 +1571,7 @@ function WorkspaceApp({
                           disabled={messagePaging}
                           onClick={() => void browseMessages("")}
                         >
-                          回到最新消息
+                          {t("回到最新消息", "Back to latest messages")}
                         </button>
                       )}
                       {view.messages.next_cursor && (
@@ -1541,12 +1583,12 @@ function WorkspaceApp({
                             void browseMessages(view.messages.next_cursor)
                           }
                         >
-                          加载更早的消息
+                          {t("加载更早的消息", "Load earlier messages")}
                         </button>
                       )}
                       {messagePaging && (
                         <small className={cx("muted")} role="status">
-                          正在加载消息…
+                          {t("正在加载消息…", "Loading messages…")}
                         </small>
                       )}
                     </div>
@@ -1631,7 +1673,7 @@ function WorkspaceApp({
                     setNewMessages(false);
                   }}
                 >
-                  <Icon name="down" size={14} /> 有新消息
+                  <Icon name="down" size={14} /> {t("有新消息", "New messages")}
                 </button>
               )}
             </div>
@@ -1732,7 +1774,7 @@ function WorkspaceApp({
                   )}
                   {pendingRequest && (
                     <p className={cx("notice")} role="status">
-                      上次提交等待确认。
+                      {t("上次提交等待确认。", "Previous submission awaiting confirmation.")}
                       <button
                         type="button"
                         className={cx("small")}
@@ -1743,7 +1785,7 @@ function WorkspaceApp({
                           )
                         }
                       >
-                        重试原请求
+                        {t("重试原请求", "Retry original request")}
                       </button>
                     </p>
                   )}
@@ -1775,7 +1817,7 @@ function WorkspaceApp({
           />
         </div>
       </section>
-      {taskConversion && view && workspace && <Modal title="转为任务" close={() => setTaskConversion(false)}><TaskCreateForm workspaces={{ [workspace.id]: workspace.name }} workspaceID={workspace.id} threadID={view.thread.id} initialGoal={view.messages.items.filter((message) => message.role === "user").at(-1)?.content || view.thread.title} onCreated={(task, run) => { setTaskConversion(false); if (run) navigate(task.task.workspace_id, run.thread_id); else { void refreshThread(view.thread.id); } }} /></Modal>}
+      {taskConversion && view && workspace && <Modal title={t("转为任务", "Convert to Task")} close={() => setTaskConversion(false)}><TaskCreateForm workspaces={{ [workspace.id]: workspace.name }} workspaceID={workspace.id} threadID={view.thread.id} initialGoal={view.messages.items.filter((message) => message.role === "user").at(-1)?.content || view.thread.title} onCreated={(task, run) => { setTaskConversion(false); if (run) navigate(task.task.workspace_id, run.thread_id); else { void refreshThread(view.thread.id); } }} /></Modal>}
       <AppModals
         modal={modal}
         setModal={setModal}
@@ -1823,6 +1865,7 @@ function WorkspaceApp({
  * made in another window still lands without a manual reload.
  */
 function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string; refreshKey?: string; onOpen: () => void }) {
+  useLanguage();
   const [task, setTask] = useState<ProjectTaskView>();
   const [error, setError] = useState("");
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -1834,22 +1877,28 @@ function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string;
     return () => { canceled = true; window.clearInterval(timer); };
   }, [taskID, refreshKey]);
   if (error) {
-    return <span className={cx("notice")} role="status">关联任务状态暂不可用</span>;
+    return (
+      <span className={cx("notice")} role="status">
+        {t("关联任务状态暂不可用", "Linked task status temporarily unavailable")}
+      </span>
+    );
   }
   const meta = task ? taskFocusMeta(task) : undefined;
   return (
     <span style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: "4px" }}>
       <button className={cx("ghost small")} onClick={onOpen}>
-        {task && meta ? `${taskTitle(task)} · ${meta.label}` : "关联任务"}{" "}
-        <span>查看任务 →</span>
+        {task && meta
+          ? `${taskTitle(task)} · ${meta.label}`
+          : t("关联任务", "Linked task")}{" "}
+        <span>{t("查看任务 →", "View task →")}</span>
       </button>
       {task && meta && (
         <button
           type="button"
           className={cx("ghost small")}
           aria-expanded={popoverOpen}
-          aria-label="展开关联任务摘要"
-          title="查看关联任务摘要"
+          aria-label={t("展开关联任务摘要", "Toggle linked task summary")}
+          title={t("查看关联任务摘要", "View linked task summary")}
           onClick={() => setPopoverOpen((open) => !open)}
         >
           {popoverOpen ? "▴" : "▾"}
@@ -1858,7 +1907,7 @@ function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string;
       {popoverOpen && task && meta && (
         <div
           role="dialog"
-          aria-label="关联任务摘要"
+          aria-label={t("关联任务摘要", "Linked task summary")}
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
@@ -1876,9 +1925,9 @@ function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string;
           }}
         >
           <strong>{taskTitle(task)}</strong>
-          <div>状态：{meta.label}</div>
-          <div>当前：{meta.current}</div>
-          <div>下一步：{meta.next}</div>
+          <div>{t(`状态：${meta.label}`, `Status: ${meta.label}`)}</div>
+          <div>{t(`当前：${meta.current}`, `Current: ${meta.current}`)}</div>
+          <div>{t(`下一步：${meta.next}`, `Next: ${meta.next}`)}</div>
           <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
             <button
               type="button"
@@ -1889,15 +1938,15 @@ function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string;
               }}
             >
               {meta.phase === "review" || meta.phase === "needs_revalidation"
-                ? "去验收"
-                : "查看详情"}
+                ? t("去验收", "Review")
+                : t("查看详情", "View details")}
             </button>
             <button
               type="button"
               className={cx("ghost small")}
               onClick={() => setPopoverOpen(false)}
             >
-              关闭
+              {t("关闭", "Close")}
             </button>
           </div>
         </div>

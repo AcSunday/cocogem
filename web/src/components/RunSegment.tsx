@@ -20,6 +20,7 @@ import {
   missingDeliveryMessages,
 } from "../lib/delivery";
 import { projectToolActivity, type ToolActivity } from "../lib/toolActivity";
+import { t, useLanguage } from "../lib/i18n";
 import type { RetryRef } from "../lib/retry";
 import {
   errorText,
@@ -75,6 +76,7 @@ function MissingFinalResults({
   agents?: Agent[];
   steps?: Step[];
 }) {
+  useLanguage();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Record<string, FinalPage>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -95,7 +97,12 @@ function MissingFinalResults({
     try {
       const page = await messageContent(runID, messageID, cursor);
       if (page.message_id !== messageID)
-        throw new Error("返回的最终结果与请求不一致");
+        throw new Error(
+          t(
+            "返回的最终结果与请求不一致",
+            "Returned final result does not match the requested message",
+          ),
+        );
       if (requests.current[messageID] !== request) return;
       setItems((current) => ({
         ...current,
@@ -150,15 +157,21 @@ function MissingFinalResults({
         aria-expanded={open}
         onClick={expand}
       >
-        {open ? "收起最终结果" : "查看最终结果"}
-        {messageIDs.length > 1 ? `（${messageIDs.length} 条）` : ""}
+        {open
+          ? t("收起最终结果", "Hide final result")
+          : t("查看最终结果", "View final result")}
+        {messageIDs.length > 1
+          ? t(`（${messageIDs.length} 条）`, ` (${messageIDs.length})`)
+          : ""}
       </button>
       {open &&
         messageIDs.map((messageID, position) => {
           const item = items[messageID];
           const failure = errors[messageID];
           const label =
-            messageIDs.length > 1 ? `最终结果 ${position + 1}` : "最终结果";
+            messageIDs.length > 1
+              ? t(`最终结果 ${position + 1}`, `Final result ${position + 1}`)
+              : t("最终结果", "Final result");
           if (!item) {
             return (
               <section
@@ -177,12 +190,12 @@ function MissingFinalResults({
                         void load(messageID, failure.index, failure.cursor)
                       }
                     >
-                      重试
+                      {t("重试", "Retry")}
                     </button>
                   </span>
                 ) : (
                   <small className={cx("muted")} role="status">
-                    正在加载最终结果…
+                    {t("正在加载最终结果…", "Loading final result…")}
                   </small>
                 )}
               </section>
@@ -217,17 +230,22 @@ function MissingFinalResults({
                     <strong>{name}</strong>
                   </>
                 ) : (
-                  <strong>历史最终回复</strong>
+                  <strong>{t("历史最终回复", "Historical final reply")}</strong>
                 )}
                 {model && (
-                  <small className={cx("message-model")}>（{model}）</small>
+                  <small className={cx("message-model")}>
+                    {t(`（${model}）`, `(${model})`)}
+                  </small>
                 )}
                 {role && (
                   <span className={cx("role-chip")}>{roleLabel(role)}</span>
                 )}
               </div>
               <Markdown
-                text={item.page.content || "本次回复没有正文。"}
+                text={
+                  item.page.content ||
+                  t("本次回复没有正文。", "This reply has no text content.")
+                }
                 members={agents}
               />
               {(item.page.has_more ||
@@ -237,12 +255,12 @@ function MissingFinalResults({
                 <div className={cx("message-content-paging")}>
                   {(item.page.has_more || item.index > 0) && (
                     <small className={cx("muted")}>
-                      第 {item.index + 1} 页
+                      {t(`第 ${item.index + 1} 页`, `Page ${item.index + 1}`)}
                     </small>
                   )}
                   {loading[messageID] && (
                     <small className={cx("muted")} role="status">
-                      正在加载…
+                      {t("正在加载…", "Loading…")}
                     </small>
                   )}
                   {failure && (
@@ -256,7 +274,7 @@ function MissingFinalResults({
                           void load(messageID, failure.index, failure.cursor)
                         }
                       >
-                        重试
+                        {t("重试", "Retry")}
                       </button>
                     </span>
                   )}
@@ -264,7 +282,10 @@ function MissingFinalResults({
                     <button
                       type="button"
                       className={cx("ghost small")}
-                      aria-label="查看上一页最终结果"
+                      aria-label={t(
+                        "查看上一页最终结果",
+                        "Previous page of final result",
+                      )}
                       disabled={
                         item.index === 0 ||
                         loading[messageID] ||
@@ -278,23 +299,29 @@ function MissingFinalResults({
                         )
                       }
                     >
-                      上一页
+                      {t("上一页", "Previous")}
                     </button>
                     {item.index > 0 && item.index - 1 < item.stack.base && (
                       <button
                         type="button"
                         className={cx("ghost small")}
-                        aria-label="回到第一页最终结果"
+                        aria-label={t(
+                          "回到第一页最终结果",
+                          "First page of final result",
+                        )}
                         disabled={loading[messageID]}
                         onClick={() => void load(messageID, 0, "")}
                       >
-                        第一页
+                        {t("第一页", "First page")}
                       </button>
                     )}
                     <button
                       type="button"
                       className={cx("ghost small")}
-                      aria-label="查看下一页最终结果"
+                      aria-label={t(
+                        "查看下一页最终结果",
+                        "Next page of final result",
+                      )}
                       disabled={!item.page.has_more || loading[messageID]}
                       onClick={() =>
                         void load(
@@ -304,7 +331,7 @@ function MissingFinalResults({
                         )
                       }
                     >
-                      下一页
+                      {t("下一页", "Next")}
                     </button>
                   </span>
                 </div>
@@ -368,6 +395,7 @@ export function RunSegment({
   /** Approval actions for a pending tool request; decisions stay server-owned. */
   permissionSlot?: PermissionSlot;
 }) {
+  useLanguage();
   const groupRuns = [run, ...retries.map((item) => item.run)];
   const latestRun = retries.at(-1)?.run ?? run;
   // The latest retry owns the turn's visible lifecycle, while the original
@@ -700,7 +728,7 @@ export function RunSegment({
             type="button"
             className={cx("run-footer-badge")}
             aria-expanded={footerOpen}
-            aria-label="查看协作摘要详情"
+            aria-label={t("查看协作摘要详情", "View run summary details")}
             onClick={() => setFooterOpen((current) => !current)}
           >
             <span className={cx("run-footer-identity")}>
@@ -741,28 +769,47 @@ export function RunSegment({
           </button>
           <div className={cx("run-footer-popover")} ref={footerPopover}>
             <strong>
-              第 {index} 次协作 · {runMethod(displayRun).label}
+              {t(`第 ${index} 次协作`, `Run #${index}`)} ·{" "}
+              {runMethod(displayRun).label}
             </strong>
-            <div>状态：{statusText[displayRun.status]}</div>
-            {duration && <div>耗时：{duration}</div>}
+            <div>
+              {t("状态：", "Status: ")}
+              {statusText[displayRun.status]}
+            </div>
+            {duration && (
+              <div>
+                {t("耗时：", "Duration: ")}
+                {duration}
+              </div>
+            )}
             {runUsageSummary(displayRun, allAttempts) && (
               <div>{runUsageSummary(displayRun, allAttempts)}</div>
             )}
             {allSteps.length > 0 && (
               <div>
-                过程：共 {allSteps.length} 步（
-                {allSteps
-                  .map((s) => s.agent_name)
-                  .filter(Boolean)
-                  .join("、")}
-                ）
+                {t(
+                  `过程：共 ${allSteps.length} 步（${allSteps
+                    .map((s) => s.agent_name)
+                    .filter(Boolean)
+                    .join("、")}）`,
+                  `Steps: ${allSteps.length} (${allSteps
+                    .map((s) => s.agent_name)
+                    .filter(Boolean)
+                    .join(", ")})`,
+                )}
               </div>
             )}
             {displayRun.error && (
-              <div className={cx("error")}>异常：{displayRun.error}</div>
+              <div className={cx("error")}>
+                {t("异常：", "Error: ")}
+                {displayRun.error}
+              </div>
             )}
             <small className={cx("muted")}>
-              详细日志与交接记录已保存在右侧协作面板
+              {t(
+                "详细日志与交接记录已保存在右侧协作面板",
+                "Detailed logs and handoff records are available in the collaboration panel",
+              )}
             </small>
           </div>
         </div>
@@ -779,22 +826,22 @@ export function RunSegment({
       {missingArtifacts.length > 0 && (
         <p className={cx("muted")} role="status">
           {finalArtifacts.length === 0
-            ? "最终产物正在加载…"
-            : "部分最终产物正在加载…"}
+            ? t("最终产物正在加载…", "Loading final deliverables…")
+            : t("部分最终产物正在加载…", "Loading remaining deliverables…")}
           {onRefresh && (
             <button
               type="button"
               className={cx("ghost small")}
               onClick={onRefresh}
             >
-              重新加载
+              {t("重新加载", "Reload")}
             </button>
           )}
         </p>
       )}
       <div
         className={cx("run-artifacts")}
-        aria-label={`第 ${index} 次协作产物`}
+        aria-label={t(`第 ${index} 次协作产物`, `Run #${index} deliverables`)}
       >
         {finalArtifacts.map((artifact) => (
           <ArtifactCard

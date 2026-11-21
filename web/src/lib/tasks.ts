@@ -1,12 +1,49 @@
 import type { ProjectTaskView, Question } from "../api/client";
+import { isEnglish, t } from "./i18n";
 
 export const taskColumns = [
-  { id: "todo", label: "待办", icon: "○" },
-  { id: "active", label: "进行中", icon: "◐" },
-  { id: "waiting", label: "等待处理", icon: "◷" },
-  { id: "review", label: "待验收", icon: "◉" },
-  { id: "completed", label: "已验收", icon: "✓" },
-  { id: "canceled", label: "已取消", icon: "×" },
+  {
+    id: "todo",
+    get label() {
+      return t("待办", "To do");
+    },
+    icon: "○",
+  },
+  {
+    id: "active",
+    get label() {
+      return t("进行中", "In progress");
+    },
+    icon: "◐",
+  },
+  {
+    id: "waiting",
+    get label() {
+      return t("等待处理", "Waiting");
+    },
+    icon: "◷",
+  },
+  {
+    id: "review",
+    get label() {
+      return t("待验收", "Ready for review");
+    },
+    icon: "◉",
+  },
+  {
+    id: "completed",
+    get label() {
+      return t("已验收", "Accepted");
+    },
+    icon: "✓",
+  },
+  {
+    id: "canceled",
+    get label() {
+      return t("已取消", "Canceled");
+    },
+    icon: "×",
+  },
 ] as const;
 
 export type TaskBoardColumn = (typeof taskColumns)[number]["id"];
@@ -70,57 +107,114 @@ export const taskFocusGroups: {
 }[] = [
   {
     id: "attention",
-    label: "需要你",
-    hint: "回答、继续或处理失败",
-    filterLabel: "需要你",
-    ariaLabel: "需要你任务",
+    get label() {
+      return t("需要你", "Needs you");
+    },
+    get hint() {
+      return t("回答、继续或处理失败", "Answer, resume, or handle failures");
+    },
+    get filterLabel() {
+      return t("需要你", "Needs you");
+    },
+    get ariaLabel() {
+      return t("需要你任务", "Tasks needing attention");
+    },
   },
   {
     id: "running",
-    label: "进行中",
-    hint: "按最近更新排序",
-    filterLabel: "进行中",
-    ariaLabel: "进行中任务",
+    get label() {
+      return t("进行中", "In progress");
+    },
+    get hint() {
+      return t("按最近更新排序", "Sorted by recent updates");
+    },
+    get filterLabel() {
+      return t("进行中", "In progress");
+    },
+    get ariaLabel() {
+      return t("进行中任务", "In-progress tasks");
+    },
   },
   {
     id: "waiting",
-    label: "待推进",
-    hint: "未开始、暂停或等待条件",
-    filterLabel: "待推进",
-    ariaLabel: "待推进任务",
+    get label() {
+      return t("待推进", "Up next");
+    },
+    get hint() {
+      return t(
+        "未开始、暂停或等待条件",
+        "Not started, paused, or waiting on conditions",
+      );
+    },
+    get filterLabel() {
+      return t("待推进", "Up next");
+    },
+    get ariaLabel() {
+      return t("待推进任务", "Up-next tasks");
+    },
   },
   {
     id: "review",
-    label: "待验收",
-    hint: "运行成功不等于已完成",
-    filterLabel: "待验收",
-    ariaLabel: "待验收任务",
+    get label() {
+      return t("待验收", "Ready for review");
+    },
+    get hint() {
+      return t(
+        "运行成功不等于已完成",
+        "Verify deliverables before marking accepted",
+      );
+    },
+    get filterLabel() {
+      return t("待验收", "Ready for review");
+    },
+    get ariaLabel() {
+      return t("待验收任务", "Tasks ready for review");
+    },
   },
   {
     id: "completed",
-    label: "已验收",
+    get label() {
+      return t("已验收", "Accepted");
+    },
     hint: "",
-    filterLabel: "已验收",
-    ariaLabel: "已验收任务",
+    get filterLabel() {
+      return t("已验收", "Accepted");
+    },
+    get ariaLabel() {
+      return t("已验收任务", "Accepted tasks");
+    },
   },
   {
     id: "canceled",
-    label: "已取消",
+    get label() {
+      return t("已取消", "Canceled");
+    },
     hint: "",
-    filterLabel: "已取消",
-    ariaLabel: "已取消任务",
+    get filterLabel() {
+      return t("已取消", "Canceled");
+    },
+    get ariaLabel() {
+      return t("已取消任务", "Canceled tasks");
+    },
   },
 ];
 
 export const taskFocusFilters: { value: TaskFocus | ""; label: string }[] = [
-  { value: "", label: "当前任务" },
+  {
+    value: "",
+    get label() {
+      return t("当前任务", "Active tasks");
+    },
+  },
   ...taskFocusGroups.map((group) => ({
     value: group.id,
-    label: group.filterLabel,
+    get label() {
+      return group.filterLabel;
+    },
   })),
 ];
 
-export const waitingLabels: Record<string, string> = {
+const waitingLabelsZh: Record<string, string> = {
   budget: "等待预算",
   fix_limit: "等待修复额度",
   no_progress: "等待新进展",
@@ -131,10 +225,31 @@ export const waitingLabels: Record<string, string> = {
   uncertain_effect: "等待副作用核实",
 };
 
+const waitingLabelsEn: Record<string, string> = {
+  budget: "Waiting for budget",
+  fix_limit: "Waiting for fix allowance",
+  no_progress: "Waiting for progress",
+  question: "Waiting for your answer",
+  external: "Waiting for external condition",
+  dependency: "Waiting for dependency",
+  environment: "Waiting for environment",
+  uncertain_effect: "Waiting for side-effect verification",
+};
+
+export const waitingLabels: Record<string, string> = new Proxy(
+  waitingLabelsZh,
+  {
+    get(_target, prop: string) {
+      const dict = isEnglish() ? waitingLabelsEn : waitingLabelsZh;
+      return dict[prop];
+    },
+  },
+);
+
 const activeRuns = new Set(["queued", "running", "canceling"]);
 const retryRuns = new Set(["failed", "interrupted", "canceled"]);
 
-const failureLabels: Record<string, string> = {
+const failureLabelsZh: Record<string, string> = {
   network: "无法连接本机 CLI 的端点",
   authentication: "本机 CLI 认证失败",
   quota: "额度或频率受限",
@@ -151,6 +266,31 @@ const failureLabels: Record<string, string> = {
   protocol: "本机 CLI 输出异常",
   unknown: "上次执行失败",
 };
+
+const failureLabelsEn: Record<string, string> = {
+  network: "Could not connect to the local CLI endpoint",
+  authentication: "Local CLI authentication failed",
+  quota: "Quota or rate limit reached",
+  context_overflow: "Context window limit exceeded",
+  host_input_limit: "Input size limit exceeded",
+  first_response_timeout: "Model did not respond in time",
+  stall_timeout: "Execution timed out",
+  permissions: "Insufficient permissions",
+  tool_unavailable: "Local CLI is missing required capabilities",
+  model_unavailable: "Local CLI or model is unavailable",
+  provider_transient: "Model service is temporarily unavailable",
+  process: "Execution process exited unexpectedly",
+  process_uncertain: "Previous run may have unverified side effects",
+  protocol: "Unexpected output from local CLI",
+  unknown: "Previous run failed",
+};
+
+const failureLabels: Record<string, string> = new Proxy(failureLabelsZh, {
+  get(_target, prop: string) {
+    const dict = isEnglish() ? failureLabelsEn : failureLabelsZh;
+    return dict[prop];
+  },
+});
 
 export function taskTitle(view: ProjectTaskView) {
   return view.task.title || view.revision.goal.split("\n")[0].slice(0, 100);
@@ -201,11 +341,14 @@ export function taskFailureText(view: ProjectTaskView) {
   }
   switch (view.last_run_status) {
     case "canceled":
-      return "上次执行在完成前停止";
+      return t("上次执行在完成前停止", "Previous run stopped before finishing");
     case "yielded":
-      return "上次执行主动让出，尚未完成";
+      return t(
+        "上次执行主动让出，尚未完成",
+        "Previous run paused to wait for follow-up",
+      );
     case "interrupted":
-      return "上次执行被中断";
+      return t("上次执行被中断", "Previous run was interrupted");
     case "failed":
       return failureLabels.unknown;
     default:
@@ -291,17 +434,27 @@ export function taskPhaseMeta(
         phase,
         group: "attention",
         column: "waiting",
-        label: "需要你",
+        label: t("需要你", "Needs you"),
         tone: "attention",
         current: pending
-          ? `等待你授权 ${view.pending_permissions} 个操作`
+          ? t(
+              `等待你授权 ${view.pending_permissions} 个操作`,
+              `Waiting for your approval on ${view.pending_permissions} action(s)`,
+            )
           : question
-            ? `等待你回答：${truncate(question.body, 60)}`
-            : "等待你的回答",
-        next: pending ? "在会话中批准或拒绝" : "回答后继续",
+            ? t(
+                `等待你回答：${truncate(question.body, 60)}`,
+                `Waiting for your answer: ${truncate(question.body, 60)}`,
+              )
+            : t("等待你的回答", "Waiting for your answer"),
+        next: pending
+          ? t("在会话中批准或拒绝", "Approve or deny in conversation")
+          : t("回答后继续", "Continue after answering"),
         action: {
           kind: pending ? "open_execution" : "answer",
-          label: pending ? "去审批" : "回答问题",
+          label: pending
+            ? t("去审批", "Review request")
+            : t("回答问题", "Answer question"),
         },
       };
     }
@@ -315,21 +468,25 @@ export function taskPhaseMeta(
         group: "attention",
         column: "waiting",
         label: failed
-          ? "执行失败"
+          ? t("执行失败", "Failed")
           : interrupted
-            ? "执行已中断"
-            : "执行已停止",
+            ? t("执行已中断", "Interrupted")
+            : t("执行已停止", "Stopped"),
         tone: failed ? "failed" : "paused",
-        current: taskFailureText(view) || "上次执行没有完成",
+        current:
+          taskFailureText(view) ||
+          t("上次执行没有完成", "Previous run did not finish"),
         next:
           view.task.waiting_reason === "uncertain_effect"
-            ? "先核实副作用再继续"
+            ? t("先核实副作用再继续", "Verify side effects before continuing")
             : interrupted
-              ? "恢复未完成的执行"
-              : "只补跑未完成步骤",
+              ? t("恢复未完成的执行", "Resume unfinished run")
+              : t("只补跑未完成步骤", "Re-run only unfinished steps"),
         action: {
           kind: "retry",
-          label: interrupted ? "恢复执行" : "从停止处继续",
+          label: interrupted
+            ? t("恢复执行", "Resume run")
+            : t("从停止处继续", "Continue from stop"),
         },
       };
     }
@@ -338,55 +495,76 @@ export function taskPhaseMeta(
         phase,
         group: "review",
         column: "review",
-        label: "待复验",
+        label: t("待复验", "Needs re-check"),
         tone: "review",
-        current: "输入或依赖已变化，结果需要复核",
-        next: "重新核对成果并记录验收",
-        action: { kind: "revalidate", label: "去复验" },
+        current: t(
+          "输入或依赖已变化，结果需要复核",
+          "Inputs or dependencies changed; results need re-verification",
+        ),
+        next: t(
+          "重新核对成果并记录验收",
+          "Re-verify deliverables and record acceptance",
+        ),
+        action: {
+          kind: "revalidate",
+          label: t("去复验", "Re-verify"),
+        },
       };
     case "running":
       return {
         phase,
         group: "running",
         column: "active",
-        label: "进行中",
+        label: t("进行中", "In progress"),
         tone: "running",
-        current: "正在执行",
-        next: "完成后进入待验收",
-        action: { kind: "open_execution", label: "查看执行过程" },
+        current: t("正在执行", "Running"),
+        next: t("完成后进入待验收", "Moves to review when finished"),
+        action: {
+          kind: "open_execution",
+          label: t("查看执行过程", "View run"),
+        },
       };
     case "not_started":
       return {
         phase,
         group: "waiting",
         column: "todo",
-        label: "待开始",
+        label: t("待开始", "Not started"),
         tone: "waiting",
-        current: "尚未开始",
-        next: "创建会话并开始执行",
-        action: { kind: "start", label: "开始执行" },
+        current: t("尚未开始", "Not started yet"),
+        next: t("创建会话并开始执行", "Open conversation and start run"),
+        action: {
+          kind: "start",
+          label: t("开始执行", "Start run"),
+        },
       };
     case "paused":
       return {
         phase,
         group: "waiting",
         column: "waiting",
-        label: "已暂停",
+        label: t("已暂停", "Paused"),
         tone: "paused",
-        current: "任务已暂停",
-        next: "恢复后继续",
-        action: { kind: "resume", label: "恢复任务" },
+        current: t("任务已暂停", "Task is paused"),
+        next: t("恢复后继续", "Resume to continue"),
+        action: {
+          kind: "resume",
+          label: t("恢复任务", "Resume task"),
+        },
       };
     case "waiting_budget":
       return {
         phase,
         group: "waiting",
         column: "waiting",
-        label: "等待预算",
+        label: t("等待预算", "Waiting for budget"),
         tone: "waiting",
-        current: "等待预算",
-        next: "调整预算后继续",
-        action: { kind: "budget", label: "调整预算" },
+        current: t("等待预算", "Waiting for budget"),
+        next: t("调整预算后继续", "Adjust budget to continue"),
+        action: {
+          kind: "budget",
+          label: t("调整预算", "Adjust budget"),
+        },
       };
     case "waiting_other": {
       if (!view.task.waiting_reason && view.last_run_status === "yielded") {
@@ -394,11 +572,14 @@ export function taskPhaseMeta(
           phase,
           group: "waiting",
           column: "waiting",
-          label: "已让出",
+          label: t("已让出", "Yielded"),
           tone: "waiting",
-          current: "上次执行主动让出，尚未完成",
-          next: "查看执行过程",
-          action: { kind: "wait", label: "查看任务" },
+          current: t(
+            "上次执行主动让出，尚未完成",
+            "Previous run paused to wait for follow-up",
+          ),
+          next: t("查看执行过程", "View run"),
+          action: { kind: "wait", label: t("查看任务", "View task") },
         };
       }
       const reason = view.task.waiting_reason ?? "";
@@ -406,11 +587,16 @@ export function taskPhaseMeta(
         phase,
         group: "waiting",
         column: "waiting",
-        label: reason ? waitingLabels[reason] || "等待条件" : "等待推进",
+        label: reason
+          ? waitingLabels[reason] || t("等待条件", "Waiting on condition")
+          : t("等待推进", "Waiting to proceed"),
         tone: "waiting",
-        current: waitingLabels[reason] || "等待下一步",
-        next: reason ? "满足条件后自动继续" : "查看任务说明或打开会话",
-        action: { kind: "wait", label: "查看任务" },
+        current:
+          waitingLabels[reason] || t("等待下一步", "Waiting for next step"),
+        next: reason
+          ? t("满足条件后自动继续", "Continues automatically once met")
+          : t("查看任务说明或打开会话", "View task details or open conversation"),
+        action: { kind: "wait", label: t("查看任务", "View task") },
       };
     }
     case "review":
@@ -418,33 +604,39 @@ export function taskPhaseMeta(
         phase,
         group: "review",
         column: "review",
-        label: "待验收",
+        label: t("待验收", "Ready for review"),
         tone: "review",
-        current: "已交付，等待验收",
-        next: "核对成果并记录验收",
-        action: { kind: "review", label: "去验收" },
+        current: t("已交付，等待验收", "Delivered, awaiting acceptance"),
+        next: t(
+          "核对成果并记录验收",
+          "Verify deliverables and record acceptance",
+        ),
+        action: { kind: "review", label: t("去验收", "Review") },
       };
     case "completed":
       return {
         phase,
         group: "completed",
         column: "completed",
-        label: "已验收",
+        label: t("已验收", "Accepted"),
         tone: "done",
-        current: "目标已验收",
-        next: "查看成果与验收记录",
-        action: { kind: "view", label: "查看成果" },
+        current: t("目标已验收", "Objective accepted"),
+        next: t(
+          "查看成果与验收记录",
+          "View deliverables and acceptance record",
+        ),
+        action: { kind: "view", label: t("查看成果", "View deliverables") },
       };
     case "canceled":
       return {
         phase,
         group: "canceled",
         column: "canceled",
-        label: "已取消",
+        label: t("已取消", "Canceled"),
         tone: "canceled",
-        current: "任务已取消",
-        next: "只读，不再唤醒",
-        action: { kind: "view", label: "查看任务" },
+        current: t("任务已取消", "Task canceled"),
+        next: t("只读，不再唤醒", "Read-only; will not resume"),
+        action: { kind: "view", label: t("查看任务", "View task") },
       };
   }
 }

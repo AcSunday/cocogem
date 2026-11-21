@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type DirectoryListing } from "../api/client";
+import { t, useLanguage } from "../lib/i18n";
 import { errorText } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -23,6 +24,7 @@ export function DirectoryPicker({
   choose: (path: string) => void;
   close: () => void;
 }) {
+  useLanguage();
   const [path, setPath] = useState(initialPath);
   const [location, setLocation] = useState(initialPath);
   const [listing, setListing] = useState<DirectoryListing>();
@@ -53,21 +55,27 @@ export function DirectoryPicker({
   }, [path]);
   useEffect(() => locationInput.current?.focus(), []);
   return (
-    <section className={cx("directory-picker")} aria-label="选择本机目录">
-      <strong>选择本机目录</strong>
+    <section
+      className={cx("directory-picker")}
+      aria-label={t("选择本机目录", "Choose local directory")}
+    >
+      <strong>{t("选择本机目录", "Choose local directory")}</strong>
       <small className={cx("muted")}>
-        选择文件夹后，保存工作空间即可生效。
+        {t(
+          "选择文件夹后，保存工作空间即可生效。",
+          "Select a folder, then save the project to apply.",
+        )}
       </small>
       <div className={cx("directory-location")}>
         <label>
-          浏览位置
+          {t("浏览位置", "Path")}
           <input
             ref={locationInput}
             value={location}
             maxLength={4096}
             autoComplete="off"
             spellCheck={false}
-            placeholder="完整路径或 ~/"
+            placeholder={t("完整路径或 ~/", "Full path or ~/")}
             onChange={(event) => setLocation(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.nativeEvent.isComposing) {
@@ -82,7 +90,7 @@ export function DirectoryPicker({
           onClick={() => setPath(location)}
           disabled={loading}
         >
-          前往
+          {t("前往", "Go")}
         </button>
       </div>
       <div className={cx("directory-navigation")}>
@@ -91,13 +99,17 @@ export function DirectoryPicker({
           disabled={loading || !listing?.parent}
           onClick={() => setPath(listing!.parent)}
         >
-          返回上级
+          {t("返回上级", "Up one level")}
         </button>
         <button type="button" disabled={loading} onClick={() => setPath("")}>
-          {restricted ? "允许的目录" : "主目录"}
+          {restricted
+            ? t("允许的目录", "Allowed roots")
+            : t("主目录", "Home directory")}
         </button>
       </div>
-      {loading && <p role="status">正在读取目录…</p>}
+      {loading && (
+        <p role="status">{t("正在读取目录…", "Loading directory…")}</p>
+      )}
       {error && (
         <p className={cx("error")} role="alert">
           {error}
@@ -106,10 +118,13 @@ export function DirectoryPicker({
       {listing && !loading && (
         <>
           <p className={cx("directory-current")}>
-            <span>当前目录</span>
-            <span>{listing.path || "允许的目录"}</span>
+            <span>{t("当前目录", "Current directory")}</span>
+            <span>{listing.path || t("允许的目录", "Allowed roots")}</span>
           </p>
-          <ul className={cx("directory-list")} aria-label="子目录">
+          <ul
+            className={cx("directory-list")}
+            aria-label={t("子目录", "Subdirectories")}
+          >
             {listing.items.map((item) => (
               <li key={item.path}>
                 <button type="button" onClick={() => setPath(item.path)}>
@@ -121,18 +136,23 @@ export function DirectoryPicker({
             ))}
           </ul>
           {!listing.items.length && (
-            <p className={cx("muted")}>没有可选的子目录</p>
+            <p className={cx("muted")}>
+              {t("没有可选的子目录", "No subdirectories")}
+            </p>
           )}
           {listing.truncated && (
             <p className={cx("muted")}>
-              目录条目较多，仅展示部分；可输入路径直接前往。
+              {t(
+                "目录条目较多，仅展示部分；可输入路径直接前往。",
+                "Showing a subset of folders; enter a path above to jump directly.",
+              )}
             </p>
           )}
         </>
       )}
       <div className={cx("form-actions")}>
         <button type="button" onClick={close}>
-          取消选择
+          {t("取消选择", "Cancel")}
         </button>
         <button
           type="button"
@@ -140,7 +160,7 @@ export function DirectoryPicker({
           disabled={loading || !!error || !listing?.path}
           onClick={() => choose(listing!.path)}
         >
-          选择此目录
+          {t("选择此目录", "Select this directory")}
         </button>
       </div>
     </section>

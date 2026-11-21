@@ -1,4 +1,5 @@
 import type { components } from "./schema";
+import { isEnglish, t } from "../lib/i18n";
 
 export type Workspace = components["schemas"]["Workspace"];
 export type Agent = components["schemas"]["Agent"];
@@ -272,13 +273,25 @@ export async function uploadSource(
       },
     );
   } catch {
-    throw new APIError("无法连接本地服务；请确认服务正在运行。", 0);
+    throw new APIError(
+      t(
+        "无法连接本地服务；请确认服务正在运行。",
+        "Cannot connect to local service; please make sure it is running.",
+      ),
+      0,
+    );
   }
   let text: string;
   try {
     text = await response.text();
   } catch {
-    throw new APIError("读取本地服务响应失败；请确认服务正在运行。", 0);
+    throw new APIError(
+      t(
+        "读取本地服务响应失败；请确认服务正在运行。",
+        "Failed to read local service response; please make sure it is running.",
+      ),
+      0,
+    );
   }
   let result: { error?: { message?: string } } | undefined;
   if (text.trim()) {
@@ -292,12 +305,22 @@ export async function uploadSource(
     if (response.status === 401)
       window.dispatchEvent(new Event("cocogem:unauthorized"));
     throw new APIError(
-      result?.error?.message ?? `资料上传失败（HTTP ${response.status}）`,
+      result?.error?.message ??
+        t(
+          `资料上传失败（HTTP ${response.status}）`,
+          `File upload failed (HTTP ${response.status})`,
+        ),
       response.status,
     );
   }
   if (result === undefined)
-    throw new APIError("本地服务返回了空响应；请确认服务正在运行。", 0);
+    throw new APIError(
+      t(
+        "本地服务返回了空响应；请确认服务正在运行。",
+        "Local service returned an empty response; please make sure it is running.",
+      ),
+      0,
+    );
   return result as SourceImport;
 }
 
@@ -331,7 +354,12 @@ export async function api<T>(
       !raw ||
       /fetch failed|failed to fetch|networkerror|load failed/i.test(raw);
     throw new APIError(
-      unavailable ? "无法连接本地服务；请确认服务正在运行。" : raw,
+      unavailable
+        ? t(
+            "无法连接本地服务；请确认服务正在运行。",
+            "Cannot connect to local service; please make sure it is running.",
+          )
+        : raw,
       0,
     );
   }
@@ -342,7 +370,13 @@ export async function api<T>(
   try {
     text = await response.text();
   } catch {
-    throw new APIError("读取本地服务响应失败；请确认服务正在运行。", 0);
+    throw new APIError(
+      t(
+        "读取本地服务响应失败；请确认服务正在运行。",
+        "Failed to read local service response; please make sure it is running.",
+      ),
+      0,
+    );
   }
   let result: { error?: { message?: string } } | undefined;
   if (text.trim()) {
@@ -357,18 +391,27 @@ export async function api<T>(
       window.dispatchEvent(new Event("cocogem:unauthorized"));
     const fallback =
       response.status >= 500
-        ? "本地服务暂时不可用；请确认服务正在运行。"
+        ? t(
+            "本地服务暂时不可用；请确认服务正在运行。",
+            "Local service is temporarily unavailable; please make sure it is running.",
+          )
         : `HTTP ${response.status}`;
     throw new APIError(result?.error?.message ?? fallback, response.status);
   }
   if (result === undefined) {
-    throw new APIError("本地服务返回了空响应；请确认服务正在运行。", 0);
+    throw new APIError(
+      t(
+        "本地服务返回了空响应；请确认服务正在运行。",
+        "Local service returned an empty response; please make sure it is running.",
+      ),
+      0,
+    );
   }
   return result as T;
 }
 export const terminal = (status: string) =>
   ["succeeded", "failed", "canceled", "interrupted"].includes(status);
-export const statusText: Record<string, string> = {
+const statusTextZh: Record<string, string> = {
   queued: "排队中",
   running: "执行中",
   canceling: "正在停止",
@@ -387,6 +430,31 @@ export const statusText: Record<string, string> = {
   verified: "已验证",
   error: "异常",
 };
+const statusTextEn: Record<string, string> = {
+  queued: "Queued",
+  running: "Running",
+  canceling: "Stopping",
+  succeeded: "Completed",
+  failed: "Failed",
+  canceled: "Stopped",
+  interrupted: "Interrupted",
+  completed: "Completed",
+  processing: "Generating",
+  pending: "Waiting for upstream",
+  skipped: "Skipped",
+  uncertain: "Needs verification",
+  blocked: "Capability unavailable",
+  configured: "Configured",
+  not_configured: "Not configured",
+  verified: "Verified",
+  error: "Error",
+};
+export const statusText: Record<string, string> = new Proxy(statusTextZh, {
+  get(_target, prop: string) {
+    const dict = isEnglish() ? statusTextEn : statusTextZh;
+    return dict[prop];
+  },
+});
 
 /**
  * Deduplicates by (run_id, seq), keeps per-run sequence order and caps the

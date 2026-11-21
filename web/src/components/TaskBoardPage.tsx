@@ -9,6 +9,7 @@ import {
   type TaskDeletion,
 } from "../api/client";
 import { errorText, formatDateTime, formatRelativeTime } from "../lib/presentation";
+import { t, useLanguage } from "../lib/i18n";
 import {
   taskAcceptance,
   taskColumn,
@@ -128,6 +129,7 @@ export function TaskBoardPage({
   onOpenThread?: (workspaceID: string, threadID: string) => void;
   viewSwitchTarget?: HTMLElement | null;
 }) {
+  useLanguage();
   const [board, setBoard] = useState<TaskBoard>();
   const [error, setError] = useState("");
   const [filters, setFilters] = useState(savedFilters);
@@ -239,8 +241,14 @@ export function TaskBoardPage({
     setSelected(new Set());
     setNotice(
       count > ids.length
-        ? `已永久删除 ${count} 个任务（含子任务）。`
-        : `已永久删除 ${count} 个任务。`,
+        ? t(
+            `已永久删除 ${count} 个任务（含子任务）。`,
+            `Permanently deleted ${count} task(s) (including subtasks).`,
+          )
+        : t(
+            `已永久删除 ${count} 个任务。`,
+            `Permanently deleted ${count} task(s).`,
+          ),
     );
     await load();
   };
@@ -254,7 +262,7 @@ export function TaskBoardPage({
         action: "resume",
         request_id: crypto.randomUUID(),
       });
-      setNotice("任务已恢复。");
+      setNotice(t("任务已恢复。", "Task resumed."));
       await load();
     } catch (failure) {
       setError(errorText(failure));
@@ -273,7 +281,7 @@ export function TaskBoardPage({
         "POST",
         {},
       );
-      setNotice("任务已开始执行。");
+      setNotice(t("任务已开始执行。", "Task execution started."));
       if (onOpenThread) onOpenThread(item.task.workspace_id, run.thread_id);
       else onOpenTask(item.task.workspace_id, item.task.id);
       await load();
@@ -315,25 +323,29 @@ export function TaskBoardPage({
   const listActionLabel = (item: ProjectTaskView, phase: string) => {
     switch (phase) {
       case "needs_answer":
-        return (item.pending_permissions ?? 0) > 0 ? "去审批" : "回答";
+        return (item.pending_permissions ?? 0) > 0
+          ? t("去审批", "Approve")
+          : t("回答", "Answer");
       case "needs_retry":
-        return "处理";
+        return t("处理", "Handle");
       case "needs_revalidation":
-        return "复验";
+        return t("复验", "Re-verify");
       case "running":
-        return "查看";
+        return t("查看", "View");
       case "not_started":
-        return "开始执行";
+        return t("开始执行", "Start run");
       case "paused":
-        return "恢复任务";
+        return t("恢复任务", "Resume task");
       case "waiting_budget":
-        return item.task.thread_id && onOpenThread ? "打开会话" : "查看任务";
+        return item.task.thread_id && onOpenThread
+          ? t("打开会话", "Open conversation")
+          : t("查看任务", "View task");
       case "review":
-        return "验收";
+        return t("验收", "Review");
       case "completed":
-        return "查看成果";
+        return t("查看成果", "View deliverables");
       default:
-        return "打开";
+        return t("打开", "Open");
     }
   };
 
@@ -363,8 +375,12 @@ export function TaskBoardPage({
         className={cx("task-workspace", "task-focus-loading")}
         role={error ? "alert" : "status"}
       >
-        <p>{error || "正在读取任务…"}</p>
-        {error && <button onClick={() => void load()}>重新加载任务</button>}
+        <p>{error || t("正在读取任务…", "Loading tasks…")}</p>
+        {error && (
+          <button onClick={() => void load()}>
+            {t("重新加载任务", "Reload tasks")}
+          </button>
+        )}
       </div>
     );
 
@@ -378,7 +394,8 @@ export function TaskBoardPage({
       (item) =>
         item.task.parent_id === id && item.task.status === "completed",
     ).length;
-  const workspace = (id: string) => board.workspaces?.[id] || "工作空间";
+  const workspace = (id: string) =>
+    board.workspaces?.[id] || t("工作空间", "Project");
   const owner = (id: string) => board.members?.[id];
   const needsAttention = (item: ProjectTaskView) =>
     taskFocus(item, questions) === "attention";
@@ -502,7 +519,10 @@ export function TaskBoardPage({
                 checked={selected.has(item.task.id)}
                 onChange={() => toggleSelected(item.task.id)}
                 onClick={(event) => event.stopPropagation()}
-                aria-label={`选择任务：${taskTitle(item)}`}
+                aria-label={t(
+                  `选择任务：${taskTitle(item)}`,
+                  `Select task: ${taskTitle(item)}`,
+                )}
               />
             )}
             <button
@@ -531,14 +551,17 @@ export function TaskBoardPage({
             <span aria-hidden="true">·</span>
             <span>
               {owner(item.task.owner_member_id)
-                ? `负责人 ${owner(item.task.owner_member_id)}`
-                : "任务负责人"}
+                ? t(
+                    `负责人 ${owner(item.task.owner_member_id)}`,
+                    `Owner ${owner(item.task.owner_member_id)}`,
+                  )
+                : t("任务负责人", "Task owner")}
             </span>
             {sub > 0 && (
               <>
                 <span aria-hidden="true">·</span>
                 <span>
-                  子任务 {subDone}/{sub}
+                  {t(`子任务 ${subDone}/${sub}`, `Subtasks ${subDone}/${sub}`)}
                 </span>
               </>
             )}
@@ -613,7 +636,7 @@ export function TaskBoardPage({
                     onOpenTask(item.task.workspace_id, item.task.id);
                   }}
                 >
-                  打开
+                  {t("打开", "Open")}
                 </button>
               )}
             </div>
@@ -635,7 +658,7 @@ export function TaskBoardPage({
         <button
           type="button"
           className={cx("task-card-open")}
-          aria-label={`打开任务：${title}`}
+          aria-label={t(`打开任务：${title}`, `Open task: ${title}`)}
           title={title}
           onClick={() => onOpenTask(item.task.workspace_id, item.task.id)}
         >
@@ -659,7 +682,7 @@ export function TaskBoardPage({
                 {ownerName}
               </>
             ) : (
-              "未分配"
+              t("未分配", "Unassigned")
             )}
           </span>
           <button
@@ -689,7 +712,7 @@ export function TaskBoardPage({
     <div
       className={cx("task-view-switch")}
       role="group"
-      aria-label="任务视图"
+      aria-label={t("任务视图", "Task view")}
     >
       <button
         type="button"
@@ -698,7 +721,7 @@ export function TaskBoardPage({
         onClick={() => update({ view: "list" })}
       >
         <Icon name="tasks" size={14} />
-        清单
+        {t("清单", "List")}
       </button>
       <button
         type="button"
@@ -707,7 +730,7 @@ export function TaskBoardPage({
         onClick={() => update({ view: "board" })}
       >
         <Icon name="layers" size={14} />
-        看板
+        {t("看板", "Board")}
       </button>
     </div>
   );
@@ -723,7 +746,7 @@ export function TaskBoardPage({
       {viewSwitchTarget && createPortal(viewSwitch, viewSwitchTarget)}
       <header className={cx("task-focus-head")}>
         <div>
-          <h1>任务清单</h1>
+          <h1>{t("任务清单", "Tasks")}</h1>
           {tasks.length ? (
             <p className={cx("task-focus-summary")}>
               <span
@@ -732,16 +755,23 @@ export function TaskBoardPage({
                   summary.attention > 0 && "on",
                 )}
               >
-                {summary.attention} 件需要你
+                {t(`${summary.attention} 件需要你`, `${summary.attention} needing you`)}
               </span>
               <span aria-hidden="true">·</span>
-              <span>{summary.running} 个进行中</span>
+              <span>
+                {t(`${summary.running} 个进行中`, `${summary.running} in progress`)}
+              </span>
               <span aria-hidden="true">·</span>
-              <span>{summary.review} 个待验收</span>
+              <span>
+                {t(`${summary.review} 个待验收`, `${summary.review} ready for review`)}
+              </span>
             </p>
           ) : (
             <p className={cx("task-focus-summary")}>
-              还没有任务，先从一个目标开始。
+              {t(
+                "还没有任务，先从一个目标开始。",
+                "No tasks yet. Start with an objective.",
+              )}
             </p>
           )}
         </div>
@@ -752,7 +782,7 @@ export function TaskBoardPage({
               className={cx("ghost", "small", "task-head-control")}
               onClick={leaveSelection}
             >
-              退出选择
+              {t("退出选择", "Done selecting")}
             </button>
           ) : (
             <>
@@ -767,7 +797,7 @@ export function TaskBoardPage({
                   )}
                   onClick={enterSelection}
                 >
-                  选择
+                  {t("选择", "Select")}
                 </button>
               )}
               {!viewSwitchTarget && viewSwitch}
@@ -777,7 +807,7 @@ export function TaskBoardPage({
                 onClick={() => setCreating(true)}
               >
                 <Icon name="plus" size={14} />
-                新建任务
+                {t("新建任务", "New task")}
               </button>
             </>
           )}
@@ -789,15 +819,15 @@ export function TaskBoardPage({
           <Icon name="search" size={15} />
           <input
             type="search"
-            aria-label="搜索任务"
-            placeholder="搜索任务…"
+            aria-label={t("搜索任务", "Search tasks")}
+            placeholder={t("搜索任务…", "Search tasks…")}
             value={filters.query}
             onChange={(event) => update({ query: event.target.value })}
           />
         </label>
         <FilterMenu
           name="status"
-          label="筛选状态"
+          label={t("筛选状态", "Filter by status")}
           value={filters.status}
           options={taskFocusFilters}
           open={openFilter === "status"}
@@ -811,10 +841,10 @@ export function TaskBoardPage({
         />
         <FilterMenu
           name="workspace"
-          label="筛选项目"
+          label={t("筛选项目", "Filter by project")}
           value={filters.workspace}
           options={[
-            { value: "", label: "全部项目" },
+            { value: "", label: t("全部项目", "All projects") },
             ...Object.entries(board.workspaces ?? {}).map(([id, name]) => ({
               value: id,
               label: name,
@@ -831,10 +861,10 @@ export function TaskBoardPage({
         />
         <FilterMenu
           name="owner"
-          label="筛选负责人"
+          label={t("筛选负责人", "Filter by owner")}
           value={filters.owner}
           options={[
-            { value: "", label: "全部负责人" },
+            { value: "", label: t("全部负责人", "All owners") },
             ...Object.entries(board.members ?? {}).map(([id, name]) => ({
               value: id,
               label: name,
@@ -852,9 +882,13 @@ export function TaskBoardPage({
       </div>
 
       {selecting && filters.view === "list" && (
-        <div className={cx("task-select-bar")} role="group" aria-label="任务选择">
+        <div
+          className={cx("task-select-bar")}
+          role="group"
+          aria-label={t("任务选择", "Task selection")}
+        >
           <span className={cx("task-select-count")}>
-            已选 {selected.size} 项
+            {t(`已选 ${selected.size} 项`, `${selected.size} selected`)}
           </span>
           <div className={cx("task-select-actions")}>
             <button
@@ -865,7 +899,9 @@ export function TaskBoardPage({
                 setSelected(allSelected ? new Set() : new Set(visibleIDs))
               }
             >
-              {allSelected ? "取消全选" : "全选当前"}
+              {allSelected
+                ? t("取消全选", "Deselect all")
+                : t("全选当前", "Select all visible")}
             </button>
             <button
               type="button"
@@ -873,7 +909,7 @@ export function TaskBoardPage({
               disabled={!selected.size}
               onClick={() => setSelected(new Set())}
             >
-              清除
+              {t("清除", "Clear")}
             </button>
             <button
               type="button"
@@ -884,7 +920,7 @@ export function TaskBoardPage({
                 setConfirming(true);
               }}
             >
-              永久删除所选
+              {t("永久删除所选", "Delete permanently")}
             </button>
           </div>
         </div>
@@ -941,10 +977,10 @@ export function TaskBoardPage({
           <div className={cx("task-focus-empty")}>
             <strong>
               {filters.status === "completed"
-                ? "还没有已验收的任务。"
+                ? t("还没有已验收的任务。", "No accepted tasks yet.")
                 : filtering
-                  ? "没有匹配的任务。"
-                  : "还没有任务。"}
+                  ? t("没有匹配的任务。", "No matching tasks.")
+                  : t("还没有任务。", "No tasks yet.")}
             </strong>
             {filtering ? (
               <button
@@ -954,7 +990,7 @@ export function TaskBoardPage({
                   update({ query: "", workspace: "", owner: "", status: "" })
                 }
               >
-                清除筛选
+                {t("清除筛选", "Clear filters")}
               </button>
             ) : (
               <button
@@ -962,7 +998,7 @@ export function TaskBoardPage({
                 className={cx("small", "primary")}
                 onClick={() => setCreating(true)}
               >
-                新建任务
+                {t("新建任务", "New task")}
               </button>
             )}
           </div>
@@ -978,7 +1014,7 @@ export function TaskBoardPage({
                 key={column.id}
                 data-status={column.id}
                 className={cx(`task-column task-column-${column.id}`)}
-                aria-label={`${column.label}任务`}
+                aria-label={t(`${column.label}任务`, `${column.label} tasks`)}
               >
                 <h2>
                   <span>
@@ -991,7 +1027,9 @@ export function TaskBoardPage({
                 <div className={cx("task-column-cards")}>
                   {items.map(card)}
                   {!items.length && (
-                    <p className={cx("task-column-empty")}>暂无任务</p>
+                    <p className={cx("task-column-empty")}>
+                      {t("暂无任务", "No tasks")}
+                    </p>
                   )}
                 </div>
               </section>
@@ -1008,10 +1046,17 @@ export function TaskBoardPage({
             aria-expanded={drawerOpen}
             onClick={() => setDrawerOpen((current) => !current)}
           >
-            已归档 {archivedCount} 项 {drawerOpen ? "⌄" : "›"}
+            {t(
+              `已归档 ${archivedCount} 项`,
+              `Archived (${archivedCount})`,
+            )}{" "}
+            {drawerOpen ? "⌄" : "›"}
           </button>
           {drawerOpen && (
-            <div className={cx("task-focus-drawer")} aria-label="已归档任务">
+            <div
+              className={cx("task-focus-drawer")}
+              aria-label={t("已归档任务", "Archived tasks")}
+            >
               {focused
                 .filter(
                   ({ meta }) =>
@@ -1024,7 +1069,10 @@ export function TaskBoardPage({
       )}
 
       {creating && (
-        <Modal title="新建任务" close={() => setCreating(false)}>
+        <Modal
+          title={t("新建任务", "New Task")}
+          close={() => setCreating(false)}
+        >
           <TaskCreateForm
             workspaces={board.workspaces ?? {}}
             workspaceID={filters.workspace}
@@ -1040,14 +1088,16 @@ export function TaskBoardPage({
 
       {confirming && (
         <ConfirmDialog
-          title="确认永久删除任务"
-          action="永久删除"
+          title={t("确认永久删除任务", "Confirm Permanent Task Deletion")}
+          action={t("永久删除", "Delete permanently")}
           close={() => setConfirming(false)}
           confirm={deleteSelected}
         >
           <p>
-            将永久删除选中的 {selected.size}{" "}
-            个任务及其子任务、关联会话、执行记录和成果。此操作无法恢复。
+            {t(
+              `将永久删除选中的 ${selected.size} 个任务及其子任务、关联会话、执行记录和成果。此操作无法恢复。`,
+              `Permanently delete ${selected.size} selected task(s), along with their subtasks, linked conversations, run records, and deliverables? This action cannot be undone.`,
+            )}
           </p>
         </ConfirmDialog>
       )}

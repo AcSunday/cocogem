@@ -10,6 +10,7 @@ import type {
 } from "../api/client";
 import { statusText, terminal } from "../api/client";
 import { deliveredRun } from "../lib/delivery";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -102,6 +103,7 @@ export function RunDivider({
   onSource?: (id: string) => void;
   onArtifact?: (artifact: Artifact) => void;
 }) {
+  useLanguage();
   const { label: workflow, reason } = runMethod(run);
   const [decision, setDecision] = useState<boolean | undefined>(() =>
     readProcessDecision(run),
@@ -119,12 +121,17 @@ export function RunDivider({
   const duration = runDuration(run);
   const usage = runUsageSummary(run, attempts);
   return (
-    <section className={cx("run-card")} aria-label={`第 ${index} 次协作`}>
+    <section
+      className={cx("run-card")}
+      aria-label={t(`第 ${index} 次协作`, `Run #${index}`)}
+    >
       <div className={cx("run-card-head")}>
-        <span className={cx("run-index")}>第 {index} 次</span>
+        <span className={cx("run-index")}>
+          {t(`第 ${index} 次`, `Run #${index}`)}
+        </span>
         <span title={reason || undefined}>{workflow}</span>
         {run.input?.retry_of_run_id && (
-          <span className={cx("muted")}>重试</span>
+          <span className={cx("muted")}>{t("重试", "Retry")}</span>
         )}
         {reason && (
           <span className={cx("muted")} title={reason}>
@@ -137,20 +144,30 @@ export function RunDivider({
         >
           {statusText[run.status]}
         </span>
-        {duration && <span className={cx("muted")}>用时 {duration}</span>}
+        {duration && (
+          <span className={cx("muted")}>
+            {t(`用时 ${duration}`, `Duration ${duration}`)}
+          </span>
+        )}
         {usage && (
           <span
             className={cx("muted")}
-            title="来自持久化的执行尝试；未知用量不按 0 计"
+            title={t(
+              "来自持久化的执行尝试；未知用量不按 0 计",
+              "From persisted execution attempts; unknown usage is not counted as zero",
+            )}
           >
             {usage}
           </span>
         )}
         {!!run.recovery_count && (
           <span className={cx("muted")} title={run.recovery_note}>
-            已恢复 {run.recovery_count} 次
+            {t(
+              `已恢复 ${run.recovery_count} 次`,
+              `Recovered ${run.recovery_count} time(s)`,
+            )}
             {run.recovery_note?.includes("cli_changed")
-              ? " · CLI 已重新检查"
+              ? t(" · CLI 已重新检查", " · CLI re-verified")
               : ""}
           </span>
         )}
@@ -172,9 +189,13 @@ export function RunDivider({
                 role="status"
                 key={`${warning.step_id ?? ""}:${String(data.observed_at ?? warning.seq)}`}
               >
-                {livenessLabel(String(data.state ?? "")) || "等待执行"}
+                {livenessLabel(String(data.state ?? "")) ||
+                  t("等待执行", "Waiting")}
                 {typeof data.silence_seconds === "number"
-                  ? ` · 已 ${data.silence_seconds} 秒`
+                  ? t(
+                      ` · 已 ${data.silence_seconds} 秒`,
+                      ` · ${data.silence_seconds}s elapsed`,
+                    )
                   : ""}
               </span>
             );
@@ -183,8 +204,8 @@ export function RunDivider({
           <button
             type="button"
             className={cx("icon-button small")}
-            aria-label="配置快照"
-            title="配置快照"
+            aria-label={t("配置快照", "Configuration snapshot")}
+            title={t("配置快照", "Configuration snapshot")}
             onClick={onSnapshot}
           >
             <Icon name="settings" size={14} />
@@ -196,7 +217,8 @@ export function RunDivider({
               onClick={onResume}
               disabled={busy}
             >
-              <Icon name="refresh" size={14} /> 继续执行
+              <Icon name="refresh" size={14} />{" "}
+              {t("继续执行", "Resume run")}
             </button>
           )}
         </span>
@@ -210,15 +232,22 @@ export function RunDivider({
         >
           <summary>
             <Icon name="chevron" size={12} />
-            {open || !foldable ? "协作过程" : "协作已完成"}
-            <span> · {processCount} 条过程</span>
+            {open || !foldable
+              ? t("协作过程", "Collaboration process")
+              : t("协作已完成", "Collaboration complete")}
+            <span>
+              {t(
+                ` · ${processCount} 条过程`,
+                ` · ${processCount} step${processCount === 1 ? "" : "s"}`,
+              )}
+            </span>
             {steps?.some((step) => step.status === "running") && (
               <span className={cx("current-members")}>
                 {steps
                   .filter((step) => step.status === "running")
                   .map((step) => step.agent_name)
-                  .join("、")}
-                正在处理
+                  .join(t("、", ", "))}
+                {t("正在处理", " working")}
               </span>
             )}
           </summary>

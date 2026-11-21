@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
@@ -24,6 +25,7 @@ export function ConfirmDialog({
   close: () => void;
   confirm: () => Promise<void>;
 }) {
+  useLanguage();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
@@ -36,7 +38,7 @@ export function ConfirmDialog({
       )}
       <div className={cx("form-actions")}>
         <button type="button" onClick={close} disabled={busy}>
-          取消
+          {t("取消", "Cancel")}
         </button>
         <button
           type="button"
@@ -50,7 +52,7 @@ export function ConfirmDialog({
               .finally(() => setBusy(false));
           }}
         >
-          {busy ? "正在删除…" : action}
+          {busy ? t("正在删除…", "Deleting…") : action}
         </button>
       </div>
     </Modal>

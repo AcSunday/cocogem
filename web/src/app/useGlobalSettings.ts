@@ -5,6 +5,7 @@ import {
   type Settings,
   type SettingsInput,
 } from "../api/client";
+import { t } from "../lib/i18n";
 
 /**
  * The global permission choice is one server-owned value. Composer and
@@ -289,17 +290,39 @@ export function useGlobalSettings(
 export const executionModes = [
   {
     value: "workspace_autonomous",
-    label: "沙箱自主",
-    summary: "工作台内零弹窗，越界才申请",
-    description:
-      "候选 worktree、/tmp、本地回环与本机工具链内自主读写、测试和运行命令；公共检索与依赖经受控代理拉取。高敏凭据路径默认硬拒绝，跨出工作台、git push 或外部发布才申请。",
+    get label() {
+      return t("沙箱自主", "Sandboxed");
+    },
+    get summary() {
+      return t(
+        "工作台内零弹窗，越界才申请",
+        "Auto-run inside workspace; prompt only outside",
+      );
+    },
+    get description() {
+      return t(
+        "在当前项目隔离目录、临时目录（/tmp）与本地环境内自动读写文件、运行测试和命令，无需反复确认。钥匙串与私钥等高敏凭据默认受保护；访问项目外目录、推送代码（git push）或发布到外部时再向你申请。",
+        "Automatically read/write files, run tests, and execute commands inside the isolated project worktree, /tmp, and local toolchain without repeated prompts. Sensitive credentials (keychains, private keys) are blocked by default; prompts appear only when accessing outside directories, running git push, or publishing externally.",
+      );
+    },
   },
   {
     value: "full_access",
-    label: "完全访问",
-    summary: "信任本机原生能力",
-    description:
-      "保持原生 CLI 放开行为，可按任务读写本机文件、执行命令并联网。这不是沙箱隔离；只读和审核角色限制仍然有效。",
+    get label() {
+      return t("完全访问", "Full access");
+    },
+    get summary() {
+      return t(
+        "信任本机原生能力",
+        "Trust native local CLI capabilities",
+      );
+    },
+    get description() {
+      return t(
+        "直接使用本机 CLI 的完整能力，可按任务需要读写本机任意文件、执行命令并访问网络（无沙箱隔离）。「仅规划」与独立复核的只读限制依然生效。",
+        "Uses the local CLI's full capabilities to read/write local files, run commands, and access the network without sandbox isolation. Read-only limits for Plan-only mode and independent reviewers still apply.",
+      );
+    },
   },
 ] as const;
 
@@ -322,30 +345,72 @@ export const defaultBudgetPolicy = {
   no_progress_failures: 2,
 } as const;
 
+type BudgetFieldKey = keyof typeof defaultBudgetPolicy;
+
+function defineBudgetField<K extends BudgetFieldKey>(
+  key: K,
+  label: () => string,
+  unit: () => string,
+  description: () => string,
+): readonly [K, string, string, string] {
+  const tuple = [key, "", "", ""] as [K, string, string, string];
+  Object.defineProperties(tuple, {
+    1: { get: label, enumerable: true },
+    2: { get: unit, enumerable: true },
+    3: { get: description, enumerable: true },
+  });
+  return tuple;
+}
+
 export const budgetFields = [
-  [
+  defineBudgetField(
     "auto_continuations",
-    "自动续办次数",
-    "次",
-    "首次用户启动后，所有自动后续 Run 共用额度。",
-  ],
-  ["parallel_branches", "同时推进的分支", "个", "排队和外部等待不占执行槽。"],
-  [
+    () => t("自动续办次数", "Auto-continuations"),
+    () => t("次", "runs"),
+    () =>
+      t(
+        "启动后自动继续推进的次数上限（与子任务共用）。",
+        "Maximum automatic follow-up runs after you start a task (shared with subtasks).",
+      ),
+  ),
+  defineBudgetField(
+    "parallel_branches",
+    () => t("同时推进的分支", "Parallel branches"),
+    () => t("个", "branches"),
+    () =>
+      t(
+        "最多同时并行推进的分支数（排队和等待不占用名额）。",
+        "Maximum branches running in parallel (queued or waiting tasks do not use a slot).",
+      ),
+  ),
+  defineBudgetField(
     "writer_branches",
-    "同时修改代码的分支",
-    "个",
-    "包含在总分支数内，不是额外执行槽。",
-  ],
-  [
+    () => t("同时修改代码的分支", "Concurrent code-writing branches"),
+    () => t("个", "branches"),
+    () =>
+      t(
+        "可同时修改代码的分支数（包含在并行分支总数内）。",
+        "Branches allowed to modify files at the same time (counted within parallel branches).",
+      ),
+  ),
+  defineBudgetField(
     "fix_rounds",
-    "同一问题自动修复轮数",
-    "轮",
-    "稳定问题 ID 关联修复与复验，不因改写描述重置。",
-  ],
-  [
+    () => t("同一问题自动修复轮数", "Auto-fix rounds per issue"),
+    () => t("轮", "rounds"),
+    () =>
+      t(
+        "同一问题最多自动尝试修复并复验的轮数。",
+        "Maximum automatic fix-and-recheck rounds for the same issue.",
+      ),
+  ),
+  defineBudgetField(
     "no_progress_failures",
-    "连续无进展失败次数",
-    "次",
-    "仅暂停对应分支，新证据和有效变更不算无进展。",
-  ],
+    () => t("连续无进展失败次数", "Consecutive no-progress failures"),
+    () => t("次", "times"),
+    () =>
+      t(
+        "单个分支连续失败且无新进展时自动暂停的阈值。",
+        "Pauses a branch when it fails this many times in a row without new progress.",
+      ),
+  ),
 ] as const;

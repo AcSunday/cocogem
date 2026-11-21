@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, APIError } from "../api/client";
+import { type Language, t, useLanguage } from "../lib/i18n";
 import { errorText } from "../lib/presentation";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -8,6 +9,7 @@ import layout from "../styles/layout.module.css";
 import conversation from "../styles/conversation.module.css";
 import panels from "../styles/panels.module.css";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
 
 const cx = scoped(base, controls, layout, conversation, panels);
 
@@ -20,6 +22,7 @@ export function AuthScreen({
   error: string;
   connect: () => Promise<void>;
 }) {
+  const [language, setLanguage] = useLanguage();
   const [initialized, setInitialized] = useState<boolean>();
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -53,23 +56,26 @@ export function AuthScreen({
         <div className={cx("auth-intro")}>
           <h1 id="auth-title">
             {setup
-              ? "设置你的工作空间密码"
+              ? t("设置你的工作空间密码", "Set Your Workspace Password")
               : required
-                ? "欢迎回来"
-                : "正在连接工作空间"}
+                ? t("欢迎回来", "Welcome Back")
+                : t("正在连接工作空间", "Connecting to workspace")}
           </h1>
           <p className={cx("muted")}>
             {setup
-              ? "首次使用，设置一个密码来保护本机工作空间。"
+              ? t(
+                  "首次使用，请选择界面语言并设置密码来保护本机工作空间。",
+                  "First time here — choose your language and set a password to protect your local workspace.",
+                )
               : required
-                ? "输入密码，继续你的协作。"
-                : "正在连接本地服务…"}
+                ? t("输入密码，继续你的协作。", "Enter your password to continue.")
+                : t("正在连接本地服务…", "Connecting to local service…")}
           </p>
           {initialized === undefined && !(message || error) && (
             <span
               className={cx("auth-spinner")}
               role="status"
-              aria-label="正在连接工作空间"
+              aria-label={t("正在连接工作空间", "Connecting to workspace")}
             />
           )}
         </div>
@@ -79,8 +85,13 @@ export function AuthScreen({
               event.preventDefault();
               if (busy) return;
               if (setup && password !== confirmation) {
-                setMessage("两次输入的密码不一致");
+                setMessage(
+                  t("两次输入的密码不一致", "Passwords do not match"),
+                );
                 return;
+              }
+              if (setup) {
+                setLanguage(language);
               }
               setBusy(true);
               setMessage("");
@@ -104,8 +115,22 @@ export function AuthScreen({
               }
             }}
           >
+            {setup && (
+              <label>
+                {t("界面语言", "Language")}
+                <Select
+                  aria-label={t("界面语言", "Language")}
+                  value={language}
+                  onChange={(selected) => setLanguage(selected as Language)}
+                  disabled={busy}
+                >
+                  <option value="zh-CN">简体中文</option>
+                  <option value="en">English</option>
+                </Select>
+              </label>
+            )}
             <label>
-              {setup ? "设置密码" : "密码"}
+              {setup ? t("设置密码", "Set password") : t("密码", "Password")}
               <span className={cx("password-field")}>
                 <input
                   type={visible ? "text" : "password"}
@@ -122,7 +147,11 @@ export function AuthScreen({
                 <button
                   type="button"
                   className={cx("password-toggle")}
-                  aria-label={visible ? "隐藏密码" : "显示密码"}
+                  aria-label={
+                    visible
+                      ? t("隐藏密码", "Hide password")
+                      : t("显示密码", "Show password")
+                  }
                   aria-pressed={visible}
                   onClick={() => setVisible((shown) => !shown)}
                 >
@@ -133,10 +162,13 @@ export function AuthScreen({
             {setup && (
               <>
                 <p id="password-hint" className={cx("muted")}>
-                  12–128 个字符，可以使用好记的短语。
+                  {t(
+                    "12–128 个字符，可以使用好记的短语。",
+                    "12–128 characters. A memorable passphrase works well.",
+                  )}
                 </p>
                 <label>
-                  确认密码
+                  {t("确认密码", "Confirm password")}
                   <input
                     type="password"
                     value={confirmation}
@@ -156,7 +188,11 @@ export function AuthScreen({
               </p>
             )}
             <button className={cx("primary")} disabled={busy}>
-              {busy ? "正在解锁…" : setup ? "设置密码并进入" : "解锁工作空间"}
+              {busy
+                ? t("正在解锁…", "Unlocking…")
+                : setup
+                  ? t("设置密码并进入", "Set Password & Enter")
+                  : t("解锁工作空间", "Unlock Workspace")}
             </button>
           </form>
         )}
@@ -166,11 +202,16 @@ export function AuthScreen({
               {message || error}
             </p>
             <button type="button" onClick={() => location.reload()}>
-              重新连接
+              {t("重新连接", "Reconnect")}
             </button>
           </>
         )}
-        <p className={cx("auth-footer")}>本地工作空间 · 数据留在本机</p>
+        <p className={cx("auth-footer")}>
+          {t(
+            "本地工作空间 · 数据留在本机",
+            "Local workspace · Data stays on your machine",
+          )}
+        </p>
       </section>
     </main>
   );
