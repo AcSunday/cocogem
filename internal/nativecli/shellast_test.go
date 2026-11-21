@@ -201,3 +201,62 @@ func TestShellASTBoundsNestedScriptDepth(t *testing.T) {
 	}
 	_ = parsed // Parsing terminates; the depth bound simply stops recursing.
 }
+
+func TestShellASTHandlesTildeDoubleSlashWrappersAndDangerousCommands(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Quoted double-slash path and tilde path must resolve to real targets.
+	p1, err := parseShellCommand(`cat ~/.ssh/id_rsa`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1 := resolveShellTargets(p1, root)
+	wantSSH := filepath.Join(home, ".ssh", "id_rsa")
+	if len(t1) != 1 || t1[0] != wantSSH {
+		t.Fatalf("tilde target = %v, want [%s]", t1, wantSSH)
+	}
+
+	p2, err := parseShellCommand(`cat "/Users/alice/.ssh//id_rsa"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t2 := resolveShellTargets(p2, root)
+	if len(t2) != 1 || t2[0] != "/Users/alice/.ssh/id_rsa" {
+		t.Fatalf("double-slash target = %v, want [/Users/alice/.ssh/id_rsa]", t2)
+	}
+
+	p3, err := parseShellCommand(`env FOO=1 bash -c "cat /etc/passwd"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t3 := resolveShellTargets(p3, root)
+	wantEtc := "/etc/passwd"
+	if resolved, err := filepath.EvalSymlinks(wantEtc); err == nil {
+		wantEtc = resolved
+	}
+	if len(t3) == 0 || t3[0] != wantEtc {
+		t.Fatalf("env-wrapped bash target = %v, want [%s]", t3, wantEtc)
+	}
+
+	p4, err := parseShellCommand(`git push origin main`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p4.Network {
+		t.Fatalf("git push was not classified as network: %+v", p4)
+	}
+
+	p5, err := parseShellCommand(`sudo ls /`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p5.Executables) == 0 || p5.Executables[0] != "sudo" || !p5.Network {
+		t.Fatalf("sudo was not captured and gated: %+v", p5)
+	}
+}

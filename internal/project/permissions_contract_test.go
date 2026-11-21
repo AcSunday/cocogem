@@ -621,3 +621,73 @@ func TestSensitivePathNeverGainsAConversationGrant(t *testing.T) {
 		t.Fatalf("sensitive-path one-time decision failed: %v", err)
 	}
 }
+
+func TestThreeTierActionLevelsAndDirectoryGrantScope(t *testing.T) {
+	f := newReviewPermissionFixture(t, w.ExecutionWorkspaceAutonomous)
+	outside := filepath.Join(t.TempDir(), "docs")
+	if err := os.MkdirAll(outside, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fileA := filepath.Join(outside, "a.md")
+	fileB := filepath.Join(outside, "b.md")
+	if err := os.WriteFile(fileA, []byte("a"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fileB, []byte("b"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Grant write on parent directory explicitly via GrantScope="directory".
+	in := f.requestInput(t)
+	in.ToolName, in.Action = "write_file", "write"
+	in.NormalizedResourceScope = fileA
+	in.Arguments = json.RawMessage(`{"path":"` + fileA + `","content":"x"}`)
+	req := reviewRequest(t, f, in)
+	if _, err := f.service.DecidePermissionRequest(t.Context(), req.ID, req.Revision, DecisionInput{
+		Decision: w.DecisionAllowConversation, RequestID: "dir-grant-decision", GrantScope: "directory",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Sibling fileB read and write MUST both be covered by the write directory grant.
+	readDec, err := f.service.CheckToolAccess(t.Context(), AccessRequest{
+		Run: f.run, StepID: f.step.ID, Attempt: f.attempt.ID, CallID: "read-sibling",
+		Name: "read_file", Action: "read", Scope: fileB,
+	})
+	if err != nil || !readDec.Allowed {
+		t.Fatalf("directory write grant did not cover sibling read: %+v, %v", readDec, err)
+	}
+	// Execute MUST NOT be covered by a write grant (3-tier: read < write < execute).
+	execDec, err := f.service.CheckToolAccess(t.Context(), AccessRequest{
+		Run: f.run, StepID: f.step.ID, Attempt: f.attempt.ID, CallID: "exec-sibling",
+		Name: "run_command", Action: "execute", Scope: fileB,
+	})
+	if err != nil || execDec.Allowed {
+		t.Fatalf("write grant erroneously covered execute: %+v, %v", execDec, err)
+	}
+}
+
+func TestSaveClaimEnforcesOriginalSourceCustody(t *testing.T) {
+	db, service, th := setup(t)
+	task := create(t, service, th)
+	if err := db.Write(t.Context(), func(tx *store.Tx) error {
+		if err := tx.InsertRun(w.Run{
+			ID: "run-1", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, TaskID: task.Task.ID,
+			Status: "succeeded", CreatedAt: w.Now(),
+		}, "claim-custody-key", "claim-custody-hash"); err != nil {
+			return err
+		}
+		return tx.SaveSource(w.Source{
+			ID: "lead-src", WorkspaceID: th.WorkspaceID, ThreadID: th.ID, RunID: "run-1",
+			Kind: "search", URL: "https://duckduckgo.com/?q=test", Title: "Search lead",
+			Content: "snippet", CapturedAt: w.Now(),
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SaveClaim(t.Context(), w.Claim{
+		ID: "claim-1", WorkspaceID: th.WorkspaceID, TaskID: task.Task.ID,
+		Statement: "Unverified search snippet", Status: "supported",
+		SupportingRefs: []string{"lead-src"},
+	}); !IsCode(err, "invalid_request") {
+		t.Fatalf("supported claim with search lead was not rejected: %v", err)
+	}
+}

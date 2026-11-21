@@ -230,15 +230,17 @@ func ActionForNativeTool(name string) string {
 	}
 }
 
-// ActionLevel orders the capability classes for directory-scope grants: a
-// read grant never authorizes a write or command, while a write/execute grant
-// also covers reads inside the approved subtree.
+// ActionLevel orders the capability classes for directory-scope grants:
+// read (1) < write (2) < execute (3). A read grant never authorizes a write
+// or command, and a write grant never silently authorizes command execution.
 func ActionLevel(action string) int {
 	switch action {
 	case "read", "native_read", "network":
 		return 1
-	case "write", "run_test", "publish_artifact", "external", "execute", "native_write", "native_execute":
+	case "write", "publish_artifact", "native_write":
 		return 2
+	case "execute", "native_execute", "run_test", "external":
+		return 3
 	}
 	return 0
 }
@@ -252,6 +254,7 @@ func GrantCoversAction(granted, requested string) bool {
 
 // BroadDirectoryScopes are roots a directory grant must never name: a click on
 // "the containing directory" is only meaningful for a bounded subtree.
+// Bounded subdirectories under /tmp (e.g. /tmp/ext-dir) are allowed.
 func BroadDirectoryScope(path string) bool {
 	if path == "" || path == "/" {
 		return true
@@ -260,13 +263,19 @@ func BroadDirectoryScope(path string) bool {
 	if cleaned == "/" || cleaned == "/tmp" || cleaned == "/private/tmp" || cleaned == "/Users" || cleaned == "/home" {
 		return true
 	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" && cleaned == home {
-		return true
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		cleanHome := filepath.Clean(home)
+		if resolved, err := filepath.EvalSymlinks(cleanHome); err == nil {
+			cleanHome = filepath.Clean(resolved)
+		}
+		if cleaned == cleanHome || cleaned == filepath.Clean(home) {
+			return true
+		}
 	}
-	// A first-level directory (/Users/<name>) is the user's whole home, which
-	// is equally broad; a real project subtree is deeper.
+	// A first-level directory under /, /Users or /home is a system root or whole
+	// user home, which is too broad; a bounded /tmp/<dir> subtree is permitted.
 	parent := filepath.Dir(cleaned)
-	if parent == "/" || parent == "/Users" || parent == "/home" || parent == "/tmp" || parent == "/private/tmp" {
+	if parent == "/" || parent == "/Users" || parent == "/home" {
 		return true
 	}
 	return false

@@ -400,6 +400,15 @@ func resolveTarget(target, cwd string) string {
 	if target == "" || strings.Contains(target, "://") || strings.HasPrefix(target, "git@") {
 		return ""
 	}
+	if target == "~" || strings.HasPrefix(target, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			if target == "~" {
+				target = home
+			} else {
+				target = filepath.Join(home, strings.TrimPrefix(target, "~/"))
+			}
+		}
+	}
 	if !filepath.IsAbs(target) {
 		if cwd == "" {
 			return ""

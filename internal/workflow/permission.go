@@ -139,24 +139,41 @@ func (x *stepRuntime) requestAccess(ctx context.Context, callID string, raw json
 // decideHostAccess enforces the live permission boundary for one host tool call.
 // It returns a non-nil admission only when a one-time allowance was consumed; the
 // caller must settle it with the real outcome of the execution.
+func hostToolAction(name string, input json.RawMessage) string {
+	if name == "preview_page" {
+		var in struct {
+			Mode string `json:"mode"`
+		}
+		if json.Unmarshal(input, &in) == nil && strings.EqualFold(strings.TrimSpace(in.Mode), "command") {
+			return "execute"
+		}
+	}
+	return w.ActionForTool(name)
+}
+
 func (x *stepRuntime) decideHostAccess(ctx context.Context, callID, name string, input json.RawMessage) (*w.ToolInvocationAdmission, string, bool, error) {
-	action := w.ActionForTool(name)
+	action := hostToolAction(name, input)
 	if action == "" {
 		return nil, "", false, nil
 	}
 	scope := x.toolScope(name, input)
 	// A host tool that names a credential path is graded here, not by the
 	// adapter, so a sensitive target never auto-runs and never gains a lasting
-	// conversation grant.
+	// conversation grant — across read, write AND execute.
 	risk := ""
-	if (action == "read" || action == "write") && tools.SensitivePath(scope) {
+	if (action == "read" || action == "write" || action == "execute") && tools.SensitivePath(scope) {
 		risk = "sensitive_path"
 	}
 	service := project.New(x.engine.Store)
 	run := x.snapshotRun()
+	if x.workRoot != "" && x.workRoot != run.ProjectRoot() {
+		// Independent review executes inside verify_dir; check boundaries against
+		// the step's actual workRoot instead of the author's candidate directory.
+		run.ExecutionRoot = x.workRoot
+	}
 	decision, err := service.CheckToolAccess(ctx, project.AccessRequest{
 		Run: run, StepID: x.step.ID, Attempt: x.attemptSnapshot().ID,
-		CallID: callID, Name: name, Arguments: input, Scope: scope, Risk: risk,
+		CallID: callID, Name: name, Action: action, Arguments: input, Scope: scope, Risk: risk,
 	})
 	if err != nil {
 		return nil, "", false, err
@@ -283,7 +300,10 @@ func truncateRef(value string) string {
 // targets. Unknown shapes fall back to the project root, which never widens the
 // boundary.
 func (x *stepRuntime) toolScope(name string, input json.RawMessage) string {
-	root := x.run.ProjectRoot()
+	root := x.stepRoot()
+	if root == "" {
+		root = x.run.ProjectRoot()
+	}
 	var args map[string]any
 	_ = json.Unmarshal(input, &args)
 	pick := func(keys ...string) string {
@@ -296,7 +316,19 @@ func (x *stepRuntime) toolScope(name string, input json.RawMessage) string {
 	}
 	target := pick("path", "cwd", "source_id", "url")
 	switch name {
-	case "run_command":
+	case "run_command", "preview_page":
+		if name == "preview_page" && !strings.EqualFold(strings.TrimSpace(pick("mode")), "command") {
+			entry := pick("entry")
+			if entry == "" {
+				entry = "index.html"
+			}
+			if !filepath.IsAbs(entry) {
+				target = filepath.Join(root, entry)
+			} else {
+				target = entry
+			}
+			break
+		}
 		// A command's approval scope is the first path it actually touches
 		// outside the workspace, resolved from the shell AST. `2>/dev/null`,
 		// `jq '//'` and awk regexes never appear here. An all-inside command
@@ -333,9 +365,9 @@ func (x *stepRuntime) toolScope(name string, input json.RawMessage) string {
 			target = "."
 		}
 		if !filepath.IsAbs(target) {
-			base := x.run.TaskDirectory
+			base := root
 			if base == "" {
-				base = root
+				base = x.run.TaskDirectory
 			}
 			target = filepath.Join(base, target)
 		}

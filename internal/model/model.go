@@ -79,7 +79,10 @@ type Request struct {
 	SessionStorageRoot string `json:"-"`
 	// EphemeralSession marks a disposable reviewer/verify run: the CLI must not
 	// persist a session, so a destroyed directory never enters native history.
-	EphemeralSession    bool `json:"-"`
+	EphemeralSession bool `json:"-"`
+	// ReadOnly enforces the per-turn Plan-Only / parallel-pass lock at both the
+	// adapter and OS sandbox layers (even when ExecutionMode is full_access).
+	ReadOnly            bool `json:"-"`
 	SessionContextEpoch int  `json:"-"`
 	// AuthorizeNative is the host's pre-effect admission for a CLI-owned tool
 	// call. A nil callback means no host approval is available: native

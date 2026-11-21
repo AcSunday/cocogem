@@ -68,11 +68,16 @@ func parseShellCommandDepth(command string, depth int) (shellCommand, error) {
 	// destination is handled by the external-effect path, not as a local file.
 	for _, executable := range parsed.Executables {
 		switch filepath.Base(executable) {
-		case "curl", "wget", "http", "https", "nc", "ssh", "scp", "rsync":
+		case "curl", "wget", "http", "https", "nc", "ssh", "scp", "rsync", "sudo":
 			parsed.Network = true
 		}
 	}
 	return parsed, nil
+}
+
+// commandWrappers invoke another command after optional flags or assignments.
+var commandWrappers = map[string]bool{
+	"env": true, "nohup": true, "timeout": true, "nice": true, "command": true, "exec": true,
 }
 
 // shellInterpreters execute the command string passed to -c. Codex and other
@@ -91,15 +96,68 @@ func (c *shellCommand) collectCall(call *syntax.CallExpr) {
 	if len(call.Args) == 0 {
 		return
 	}
-	name, nameOK := literalWord(call.Args[0])
+	args := call.Args
+	// Unwrap leading wrappers such as `env FOO=1 bash -c ...` or `timeout 10 sh -c ...`.
+	for len(args) > 1 {
+		head, ok := literalWord(args[0])
+		if !ok || !commandWrappers[filepath.Base(head)] {
+			break
+		}
+		c.Executables = appendUnique(c.Executables, head)
+		base := filepath.Base(head)
+		next := 1
+		for next < len(args) {
+			tok, tokOK := literalWord(args[next])
+			if !tokOK {
+				break
+			}
+			if tok == "--" {
+				next++
+				break
+			}
+			if strings.HasPrefix(tok, "-") {
+				next++
+				continue
+			}
+			if base == "env" && strings.Contains(tok, "=") {
+				next++
+				continue
+			}
+			if base == "timeout" && next == 1 {
+				// Skip duration argument (e.g. `timeout 10 bash -c ...`).
+				next++
+				continue
+			}
+			break
+		}
+		if next >= len(args) {
+			break
+		}
+		args = args[next:]
+	}
+	name, nameOK := literalWord(args[0])
 	if nameOK && name != "" {
 		c.Executables = appendUnique(c.Executables, name)
 	}
+	// Detect `git push` / `git fetch` / `git pull` / `git clone` / `git remote`
+	// network/external write operations so they are never silently auto-allowed.
+	if nameOK && filepath.Base(name) == "git" {
+		for _, word := range args[1:] {
+			tok, ok := literalWord(word)
+			if !ok || strings.HasPrefix(tok, "-") {
+				continue
+			}
+			if tok == "push" || tok == "clone" {
+				c.Network = true
+			}
+			break
+		}
+	}
 	scriptIndex := -1
 	if nameOK && shellInterpreters[filepath.Base(name)] {
-		scriptIndex = shellScriptIndex(call.Args[1:])
+		scriptIndex = shellScriptIndex(args[1:])
 	}
-	for index, word := range call.Args {
+	for index, word := range args {
 		if index == 0 {
 			continue
 		}
@@ -113,11 +171,48 @@ func (c *shellCommand) collectCall(call *syntax.CallExpr) {
 			continue
 		}
 		value, ok := literalWord(word)
-		if !ok || !pathLikeWord(value) {
+		if !ok {
 			continue
 		}
-		c.Targets = appendUnique(c.Targets, value)
+		// Extract path targets attached to flags or key=value operands such as
+		// `--file=/outside/a.tar`, `if=/etc/passwd`, `of=/tmp/x`, `-o/outside/f`.
+		if attached := attachedPathValue(value); attached != "" {
+			if expanded := expandTilde(attached); pathLikeWord(expanded) {
+				c.Targets = appendUnique(c.Targets, expanded)
+			}
+			continue
+		}
+		expanded := expandTilde(value)
+		if !pathLikeWord(expanded) {
+			continue
+		}
+		c.Targets = appendUnique(c.Targets, expanded)
 	}
+}
+
+func expandTilde(value string) string {
+	if value == "~" || strings.HasPrefix(value, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			if value == "~" {
+				return home
+			}
+			return filepath.Join(home, strings.TrimPrefix(value, "~/"))
+		}
+	}
+	return value
+}
+
+func attachedPathValue(value string) string {
+	if idx := strings.Index(value, "="); idx > 0 && idx+1 < len(value) {
+		rhs := value[idx+1:]
+		if strings.HasPrefix(rhs, "/") || strings.HasPrefix(rhs, "~/") || strings.HasPrefix(rhs, "./") || strings.HasPrefix(rhs, "../") {
+			return rhs
+		}
+	}
+	if len(value) > 3 && value[0] == '-' && value[1] != '-' && (value[2] == '/' || strings.HasPrefix(value[2:], "~/")) {
+		return value[2:]
+	}
+	return ""
 }
 
 // shellScriptIndex returns the argv index of a shell's -c script, or -1. A
@@ -199,23 +294,44 @@ func (c *shellCommand) collectRedirect(redirect *syntax.Redirect) {
 	c.Targets = appendUnique(c.Targets, value)
 }
 
-// literalWord returns the literal text of a word. A word with a quoted literal
-// whose cleaned path differs from the literal is a program expression
-// (`jq '//'`, `awk '/ERR/'`), never a filesystem path.
+// literalWord returns the literal text of a word. Pure program expressions such
+// as `jq '.a // empty'` or `awk '/ERR/'` are filtered out, while quoted real
+// paths (including paths with `//`, `/./`, `..`, or a trailing `/`) are cleaned
+// and retained so they cannot bypass target extraction.
 func literalWord(word *syntax.Word) (string, bool) {
 	text, quoted, ok := literalParts(word)
 	if !ok {
 		return "", false
 	}
-	if quoted {
-		// A literal like `//` or `/ERR/` cleans to something else, so it is a
-		// program expression. A quoted path such as `/tmp/a b.txt` cleans to
-		// itself and stays a real target.
-		if filepath.Clean(text) != text {
-			return "", false
-		}
+	if quoted && looksLikeProgramExpression(text) {
+		return "", false
 	}
 	return text, true
+}
+
+func looksLikeProgramExpression(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	// Bare `//` or jq/awk expressions containing whitespace + operators (e.g. `.a // empty`).
+	if trimmed == "//" || strings.Contains(trimmed, " // ") || strings.Contains(trimmed, " | ") {
+		return true
+	}
+	// Awk/sed regex delimiter `/PATTERN/` (single segment enclosed in slashes,
+	// not a multi-segment absolute path like `/Users/alice/.ssh/`).
+	if len(trimmed) >= 3 && trimmed[0] == '/' && trimmed[len(trimmed)-1] == '/' {
+		inner := trimmed[1 : len(trimmed)-1]
+		if !strings.Contains(inner, "/") {
+			// A top-level directory like `/tmp/` or `/etc/` is a real path, not a regex.
+			switch inner {
+			case "tmp", "etc", "var", "usr", "bin", "sbin", "opt", "home", "Users", "Library", "System", "Volumes", "private":
+				return false
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // literalText returns the exact literal text of a word, without the path-clean

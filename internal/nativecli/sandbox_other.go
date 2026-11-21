@@ -10,22 +10,25 @@ import "errors"
 // the same fields/methods as the darwin implementation so shared adapters and
 // tests compile, but every constructor/operation fails closed.
 type nativeSandbox struct {
-	base         string
-	home         string
-	tmp          string
-	cache        string
-	profiles     string
-	writeRoots   []string
-	readRoots    []string
-	readOnlyDirs []string
-	denyWrites   []string
-	proxyURL     string
-	proxyAddr    string
-	caPath       string
-	denyPaths    []string
-	denyUnknown  bool
-	allowAddrs   []string
-	allowInbound bool
+	base          string
+	home          string
+	tmp           string
+	cache         string
+	profiles      string
+	writeRoots    []string
+	readRoots     []string
+	readOnlyDirs  []string
+	denyWrites    []string
+	proxyURL      string
+	proxyAddr     string
+	caPath        string
+	denyPaths     []string
+	denyUnknown   bool
+	allowAddrs    []string
+	allowInbound  bool
+	readOnly      bool
+	allowLoopback bool
+	allowTmp      bool
 }
 
 func newNativeSandbox(string) (*nativeSandbox, error) {
