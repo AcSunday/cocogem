@@ -48,6 +48,18 @@ type codexAppServer struct {
 	denies       []string
 	profile      string
 	threadConfig map[string]any
+
+	// Per-turn token accumulation from thread/tokenUsage/updated notifications.
+	// lastTotal deduplicates repeated notifications and lets resumed threads
+	// count only this attempt's model calls.
+	usageInput      int
+	usageCached     int
+	usageOutput     int
+	usageSeen       bool
+	lastTotalValid  bool
+	lastTotalInput  int
+	lastTotalCached int
+	lastTotalOutput int
 }
 
 func prepareCodexAppServer(request model.Request, workdir string, gate *bridge, launch *connectionPlan, profile string, roots, hardlinkDenies []string, threadConfig *map[string]any) ([]string, map[string]string, error) {
@@ -702,7 +714,12 @@ func (s *codexAppServer) handleNotification(message codexMessage) error {
 		fmt.Fprintf(os.Stderr, "native debug: codex notification %s\n", message.Method)
 	}
 	switch message.Method {
-	case "thread/started", "turn/started", "thread/status/changed", "turn/plan/updated", "turn/diff/updated", "serverRequest/resolved", "thread/tokenUsage/updated", "mcpServer/startupStatus/updated", "account/updated", "account/rateLimits/updated", "warning", "deprecationNotice", "hook/started", "hook/completed", "item/autoApprovalReview/started", "item/autoApprovalReview/completed", "autoApprovalReview/strictReviewRequired":
+	case "thread/tokenUsage/updated":
+		if debugNative() {
+			fmt.Fprintf(os.Stderr, "native debug: codex %s params=%s\n", message.Method, truncateDebug(message.Params))
+		}
+		return s.handleTokenUsage(message.Params)
+	case "thread/started", "turn/started", "thread/status/changed", "turn/plan/updated", "turn/diff/updated", "serverRequest/resolved", "mcpServer/startupStatus/updated", "account/updated", "account/rateLimits/updated", "warning", "deprecationNotice", "hook/started", "hook/completed", "item/autoApprovalReview/started", "item/autoApprovalReview/completed", "autoApprovalReview/strictReviewRequired":
 		if debugNative() {
 			fmt.Fprintf(os.Stderr, "native debug: codex %s params=%s\n", message.Method, truncateDebug(message.Params))
 		}
@@ -831,6 +848,89 @@ func (s *codexAppServer) handleNotification(message codexMessage) error {
 		}
 		return nil
 	}
+}
+
+func (s *codexAppServer) handleTokenUsage(raw json.RawMessage) error {
+	if s.gate == nil || len(raw) == 0 {
+		return nil
+	}
+	type breakdown struct {
+		InputTokens            *int `json:"inputTokens"`
+		CachedInputTokens      *int `json:"cachedInputTokens"`
+		OutputTokens           *int `json:"outputTokens"`
+		InputTokensSnake       *int `json:"input_tokens"`
+		CachedInputTokensSnake *int `json:"cached_input_tokens"`
+		OutputTokensSnake      *int `json:"output_tokens"`
+	}
+	resolve := func(b *breakdown) (input, cached, output *int) {
+		if b == nil {
+			return nil, nil, nil
+		}
+		return firstIntPtr(b.InputTokens, b.InputTokensSnake),
+			firstIntPtr(b.CachedInputTokens, b.CachedInputTokensSnake),
+			firstIntPtr(b.OutputTokens, b.OutputTokensSnake)
+	}
+	var params struct {
+		TokenUsage *struct {
+			Total *breakdown `json:"total"`
+			Last  *breakdown `json:"last"`
+		} `json:"tokenUsage"`
+		TokenUsageSnake *struct {
+			Total *breakdown `json:"total"`
+			Last  *breakdown `json:"last"`
+		} `json:"token_usage"`
+	}
+	if json.Unmarshal(raw, &params) != nil {
+		return nil
+	}
+	tu := params.TokenUsage
+	if tu == nil {
+		tu = params.TokenUsageSnake
+	}
+	if tu == nil {
+		return nil
+	}
+	totIn, totCached, totOut := resolve(tu.Total)
+	lastIn, lastCached, lastOut := resolve(tu.Last)
+	// Deduplicate identical cumulative notifications.
+	if totIn != nil && totOut != nil {
+		tc := 0
+		if totCached != nil {
+			tc = *totCached
+		}
+		if s.lastTotalValid && s.lastTotalInput == *totIn && s.lastTotalCached == tc && s.lastTotalOutput == *totOut {
+			return nil
+		}
+		s.lastTotalValid = true
+		s.lastTotalInput, s.lastTotalCached, s.lastTotalOutput = *totIn, tc, *totOut
+	}
+	if lastIn != nil && lastOut != nil {
+		if *lastIn < 0 || *lastOut < 0 || (lastCached != nil && *lastCached < 0) {
+			return newFailure(FailureProtocol, "native CLI returned invalid token usage")
+		}
+		s.usageInput += *lastIn
+		s.usageOutput += *lastOut
+		if lastCached != nil {
+			s.usageCached += *lastCached
+		}
+		s.usageSeen = true
+		in, cached, out := s.usageInput, s.usageCached, s.usageOutput
+		return s.gate.recordUsage(tokenUsage{
+			Input:              &in,
+			CachedInput:        &cached,
+			Output:             &out,
+			InputIncludesCache: true,
+		})
+	}
+	if totIn != nil || totOut != nil || totCached != nil {
+		return s.gate.recordUsage(tokenUsage{
+			Input:              totIn,
+			CachedInput:        totCached,
+			Output:             totOut,
+			InputIncludesCache: true,
+		})
+	}
+	return nil
 }
 
 // codexChangePaths returns the exact changed paths from either the legacy

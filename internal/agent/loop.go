@@ -63,7 +63,19 @@ func (l Loop) Run(ctx context.Context, request model.Request, execute Execute, o
 		}
 		// Each response is one turn; the workflow accumulates turns, while the
 		// native adapter reports one cumulative total per attempt.
-		if err := observe("usage", map[string]any{"input_tokens": response.InputTokens, "output_tokens": response.OutputTokens, "known": response.UsageKnown, "semantics": "turn"}); err != nil {
+		usagePayload := map[string]any{
+			"input_tokens":          response.InputTokens,
+			"output_tokens":         response.OutputTokens,
+			"cache_read_tokens":     response.CacheReadTokens,
+			"cache_creation_tokens": response.CacheCreationTokens,
+			"known":                 response.UsageKnown,
+			"semantics":             "turn",
+		}
+		if response.CostKnown {
+			usagePayload["cost_known"] = true
+			usagePayload["reported_cost_usd"] = response.ReportedCostUSD
+		}
+		if err := observe("usage", usagePayload); err != nil {
 			return err
 		}
 		if response.StopReason != "tool_use" {

@@ -27,6 +27,20 @@ export type DirectoryListing = components["schemas"]["DirectoryListing"];
 export type ProjectOverview = components["schemas"]["Overview"];
 export type ProjectTaskView = components["schemas"]["TaskView"];
 export type TaskBoard = components["schemas"]["TaskBoard"];
+export type UsageReport = components["schemas"]["UsageReport"];
+export type UsageTotals = components["schemas"]["UsageTotals"];
+export type UsageBucket = components["schemas"]["UsageBucket"];
+export type UsageBreakdown = components["schemas"]["UsageBreakdown"];
+export type UsageTarget = components["schemas"]["UsageTarget"];
+export type UsageEntry = components["schemas"]["UsageEntry"];
+export type UsageRange = "today" | "7d" | "30d" | "all";
+export type UsageQuery = {
+  range?: UsageRange;
+  workspaceID?: string;
+  executor?: string;
+  agentID?: string;
+  tzOffsetMinutes?: number;
+};
 export type TaskDeletion = components["schemas"]["TaskDeletion"];
 export type ProjectRecord = components["schemas"]["ProjectRecord"];
 export type BudgetPolicy = components["schemas"]["BudgetPolicy"];
@@ -646,4 +660,18 @@ export function taskDeliveries(taskID: string): Promise<TaskDeliveries> {
   return api<TaskDeliveries>(
     `/api/v1/tasks/${encodeURIComponent(taskID)}/deliveries`,
   );
+}
+
+/** Real token usage, cache hits and natively reported cost across attempts. */
+export function usageReport(query: UsageQuery = {}): Promise<UsageReport> {
+  const params = new URLSearchParams();
+  if (query.range) params.set("range", query.range);
+  if (query.workspaceID) params.set("workspace_id", query.workspaceID);
+  if (query.executor) params.set("executor", query.executor);
+  if (query.agentID) params.set("agent_id", query.agentID);
+  const tzOffset =
+    query.tzOffsetMinutes ?? -new Date().getTimezoneOffset();
+  params.set("tz_offset", String(tzOffset));
+  const qs = params.toString();
+  return api<UsageReport>(`/api/v1/usage${qs ? `?${qs}` : ""}`);
 }

@@ -102,6 +102,10 @@ func (p Provider) Complete(ctx context.Context, request model.Request, emit func
 			response.UsageKnown, _ = data["known"].(bool)
 			response.InputTokens, _ = data["input_tokens"].(int)
 			response.OutputTokens, _ = data["output_tokens"].(int)
+			response.CacheReadTokens, _ = data["cache_read_tokens"].(int)
+			response.CacheCreationTokens, _ = data["cache_creation_tokens"].(int)
+			response.ReportedCostUSD, _ = data["reported_cost_usd"].(float64)
+			response.CostKnown, _ = data["cost_known"].(bool)
 		}
 		return nil
 	}

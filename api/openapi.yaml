@@ -529,6 +529,12 @@
           "adapter": {
             "type": "string"
           },
+          "cache_creation_tokens": {
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "type": "integer"
+          },
           "checkpoint_digest": {
             "type": "string"
           },
@@ -546,6 +552,9 @@
           },
           "connection_identity": {
             "type": "string"
+          },
+          "cost_known": {
+            "type": "boolean"
           },
           "draft_artifact": {
             "anyOf": [
@@ -821,6 +830,9 @@
           },
           "recovery": {
             "type": "string"
+          },
+          "reported_cost_usd": {
+            "type": "number"
           },
           "resolved_model": {
             "type": "string"
@@ -8299,6 +8311,12 @@
                 "adapter": {
                   "type": "string"
                 },
+                "cache_creation_tokens": {
+                  "type": "integer"
+                },
+                "cache_read_tokens": {
+                  "type": "integer"
+                },
                 "checkpoint_digest": {
                   "type": "string"
                 },
@@ -8316,6 +8334,9 @@
                 },
                 "connection_identity": {
                   "type": "string"
+                },
+                "cost_known": {
+                  "type": "boolean"
                 },
                 "draft_artifact": {
                   "anyOf": [
@@ -8591,6 +8612,9 @@
                 },
                 "recovery": {
                   "type": "string"
+                },
+                "reported_cost_usd": {
+                  "type": "number"
                 },
                 "resolved_model": {
                   "type": "string"
@@ -14728,6 +14752,859 @@
         ],
         "type": "object"
       },
+      "UsageBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "type": "integer"
+          },
+          "attempts_known": {
+            "type": "integer"
+          },
+          "attempts_with_cost": {
+            "type": "integer"
+          },
+          "cache_creation_tokens": {
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "type": "integer"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "reported_cost_usd": {
+            "type": "number"
+          },
+          "secondary": {
+            "type": "string"
+          },
+          "total_tokens": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_creation_tokens",
+          "total_tokens",
+          "reported_cost_usd",
+          "attempts",
+          "attempts_known",
+          "attempts_with_cost"
+        ],
+        "type": "object"
+      },
+      "UsageBucket": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "type": "integer"
+          },
+          "cache_creation_tokens": {
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "type": "integer"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "reported_cost_usd": {
+            "type": "number"
+          },
+          "total_tokens": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_creation_tokens",
+          "total_tokens",
+          "reported_cost_usd",
+          "attempts"
+        ],
+        "type": "object"
+      },
+      "UsageEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "attempt_id": {
+            "type": "string"
+          },
+          "cache_creation_tokens": {
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "type": "integer"
+          },
+          "cost_known": {
+            "type": "boolean"
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "executor": {
+            "type": "string"
+          },
+          "finished_at": {
+            "type": "string"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "reported_cost_usd": {
+            "type": "number"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "total_tokens": {
+            "type": "integer"
+          },
+          "usage_completeness": {
+            "type": "string"
+          },
+          "usage_known": {
+            "type": "boolean"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "workspace_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "run_id",
+          "workspace_id",
+          "workspace_name",
+          "thread_id",
+          "title",
+          "status",
+          "usage_known",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_creation_tokens",
+          "total_tokens",
+          "started_at"
+        ],
+        "type": "object"
+      },
+      "UsageReport": {
+        "additionalProperties": false,
+        "properties": {
+          "by_agent": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attempts": {
+                  "type": "integer"
+                },
+                "attempts_known": {
+                  "type": "integer"
+                },
+                "attempts_with_cost": {
+                  "type": "integer"
+                },
+                "cache_creation_tokens": {
+                  "type": "integer"
+                },
+                "cache_read_tokens": {
+                  "type": "integer"
+                },
+                "input_tokens": {
+                  "type": "integer"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "output_tokens": {
+                  "type": "integer"
+                },
+                "reported_cost_usd": {
+                  "type": "number"
+                },
+                "secondary": {
+                  "type": "string"
+                },
+                "total_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+                "total_tokens",
+                "reported_cost_usd",
+                "attempts",
+                "attempts_known",
+                "attempts_with_cost"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "by_executor": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attempts": {
+                  "type": "integer"
+                },
+                "attempts_known": {
+                  "type": "integer"
+                },
+                "attempts_with_cost": {
+                  "type": "integer"
+                },
+                "cache_creation_tokens": {
+                  "type": "integer"
+                },
+                "cache_read_tokens": {
+                  "type": "integer"
+                },
+                "input_tokens": {
+                  "type": "integer"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "output_tokens": {
+                  "type": "integer"
+                },
+                "reported_cost_usd": {
+                  "type": "number"
+                },
+                "secondary": {
+                  "type": "string"
+                },
+                "total_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+                "total_tokens",
+                "reported_cost_usd",
+                "attempts",
+                "attempts_known",
+                "attempts_with_cost"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "by_model": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attempts": {
+                  "type": "integer"
+                },
+                "attempts_known": {
+                  "type": "integer"
+                },
+                "attempts_with_cost": {
+                  "type": "integer"
+                },
+                "cache_creation_tokens": {
+                  "type": "integer"
+                },
+                "cache_read_tokens": {
+                  "type": "integer"
+                },
+                "input_tokens": {
+                  "type": "integer"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "output_tokens": {
+                  "type": "integer"
+                },
+                "reported_cost_usd": {
+                  "type": "number"
+                },
+                "secondary": {
+                  "type": "string"
+                },
+                "total_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+                "total_tokens",
+                "reported_cost_usd",
+                "attempts",
+                "attempts_known",
+                "attempts_with_cost"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "by_workspace": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attempts": {
+                  "type": "integer"
+                },
+                "attempts_known": {
+                  "type": "integer"
+                },
+                "attempts_with_cost": {
+                  "type": "integer"
+                },
+                "cache_creation_tokens": {
+                  "type": "integer"
+                },
+                "cache_read_tokens": {
+                  "type": "integer"
+                },
+                "input_tokens": {
+                  "type": "integer"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "output_tokens": {
+                  "type": "integer"
+                },
+                "reported_cost_usd": {
+                  "type": "number"
+                },
+                "secondary": {
+                  "type": "string"
+                },
+                "total_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+                "total_tokens",
+                "reported_cost_usd",
+                "attempts",
+                "attempts_known",
+                "attempts_with_cost"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "executors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "granularity": {
+            "type": "string"
+          },
+          "members": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "range": {
+            "type": "string"
+          },
+          "recent": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "agent_id": {
+                  "type": "string"
+                },
+                "agent_name": {
+                  "type": "string"
+                },
+                "attempt_id": {
+                  "type": "string"
+                },
+                "cache_creation_tokens": {
+                  "type": "integer"
+                },
+                "cache_read_tokens": {
+                  "type": "integer"
+                },
+                "cost_known": {
+                  "type": "boolean"
+                },
+                "deleted": {
+                  "type": "boolean"
+                },
+                "executor": {
+                  "type": "string"
+                },
+                "finished_at": {
+                  "type": "string"
+                },
+                "input_tokens": {
+                  "type": "integer"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "output_tokens": {
+                  "type": "integer"
+                },
+                "reported_cost_usd": {
+                  "type": "number"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "started_at": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "task_id": {
+                  "type": "string"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "total_tokens": {
+                  "type": "integer"
+                },
+                "usage_completeness": {
+                  "type": "string"
+                },
+                "usage_known": {
+                  "type": "boolean"
+                },
+                "workspace_id": {
+                  "type": "string"
+                },
+                "workspace_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "run_id",
+                "workspace_id",
+                "workspace_name",
+                "thread_id",
+                "title",
+                "status",
+                "usage_known",
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+                "total_tokens",
+                "started_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "series": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attempts": {
+                  "type": "integer"
+                },
+                "cache_creation_tokens": {
+                  "type": "integer"
+                },
+                "cache_read_tokens": {
+                  "type": "integer"
+                },
+                "input_tokens": {
+                  "type": "integer"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "output_tokens": {
+                  "type": "integer"
+                },
+                "reported_cost_usd": {
+                  "type": "number"
+                },
+                "total_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+                "total_tokens",
+                "reported_cost_usd",
+                "attempts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "top_targets": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "attempts": {
+                  "type": "integer"
+                },
+                "attempts_with_cost": {
+                  "type": "integer"
+                },
+                "cache_creation_tokens": {
+                  "type": "integer"
+                },
+                "cache_read_tokens": {
+                  "type": "integer"
+                },
+                "deleted": {
+                  "type": "boolean"
+                },
+                "input_tokens": {
+                  "type": "integer"
+                },
+                "last_at": {
+                  "type": "string"
+                },
+                "output_tokens": {
+                  "type": "integer"
+                },
+                "reported_cost_usd": {
+                  "type": "number"
+                },
+                "task_id": {
+                  "type": "string"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "total_tokens": {
+                  "type": "integer"
+                },
+                "workspace_id": {
+                  "type": "string"
+                },
+                "workspace_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "workspace_id",
+                "workspace_name",
+                "thread_id",
+                "title",
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+                "total_tokens",
+                "reported_cost_usd",
+                "attempts",
+                "attempts_with_cost",
+                "last_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "totals": {
+            "additionalProperties": false,
+            "properties": {
+              "attempts_failed": {
+                "type": "integer"
+              },
+              "attempts_known": {
+                "type": "integer"
+              },
+              "attempts_total": {
+                "type": "integer"
+              },
+              "attempts_unknown": {
+                "type": "integer"
+              },
+              "attempts_with_cost": {
+                "type": "integer"
+              },
+              "cache_creation_tokens": {
+                "type": "integer"
+              },
+              "cache_read_tokens": {
+                "type": "integer"
+              },
+              "input_tokens": {
+                "type": "integer"
+              },
+              "output_tokens": {
+                "type": "integer"
+              },
+              "reported_cost_usd": {
+                "type": "number"
+              },
+              "total_tokens": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "input_tokens",
+              "output_tokens",
+              "cache_read_tokens",
+              "cache_creation_tokens",
+              "total_tokens",
+              "reported_cost_usd",
+              "attempts_total",
+              "attempts_known",
+              "attempts_unknown",
+              "attempts_with_cost",
+              "attempts_failed"
+            ],
+            "type": "object"
+          },
+          "workspaces": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "range",
+          "granularity",
+          "totals",
+          "series",
+          "by_model",
+          "by_executor",
+          "by_agent",
+          "by_workspace",
+          "top_targets",
+          "recent",
+          "workspaces",
+          "members",
+          "executors"
+        ],
+        "type": "object"
+      },
+      "UsageTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "type": "integer"
+          },
+          "attempts_with_cost": {
+            "type": "integer"
+          },
+          "cache_creation_tokens": {
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "type": "integer"
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "last_at": {
+            "type": "string"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "reported_cost_usd": {
+            "type": "number"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "total_tokens": {
+            "type": "integer"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "workspace_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "workspace_name",
+          "thread_id",
+          "title",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_creation_tokens",
+          "total_tokens",
+          "reported_cost_usd",
+          "attempts",
+          "attempts_with_cost",
+          "last_at"
+        ],
+        "type": "object"
+      },
+      "UsageTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts_failed": {
+            "type": "integer"
+          },
+          "attempts_known": {
+            "type": "integer"
+          },
+          "attempts_total": {
+            "type": "integer"
+          },
+          "attempts_unknown": {
+            "type": "integer"
+          },
+          "attempts_with_cost": {
+            "type": "integer"
+          },
+          "cache_creation_tokens": {
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "type": "integer"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "reported_cost_usd": {
+            "type": "number"
+          },
+          "total_tokens": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens",
+          "cache_read_tokens",
+          "cache_creation_tokens",
+          "total_tokens",
+          "reported_cost_usd",
+          "attempts_total",
+          "attempts_known",
+          "attempts_unknown",
+          "attempts_with_cost",
+          "attempts_failed"
+        ],
+        "type": "object"
+      },
       "UserDelegationInput": {
         "additionalProperties": false,
         "properties": {
@@ -18860,6 +19737,79 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TrashList"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/usage": {
+      "get": {
+        "operationId": "usageReport",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "default": "7d",
+              "enum": [
+                "today",
+                "7d",
+                "30d",
+                "all"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "executor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tz_offset",
+            "schema": {
+              "maximum": 840,
+              "minimum": -840,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageReport"
                 }
               }
             },

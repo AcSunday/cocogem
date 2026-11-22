@@ -28,6 +28,7 @@ type claudeEvent struct {
 	Stream            json.RawMessage `json:"event"`
 	ToolUseResult     json.RawMessage `json:"tool_use_result"`
 	Usage             tokenUsage      `json:"usage"`
+	TotalCostUSD      *float64        `json:"total_cost_usd"`
 	Error             json.RawMessage `json:"error"`
 	IsAPIErrorMessage bool            `json:"is_api_error_message"`
 	// APIErrorStatus is the HTTP status of the provider request that ended the
@@ -479,7 +480,9 @@ func (p *claudeParser) handleAssistantText(item string, index int, text string) 
 }
 
 func (p *claudeParser) handleResult(event claudeEvent, errorCode, errorMessage string) error {
-	if err := p.gate.recordUsage(event.Usage); err != nil {
+	usage := event.Usage
+	usage.ReportedCostUSD = event.TotalCostUSD
+	if err := p.gate.recordUsage(usage); err != nil {
 		return err
 	}
 	if p.control != nil {
@@ -532,7 +535,9 @@ func (p *claudeParser) handleResult(event claudeEvent, errorCode, errorMessage s
 }
 
 func (p *claudeParser) handleError(event claudeEvent, errorCode, errorMessage string) error {
-	if err := p.gate.recordUsage(event.Usage); err != nil {
+	usage := event.Usage
+	usage.ReportedCostUSD = event.TotalCostUSD
+	if err := p.gate.recordUsage(usage); err != nil {
 		return err
 	}
 	detail := event.Result

@@ -46,6 +46,7 @@ import { RunSegment } from "../components/RunSegment";
 import { ProjectHome } from "../components/ProjectHome";
 import { ProjectRail, type ProjectView } from "../components/ProjectRail";
 import { TaskBoardPage } from "../components/TaskBoardPage";
+import { UsagePage } from "../components/UsagePage";
 import { TaskDetail } from "../components/TaskDetail";
 import { TaskCreateForm } from "../components/TaskCreateForm";
 import { Modal } from "../components/Modal";
@@ -105,13 +106,18 @@ const pathSelection = () => {
   const match = location.pathname.match(
     /^\/w\/([^/]+)(?:\/(t|tasks)\/([^/]+))?/,
   );
+  const viewParam = new URLSearchParams(location.search).get("view");
+  const view: ProjectView =
+    viewParam === "tasks"
+      ? "tasks"
+      : viewParam === "usage"
+        ? "usage"
+        : "home";
   return {
     workspace: match?.[1] ?? "",
     thread: match?.[2] === "t" ? (match?.[3] ?? "") : "",
     task: match?.[2] === "tasks" ? (match?.[3] ?? "") : "",
-    view: (new URLSearchParams(location.search).get("view") === "tasks"
-      ? "tasks"
-      : "home") as ProjectView,
+    view,
   };
 };
 
@@ -279,9 +285,9 @@ function WorkspaceApp({
     }
   }, [threadID, taskID, projectView, workspaceID]);
   useEffect(() => {
-    // The task surface is global; a workspace drawer or collaboration panel
-    // opened from a conversation must not follow the user into it.
-    if (taskID || (!threadID && projectView === "tasks")) {
+    // Global surfaces (tasks, token usage) do not share the workspace drawer
+    // or conversation panel.
+    if (taskID || (!threadID && projectView !== "home")) {
       setNavOpen(false);
       setPanelOpen(false);
     }
@@ -475,13 +481,16 @@ function WorkspaceApp({
     snapshotSeq.current = {};
     messageWatermark.current = {};
     if (push) {
-      const query = !task && !th && nextView === "tasks" ? "?view=tasks" : "";
+      const query =
+        !task && !th && (nextView === "tasks" || nextView === "usage")
+          ? `?view=${nextView}`
+          : "";
       history.pushState(
         {},
         "",
         ws
           ? `/w/${ws}${task ? `/tasks/${task}` : th ? `/t/${th}` : ""}${query}`
-          : "/",
+          : `/${query}`,
       );
     }
   }, []);
@@ -621,7 +630,8 @@ function WorkspaceApp({
           loadGlobalAgents(),
           loadSettings(),
         ]);
-        if (!workspaceID && spaces.length) navigate(spaces[0].id);
+        if (!workspaceID && spaces.length)
+          navigate(spaces[0].id, "", true, "", currentProjectView.current);
         setReady(true);
       } catch (error) {
         if (!canceled) setError(errorText(error));
@@ -1340,7 +1350,7 @@ function WorkspaceApp({
 
   const messages = view?.messages.items ?? [];
   const hideWorkspaceSidebar =
-    !!taskID || (!threadID && projectView === "tasks");
+    !!taskID || (!threadID && projectView !== "home");
   return (
     <div className={cx("app-shell")}>
       <a className={cx("skip-link")} href="#composer-input">
@@ -1350,6 +1360,7 @@ function WorkspaceApp({
         active={threadID ? "home" : taskID ? "tasks" : projectView}
         onHome={() => navigate(workspaceID, "", true, "", "home")}
         onTasks={() => navigate(workspaceID, "", true, "", "tasks")}
+        onUsage={() => navigate(workspaceID, "", true, "", "usage")}
         onSettings={() => setModal({ kind: "settings" })}
       />
       {!hideWorkspaceSidebar && (
@@ -1404,7 +1415,9 @@ function WorkspaceApp({
               <strong>
                 {projectView === "tasks"
                   ? t("任务清单", "Tasks")
-                  : workspace?.name ?? "Cocogem"}
+                  : projectView === "usage"
+                    ? t("Tokens 用量", "Token usage")
+                    : workspace?.name ?? "Cocogem"}
               </strong>
             )}
           </div>
@@ -1526,6 +1539,11 @@ function WorkspaceApp({
                       onOpenTask={(workspaceID, taskID) =>
                         navigate(workspaceID, "", true, taskID)
                       }
+                    />
+                  ) : projectView === "usage" ? (
+                    <UsagePage
+                      onOpenThread={(ws, id) => navigate(ws, id)}
+                      onOpenTask={(ws, id) => navigate(ws, "", true, id)}
                     />
                   ) : workspace ? (
                     <ProjectHome
@@ -1678,7 +1696,7 @@ function WorkspaceApp({
               )}
             </div>
             {!taskID &&
-              (threadID || projectView !== "tasks") &&
+              (threadID || projectView === "home") &&
               permissions.pending.length > 0 && (
                 <PermissionQueue
                   items={permissions.pending}
@@ -1724,7 +1742,7 @@ function WorkspaceApp({
                 }
               />
             )}
-            {!taskID && (threadID || projectView !== "tasks") && (
+            {!taskID && (threadID || projectView === "home") && (
               <Composer
               agents={threadID ? threadMembers : available}
               allAgents={agents}

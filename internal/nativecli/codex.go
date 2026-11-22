@@ -451,7 +451,9 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 			if !started {
 				return newFailure(FailureProtocol, "native CLI terminal result has no active turn")
 			}
-			if err := gate.recordUsage(event.Usage); err != nil {
+			usage := event.Usage
+			usage.InputIncludesCache = true
+			if err := gate.recordUsage(usage); err != nil {
 				return err
 			}
 			if err := gate.requireTools(); err != nil {
@@ -465,12 +467,16 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 			}
 			finished = true
 		case "turn.failed":
-			if err := gate.recordUsage(event.Usage); err != nil {
+			usage := event.Usage
+			usage.InputIncludesCache = true
+			if err := gate.recordUsage(usage); err != nil {
 				return err
 			}
 			return classifiedNativeFailure(event.Error.Type, "turn_failed", event.Error.Message)
 		case "error":
-			if err := gate.recordUsage(event.Usage); err != nil {
+			usage := event.Usage
+			usage.InputIncludesCache = true
+			if err := gate.recordUsage(usage); err != nil {
 				return err
 			}
 			detail := event.Error.Message
