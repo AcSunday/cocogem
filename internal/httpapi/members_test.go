@@ -159,7 +159,7 @@ func TestGlobalMembersCanBeReusedAndLocallyRestricted(t *testing.T) {
 	call("PUT", memberPath, grant, &effective, 0, 200)
 	call("PUT", memberPath, grant, nil, 0, 409)
 	duplicate := agent
-	duplicate.ID, duplicate.Revision = "", 0
+	duplicate.ID, duplicate.Revision, duplicate.Avatar = "", 0, ""
 	call("POST", "/api/v1/agents", duplicate, &duplicate, 0, 200)
 	call("PUT", "/api/v1/workspaces/"+first.ID+"/members/"+duplicate.ID, grant, nil, 0, 400)
 	call("DELETE", "/api/v1/workspaces/"+first.ID, nil, nil, 0, 200)

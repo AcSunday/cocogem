@@ -10010,6 +10010,634 @@
         ],
         "type": "object"
       },
+      "StudioAgentActivity": {
+        "additionalProperties": false,
+        "properties": {
+          "activity_summary": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "executor": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "station": {
+            "type": "string"
+          },
+          "step_id": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "thread_title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "display_name",
+          "handle",
+          "avatar",
+          "executor",
+          "model",
+          "enabled",
+          "state",
+          "station"
+        ],
+        "type": "object"
+      },
+      "StudioArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "thread_title": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "thread_id",
+          "thread_title",
+          "run_id",
+          "type",
+          "title",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "StudioPermission": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_name": {
+            "type": "string"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "adapter": {
+                "type": "string"
+              },
+              "arguments_digest": {
+                "type": "string"
+              },
+              "attempt_id": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "member_id": {
+                "type": "string"
+              },
+              "member_name": {
+                "type": "string"
+              },
+              "normalized_resource_scope": {
+                "type": "string"
+              },
+              "operation_summary": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              },
+              "permission_epoch": {
+                "type": "integer"
+              },
+              "pre_approval": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "resolved_at": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "integer"
+              },
+              "risk": {
+                "type": "string"
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "step_id": {
+                "type": "string"
+              },
+              "thread_id": {
+                "type": "string"
+              },
+              "tool_call_id": {
+                "type": "string"
+              },
+              "tool_name": {
+                "type": "string"
+              },
+              "workspace_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "thread_id",
+              "workspace_id",
+              "run_id",
+              "step_id",
+              "attempt_id",
+              "member_id",
+              "tool_call_id",
+              "origin",
+              "action",
+              "tool_name",
+              "normalized_resource_scope",
+              "arguments_digest",
+              "reason",
+              "permission_epoch",
+              "status",
+              "request_id",
+              "revision",
+              "created_at"
+            ],
+            "type": "object"
+          },
+          "thread_title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "thread_title",
+          "agent_name"
+        ],
+        "type": "object"
+      },
+      "StudioRelay": {
+        "additionalProperties": false,
+        "properties": {
+          "from_agent_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "step_id": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "to_agent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_agent_id",
+          "to_agent_id",
+          "thread_id",
+          "run_id",
+          "step_id",
+          "role",
+          "status"
+        ],
+        "type": "object"
+      },
+      "StudioSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "activity_summary": {
+                  "type": "string"
+                },
+                "agent_id": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "string"
+                },
+                "display_name": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "executor": {
+                  "type": "string"
+                },
+                "handle": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "station": {
+                  "type": "string"
+                },
+                "step_id": {
+                  "type": "string"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "thread_title": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent_id",
+                "display_name",
+                "handle",
+                "avatar",
+                "executor",
+                "model",
+                "enabled",
+                "state",
+                "station"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "artifacts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "created_at": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "thread_title": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "version",
+                "thread_id",
+                "thread_title",
+                "run_id",
+                "type",
+                "title",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "pending_permissions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "agent_name": {
+                  "type": "string"
+                },
+                "request": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    },
+                    "adapter": {
+                      "type": "string"
+                    },
+                    "arguments_digest": {
+                      "type": "string"
+                    },
+                    "attempt_id": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "member_id": {
+                      "type": "string"
+                    },
+                    "member_name": {
+                      "type": "string"
+                    },
+                    "normalized_resource_scope": {
+                      "type": "string"
+                    },
+                    "operation_summary": {
+                      "type": "string"
+                    },
+                    "origin": {
+                      "type": "string"
+                    },
+                    "permission_epoch": {
+                      "type": "integer"
+                    },
+                    "pre_approval": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "resolved_at": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "integer"
+                    },
+                    "risk": {
+                      "type": "string"
+                    },
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "step_id": {
+                      "type": "string"
+                    },
+                    "thread_id": {
+                      "type": "string"
+                    },
+                    "tool_call_id": {
+                      "type": "string"
+                    },
+                    "tool_name": {
+                      "type": "string"
+                    },
+                    "workspace_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "thread_id",
+                    "workspace_id",
+                    "run_id",
+                    "step_id",
+                    "attempt_id",
+                    "member_id",
+                    "tool_call_id",
+                    "origin",
+                    "action",
+                    "tool_name",
+                    "normalized_resource_scope",
+                    "arguments_digest",
+                    "reason",
+                    "permission_epoch",
+                    "status",
+                    "request_id",
+                    "revision",
+                    "created_at"
+                  ],
+                  "type": "object"
+                },
+                "thread_title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "request",
+                "thread_title",
+                "agent_name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "relays": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "from_agent_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "step_id": {
+                  "type": "string"
+                },
+                "thread_id": {
+                  "type": "string"
+                },
+                "to_agent_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from_agent_id",
+                "to_agent_id",
+                "thread_id",
+                "run_id",
+                "step_id",
+                "role",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "threads": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "active_run_id": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "pending_permissions": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "task_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "status",
+                "pending_permissions",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "workspace_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "workspace_name",
+          "updated_at",
+          "threads",
+          "agents",
+          "relays",
+          "pending_permissions",
+          "artifacts"
+        ],
+        "type": "object"
+      },
+      "StudioThread": {
+        "additionalProperties": false,
+        "properties": {
+          "active_run_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "pending_permissions": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "pending_permissions",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "SubmitInboxInput": {
         "additionalProperties": false,
         "properties": {
@@ -20533,6 +21161,43 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProjectRecord"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{id}/studio": {
+      "get": {
+        "operationId": "workspaceStudio",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioSnapshot"
                 }
               }
             },

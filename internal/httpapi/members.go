@@ -25,8 +25,9 @@ func (s *Server) initializeMembers(tx *store.Tx, workspaceID string) error {
 		}
 		for i, name := range []string{"布偶猫", "缅因猫", "橘猫"} {
 			handles := []string{"ragdoll", "maine", "orange"}
+			avatars := []string{"cat:ragdoll", "cat:maine", "cat:orange"}
 			roles := []string{"研究资料，整理证据与不确定性。", "独立质疑结论，核对依据与遗漏。", "组织讨论，汇总观点并保留分歧。"}
-			agent := w.Agent{ID: w.NewID(), DisplayName: name, Handle: handles[i], Aliases: []string{}, RoleDescription: roles[i], Model: "default", Revision: 1}
+			agent := w.Agent{ID: w.NewID(), DisplayName: name, Handle: handles[i], Avatar: avatars[i], Aliases: []string{}, RoleDescription: roles[i], Model: "default", Revision: 1}
 			if len(s.config.Models) > 0 {
 				agent.Model = s.config.Models[0]
 			}
@@ -90,6 +91,29 @@ func (s *Server) createAgent(rw http.ResponseWriter, r *http.Request) {
 	s.createMemberProfile(rw, r, r.PathValue("id"))
 }
 
+func validateUniqueCatAvatar(tx *store.Tx, avatar, excludeAgentID string) error {
+	if !w.IsCatAvatar(avatar) {
+		return nil
+	}
+	existing, err := tx.GlobalAgents()
+	if err != nil {
+		return err
+	}
+	for _, other := range existing {
+		if other.ID == excludeAgentID {
+			continue
+		}
+		if other.Avatar == avatar {
+			return &RequestError{
+				Status:  http.StatusConflict,
+				Code:    "avatar_in_use",
+				Message: "this cat avatar is already used by another member",
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Server) createMemberProfile(rw http.ResponseWriter, r *http.Request, workspaceID string) {
 	var agent w.Agent
 	if !decodeLimit(rw, r, &agent, 1<<20) {
@@ -100,6 +124,9 @@ func (s *Server) createMemberProfile(rw http.ResponseWriter, r *http.Request, wo
 	agent.ID, agent.WorkspaceID, agent.Membership, agent.Revision = w.NewID(), workspaceID, nil, 1
 	err := s.store.Write(r.Context(), func(tx *store.Tx) error {
 		if err := w.ValidateNewAvatar(agent.Avatar); err != nil {
+			return err
+		}
+		if err := validateUniqueCatAvatar(tx, agent.Avatar, ""); err != nil {
 			return err
 		}
 		if err := s.validateExecutor(agent.Executor); err != nil {
@@ -146,6 +173,9 @@ func (s *Server) updateAgent(rw http.ResponseWriter, r *http.Request) {
 			if err := w.ValidateNewAvatar(agent.Avatar); err != nil {
 				return err
 			}
+		}
+		if err := validateUniqueCatAvatar(tx, agent.Avatar, old.ID); err != nil {
+			return err
 		}
 		// Keep the historical array untouched; a save cannot reintroduce a
 		// member-level tool grant.

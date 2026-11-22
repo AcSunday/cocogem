@@ -111,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/usage", s.usageReport)
 	mux.HandleFunc("POST /api/v1/tasks/delete", s.deleteProjectTasks)
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/overview", s.projectOverview)
+	mux.HandleFunc("GET /api/v1/workspaces/{id}/studio", s.workspaceStudio)
 	mux.HandleFunc("GET /api/v1/workspaces/{id}/tasks", s.projectTasks)
 	mux.HandleFunc("POST /api/v1/workspaces/{id}/tasks", s.createProjectTask)
 	mux.HandleFunc("GET /api/v1/tasks/{id}", s.projectTask)
