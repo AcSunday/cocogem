@@ -23,9 +23,10 @@ test("shows workspace cats in Cat Studio and enforces unique built-in cat select
   await page.goto(`/w/${ws.id}?view=studio`);
   await expect(page.getByTestId("studio-page")).toBeVisible();
   await expect(page.getByText("研发室成员")).toBeVisible();
-  await expect(page.getByRole("button", { name: /布偶猫/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /缅因猫/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /橘猫/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "布偶猫", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "缅因猫", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "橘猫", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /布偶猫.*待机/ })).toBeVisible();
 
   // Open Settings -> Members -> New member and verify 10-cat uniqueness.
   await page.getByRole("button", { name: "设置", exact: true }).click();

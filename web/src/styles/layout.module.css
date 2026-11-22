@@ -120,20 +120,25 @@
   background: transparent;
   color: var(--text);
 }
+@media (min-width: 901px) {
+  .sidebar-head .brand-mark {
+    display: none;
+  }
+}
 .sidebar-close {
   display: none;
 }
 .sidebar-controls {
   display: grid;
-  gap: 6px;
+  gap: 7px;
 }
 .sidebar-controls > .select-wrap .select,
 .sidebar > .select-wrap .select {
   width: 100%;
   min-height: var(--control-height);
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: transparent;
+  background: var(--surface-2);
   padding: 0 10px;
   font-size: 13px;
   font-weight: 500;
@@ -141,29 +146,28 @@
 .sidebar-controls > .select-wrap .select:hover:not(:disabled),
 .sidebar-controls > .select-wrap .select:focus-visible,
 .sidebar-controls > .select-wrap .select[aria-expanded="true"] {
-  border-color: var(--border);
-  background: var(--surface-2);
+  border-color: var(--border-strong);
+  background: var(--surface-3);
 }
-/* Like its neighbours, the action stays quiet until hover or focus. */
 .new-thread {
-  justify-content: flex-start;
+  justify-content: center;
   width: 100%;
   min-height: var(--control-height);
   padding: 0 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--text-2);
+  color: var(--text);
   font-weight: 500;
   display: flex;
   align-items: center;
   gap: 7px;
-  transition: background-color 0.15s, border-color 0.15s;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .new-thread:hover:not(:disabled),
 .new-thread:focus-visible {
   background: var(--surface-2);
-  border-color: var(--border);
+  border-color: var(--border-strong);
   color: var(--text);
 }
 .search {
@@ -171,15 +175,15 @@
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: transparent;
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
   color: var(--text-3);
   height: var(--control-height);
 }
 .search:hover,
 .search:focus-within {
-  border-color: var(--border);
+  border-color: var(--border-strong);
   background: var(--surface-2);
 }
 .search input {

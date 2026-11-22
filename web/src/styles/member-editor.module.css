@@ -287,9 +287,9 @@
   background: var(--surface-2);
 }
 .cat-option-portrait {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border);
   display: block;

@@ -88,7 +88,7 @@ it("renders built-in pixel cat presets and optional CLI corner badges", () => {
       <Avatar name="暹罗猫" avatar="cat:siamese" executor="codex" small />
     </>,
   );
-  expect(container.querySelectorAll("svg")).toHaveLength(2);
+  expect(container.querySelectorAll("img")).toHaveLength(2);
   expect(container.querySelector('[title="Claude Code"]')).toHaveAttribute(
     "data-cli",
     "C",

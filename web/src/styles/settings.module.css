@@ -7,22 +7,22 @@
   border-top: 1px solid var(--border);
 }
 .settings-tabs {
-  width: 196px;
+  width: 204px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   padding: 16px 12px;
   border-right: 1px solid var(--border);
-  background: transparent;
+  background: var(--rail-bg);
 }
 .settings-tab {
   justify-content: flex-start;
   gap: 9px;
   width: 100%;
-  min-height: 38px;
-  padding: 8px 12px;
-  border-color: transparent;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-2);
@@ -33,16 +33,17 @@
   color: var(--text-3);
 }
 .settings-tab:hover:not(:disabled) {
-  border-color: transparent;
+  border-color: var(--border);
   background: var(--surface-2);
   color: var(--text);
 }
 .settings-tab.active {
-  background: var(--surface-2);
-  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent-text);
 }
 .settings-tab.active svg {
-  color: var(--text-2);
+  color: var(--accent-text);
 }
 .settings-body {
   flex: 1;
@@ -365,24 +366,34 @@
    retired workspace panel can never style it again. */
 .permission-modes {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
   margin: 12px 0;
 }
 
 .permission-mode {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 12px;
+  gap: 10px;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   background: var(--surface-2);
+  box-shadow: inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.04));
   cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.permission-mode:hover {
+  border-color: var(--border-strong);
 }
 
 .permission-mode[data-selected] {
   border-color: var(--accent);
   background: var(--accent-soft);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 20px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .permission-mode:focus-within {
