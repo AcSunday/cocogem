@@ -1400,6 +1400,7 @@ function WorkspaceApp({
         }}
       />
       <section className={cx("workspace-main")}>
+        {!(!taskID && !threadID && projectView === "studio") && (
         <header className={cx("topbar")}>
           {!hideWorkspaceSidebar && (
             <button
@@ -1502,6 +1503,7 @@ function WorkspaceApp({
             )}
           </div>
         </header>
+        )}
         {error && hideWorkspaceSidebar && (
           <div role="alert" className={cx("error-banner")}>
             <span>{error}</span>
@@ -1520,6 +1522,11 @@ function WorkspaceApp({
               <div
                 className={cx("timeline")}
                 data-testid="conversation-timeline"
+                data-view={
+                  !taskID && !threadID && projectView === "studio"
+                    ? "studio"
+                    : undefined
+                }
                 ref={timeline}
                 onScroll={(event) => {
                   const el = event.currentTarget;

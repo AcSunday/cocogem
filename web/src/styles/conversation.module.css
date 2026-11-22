@@ -19,6 +19,12 @@
   padding: 20px 32px 150px;
   scrollbar-width: thin;
 }
+.timeline[data-view="studio"] {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 .timeline-inner {
   width: 100%;
   max-width: 820px;
@@ -1097,6 +1103,9 @@
 @media (max-width: 700px) {
   .timeline {
     padding: 12px 16px 140px;
+  }
+  .timeline[data-view="studio"] {
+    padding: 0;
   }
   .composer {
     width: calc(100% - 24px);
