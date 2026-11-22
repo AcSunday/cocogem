@@ -38,6 +38,7 @@ import {
 import { AuthScreen } from "../components/AuthScreen";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
+import { BrandLogo } from "../components/BrandLogo";
 import { CandidateBar } from "../components/CandidateBar";
 import { Composer, type ComposerAttachment } from "../components/Composer";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
@@ -45,6 +46,7 @@ import { Icon } from "../components/Icon";
 import { RunSegment } from "../components/RunSegment";
 import { ProjectHome } from "../components/ProjectHome";
 import { ProjectRail, type ProjectView } from "../components/ProjectRail";
+import { StudioPage } from "../components/StudioPage";
 import { TaskBoardPage } from "../components/TaskBoardPage";
 import { UsagePage } from "../components/UsagePage";
 import { TaskDetail } from "../components/TaskDetail";
@@ -112,7 +114,9 @@ const pathSelection = () => {
       ? "tasks"
       : viewParam === "usage"
         ? "usage"
-        : "home";
+        : viewParam === "studio"
+          ? "studio"
+          : "home";
   return {
     workspace: match?.[1] ?? "",
     thread: match?.[2] === "t" ? (match?.[3] ?? "") : "",
@@ -482,7 +486,9 @@ function WorkspaceApp({
     messageWatermark.current = {};
     if (push) {
       const query =
-        !task && !th && (nextView === "tasks" || nextView === "usage")
+        !task &&
+        !th &&
+        (nextView === "tasks" || nextView === "usage" || nextView === "studio")
           ? `?view=${nextView}`
           : "";
       history.pushState(
@@ -1333,7 +1339,7 @@ function WorkspaceApp({
     return (
       <main className={cx("bootstrap")}>
         <span className={cx("brand-mark")}>
-          <Icon name="logo" size={22} />
+          <BrandLogo size={32} />
         </span>
         <h1>Cocogem</h1>
         {error ? (
@@ -1358,9 +1364,11 @@ function WorkspaceApp({
       </a>
       <ProjectRail
         active={threadID ? "home" : taskID ? "tasks" : projectView}
+        pendingPermissions={permissions.pending.length}
         onHome={() => navigate(workspaceID, "", true, "", "home")}
         onTasks={() => navigate(workspaceID, "", true, "", "tasks")}
         onUsage={() => navigate(workspaceID, "", true, "", "usage")}
+        onStudio={() => navigate(workspaceID, "", true, "", "studio")}
         onSettings={() => setModal({ kind: "settings" })}
       />
       {!hideWorkspaceSidebar && (
@@ -1417,7 +1425,9 @@ function WorkspaceApp({
                   ? t("任务清单", "Tasks")
                   : projectView === "usage"
                     ? t("Tokens 用量", "Token usage")
-                    : workspace?.name ?? "Cocogem"}
+                    : projectView === "studio"
+                      ? t("猫猫研发室", "Cat Studio")
+                      : workspace?.name ?? "Cocogem"}
               </strong>
             )}
           </div>
@@ -1463,6 +1473,7 @@ function WorkspaceApp({
                         key={agent.id}
                         name={agent.display_name}
                         avatar={agent.avatar}
+                        executor={agent.executor}
                         small
                       />
                     ))}
@@ -1544,6 +1555,55 @@ function WorkspaceApp({
                     <UsagePage
                       onOpenThread={(ws, id) => navigate(ws, id)}
                       onOpenTask={(ws, id) => navigate(ws, "", true, id)}
+                    />
+                  ) : projectView === "studio" ? (
+                    <StudioPage
+                      workspaces={workspaces}
+                      workspaceID={workspaceID}
+                      onWorkspace={(id) => navigate(id, "", true, "", "studio")}
+                      onOpenThread={(ws, id) => navigate(ws, id)}
+                      onDispatch={async (text, targetThreadID) => {
+                        if (!workspaceID) return undefined;
+                        let target = targetThreadID;
+                        if (!target) {
+                          const created = await api<Thread>(
+                            `/api/v1/workspaces/${workspaceID}/threads`,
+                            "POST",
+                            {
+                              title: threadTitle(text),
+                              agent_ids: available
+                                .slice(0, 10)
+                                .map((agent) => agent.id),
+                            },
+                          );
+                          target = created.id;
+                          await loadThreads(workspaceID);
+                        }
+                        const targets = available
+                          .filter((agent) =>
+                            new RegExp(
+                              `(^|\\s)@${agent.handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`,
+                              "i",
+                            ).test(text),
+                          )
+                          .map((agent) => agent.handle);
+                        await api<Run>(
+                          `/api/v1/threads/${target}/runs`,
+                          "POST",
+                          {
+                            message: text,
+                            targets,
+                            source_urls: [],
+                            source_ids: [],
+                            artifact_refs: [],
+                            research_scope: "",
+                            retry_of_run_id: "",
+                          } satisfies RunInput,
+                          { "Idempotency-Key": crypto.randomUUID() },
+                        );
+                        await loadThreads(workspaceID);
+                        return target;
+                      }}
                     />
                   ) : workspace ? (
                     <ProjectHome

@@ -82,13 +82,10 @@ small,
   padding: 2px 9px;
   border-radius: 999px;
   background: var(--success-bg);
-  color: light-dark(#047857, #34d399);
+  color: var(--success-text);
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-}
-:global(:root[data-appearance="warm"]) .status {
-  color: var(--success-text);
 }
 .status::before {
   content: "";

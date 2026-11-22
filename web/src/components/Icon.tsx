@@ -18,6 +18,17 @@ const paths = {
       <rect x="15" y="9.5" width="3.5" height="10" rx="0.8" />
     </>
   ),
+  studio: (
+    <>
+      <path d="M5 10.5V5.5l3.5 2.5a7.2 7.2 0 0 1 7 0L19 5.5v5a6.5 6.5 0 0 1-14 0Z" />
+      <circle cx="9.5" cy="11.5" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="14.5" cy="11.5" r="0.9" fill="currentColor" stroke="none" />
+      <path d="M11 14h2" />
+    </>
+  ),
+  shield: (
+    <path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6l-7-3Z" />
+  ),
   gear: (
     <>
       <circle cx="12" cy="12" r="3" />

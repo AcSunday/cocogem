@@ -2,24 +2,29 @@ import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import layout from "../styles/layout.module.css";
+import { BrandLogo } from "./BrandLogo";
 import { Icon } from "./Icon";
 
 const cx = scoped(base, layout);
 
-export type ProjectView = "home" | "tasks" | "usage";
+export type ProjectView = "home" | "tasks" | "usage" | "studio";
 
 /** The far-left rail switches the project surface without replacing navigation. */
 export function ProjectRail({
   active,
+  pendingPermissions = 0,
   onHome,
   onTasks,
   onUsage,
+  onStudio,
   onSettings,
 }: {
   active: ProjectView;
+  pendingPermissions?: number;
   onHome: () => void;
   onTasks: () => void;
   onUsage: () => void;
+  onStudio: () => void;
   onSettings: () => void;
 }) {
   useLanguage();
@@ -28,6 +33,15 @@ export function ProjectRail({
       className={cx("project-rail")}
       aria-label={t("项目视图", "Project views")}
     >
+      <button
+        type="button"
+        className={cx("rail-brand")}
+        aria-label="Cocogem"
+        title="Cocogem"
+        onClick={onHome}
+      >
+        <BrandLogo size={26} />
+      </button>
       <button
         type="button"
         className={cx("rail-button")}
@@ -57,6 +71,19 @@ export function ProjectRail({
         onClick={onUsage}
       >
         <Icon name="usage" size={20} />
+      </button>
+      <button
+        type="button"
+        className={cx("rail-button")}
+        aria-label={t("猫猫研发室", "Cat Studio")}
+        title={t("猫猫研发室", "Cat Studio")}
+        aria-current={active === "studio" ? "page" : undefined}
+        onClick={onStudio}
+      >
+        <Icon name="studio" size={20} />
+        {pendingPermissions > 0 && (
+          <span className={cx("rail-badge-dot")} aria-hidden="true" />
+        )}
       </button>
       <button
         type="button"

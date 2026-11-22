@@ -16,7 +16,13 @@ import members from "../../styles/member-editor.module.css";
 import settings from "../../styles/settings.module.css";
 import { errorText } from "../../lib/presentation";
 import { t, useLanguage } from "../../lib/i18n";
+import {
+  CAT_PRESETS,
+  firstUnusedCatAvatar,
+  usedCatAvatarOwners,
+} from "../../lib/cats";
 import { Avatar, memberImage } from "../Avatar";
+import { CatPortrait } from "../CatSprite";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Icon } from "../Icon";
 import { Modal } from "../Modal";
@@ -145,11 +151,12 @@ export function MembersForm({
   const executor =
     system.executors?.find((item) => item.installed && item.supported !== false)
       ?.id ?? "claude";
-  const blank = (): Agent => ({
+  const blank = (existing: Agent[]): Agent => ({
     id: "",
     workspace_id: workspaceID,
     display_name: "",
     handle: "",
+    avatar: firstUnusedCatAvatar(existing),
     aliases: [],
     role_description: "",
     executor,
@@ -182,6 +189,7 @@ export function MembersForm({
     <MemberEditor
       key={editing.key}
       agent={editing.agent}
+      existingProfiles={profiles}
       system={system}
       catalog={catalog}
       global={global}
@@ -209,7 +217,11 @@ export function MembersForm({
             className={cx("member-card")}
             onClick={() => setEditing({ key: agent.id, agent })}
           >
-            <Avatar name={agent.display_name} avatar={agent.avatar} />
+            <Avatar
+              name={agent.display_name}
+              avatar={agent.avatar}
+              executor={agent.executor}
+            />
             <span className={cx("member-info")}>
               <strong>
                 {agent.display_name || t("未命名成员", "Unnamed member")}
@@ -246,7 +258,7 @@ export function MembersForm({
       <button
         type="button"
         className={cx("member-card add-member")}
-        onClick={() => setEditing({ key: "new", agent: blank() })}
+        onClick={() => setEditing({ key: "new", agent: blank(profiles) })}
       >
         {t("＋ 新成员", "＋ New member")}
       </button>
@@ -302,6 +314,7 @@ export function MembersForm({
 
 function MemberEditor({
   agent: initialAgent,
+  existingProfiles,
   system,
   catalog,
   global,
@@ -313,6 +326,7 @@ function MemberEditor({
   onBack,
 }: {
   agent: Agent;
+  existingProfiles: Agent[];
   system: System;
   catalog?: Agent[];
   global?: boolean;
@@ -673,12 +687,76 @@ function MemberEditor({
               />
             </>
           )}
-          <span className={cx("field-label")}>{t("头像", "Avatar")}</span>
+          <span className={cx("field-label")}>{t("头像与猫猫形象", "Avatar & Cat Persona")}</span>
+          <div className={cx("cat-picker-wrap")}>
+            <div className={cx("cat-picker-head")}>
+              <span>
+                {t(
+                  "内置 10 只猫猫形象（头像与猫猫研发室联动，每只猫猫仅可由一位成员使用）",
+                  "10 built-in pixel cats (linked to Cat Studio; each cat can only be held by one member)",
+                )}
+              </span>
+            </div>
+            <div
+              className={cx("cat-picker")}
+              role="group"
+              aria-label={t("选择猫猫形象", "Choose a cat persona")}
+            >
+              {(() => {
+                const usedBy = usedCatAvatarOwners(existingProfiles, value.id);
+                return CAT_PRESETS.map((cat) => {
+                  const owner = usedBy.get(cat.value);
+                  const selected = value.avatar === cat.value;
+                  const breedLabel = t(cat.zhName, cat.enName);
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      className={cx("cat-option")}
+                      aria-pressed={selected}
+                      aria-label={
+                        owner
+                          ? t(
+                              `${breedLabel}（已被 ${owner} 使用）`,
+                              `${breedLabel} (used by ${owner})`,
+                            )
+                          : breedLabel
+                      }
+                      disabled={!!owner}
+                      title={
+                        owner
+                          ? t(
+                              `已被 ${owner} 使用`,
+                              `Used by ${owner}`,
+                            )
+                          : `${breedLabel} · ${t(cat.zhTag, cat.enTag)}`
+                      }
+                      onClick={() => {
+                        setAvatarError("");
+                        update({ avatar: cat.value });
+                      }}
+                    >
+                      <span className={cx("cat-option-portrait")}>
+                        <CatPortrait preset={cat} size={40} />
+                      </span>
+                      <span className={cx("cat-option-name")}>{breedLabel}</span>
+                      <span className={cx("cat-option-meta")}>
+                        {owner
+                          ? t(`已被 ${owner} 使用`, `Used: ${owner}`)
+                          : t(cat.zhTag, cat.enTag)}
+                      </span>
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          </div>
           <div className={cx("avatar-field")}>
             <span className={cx("avatar-preview")}>
               <Avatar
                 name={value.display_name || t("新成员", "New member")}
                 avatar={value.avatar}
+                executor={value.executor}
               />
             </span>
             <div className={cx("avatar-controls")}>
@@ -710,8 +788,8 @@ function MemberEditor({
               </div>
               <small>
                 {t(
-                  "PNG/JPEG，最大 512 KiB、2048×2048 像素；留空显示名称首字。",
-                  "PNG or JPEG, up to 512 KiB and 2048×2048 px; leave blank to show the name's initial.",
+                  "也可上传自定义 PNG/JPEG（最大 512 KiB、2048×2048 像素）；留空显示名称首字。",
+                  "Or upload a custom PNG/JPEG (up to 512 KiB and 2048×2048 px); leave blank for initials.",
                 )}
               </small>
               {avatarError && (

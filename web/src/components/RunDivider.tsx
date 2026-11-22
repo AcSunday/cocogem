@@ -18,11 +18,13 @@ import layout from "../styles/layout.module.css";
 import conversation from "../styles/conversation.module.css";
 import {
   livenessLabel,
+  roleLabel,
   runDuration,
   runErrorText,
   runUsageSummary,
   runMethod,
 } from "../lib/presentation";
+import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { CollaborationTasks } from "./CollaborationTasks";
 
@@ -230,7 +232,11 @@ export function RunDivider({
           open={open}
           onToggle={toggleProcess}
         >
-          <summary>
+          <summary
+            className={cx(
+              `relay-strip ${!terminal(run.status) ? "live" : ""}`,
+            )}
+          >
             <Icon name="chevron" size={12} />
             {open || !foldable
               ? t("协作过程", "Collaboration process")
@@ -240,6 +246,58 @@ export function RunDivider({
                 ` · ${processCount} 条过程`,
                 ` · ${processCount} step${processCount === 1 ? "" : "s"}`,
               )}
+            </span>
+            {steps && steps.length > 0 && (
+              <span className={cx("relay-nodes")}>
+                {steps.slice(0, 5).map((step, stepIndex) => {
+                  const agent = run.agents?.find(
+                    (item) => item.id === step.agent_id,
+                  );
+                  const stepName =
+                    step.agent_name || agent?.display_name || t("成员", "Member");
+                  const stepState =
+                    step.status === "running"
+                      ? "running"
+                      : step.status === "failed"
+                        ? "failed"
+                        : "";
+                  return (
+                    <span
+                      key={step.id}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                    >
+                      {stepIndex > 0 && (
+                        <span className={cx("relay-arrow")} aria-hidden="true">
+                          →
+                        </span>
+                      )}
+                      <span className={cx(`relay-node ${stepState}`)}>
+                        <Avatar
+                          name={stepName}
+                          avatar={agent?.avatar}
+                          executor={agent?.executor}
+                          small
+                        />
+                        <span>{stepName}</span>
+                        {step.role && (
+                          <span className={cx("muted")}>
+                            · {roleLabel(step.role)}
+                          </span>
+                        )}
+                        {step.status === "completed" && (
+                          <Icon name="check" size={12} />
+                        )}
+                      </span>
+                    </span>
+                  );
+                })}
+              </span>
+            )}
+            <span className={cx("relay-meta")}>
+              {!terminal(run.status) && (
+                <span className={cx("relay-live-dot")} aria-hidden="true" />
+              )}
+              {duration && <span>{duration}</span>}
             </span>
             {steps?.some((step) => step.status === "running") && (
               <span className={cx("current-members")}>

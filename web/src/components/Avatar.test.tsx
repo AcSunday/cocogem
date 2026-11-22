@@ -80,3 +80,21 @@ it("normalizes Unicode names and handles blank names without browser storage", (
   expect(read).not.toHaveBeenCalled();
   expect(write).not.toHaveBeenCalled();
 });
+
+it("renders built-in pixel cat presets and optional CLI corner badges", () => {
+  const { container } = render(
+    <>
+      <Avatar name="布偶猫" avatar="cat:ragdoll" executor="claude" />
+      <Avatar name="暹罗猫" avatar="cat:siamese" executor="codex" small />
+    </>,
+  );
+  expect(container.querySelectorAll("svg")).toHaveLength(2);
+  expect(container.querySelector('[title="Claude Code"]')).toHaveAttribute(
+    "data-cli",
+    "C",
+  );
+  expect(container.querySelector('[title="Codex"]')).toHaveAttribute(
+    "data-cli",
+    "X",
+  );
+});

@@ -10,12 +10,32 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 12px 7px;
   border-right: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--rail-bg);
+}
+.rail-brand {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.16s ease, filter 0.16s ease;
+}
+.rail-brand:hover {
+  background: transparent;
+  border-color: transparent;
+  transform: scale(1.06);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 40%, transparent));
 }
 .rail-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -26,17 +46,39 @@
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-3);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 .rail-button:hover,
 .rail-button:focus-visible {
   border-color: var(--border);
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text);
 }
 .rail-button[aria-current="page"] {
-  border-color: var(--border-strong);
-  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: var(--accent-soft);
   color: var(--accent-text);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.rail-button[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+.rail-badge-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn-text);
+  box-shadow: 0 0 8px var(--warn-text);
 }
 .rail-settings {
   margin-top: auto;
@@ -66,6 +108,7 @@
   color: var(--text);
   font-size: 16px;
   font-weight: 600;
+  letter-spacing: -0.02em;
   text-decoration: none;
 }
 .brand-mark {
@@ -74,8 +117,8 @@
   width: 28px;
   height: 28px;
   border-radius: 9px;
-  background: var(--accent);
-  color: #fff;
+  background: transparent;
+  color: var(--text);
 }
 .sidebar-close {
   display: none;

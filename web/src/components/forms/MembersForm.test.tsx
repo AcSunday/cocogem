@@ -920,3 +920,51 @@ it("reports OpenCode capability errors without discarding the saved thinking ove
     "当前模型不支持此思考级别",
   );
 });
+
+it("offers 10 built-in cats, disables already-used breeds and auto-selects an unused cat for new members", async () => {
+  const save = vi.fn(async (value: Agent) => ({ ...value, id: "created" }));
+  const existing = [
+    member({ id: "a1", display_name: "布偶猫", handle: "ragdoll", avatar: "cat:ragdoll" }),
+    member({ id: "a2", display_name: "缅因猫", handle: "maine", avatar: "cat:maine" }),
+    member({ id: "a3", display_name: "橘猫", handle: "orange", avatar: "cat:orange" }),
+  ];
+  render(
+    <MembersForm
+      agents={existing}
+      catalog={existing}
+      system={system(["claude"])}
+      workspaceID="ws"
+      close={() => {}}
+      save={save}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "＋ 新成员" }));
+  const picker = screen.getByRole("group", { name: "选择猫猫形象" });
+  const options = within(picker).getAllByRole("button");
+  expect(options).toHaveLength(10);
+
+  // Used breeds are disabled with owner labels.
+  expect(within(picker).getByRole("button", { name: /布偶猫.*布偶猫/ })).toBeDisabled();
+  expect(within(picker).getByRole("button", { name: /缅因猫.*缅因猫/ })).toBeDisabled();
+  expect(within(picker).getByRole("button", { name: /橘猫.*橘猫/ })).toBeDisabled();
+
+  // First unused breed (暹罗猫) is preselected automatically.
+  const siameseBtn = within(picker).getByRole("button", { name: "暹罗猫" });
+  expect(siameseBtn).toBeEnabled();
+  expect(siameseBtn).toHaveAttribute("aria-pressed", "true");
+
+  // User can switch to another unused breed (e.g. 狸花猫).
+  const tabbyBtn = within(picker).getByRole("button", { name: "狸花猫" });
+  await user.click(tabbyBtn);
+  expect(tabbyBtn).toHaveAttribute("aria-pressed", "true");
+
+  await user.type(screen.getByLabelText("显示名"), "狸花猫");
+  await user.type(screen.getByLabelText("Handle"), "tabby");
+  await user.click(screen.getByRole("button", { name: "保存成员" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ handle: "tabby", avatar: "cat:tabby" }),
+    ),
+  );
+});

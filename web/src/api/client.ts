@@ -33,6 +33,12 @@ export type UsageBucket = components["schemas"]["UsageBucket"];
 export type UsageBreakdown = components["schemas"]["UsageBreakdown"];
 export type UsageTarget = components["schemas"]["UsageTarget"];
 export type UsageEntry = components["schemas"]["UsageEntry"];
+export type StudioSnapshot = components["schemas"]["StudioSnapshot"];
+export type StudioThread = components["schemas"]["StudioThread"];
+export type StudioAgentActivity = components["schemas"]["StudioAgentActivity"];
+export type StudioRelay = components["schemas"]["StudioRelay"];
+export type StudioPermission = components["schemas"]["StudioPermission"];
+export type StudioArtifact = components["schemas"]["StudioArtifact"];
 export type UsageRange = "today" | "7d" | "30d" | "all";
 export type UsageQuery = {
   range?: UsageRange;
@@ -674,4 +680,11 @@ export function usageReport(query: UsageQuery = {}): Promise<UsageReport> {
   params.set("tz_offset", String(tzOffset));
   const qs = params.toString();
   return api<UsageReport>(`/api/v1/usage${qs ? `?${qs}` : ""}`);
+}
+
+/** Live workspace-wide snapshot for the Pixel Cat R&D Studio view. */
+export function workspaceStudio(workspaceID: string): Promise<StudioSnapshot> {
+  return api<StudioSnapshot>(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/studio`,
+  );
 }

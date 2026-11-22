@@ -342,6 +342,79 @@
 }
 .final-message .message-body {
   width: 100%;
+  padding: 2px 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.relay-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 4px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.relay-strip.live {
+  border-color: color-mix(in srgb, var(--teal) 38%, var(--border));
+  box-shadow: 0 0 22px color-mix(in srgb, var(--teal) 10%, transparent);
+}
+.relay-nodes {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.relay-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px 2px 4px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.relay-node.running {
+  border-color: color-mix(in srgb, var(--teal) 50%, var(--border));
+  background: var(--teal-soft);
+}
+.relay-node.failed {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: var(--danger-bg);
+}
+.relay-arrow {
+  color: var(--teal);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  user-select: none;
+}
+.relay-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.relay-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 8px var(--teal);
+  animation: status-pulse 1.2s ease-in-out infinite;
 }
 .message-meta time,
 .message-meta small {
@@ -444,6 +517,7 @@
   display: none;
 }
 .avatar {
+  position: relative;
   display: grid;
   place-items: center;
   width: 36px;
@@ -454,7 +528,59 @@
   font-weight: 500;
   background: var(--avatar-bg, var(--surface-2));
   color: var(--avatar-ink, var(--text-2));
-  overflow: hidden;
+  overflow: visible;
+}
+.avatar-cat {
+  padding: 0;
+  background: var(--surface-2);
+}
+.avatar-cat > svg {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  display: block;
+}
+.avatar-cli-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffffff;
+  border: 1.5px solid var(--bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.avatar-cli-badge::after {
+  content: attr(data-cli);
+}
+.avatar-sm .avatar-cli-badge {
+  width: 12px;
+  height: 12px;
+  right: -2px;
+  bottom: -2px;
+  font-size: 7.5px;
+}
+.cli-claude {
+  background: #d97757;
+}
+.cli-codex {
+  background: #10a37f;
+}
+.cli-gemini {
+  background: #4f8bff;
+}
+.cli-pi {
+  background: #8b5cf6;
+}
+.cli-opencode {
+  background: #0ea5e9;
 }
 /* Muted blue, sage, teal, lavender, rose, ochre, slate and terracotta. */
 .avatar-tone-0 {

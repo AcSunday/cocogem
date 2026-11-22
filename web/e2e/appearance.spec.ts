@@ -39,47 +39,32 @@ test("restores explicit appearance before React loads", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-appearance", "dark");
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(11, 13, 16)",
+    "rgb(12, 14, 18)",
   );
   await expect(page.locator("#root")).toBeEmpty();
 });
 
-test("restores the warm appearance before React loads", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "light" });
-  await page.addInitScript(() =>
-    localStorage.setItem("cocogem-appearance", "warm"),
-  );
-  await page.route("**/assets/*.js", (route) =>
-    route.request().url().endsWith("/appearance.js")
-      ? route.continue()
-      : route.abort(),
-  );
-  await page.goto("/");
-  await expect(page.locator("html")).toHaveAttribute("data-appearance", "warm");
-  await expect(page.locator("html")).toHaveCSS(
-    "background-color",
-    "rgb(250, 247, 242)",
-  );
-});
-
-test("drops a removed theme preference and falls back to system", async ({
+test("drops removed theme preferences (warm, deepseek) and falls back to system", async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "light" });
-  await page.addInitScript(() =>
-    localStorage.setItem("cocogem-appearance", "deepseek"),
-  );
-  await page.route("**/assets/*.js", (route) =>
-    route.request().url().endsWith("/appearance.js")
-      ? route.continue()
-      : route.abort(),
-  );
-  await page.goto("/");
-  await expect(page.locator("html")).not.toHaveAttribute("data-appearance");
-  await expect(page.locator("html")).toHaveCSS(
-    "background-color",
-    "rgb(248, 250, 252)",
-  );
+  for (const removed of ["warm", "deepseek"]) {
+    await page.addInitScript(
+      (value) => localStorage.setItem("cocogem-appearance", value),
+      removed,
+    );
+    await page.route("**/assets/*.js", (route) =>
+      route.request().url().endsWith("/appearance.js")
+        ? route.continue()
+        : route.abort(),
+    );
+    await page.goto("/");
+    await expect(page.locator("html")).not.toHaveAttribute("data-appearance");
+    await expect(page.locator("html")).toHaveCSS(
+      "background-color",
+      "rgb(247, 248, 250)",
+    );
+  }
 });
 
 test("ignores invalid preferences and works without browser storage", async ({
@@ -102,12 +87,12 @@ test("ignores invalid preferences and works without browser storage", async ({
   await expect(page.locator("html")).not.toHaveAttribute("data-appearance");
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(11, 13, 16)",
+    "rgb(12, 14, 18)",
   );
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(248, 250, 252)",
+    "rgb(247, 248, 250)",
   );
   await page.addInitScript(() => {
     Object.defineProperty(window, "localStorage", {
@@ -120,6 +105,6 @@ test("ignores invalid preferences and works without browser storage", async ({
   await expect(page.locator("html")).not.toHaveAttribute("data-appearance");
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(248, 250, 252)",
+    "rgb(247, 248, 250)",
   );
 });

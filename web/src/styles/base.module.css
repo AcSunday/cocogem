@@ -1,41 +1,46 @@
-/* Design tokens and element defaults shared by every module. */
+/* Design tokens and element defaults shared by every module.
+ * Precision Light / Deep-Obsidian Dark pair aligned with Logo 01 (Prism Facets). */
 :root {
   color-scheme: light dark;
-  /* Modern clean light / Modern deep dark default pair */
-  --bg: light-dark(#f8fafc, #0b0d10);
-  --surface: light-dark(#ffffff, #14171d);
-  --surface-2: light-dark(#f1f5f9, #1c2027);
-  --surface-3: light-dark(#e2e8f0, #242932);
-  --border: light-dark(rgba(0, 0, 0, 0.07), rgba(255, 255, 255, 0.08));
-  --border-strong: light-dark(rgba(0, 0, 0, 0.16), rgba(255, 255, 255, 0.16));
-  --text: light-dark(#0f172a, #f1f5f9);
-  --text-2: light-dark(#475569, #94a3b8);
-  --text-3: light-dark(#5b6b80, #8c99ac);
-  --accent: light-dark(#2563eb, #3b82f6);
-  --accent-hover: light-dark(#1d4ed8, #2563eb);
-  --accent-soft: light-dark(rgba(37, 99, 235, 0.08), rgba(59, 130, 246, 0.12));
-  --accent-text: light-dark(#1d4ed8, #60a5fa);
-  --warn-bg: light-dark(rgba(245, 158, 11, 0.12), rgba(251, 191, 36, 0.12));
+  --bg: light-dark(#f7f8fa, #0c0e12);
+  --rail-bg: light-dark(#eff1f5, #090b0e);
+  --surface: light-dark(#ffffff, #12151b);
+  --surface-2: light-dark(#f1f3f7, #171c25);
+  --surface-3: light-dark(#e4e8f0, #1f2633);
+  --border: light-dark(rgba(15, 23, 42, 0.08), rgba(255, 255, 255, 0.075));
+  --border-strong: light-dark(rgba(15, 23, 42, 0.17), rgba(255, 255, 255, 0.16));
+  --text: light-dark(#111622, #f0f2f6);
+  --text-2: light-dark(#4b5568, #9ba5b7);
+  --text-3: light-dark(#687387, #6c778b);
+  --accent: light-dark(#2563eb, #4f8bff);
+  --accent-hover: light-dark(#1d4ed8, #3b78f2);
+  --accent-soft: light-dark(rgba(37, 99, 235, 0.09), rgba(79, 139, 255, 0.14));
+  --accent-text: light-dark(#1d4ed8, #78aaff);
+  --teal: light-dark(#0d9488, #2dd4bf);
+  --teal-soft: light-dark(rgba(13, 148, 136, 0.1), rgba(45, 212, 191, 0.13));
+  --coral: light-dark(#d95338, #e06d53);
+  --coral-soft: light-dark(rgba(217, 83, 56, 0.1), rgba(224, 109, 83, 0.14));
+  --warn-bg: light-dark(rgba(245, 158, 11, 0.11), rgba(245, 158, 11, 0.11));
   --warn-text: light-dark(#b45309, #fbbf24);
   --danger: light-dark(#dc2626, #f87171);
   --danger-bg: light-dark(rgba(220, 38, 38, 0.08), rgba(248, 113, 113, 0.12));
-  --success-bg: light-dark(rgba(5, 150, 105, 0.1), rgba(52, 211, 153, 0.12));
-  --success-text: light-dark(#059669, #34d399);
+  --success-bg: light-dark(rgba(13, 148, 136, 0.1), rgba(45, 212, 191, 0.13));
+  --success-text: light-dark(#0f766e, #34d399);
   --focus: var(--accent);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius: 12px;
   --radius-lg: 16px;
-  --radius-xl: 24px;
+  --radius-xl: 20px;
   --radius-full: 9999px;
-  --shadow: 0 10px 30px light-dark(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.45));
-  --shadow-lg: 0 16px 40px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.6));
+  --shadow: 0 10px 30px light-dark(rgba(15, 23, 42, 0.06), rgba(0, 0, 0, 0.52));
+  --shadow-lg: 0 18px 46px light-dark(rgba(15, 23, 42, 0.1), rgba(0, 0, 0, 0.68));
   --topbar: 52px;
   --control-height: 34px;
   --control-padding: 6px 12px;
   --control-font-size: 13px;
   --font-body:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-display: var(--font-body);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
@@ -78,6 +83,7 @@ h2 {
   font-size: 18px;
   line-height: 1.4;
   font-weight: 600;
+  letter-spacing: -0.015em;
 }
 h3 {
   font-size: 15px;
@@ -93,35 +99,9 @@ h4 {
 :root[data-appearance="dark"] {
   color-scheme: dark;
 }
-
-/* Warm appearance: original classic warm paper & terracotta red palette */
-:root[data-appearance="warm"] {
-  color-scheme: light;
-  --bg: #faf7f2;
-  --surface: #fffdf9;
-  --surface-2: #f0ebe3;
-  --surface-3: #eee7dd;
-  --border: #dfd5c9;
-  --border-strong: #9b8b7b;
-  --text: #332c26;
-  --text-2: #665b50;
-  --text-3: #706357;
-  --accent: #a34e35;
-  --accent-hover: #8e422c;
-  --accent-soft: #f3e5d9;
-  --accent-text: #a34e35;
-  --warn-bg: #f4ead5;
-  --warn-text: #705114;
-  --danger: #9e3d2d;
-  --danger-bg: #f9e9e2;
-  --success-bg: #e8eddf;
-  --success-text: #50613e;
-  --focus: var(--accent-text);
-  --shadow: 0 8px 32px rgb(51 44 38 / 8%);
-}
 strong,
 b {
-  font-weight: 500;
+  font-weight: 600;
 }
 a {
   color: var(--accent-text);
@@ -143,7 +123,7 @@ a.button {
   line-height: 1.4;
   text-decoration: none;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 button:hover:not(:disabled),
 a.button:hover {

@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 
 const cx = scoped(layout);
 
-export type Appearance = "system" | "light" | "dark" | "warm";
+export type Appearance = "system" | "light" | "dark";
 
 export function AppearanceSelect({
   value,
@@ -28,7 +28,6 @@ export function AppearanceSelect({
         <option value="system">{t("跟随系统", "System")}</option>
         <option value="light">{t("浅色", "Light")}</option>
         <option value="dark">{t("深色", "Dark")}</option>
-        <option value="warm">{t("经典暖色", "Warm")}</option>
       </Select>
     </label>
   );

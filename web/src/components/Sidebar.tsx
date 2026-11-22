@@ -15,6 +15,7 @@ import layout from "../styles/layout.module.css";
 import panels from "../styles/panels.module.css";
 import settings from "../styles/settings.module.css";
 import { formatDateTime, statusIconName } from "../lib/presentation";
+import { BrandLogo } from "./BrandLogo";
 import { Icon } from "./Icon";
 
 const cx = scoped(base, layout, panels, settings);
@@ -105,7 +106,7 @@ export function Sidebar({
           }}
         >
           <span className={cx("brand-mark")}>
-            <Icon name="logo" size={18} />
+            <BrandLogo size={24} />
           </span>
           Cocogem
         </a>
