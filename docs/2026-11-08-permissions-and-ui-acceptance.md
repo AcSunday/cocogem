@@ -170,3 +170,12 @@
 - `preview_page` 被通用工具注册表统一限制在 20s，冷启动浏览器在负载较高的 Linux runner 上耗尽预算后报 `css.EnableParams: context deadline exceeded`。现在注册表让 `run_test`/`run_command`/`preview_page` 各自使用经过校验的显式超时（`toolBudget`），浏览器冷启动另有独立上限，不再占用页面渲染预算。
 - `TestProjectQuestionAnswerAndBudgetContinuationHTTPJourney` 在预算账本并发落定时对 `If-Match` 读到过期 revision 而得 409。409 是设计行为，测试改为重新读取当前 revision 后重试，并连续重复运行验证。
 - 修复后四个矩阵组合（1.26.x / stable × ubuntu / macOS）全部通过。
+
+## 2026-11-21 PR #10 深度审查与收尾验证
+
+本节仅记录针对 PR #10 审查整改（提交 `39ca476`..`622847d`）的实际验证结果与未覆盖范围：
+
+- **本地全量 Go 测试**：`go test -race -shuffle=on ./...`（18/18 包全部 `ok`），以及 `TMPDIR=/tmp` 模拟 Linux 临时目录路径复现并验证 `internal/project` 与 `internal/workflow` 权限测试通过；`go vet ./...`、`gofmt -l cmd internal`、`GOOS=linux GOARCH=amd64 go test -c`（`nativecli` / `tools` / `project` / `workflow`）通过。
+- **前端与契约**：`make check-contract` 零 diff；`npm run typecheck`、`npm run lint`（含 `scripts/check-styles.mjs`）、Vitest 单元测试（46 文件 / 409 用例）、`make build`、`go run ./cmd/smoke` 与 Playwright 浏览器回归（37/37 用例）全部通过。
+- **GitHub Actions CI**：PR #10 在提交 `622847d` 上 4 项矩阵任务（`1.26.x` / `stable` × `macos-latest` / `ubuntu-latest`）全部通过。
+- **明确未验证范围**：本次收尾未执行真实外部供应商 CLI 探针（`make probe-cli` / `make probe-isolation` / `make verify-redesign`），也未在真实 Linux 宿主机验证 `bwrap` 命令隔离（Linux 仍按设计失败关闭）。
