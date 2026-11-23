@@ -54,7 +54,7 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173):
 
 1. Set a local access password of 12–128 characters on first use.
 2. Describe your goal directly. The first input creates an unnamed project, a conversation and editable default member profiles from your already-configured CLIs; no wizard is required.
-3. Research needs no project directory. Select a local directory for engineering work. Permission is global: new installations and the one-time migration default to project-autonomous mode; the Composer and Settings → Permissions stay synchronized.
+3. Research needs no project directory. Select a local directory for engineering work. Global permissions offer two tiers — `workspace_autonomous` (default) and `full_access` — plus a per-turn `Plan-Only` read-only lock in the Composer; the Composer and Settings → Permissions stay synchronized.
 4. Use `@` or natural language to address members, or let the coordinator choose. Durable tasks, goal revisions, budgets and completion records continue across sessions and restarts.
 
 Enter sends; Shift+Enter inserts a newline. Member completion and IME confirmation are supported. The local access password unlocks the web interface independently of the CLI's model credentials.
@@ -75,18 +75,16 @@ Use `COCOGEM_DATA_DIR` to choose the data directory and `--allow-root /absolute/
 | Capability | How it works |
 | --- | --- |
 | Projects and durable tasks | The project home keeps the welcome scenarios plus a small summary; a far-left rail switches to a linked todo list of durable tasks. Goal revisions keep their history, and delivery is distinct from acceptance |
-| Free collaboration | Use `@` or natural language; the coordinator answers directly, hands off parallel or peer-to-peer relay tasks (`mode="relay"`, e.g. engineer → reviewer with 1-round early exit on approval), or selects a built-in workflow in the same turn |
-| Team discussion | Members form independent views, challenge each other, and synthesize while preserving disagreements, skipping redundant contributor check rounds when consensus is clear |
-| Research | Search and read sources, challenge and respond, or converge early to the final research report when independent critique confirms sufficient evidence |
-| Engineering collaboration | Select it or let the coordinator choose it; authorized members read, reproduce, modify and test, followed by independent review—converging immediately on approval or adding rework rounds up to budget when defects remain |
+| Dynamic collaboration | Use `@` or natural language on one unified dynamic kernel (no preset workflows); the coordinator answers directly or organizes parallel delegations and peer-to-peer relays (`handoff_task`), with independent review converging immediately on approval or capping rework at 2 rounds |
+| Research & engineering | Authorized members search, read sources, reproduce, modify, run tests, inspect git state, and preview pages; ordinary unpromoted single-member chats write directly to the project directory, while durable tasks and parallel subtasks isolate writes into Git worktree candidates with live diff preview, confirmed Apply, local branch export on conflict, and Discard |
 | Reusable members | Share global profiles across workspaces with roles, models, execution options and avatars; workspace membership manages links and enablement |
-| Global permissions | Choose controlled, project-autonomous or full-access mode; extra operations offer once, conversation-wide or deny, with exact tool and resource scope |
+| Global permissions | Choose `workspace_autonomous` (default) or `full_access`, plus a per-turn `Plan-Only` lock; outside operations offer once, conversation-wide (file or explicit directory subtree with three-tier `read < write < execute` matching), or deny |
 | Sources and deliverables | Inspect captured sources, exact report versions, and human feedback; download Markdown reports and delivered files |
-| Long tasks and recovery | Stream output, run independent tasks in parallel, stop tasks, retry failed member steps, wait and wake durably, and resume from checkpoints while retaining completed steps and history |
+| Long tasks and recovery | Stream output, run independent tasks in parallel, stop tasks, retry failed member steps, wait and wake durably, resume native CLI sessions across all five CLIs, and recover via a bounded Continuity Capsule while retaining completed steps and history |
 | Collaboration budget | Configure future root defaults (20/4/2/3/2) globally; each root keeps a separate ledger shared by its children and retries, with explicit waiting at exhaustion |
 | Everyday workspace tools | Search, rename, and restore conversations; choose light, dark, warm, or system appearance |
 
-Project-autonomous command execution currently uses the macOS boundary. Other operating systems fail closed where no verified execution boundary exists. A separate candidate directory is not guaranteed for every write, and restart recovery can requeue a step whose process stopped without a committed result. See the [product guide (Chinese)](docs/product.md#工具与执行边界) and [acceptance record](docs/2026-11-08-permissions-and-ui-acceptance.md) for tested versions, paths and remaining limits.
+Sandbox-autonomous command execution currently uses the verified macOS boundary; other operating systems fail closed where no verified execution boundary exists. Ordinary unpromoted chats write directly to the workspace root while durable tasks and parallel subtasks isolate writes in Git worktrees (or bounded copies for non-Git directories); restart recovery can still requeue a step whose process stopped without a committed result. See the [product guide (Chinese)](docs/product.md#工具与执行边界) and [acceptance record](docs/2026-11-08-permissions-and-ui-acceptance.md) for tested versions, paths and remaining limits.
 
 ### Supported CLIs
 
