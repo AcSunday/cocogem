@@ -130,7 +130,7 @@ test("member profiles: name-colored initials, image avatars and stable identity"
   const defaultColor = await headerAvatar.evaluate(
     (element) => getComputedStyle(element).backgroundColor,
   );
-  await expect(headerAvatar).toHaveClass(/avatar-tone-/);
+  await expect(headerAvatar).toHaveClass(/avatar-cat/);
   await page.getByLabel("输入问题").fill("@ragdoll");
   await expect(
     page.getByRole("option", { name: /@ragdoll/ }).locator("span").first(),
@@ -589,7 +589,7 @@ test("default avatar colors remain readable in every appearance without storage"
         : ((value + 0.055) / 1.055) ** 2.4;
       return sum + linear * [0.2126, 0.7152, 0.0722][index];
     }, 0);
-  for (const appearance of ["light", "dark", "warm", "system"]) {
+  for (const appearance of ["light", "dark", "system"]) {
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "设置" });
     await dialog.getByRole("tab", { name: "外观", exact: true }).click();

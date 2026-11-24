@@ -6,6 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import type { Thread, Workspace } from "../api/client";
 import { statusText } from "../api/client";
 import { t, useLanguage } from "../lib/i18n";
@@ -15,6 +16,8 @@ import layout from "../styles/layout.module.css";
 import panels from "../styles/panels.module.css";
 import settings from "../styles/settings.module.css";
 import { formatDateTime, statusIconName } from "../lib/presentation";
+import { useAnchoredOverlay } from "../lib/overlay";
+import { BrandLogo } from "./BrandLogo";
 import { Icon } from "./Icon";
 
 const cx = scoped(base, layout, panels, settings);
@@ -105,7 +108,7 @@ export function Sidebar({
           }}
         >
           <span className={cx("brand-mark")}>
-            <Icon name="logo" size={18} />
+            <BrandLogo size={24} />
           </span>
           Cocogem
         </a>
@@ -340,12 +343,12 @@ function ThreadMenu({
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ left: 0, top: 0 });
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  useAnchoredOverlay(open, trigger, menu, { minWidth: 152, alignEnd: true });
   const dismiss = (refocus: boolean) => {
     setOpen(false);
-    if (refocus) trigger.current?.focus();
+    if (refocus) trigger.current?.focus({ preventScroll: true });
   };
   const choose = (action: () => void) => {
     // Focus the trigger first so the dialog restores focus to this row.
@@ -356,20 +359,8 @@ function ThreadMenu({
     setOpen(false);
   }, [session]);
   useLayoutEffect(() => {
-    const anchor = trigger.current;
-    const list = menu.current;
-    if (!open || !anchor || !list) return;
-    const rect = anchor.getBoundingClientRect();
-    const width = 140;
-    const height = 84;
-    setPosition({
-      left: Math.max(8, Math.min(rect.right - width, innerWidth - width - 8)),
-      top:
-        rect.bottom + height + 4 > innerHeight
-          ? Math.max(8, rect.top - height - 4)
-          : rect.bottom + 4,
-    });
-    list.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    if (open) menu.current?.querySelector<HTMLElement>('[role="menuitem"]')
+      ?.focus({ preventScroll: true });
   }, [open]);
   useEffect(() => {
     if (!open) return;
@@ -380,7 +371,9 @@ function ThreadMenu({
       setOpen(false);
     };
     // Fixed positioning would detach from the anchor if the list scrolls.
-    const close = () => setOpen(false);
+    const close = (event: Event) => {
+      if (event.target !== menu.current) setOpen(false);
+    };
     document.addEventListener("pointerdown", outside);
     document.addEventListener("focusin", outside);
     window.addEventListener("scroll", close, true);
@@ -415,7 +408,7 @@ function ThreadMenu({
       >
         <Icon name="more" size={16} />
       </button>
-      {open && (
+      {open && createPortal(
         <div
           ref={menu}
           role="menu"
@@ -424,7 +417,6 @@ function ThreadMenu({
             `Actions for ${thread.title}`,
           )}
           className={cx("thread-menu")}
-          style={{ left: position.left, top: position.top }}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               event.preventDefault();
@@ -469,7 +461,8 @@ function ThreadMenu({
           >
             {t("删除", "Delete")}
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

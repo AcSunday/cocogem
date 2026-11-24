@@ -17,6 +17,7 @@ import conversation from "../styles/conversation.module.css";
 import panels from "../styles/panels.module.css";
 import { Icon } from "./Icon";
 import { t, useLanguage } from "../lib/i18n";
+import { revealOption, useAnchoredOverlay } from "../lib/overlay";
 
 const cx = scoped(controls, layout, conversation, panels);
 
@@ -34,6 +35,7 @@ type Props = Pick<
   onChange: (value: string) => void;
   required?: boolean;
   name?: string;
+  containerClassName?: string;
 };
 
 function text(node: ReactNode): string {
@@ -49,6 +51,7 @@ function text(node: ReactNode): string {
 export function Select({
   children,
   className = "",
+  containerClassName,
   value,
   onChange,
   disabled,
@@ -71,18 +74,14 @@ export function Select({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [invalid, setInvalid] = useState(false);
-  const [position, setPosition] = useState({
-    left: 0,
-    top: 0,
-    width: 0,
-    maxHeight: 300,
-  });
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef({ value: "", at: 0 });
   const listID = useId();
   const first = options.findIndex((option) => !option.disabled);
   const show = () => {
+    if (first < 0) return;
+    search.current = { value: "", at: 0 };
     setActive(selected >= 0 && !options[selected].disabled ? selected : first);
     setOpen(true);
   };
@@ -91,45 +90,21 @@ export function Select({
     onChange(options[index].value);
     setInvalid(false);
     setOpen(false);
-    trigger.current?.focus();
+    trigger.current?.focus({ preventScroll: true });
   };
   useLayoutEffect(() => {
-    if (!open || !trigger.current || !menu.current) return;
-    const reposition = () => {
-      if (!trigger.current) return;
-      const rect = trigger.current.getBoundingClientRect();
-      const below = window.innerHeight - rect.bottom - 16;
-      const above = rect.top - 16;
-      const height = Math.min(300, Math.max(below, above));
-      const width = Math.min(Math.max(rect.width, 180), window.innerWidth - 24);
-      setPosition({
-        left: Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)),
-        top:
-          below >= Math.min(180, above)
-            ? rect.bottom + 6
-            : Math.max(
-                12,
-                rect.top - Math.min(height, options.length * 38 + 12) - 6,
-              ),
-        width,
-        maxHeight: height,
-      });
-    };
-    reposition();
-    menu.current.showPopover?.();
+    if (!open || !menu.current) return;
     const element = menu.current;
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
+    element.showPopover?.();
     return () => {
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
       if (element.hidePopover && element.matches(":popover-open"))
-        element.hidePopover?.();
+        element.hidePopover();
     };
-  }, [open, options.length]);
+  }, [open]);
+  useAnchoredOverlay(open, trigger, menu);
   useEffect(() => {
     if (!open) return;
-    const outside = (event: PointerEvent) => {
+    const outside = (event: Event) => {
       if (
         !menu.current?.contains(event.target as Node) &&
         !trigger.current?.contains(event.target as Node)
@@ -137,25 +112,24 @@ export function Select({
         setOpen(false);
     };
     document.addEventListener("pointerdown", outside);
+    document.addEventListener("focusin", outside);
     return () => {
       document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("focusin", outside);
     };
   }, [open]);
   useEffect(() => {
     const list = menu.current;
-    const option = list?.querySelector<HTMLElement>(
-      `[data-index="${active}"]`,
-    );
+    const option = list?.querySelector<HTMLElement>(`[data-index="${active}"]`);
     if (!open || !list || !option) return;
-    // Keep keyboard navigation inside the menu without scrolling its dialog.
-    if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop;
-    else if (
-      option.offsetTop + option.offsetHeight > list.scrollTop + list.clientHeight
-    )
-      list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight;
+    revealOption(list, option);
   }, [active, open]);
   return (
-    <span className={cx("select-wrap")}>
+    <span
+      className={[cx("select-wrap"), containerClassName]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <button
         {...props}
         id={id}
@@ -175,6 +149,7 @@ export function Select({
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : show())}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Escape" && open) {
             event.preventDefault();
             event.stopPropagation();
@@ -219,6 +194,7 @@ export function Select({
             !event.altKey
           ) {
             event.preventDefault();
+            if (!open) show();
             const query =
               (Date.now() - search.current.at < 700
                 ? search.current.value
@@ -229,7 +205,6 @@ export function Select({
                 !option.disabled &&
                 option.label.toLocaleLowerCase().startsWith(query),
             );
-            if (!open) show();
             if (index >= 0) setActive(index);
           }
         }}
@@ -264,11 +239,8 @@ export function Select({
             role="listbox"
             popover="manual"
             className={cx("select-menu")}
-            aria-label={t(
-              `${props["aria-label"] || "选择"}选项`,
-              `${props["aria-label"] || "Select"} options`,
-            )}
-            style={{ ...position, display: "block", position: "fixed" }}
+            aria-label={props["aria-label"] || t("选项", "Options")}
+            style={{ display: "block" }}
           >
             {options.map((option, index) => (
               <div
@@ -282,9 +254,12 @@ export function Select({
                 className={cx(
                   `select-option ${index === active ? "highlighted" : ""}`,
                 )}
-                onPointerDown={(event) => event.preventDefault()}
-                onPointerMove={() => {
-                  if (!option.disabled) setActive(index);
+                onPointerDown={(event) => {
+                  if (event.pointerType === "mouse") event.preventDefault();
+                }}
+                onPointerMove={(event) => {
+                  if (event.pointerType === "mouse" && !option.disabled)
+                    setActive(index);
                 }}
                 onClick={(event) => {
                   event.preventDefault();
@@ -296,7 +271,7 @@ export function Select({
               </div>
             ))}
           </div>,
-          trigger.current?.closest("dialog") ?? document.body,
+          document.body,
         )}
     </span>
   );

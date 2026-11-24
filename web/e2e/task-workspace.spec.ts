@@ -41,7 +41,7 @@ test("tasks create conversations, chat promotes in place and navigation stays co
   await expect(page.getByRole("heading", { name: "改造任务工作区", exact: true })).toBeVisible();
   await expect(page.getByLabel("任务属性")).toContainText("待验收");
   await page.getByRole("button", { name: /返回任务清单/ }).click();
-  await page.getByRole("button", { name: /筛选项目/ }).click();
+  await page.getByRole("combobox", { name: "筛选项目" }).click();
   await page.getByRole("option", { name: workspace.name }).click();
   await expect(page.getByRole("region", { name: "待验收任务" })).toContainText("改造任务工作区");
   await page.getByRole("button", { name: "看板", exact: true }).click();
@@ -63,7 +63,8 @@ test("tasks create conversations, chat promotes in place and navigation stays co
   const acceptance = page.getByRole("dialog", { name: "人工验收" });
   await expect(acceptance).toBeVisible();
   const judgement = acceptance.getByRole("combobox", { name: /^判断/ }).first();
-  await judgement.selectOption("passed");
+  await judgement.click();
+  await acceptance.getByRole("option", { name: "通过", exact: true }).click();
   await acceptance.getByRole("checkbox", { name: /会话交付/ }).first().check();
   // The dialog's submit is "提交验收"; it stays disabled until every required
   // criterion is judged and passing ones carry evidence.
@@ -75,7 +76,7 @@ test("tasks create conversations, chat promotes in place and navigation stays co
   await submit.click();
   await expect(page.getByLabel("任务属性")).toContainText("已验收");
   await page.goBack();
-  await expect(page.getByRole("button", { name: /筛选项目/ })).toContainText(
+  await expect(page.getByRole("combobox", { name: "筛选项目" })).toContainText(
     workspace.name,
   );
   await page.getByRole("button", { name: "选择", exact: true }).click();

@@ -80,6 +80,7 @@ export function MessageCard({
   message,
   role,
   avatar,
+  executor,
   members = [],
   final = false,
   activity,
@@ -90,6 +91,7 @@ export function MessageCard({
   message: Message;
   role?: string;
   avatar?: string;
+  executor?: string;
   members?: MentionMember[];
   /** Delivered results fill the member column so the run footer can align. */
   final?: boolean;
@@ -176,7 +178,13 @@ export function MessageCard({
       )}
       aria-label={user ? t("你的消息", "Your message") : undefined}
     >
-      {!user && <Avatar name={message.agent_name} avatar={avatar} />}
+      {!user && (
+        <Avatar
+          name={message.agent_name}
+          avatar={avatar}
+          executor={executor}
+        />
+      )}
       <div className={cx("message-content")}>
         <div className={cx("message-meta")}>
           <strong>{user ? t("你", "You") : message.agent_name}</strong>

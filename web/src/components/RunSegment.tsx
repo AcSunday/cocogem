@@ -622,13 +622,15 @@ export function RunSegment({
   };
   const card = (message: Message, final = false) => {
     const failure = retryFor(message);
+    const author = displayRun.agents?.find(
+      (agent) => agent.id === message.agent_id,
+    );
     return (
       <MessageCard
         key={message.id}
         message={message}
-        avatar={displayRun.agents?.find(
-          (agent) => agent.id === message.agent_id,
-        )?.avatar}
+        avatar={author?.avatar}
+        executor={author?.executor}
         role={allSteps.find((step) => step.id === message.step_id)?.role}
         members={mentionMembers}
         final={final}

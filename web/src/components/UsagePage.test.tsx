@@ -281,9 +281,8 @@ describe("UsagePage", () => {
       expect(fetchMock.mock.calls.at(-1)?.[0]).toContain("range=today"),
     );
 
-    fireEvent.change(screen.getByLabelText("按 CLI 筛选"), {
-      target: { value: "codex" },
-    });
+    fireEvent.click(screen.getByLabelText("按 CLI 筛选"));
+    fireEvent.click(screen.getByRole("option", { name: "Codex" }));
     await waitFor(() =>
       expect(fetchMock.mock.calls.at(-1)?.[0]).toContain("executor=codex"),
     );

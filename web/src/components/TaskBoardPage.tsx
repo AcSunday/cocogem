@@ -29,6 +29,7 @@ import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { TaskCreateForm } from "./TaskCreateForm";
+import { Select } from "./Select";
 
 const cx = scoped(base, controls, styles);
 const STORAGE_KEY = "cocogem-task-filters-v2";
@@ -40,7 +41,6 @@ const defaults = {
   view: "list" as "list" | "board",
 };
 type Filters = typeof defaults;
-type FilterName = "status" | "workspace" | "owner";
 
 function savedFilters(): Filters {
   try {
@@ -62,59 +62,30 @@ function savedFilters(): Filters {
 }
 
 function FilterMenu({
-  name,
   label,
   value,
   options,
-  open,
-  onToggle,
   onChange,
 }: {
-  name: FilterName;
   label: string;
   value: string;
-  options: { value: string; label: string }[];
-  open: boolean;
-  onToggle: () => void;
+  options: readonly { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
-  const selected = options.find((option) => option.value === value);
   return (
-    <div className={cx("task-filter")} data-task-filter={name}>
-      <button
-        type="button"
-        className={cx("task-filter-button")}
-        data-active={value ? "true" : "false"}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={onToggle}
+    <div className={cx("task-filter")}>
+      <Select
+        aria-label={label}
+        className={cx("task-filter-button", value && "task-filter-active")}
+        value={value}
+        onChange={onChange}
       >
-        <span className={cx("sr-only")}>{label}</span>
-        <span className={cx("task-filter-value")}>
-          {selected?.label ?? options[0]?.label}
-        </span>
-        <Icon name="chevron" size={12} />
-      </button>
-      {open && (
-        <div className={cx("task-filter-menu")} role="listbox" aria-label={label}>
-          {options.map((option) => {
-            const active = option.value === value;
-            return (
-              <button
-                key={option.value || "all"}
-                type="button"
-                role="option"
-                aria-selected={active}
-                className={cx("task-filter-option")}
-                onClick={() => onChange(option.value)}
-              >
-                <span>{option.label}</span>
-                {active && <Icon name="check" size={12} />}
-              </button>
-            );
-          })}
-        </div>
-      )}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </Select>
     </div>
   );
 }
@@ -135,7 +106,6 @@ export function TaskBoardPage({
   const [filters, setFilters] = useState(savedFilters);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState("");
-  const [openFilter, setOpenFilter] = useState<FilterName | "">("");
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   // Archived work is collapsed by default; the footer drawer opens it in place.
@@ -182,24 +152,6 @@ export function TaskBoardPage({
         : { ...current, workspace, owner };
     });
   }, [board]);
-
-  useEffect(() => {
-    if (!openFilter) return;
-    const close = (event: PointerEvent) => {
-      const target = event.target as Element | null;
-      if (target?.closest("[data-task-filter]")) return;
-      setOpenFilter("");
-    };
-    const closeKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenFilter("");
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", closeKey);
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", closeKey);
-    };
-  }, [openFilter]);
 
   const update = (patch: Partial<Filters>) => {
     if (selecting) {
@@ -826,21 +778,12 @@ export function TaskBoardPage({
           />
         </label>
         <FilterMenu
-          name="status"
           label={t("筛选状态", "Filter by status")}
           value={filters.status}
           options={taskFocusFilters}
-          open={openFilter === "status"}
-          onToggle={() =>
-            setOpenFilter(openFilter === "status" ? "" : "status")
-          }
-          onChange={(value) => {
-            update({ status: value as TaskFocus | "" });
-            setOpenFilter("");
-          }}
+          onChange={(value) => update({ status: value as TaskFocus | "" })}
         />
         <FilterMenu
-          name="workspace"
           label={t("筛选项目", "Filter by project")}
           value={filters.workspace}
           options={[
@@ -850,17 +793,9 @@ export function TaskBoardPage({
               label: name,
             })),
           ]}
-          open={openFilter === "workspace"}
-          onToggle={() =>
-            setOpenFilter(openFilter === "workspace" ? "" : "workspace")
-          }
-          onChange={(value) => {
-            update({ workspace: value });
-            setOpenFilter("");
-          }}
+          onChange={(value) => update({ workspace: value })}
         />
         <FilterMenu
-          name="owner"
           label={t("筛选负责人", "Filter by owner")}
           value={filters.owner}
           options={[
@@ -870,14 +805,7 @@ export function TaskBoardPage({
               label: name,
             })),
           ]}
-          open={openFilter === "owner"}
-          onToggle={() =>
-            setOpenFilter(openFilter === "owner" ? "" : "owner")
-          }
-          onChange={(value) => {
-            update({ owner: value });
-            setOpenFilter("");
-          }}
+          onChange={(value) => update({ owner: value })}
         />
       </div>
 

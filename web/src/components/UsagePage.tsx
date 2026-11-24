@@ -13,6 +13,7 @@ import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
 import usageStyles from "../styles/usage.module.css";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
 
 const cx = scoped(base, controls, usageStyles);
 
@@ -426,11 +427,12 @@ export function UsagePage({
       </div>
 
       <div className={cx("usage-filters")}>
-        <select
+        <Select
+          containerClassName={cx("usage-filter-slot")}
           className={cx("usage-select")}
           aria-label={t("按项目筛选", "Filter by project")}
           value={workspaceID}
-          onChange={(e) => setWorkspaceID(e.target.value)}
+          onChange={setWorkspaceID}
         >
           <option value="">{t("全部项目", "All projects")}</option>
           {workspaceOptions.map(([id, name]) => (
@@ -438,12 +440,13 @@ export function UsagePage({
               {name}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
+          containerClassName={cx("usage-filter-slot")}
           className={cx("usage-select")}
           aria-label={t("按 CLI 筛选", "Filter by CLI")}
           value={executor}
-          onChange={(e) => setExecutor(e.target.value)}
+          onChange={setExecutor}
         >
           <option value="">{t("全部 CLI", "All CLIs")}</option>
           {(report?.executors ?? []).map((execName) => (
@@ -451,12 +454,13 @@ export function UsagePage({
               {executorLabel(execName)}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
+          containerClassName={cx("usage-filter-slot")}
           className={cx("usage-select")}
           aria-label={t("按成员筛选", "Filter by member")}
           value={agentID}
-          onChange={(e) => setAgentID(e.target.value)}
+          onChange={setAgentID}
         >
           <option value="">{t("全部成员", "All members")}</option>
           {memberOptions.map(([id, name]) => (
@@ -464,7 +468,7 @@ export function UsagePage({
               {name}
             </option>
           ))}
-        </select>
+        </Select>
         {hasFilter && (
           <button
             type="button"

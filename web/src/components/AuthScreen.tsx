@@ -8,6 +8,7 @@ import controls from "../styles/controls.module.css";
 import layout from "../styles/layout.module.css";
 import conversation from "../styles/conversation.module.css";
 import panels from "../styles/panels.module.css";
+import { BrandLogo } from "./BrandLogo";
 import { Icon } from "./Icon";
 import { Select } from "./Select";
 
@@ -49,7 +50,7 @@ export function AuthScreen({
       <section className={cx("auth-card")} aria-labelledby="auth-title">
         <div className={cx("auth-head")}>
           <span className={cx("brand-mark")}>
-            <Icon name="logo" size={22} />
+            <BrandLogo size={28} />
           </span>
           <p className={cx("auth-brand")}>Cocogem</p>
         </div>

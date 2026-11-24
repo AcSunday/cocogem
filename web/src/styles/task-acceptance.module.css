@@ -101,11 +101,8 @@
   color: var(--text-2);
   font-size: 12.5px;
 }
-.acceptance-judgement select {
+.acceptance-judgement > span {
   max-width: 220px;
-  min-height: 32px;
-  padding: 4px 9px;
-  font-size: 12.5px;
 }
 .acceptance-evidence {
   display: grid;

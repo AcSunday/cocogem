@@ -1108,6 +1108,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/workspaces/{id}/studio": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["workspaceStudio"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/workspaces/{id}/tasks": {
     parameters: {
       query?: never;
@@ -3495,6 +3511,165 @@ export interface components {
       run_id: string;
       started_at?: string;
       status: string;
+    };
+    StudioAgentActivity: {
+      activity_summary?: string;
+      agent_id: string;
+      avatar: string;
+      display_name: string;
+      enabled: boolean;
+      executor: string;
+      handle: string;
+      model: string;
+      role?: string;
+      run_id?: string;
+      state: string;
+      station: string;
+      step_id?: string;
+      thread_id?: string;
+      thread_title?: string;
+      updated_at?: string;
+    };
+    StudioArtifact: {
+      created_at: string;
+      id: string;
+      run_id: string;
+      thread_id: string;
+      thread_title: string;
+      title: string;
+      type: string;
+      version: number;
+    };
+    StudioPermission: {
+      agent_name: string;
+      request: {
+        action: string;
+        adapter?: string;
+        arguments_digest: string;
+        attempt_id: string;
+        created_at: string;
+        id: string;
+        member_id: string;
+        member_name?: string;
+        normalized_resource_scope: string;
+        operation_summary?: string;
+        origin: string;
+        permission_epoch: number;
+        pre_approval?: boolean;
+        reason: string;
+        request_id: string;
+        resolved_at?: string;
+        revision: number;
+        risk?: string;
+        run_id: string;
+        status: string;
+        step_id: string;
+        thread_id: string;
+        tool_call_id: string;
+        tool_name: string;
+        workspace_id: string;
+      };
+      thread_title: string;
+    };
+    StudioRelay: {
+      from_agent_id: string;
+      role: string;
+      run_id: string;
+      status: string;
+      step_id: string;
+      thread_id: string;
+      to_agent_id: string;
+    };
+    StudioSnapshot: {
+      agents: {
+        activity_summary?: string;
+        agent_id: string;
+        avatar: string;
+        display_name: string;
+        enabled: boolean;
+        executor: string;
+        handle: string;
+        model: string;
+        role?: string;
+        run_id?: string;
+        state: string;
+        station: string;
+        step_id?: string;
+        thread_id?: string;
+        thread_title?: string;
+        updated_at?: string;
+      }[];
+      artifacts: {
+        created_at: string;
+        id: string;
+        run_id: string;
+        thread_id: string;
+        thread_title: string;
+        title: string;
+        type: string;
+        version: number;
+      }[];
+      pending_permissions: {
+        agent_name: string;
+        request: {
+          action: string;
+          adapter?: string;
+          arguments_digest: string;
+          attempt_id: string;
+          created_at: string;
+          id: string;
+          member_id: string;
+          member_name?: string;
+          normalized_resource_scope: string;
+          operation_summary?: string;
+          origin: string;
+          permission_epoch: number;
+          pre_approval?: boolean;
+          reason: string;
+          request_id: string;
+          resolved_at?: string;
+          revision: number;
+          risk?: string;
+          run_id: string;
+          status: string;
+          step_id: string;
+          thread_id: string;
+          tool_call_id: string;
+          tool_name: string;
+          workspace_id: string;
+        };
+        thread_title: string;
+      }[];
+      relays: {
+        from_agent_id: string;
+        role: string;
+        run_id: string;
+        status: string;
+        step_id: string;
+        thread_id: string;
+        to_agent_id: string;
+      }[];
+      threads: {
+        active_run_id?: string;
+        id: string;
+        pending_permissions: number;
+        status: string;
+        task_id?: string;
+        title: string;
+        updated_at: string;
+      }[];
+      updated_at: string;
+      workspace_id: string;
+      workspace_name: string;
+    };
+    StudioThread: {
+      active_run_id?: string;
+      id: string;
+      pending_permissions: number;
+      status: string;
+      task_id?: string;
+      title: string;
+      updated_at: string;
     };
     SubmitInboxInput: {
       application_policy: string;
@@ -8036,6 +8211,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ProjectRecord"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  workspaceStudio: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StudioSnapshot"];
         };
       };
       /** @description Structured error */

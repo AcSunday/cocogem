@@ -134,9 +134,9 @@ it("filters by project and status, and keeps the view and filters on return", as
     screen.queryByRole("button", { name: /已经验收/ }),
   ).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: /筛选项目/ }));
+  await user.click(screen.getByRole("combobox", { name: "筛选项目" }));
   await user.click(screen.getByRole("option", { name: "订单系统" }));
-  expect(screen.getByRole("button", { name: /筛选项目/ })).toHaveTextContent(
+  expect(screen.getByRole("combobox", { name: "筛选项目" })).toHaveTextContent(
     "订单系统",
   );
   expect(
@@ -153,7 +153,7 @@ it("filters by project and status, and keeps the view and filters on return", as
   );
 
   await user.click(screen.getByRole("button", { name: "清单" }));
-  await user.click(screen.getByRole("button", { name: /筛选状态/ }));
+  await user.click(screen.getByRole("combobox", { name: "筛选状态" }));
   await user.click(screen.getByRole("option", { name: "已验收" }));
   const acceptedGroup = screen.getByRole("region", { name: "已验收任务" });
   expect(acceptedGroup).toHaveTextContent("已经验收");
@@ -167,10 +167,10 @@ it("filters by project and status, and keeps the view and filters on return", as
   first.unmount();
   render(<TaskBoardPage onOpenTask={() => {}} />);
   await screen.findByRole("heading", { name: "任务清单" });
-  expect(screen.getByRole("button", { name: /筛选状态/ })).toHaveTextContent(
+  expect(screen.getByRole("combobox", { name: "筛选状态" })).toHaveTextContent(
     "已验收",
   );
-  expect(screen.getByRole("button", { name: /筛选项目/ })).toHaveTextContent(
+  expect(screen.getByRole("combobox", { name: "筛选项目" })).toHaveTextContent(
     "订单系统",
   );
   expect(screen.getByRole("button", { name: "看板" })).toBeVisible();

@@ -92,11 +92,11 @@ test("capture permission, board, acceptance and pending screenshots", async ({
   });
   await page.getByRole("button", { name: "关闭窗口" }).click();
 
-  // --- Board in light / dark / warm, plus the mobile list ---
+  // --- Board in light / dark, plus the mobile list ---
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${baseURL}/w/${workspace.id}?view=tasks`);
   await page.getByRole("button", { name: "看板", exact: true }).click();
-  for (const theme of ["light", "dark", "warm"]) {
+  for (const theme of ["light", "dark"]) {
     await setAppearance(page, theme);
     await page.waitForTimeout(250);
     await page.screenshot({

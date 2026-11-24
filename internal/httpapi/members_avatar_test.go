@@ -94,3 +94,69 @@ func TestMemberAvatarUploadLegacyPreservationAndClear(t *testing.T) {
 		t.Fatalf("global profile or avatar lost in workspace link: %+v", linked.Items)
 	}
 }
+
+func TestBuiltInCatAvatarUniquenessAndDefaults(t *testing.T) {
+	s, _, cookie, csrf := pagingServer(t, workflow.DefaultLimits())
+	call := func(method, path string, in, out any, revision int, want int) {
+		t.Helper()
+		var headers map[string]string
+		if revision > 0 {
+			headers = map[string]string{"If-Match": strconv.Itoa(revision)}
+		}
+		rw := apiCall(s, method, path, in, cookie, csrf, headers)
+		if rw.Code != want {
+			t.Fatalf("%s %s got %d want %d: %s", method, path, rw.Code, want, rw.Body.String())
+		}
+		if out != nil {
+			if err := json.Unmarshal(rw.Body.Bytes(), out); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	var workspace w.Workspace
+	call("POST", "/api/v1/workspaces", WorkspaceInput{Name: "cat-studio"}, &workspace, 0, 200)
+
+	var initial struct {
+		Items []w.Agent `json:"items"`
+	}
+	call("GET", "/api/v1/workspaces/"+workspace.ID+"/agents", nil, &initial, 0, 200)
+	wantDefaults := map[string]string{"ragdoll": "cat:ragdoll", "maine": "cat:maine", "orange": "cat:orange"}
+	for _, agent := range initial.Items {
+		if want, ok := wantDefaults[agent.Handle]; ok && agent.Avatar != want {
+			t.Fatalf("default agent %s avatar=%q want %q", agent.Handle, agent.Avatar, want)
+		}
+	}
+
+	// Creating a member with an already-used cat preset fails with 409.
+	dup := w.Agent{DisplayName: "另一只橘猫", Handle: "orange2", Executor: "claude", Model: "default", Avatar: "cat:orange"}
+	call("POST", "/api/v1/agents", dup, nil, 0, 409)
+
+	// Unused cat preset succeeds.
+	siamese := w.Agent{DisplayName: "暹罗猫", Handle: "siamese", Executor: "claude", Model: "default", Avatar: "cat:siamese"}
+	var created w.Agent
+	call("POST", "/api/v1/agents", siamese, &created, 0, 200)
+	if created.Avatar != "cat:siamese" {
+		t.Fatalf("created avatar=%q want cat:siamese", created.Avatar)
+	}
+
+	// Updating unrelated fields while keeping own cat preset succeeds.
+	created.RoleDescription = "专注协议与边界核查"
+	var updated w.Agent
+	call("PATCH", "/api/v1/agents/"+created.ID, created, &updated, created.Revision, 200)
+	if updated.Avatar != "cat:siamese" {
+		t.Fatalf("updated avatar=%q want cat:siamese", updated.Avatar)
+	}
+
+	// Switching to a preset held by another member fails with 409.
+	updated.Avatar = "cat:ragdoll"
+	call("PATCH", "/api/v1/agents/"+created.ID, updated, nil, updated.Revision, 409)
+
+	// Deleting the member frees the cat preset for a new profile.
+	call("DELETE", "/api/v1/agents/"+created.ID, nil, nil, updated.Revision, 200)
+	var recreated w.Agent
+	call("POST", "/api/v1/agents", siamese, &recreated, 0, 200)
+	if recreated.Avatar != "cat:siamese" {
+		t.Fatalf("recreated avatar=%q want cat:siamese", recreated.Avatar)
+	}
+}

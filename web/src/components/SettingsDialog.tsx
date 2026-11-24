@@ -153,7 +153,7 @@ export function SettingsDialog({
   };
 
   return (
-    <Modal title={t("设置", "Settings")} close={close} wide>
+    <Modal title={t("设置", "Settings")} close={close} wide flush>
       <div className={cx("settings-container")}>
         <div
           className={cx("settings-tabs")}

@@ -20,28 +20,55 @@ const (
 	avatarMIMEPrefix = "data:image/"
 )
 
+// CatAvatarPresets lists the ten built-in pixel cat member presets.
+// Each preset maps to both the member portrait avatar and its sprite in the
+// Pixel Cat R&D Studio view, and may be held by at most one global member.
+var CatAvatarPresets = []string{
+	"cat:ragdoll",
+	"cat:siamese",
+	"cat:maine",
+	"cat:orange",
+	"cat:tabby",
+	"cat:tuxedo",
+	"cat:calico",
+	"cat:british",
+	"cat:silver",
+	"cat:black",
+}
+
+// IsCatAvatar reports whether value is one of the built-in cat presets.
+func IsCatAvatar(value string) bool {
+	for _, preset := range CatAvatarPresets {
+		if value == preset {
+			return true
+		}
+	}
+	return false
+}
+
 // IsImageAvatar reports whether value is a fully decoded supported upload.
 func IsImageAvatar(value string) bool {
 	return validateAvatar(value, true) == nil
 }
 
-// ValidateAvatar accepts empty, legacy built-in choices (for old profiles) and
-// verified PNG/JPEG uploads. New profiles must additionally use
-// ValidateNewAvatar so legacy emoji cannot be introduced again.
+// ValidateAvatar accepts empty, built-in cat presets, legacy built-in choices
+// (for old profiles) and verified PNG/JPEG uploads. New profiles must
+// additionally use ValidateNewAvatar so legacy emoji cannot be introduced again.
 func ValidateAvatar(value string) error {
-	if value == "" || containsAvatarChoice(value) {
+	if value == "" || IsCatAvatar(value) || containsAvatarChoice(value) {
 		return nil
 	}
 	return validateAvatar(value, true)
 }
 
-// ValidateNewAvatar rejects legacy emoji choices on create.
+// ValidateNewAvatar rejects legacy emoji choices on create while allowing
+// built-in cat presets or verified PNG/JPEG uploads.
 func ValidateNewAvatar(value string) error {
-	if value == "" {
+	if value == "" || IsCatAvatar(value) {
 		return nil
 	}
 	if containsAvatarChoice(value) {
-		return errors.New("avatar must be an uploaded PNG or JPEG image")
+		return errors.New("avatar must be a built-in cat preset or an uploaded PNG or JPEG image")
 	}
 	return validateAvatar(value, true)
 }

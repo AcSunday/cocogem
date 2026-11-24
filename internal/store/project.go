@@ -116,6 +116,27 @@ func (t *Tx) Completions(taskID string) ([]w.CompletionRecord, error) {
 	return list[w.CompletionRecord](t, "SELECT body FROM completion_records WHERE task_id=? ORDER BY rowid", taskID)
 }
 
+// TaskJudgment carries the current basis for checking a stored completion.
+type TaskJudgment struct {
+	Task       w.Task             `json:"task"`
+	Revision   w.TaskRevision     `json:"revision"`
+	Completion w.CompletionRecord `json:"completion"`
+}
+
+// WorkspaceCompletedTaskJudgments reads current judgments, newest first.
+func (t *Tx) WorkspaceCompletedTaskJudgments(workspaceID string) ([]TaskJudgment, error) {
+	return list[TaskJudgment](t, `
+		SELECT json_object('task', json(t.body), 'revision', json(r.body), 'completion', json(c.body))
+		FROM tasks t
+		JOIN task_revisions r ON r.task_id = t.id AND r.revision = t.current_revision
+		JOIN completion_records c ON c.task_id = t.id AND c.task_revision = r.revision
+		WHERE t.workspace_id = ? AND t.status = 'completed'
+		  AND c.evaluation_generation = json_extract(t.body, '$.evaluation_generation')
+		  AND json_extract(c.body, '$.validity') = 'current'
+		  AND json_extract(c.body, '$.input_snapshot_digest') = json_extract(r.body, '$.digest')
+		ORDER BY c.rowid DESC`, workspaceID)
+}
+
 // SaveDependency inserts one exact dependency edge.
 func (t *Tx) SaveDependency(v w.TaskDependency) error {
 	return t.exec("INSERT INTO task_dependencies(id,producer_task_id,consumer_task_id,completion_ref,artifact_ref,body) VALUES(?,?,?,?,?,?)", v.ID, v.ProducerTaskID, v.ConsumerTaskID, v.CompletionRef, v.ArtifactRef, body(v))

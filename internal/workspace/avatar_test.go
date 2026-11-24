@@ -129,3 +129,26 @@ func TestValidateAvatarRejectsOversizeBytesAndDimensions(t *testing.T) {
 		t.Fatalf("maximum accepted side rejected: %v", err)
 	}
 }
+
+func TestBuiltInCatAvatarPresets(t *testing.T) {
+	if len(CatAvatarPresets) != 10 {
+		t.Fatalf("expected 10 built-in cat presets, got %d", len(CatAvatarPresets))
+	}
+	for _, preset := range CatAvatarPresets {
+		if !IsCatAvatar(preset) {
+			t.Fatalf("expected %q to be recognized as built-in cat avatar", preset)
+		}
+		if err := ValidateAvatar(preset); err != nil {
+			t.Fatalf("ValidateAvatar rejected %q: %v", preset, err)
+		}
+		if err := ValidateNewAvatar(preset); err != nil {
+			t.Fatalf("ValidateNewAvatar rejected %q: %v", preset, err)
+		}
+	}
+	if IsCatAvatar("cat:unknown") {
+		t.Fatal("unknown cat preset was accepted")
+	}
+	if err := ValidateNewAvatar("cat:unknown"); err == nil {
+		t.Fatal("ValidateNewAvatar accepted unknown cat preset")
+	}
+}

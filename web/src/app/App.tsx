@@ -38,6 +38,7 @@ import {
 import { AuthScreen } from "../components/AuthScreen";
 import type { Appearance } from "../components/AppearanceSelect";
 import { Avatar } from "../components/Avatar";
+import { BrandLogo } from "../components/BrandLogo";
 import { CandidateBar } from "../components/CandidateBar";
 import { Composer, type ComposerAttachment } from "../components/Composer";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
@@ -45,6 +46,7 @@ import { Icon } from "../components/Icon";
 import { RunSegment } from "../components/RunSegment";
 import { ProjectHome } from "../components/ProjectHome";
 import { ProjectRail, type ProjectView } from "../components/ProjectRail";
+import { StudioPage } from "../components/StudioPage";
 import { TaskBoardPage } from "../components/TaskBoardPage";
 import { UsagePage } from "../components/UsagePage";
 import { TaskDetail } from "../components/TaskDetail";
@@ -112,7 +114,9 @@ const pathSelection = () => {
       ? "tasks"
       : viewParam === "usage"
         ? "usage"
-        : "home";
+        : viewParam === "studio"
+          ? "studio"
+          : "home";
   return {
     workspace: match?.[1] ?? "",
     thread: match?.[2] === "t" ? (match?.[3] ?? "") : "",
@@ -319,6 +323,9 @@ function WorkspaceApp({
     new Map<string, { input: RunInput; key: string; threadID: string }>(),
   );
   const bootstrapKeys = useRef<Record<string, string>>({});
+  const studioSubmissions = useRef(
+    new Map<string, { message: string; key: string; threadID?: string }>(),
+  );
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const runs = view?.runs ?? [];
   const currentRun = runs.at(-1);
@@ -482,7 +489,9 @@ function WorkspaceApp({
     messageWatermark.current = {};
     if (push) {
       const query =
-        !task && !th && (nextView === "tasks" || nextView === "usage")
+        !task &&
+        !th &&
+        (nextView === "tasks" || nextView === "usage" || nextView === "studio")
           ? `?view=${nextView}`
           : "";
       history.pushState(
@@ -1222,6 +1231,57 @@ function WorkspaceApp({
       setBusy(false);
     }
   }
+
+  async function sendStudioCommand(text: string, threadID?: string) {
+    const scope = JSON.stringify([workspaceID, threadID]);
+    const previous = studioSubmissions.current.get(scope);
+    if (previous?.key && previous.message !== text) {
+      throw new Error(t(
+        "上次提交的结果仍待确认，请重试原指令。",
+        "The previous submission is unconfirmed. Retry the original message.",
+      ));
+    }
+    const submission = {
+      message: text,
+      key: previous?.key || crypto.randomUUID(),
+      threadID: threadID ?? previous?.threadID,
+    };
+    studioSubmissions.current.set(scope, submission);
+    const headers = { "Idempotency-Key": submission.key };
+    try {
+      if (!submission.threadID) {
+        const created = await api<BootstrapReply>("/api/v1/bootstrap", "POST", {
+          workspace_id: workspaceID,
+          title: threadTitle(text),
+        }, headers);
+        submission.threadID = created.thread.id;
+      }
+      await api<Run>(
+        `/api/v1/threads/${submission.threadID}/runs`,
+        "POST",
+        {
+          message: text,
+          targets: [],
+          source_urls: [],
+          source_ids: [],
+          artifact_refs: [],
+          research_scope: "auto",
+          retry_of_run_id: "",
+        } satisfies RunInput,
+        headers,
+      );
+    } catch (failure) {
+      if (failure instanceof APIError && failure.status >= 400 && failure.status < 500) {
+        // Reuse a conversation already created for the rejected draft.
+        if (!threadID && submission.threadID) submission.key = "";
+        else studioSubmissions.current.delete(scope);
+      }
+      throw failure;
+    }
+    studioSubmissions.current.delete(scope);
+    void loadThreads(workspaceID).catch(() => {});
+    return submission.threadID;
+  }
   async function stop() {
     if (!currentRun) return;
     try {
@@ -1333,7 +1393,7 @@ function WorkspaceApp({
     return (
       <main className={cx("bootstrap")}>
         <span className={cx("brand-mark")}>
-          <Icon name="logo" size={22} />
+          <BrandLogo size={32} />
         </span>
         <h1>Cocogem</h1>
         {error ? (
@@ -1351,16 +1411,24 @@ function WorkspaceApp({
   const messages = view?.messages.items ?? [];
   const hideWorkspaceSidebar =
     !!taskID || (!threadID && projectView !== "home");
+  const studioView = !taskID && !threadID && projectView === "studio";
   return (
     <div className={cx("app-shell")}>
-      <a className={cx("skip-link")} href="#composer-input">
-        {t("跳到输入框", "Skip to composer")}
+      <a
+        className={cx("skip-link")}
+        href={studioView ? "#studio-command" : hideWorkspaceSidebar ? "#workspace-content" : "#composer-input"}
+      >
+        {hideWorkspaceSidebar && !studioView
+          ? t("跳到主要内容", "Skip to main content")
+          : t("跳到输入框", "Skip to composer")}
       </a>
       <ProjectRail
         active={threadID ? "home" : taskID ? "tasks" : projectView}
+        pendingPermissions={permissions.pending.length}
         onHome={() => navigate(workspaceID, "", true, "", "home")}
         onTasks={() => navigate(workspaceID, "", true, "", "tasks")}
         onUsage={() => navigate(workspaceID, "", true, "", "usage")}
+        onStudio={() => navigate(workspaceID, "", true, "", "studio")}
         onSettings={() => setModal({ kind: "settings" })}
       />
       {!hideWorkspaceSidebar && (
@@ -1392,6 +1460,7 @@ function WorkspaceApp({
         }}
       />
       <section className={cx("workspace-main")}>
+        {!studioView && (
         <header className={cx("topbar")}>
           {!hideWorkspaceSidebar && (
             <button
@@ -1417,7 +1486,9 @@ function WorkspaceApp({
                   ? t("任务清单", "Tasks")
                   : projectView === "usage"
                     ? t("Tokens 用量", "Token usage")
-                    : workspace?.name ?? "Cocogem"}
+                    : projectView === "studio"
+                      ? t("猫猫研发室", "Cat Studio")
+                      : workspace?.name ?? "Cocogem"}
               </strong>
             )}
           </div>
@@ -1463,6 +1534,7 @@ function WorkspaceApp({
                         key={agent.id}
                         name={agent.display_name}
                         avatar={agent.avatar}
+                        executor={agent.executor}
                         small
                       />
                     ))}
@@ -1491,6 +1563,7 @@ function WorkspaceApp({
             )}
           </div>
         </header>
+        )}
         {error && hideWorkspaceSidebar && (
           <div role="alert" className={cx("error-banner")}>
             <span>{error}</span>
@@ -1504,11 +1577,16 @@ function WorkspaceApp({
           </div>
         )}
         <div className={cx("workspace-columns")}>
-          <main className={cx("conversation")}>
+          <main className={cx("conversation")} id="workspace-content" tabIndex={-1}>
             <div className={cx("timeline-wrap")}>
               <div
                 className={cx("timeline")}
                 data-testid="conversation-timeline"
+                data-view={
+                  !taskID && !threadID && projectView === "studio"
+                    ? "studio"
+                    : undefined
+                }
                 ref={timeline}
                 onScroll={(event) => {
                   const el = event.currentTarget;
@@ -1544,6 +1622,15 @@ function WorkspaceApp({
                     <UsagePage
                       onOpenThread={(ws, id) => navigate(ws, id)}
                       onOpenTask={(ws, id) => navigate(ws, "", true, id)}
+                    />
+                  ) : projectView === "studio" ? (
+                    <StudioPage
+                      key={workspaceID}
+                      workspaces={workspaces}
+                      workspaceID={workspaceID}
+                      onWorkspace={(id) => navigate(id, "", true, "", "studio")}
+                      onOpenThread={(ws, id) => navigate(ws, id)}
+                      onDispatch={sendStudioCommand}
                     />
                   ) : workspace ? (
                     <ProjectHome

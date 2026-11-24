@@ -31,15 +31,12 @@ it("opens from the label and hands pointer choices to the app", async () => {
   );
 });
 
-it("offers the warm classic appearance", async () => {
+it("only exposes system, light and dark appearances", async () => {
   const user = userEvent.setup();
   const onChange = vi.fn();
-  const view = render(<AppearanceSelect value="system" onChange={onChange} />);
+  render(<AppearanceSelect value="system" onChange={onChange} />);
   await user.click(screen.getByText("外观"));
-  await user.click(screen.getByRole("option", { name: "经典暖色" }));
-  expect(onChange).toHaveBeenCalledWith("warm");
-  view.rerender(<AppearanceSelect value="warm" onChange={onChange} />);
-  expect(screen.getByRole("combobox", { name: "外观模式" })).toHaveTextContent(
-    "经典暖色",
-  );
+  expect(screen.queryByRole("option", { name: "经典暖色" })).not.toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "浅色" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "深色" })).toBeInTheDocument();
 });

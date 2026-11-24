@@ -26,14 +26,16 @@ Cocogem brings them into one local workspace. Describe your goal; members divide
 
 ## See It in Action
 
-![Cocogem collaboration workspace](docs/screenshots/conversation-light.png)
+![Cocogem collaboration workspace](docs/screenshots/en/conversation-dark.png)
+
+![Cocogem Pixel Cat R&D Studio](docs/screenshots/en/studio-dark.png)
 
 <details>
-<summary>Dark mode and mobile</summary>
+<summary>Light mode and mobile</summary>
 
-![Dark mode](docs/screenshots/conversation-dark.png)
+![Light mode](docs/screenshots/en/conversation-light.png)
 
-<img src="docs/screenshots/conversation-mobile.png" alt="Mobile conversation" width="320" />
+<img src="docs/screenshots/en/conversation-mobile.png" alt="Mobile conversation" width="320" />
 
 </details>
 
@@ -79,12 +81,13 @@ Use `COCOGEM_DATA_DIR` to choose the data directory and `--allow-root /absolute/
 | Team discussion | Members form independent views, challenge each other, and synthesize while preserving disagreements, skipping redundant contributor check rounds when consensus is clear |
 | Research | Search and read sources, challenge and respond, or converge early to the final research report when independent critique confirms sufficient evidence |
 | Engineering collaboration | Select it or let the coordinator choose it; authorized members read, reproduce, modify and test, followed by independent review—converging immediately on approval or adding rework rounds up to budget when defects remain |
-| Reusable members | Share global profiles across workspaces with roles, models, execution options and avatars; workspace membership manages links and enablement |
+| Reusable members | Share global profiles across workspaces with roles, models, execution options, and 10 unique built-in pixel cat personas (Ragdoll, Siamese, Maine Coon, Orange Tabby, Dragon Li, Tuxedo, Calico, British Blue, Silver Shaded, Black Cat); workspace membership manages links and enablement |
+| Pixel Cat R&D Studio | Switch to the Studio rail view for a workspace-level live pixel workshop synced with every member's cat persona, A2A relay flow, inline gatekeeper approvals, deliverable gem shelf, and quick command dispatch |
 | Global permissions | Choose controlled, project-autonomous or full-access mode; extra operations offer once, conversation-wide or deny, with exact tool and resource scope |
 | Sources and deliverables | Inspect captured sources, exact report versions, and human feedback; download Markdown reports and delivered files |
 | Long tasks and recovery | Stream output, run independent tasks in parallel, stop tasks, retry failed member steps, wait and wake durably, and resume from checkpoints while retaining completed steps and history |
 | Collaboration budget | Configure future root defaults (20/4/2/3/2) globally; each root keeps a separate ledger shared by its children and retries, with explicit waiting at exhaustion |
-| Everyday workspace tools | Search, rename, and restore conversations; choose light, dark, warm, or system appearance |
+| Everyday workspace tools | Search, rename, and restore conversations; choose light, dark, or system appearance |
 
 Project-autonomous command execution currently uses the macOS boundary. Other operating systems fail closed where no verified execution boundary exists. A separate candidate directory is not guaranteed for every write, and restart recovery can requeue a step whose process stopped without a committed result. See the [product guide (Chinese)](docs/product.md#工具与执行边界) and [acceptance record](docs/2026-11-08-permissions-and-ui-acceptance.md) for tested versions, paths and remaining limits.
 

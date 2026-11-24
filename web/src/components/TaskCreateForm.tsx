@@ -6,6 +6,7 @@ import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
 import controls from "../styles/controls.module.css";
 import styles from "../styles/project.module.css";
+import { Select } from "./Select";
 
 const cx = scoped(base, controls, styles);
 
@@ -141,25 +142,25 @@ export function TaskCreateForm({
       <div className={cx("task-create-properties")}>
         <label>
           {t("所属工作空间", "Project")}
-          <select
+          <Select
             required
             value={workspace}
             disabled={busy || !!saved || !!parentID || !!threadID}
-            onChange={(event) => setWorkspace(event.target.value)}
+            onChange={setWorkspace}
           >
             {Object.entries(workspaces).map(([id, name]) => (
               <option key={id} value={id}>
                 {name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label>
           {t("任务负责人", "Task owner")}
-          <select
+          <Select
             value={owner}
             disabled={busy || !!saved || !!threadID}
-            onChange={(event) => setOwner(event.target.value)}
+            onChange={setOwner}
           >
             <option value="">
               {t("沿用空间默认成员", "Use project default member")}
@@ -169,7 +170,7 @@ export function TaskCreateForm({
                 {member.display_name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </div>
       {error && (
