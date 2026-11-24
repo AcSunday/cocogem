@@ -19,6 +19,7 @@ import panels from "../styles/panels.module.css";
 import { memberLabel, runErrorText, errorText } from "../lib/presentation";
 import { t, useLanguage } from "../lib/i18n";
 import { applyMention, mentionAt, mentionMatches } from "../lib/mention";
+import { revealOption, useAnchoredOverlay } from "../lib/overlay";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 
@@ -115,6 +116,17 @@ export function Composer({
       : [];
   const options = matches;
   const index = Math.min(highlight, Math.max(0, options.length - 1));
+  const mentionList = useRef<HTMLUListElement>(null);
+  useAnchoredOverlay(options.length > 0, input, mentionList, {
+    minWidth: 220,
+    preferAbove: true,
+    limitHeight: 240,
+  });
+  useLayoutEffect(() => {
+    const list = mentionList.current;
+    const option = list?.children[index];
+    if (list && option instanceof HTMLElement) revealOption(list, option);
+  }, [index, options.length]);
   // A completion restores focus/caret on the next frame. Editing or moving the
   // caret before that frame runs owns the selection now, so a stale callback
   // must never pull the caret back (Shift+Enter would land at the old offset).
@@ -419,8 +431,9 @@ export function Composer({
           )}
         </div>
       ))}
-      {options.length > 0 && (
+      {options.length > 0 && createPortal(
         <ul
+          ref={mentionList}
           className={cx("mention-options")}
           role="listbox"
           id="composer-options"
@@ -432,16 +445,15 @@ export function Composer({
               id={`composer-option-${agent.id}`}
               role="option"
               aria-selected={i === index}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                pickOption(i);
-              }}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => pickOption(i)}
             >
               <Avatar name={agent.display_name} avatar={agent.avatar} small />
-              {memberLabel(agent)}
+              <span>{memberLabel(agent)}</span>
             </li>
           ))}
-        </ul>
+        </ul>,
+        document.body,
       )}
       <div className={cx("composer-input-wrap")}>
         <button

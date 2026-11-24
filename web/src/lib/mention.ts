@@ -7,7 +7,10 @@ export function mentionAt(text: string, caret: number) {
   return { start: caret - match[2].length - 1, query: match[2].toLowerCase() };
 }
 
-export function mentionMatches(agents: Agent[], query: string) {
+export function mentionMatches<
+  Member extends Pick<Agent, "handle" | "display_name"> &
+    Partial<Pick<Agent, "aliases">>,
+>(agents: readonly Member[], query: string) {
   return agents.filter((agent) =>
     [agent.handle, agent.display_name, ...(agent.aliases ?? [])].some((name) =>
       name.toLowerCase().startsWith(query),

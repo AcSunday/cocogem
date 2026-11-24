@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -71,7 +73,7 @@ type StudioPermission struct {
 	AgentName   string                  `json:"agent_name"`
 }
 
-// StudioArtifact summarizes a latest-version workspace deliverable for the gem shelf.
+// StudioArtifact summarizes an exact accepted workspace deliverable.
 type StudioArtifact struct {
 	ID          string `json:"id"`
 	Version     int    `json:"version"`
@@ -134,6 +136,67 @@ func summarizeInstruction(text string) string {
 		return string(runes[:71]) + "…"
 	}
 	return clean
+}
+
+func studioArtifacts(tx *store.Tx, workspaceID string, threads map[string]w.Thread, runs []w.Run) ([]StudioArtifact, error) {
+	judgments, err := tx.WorkspaceCompletedTaskJudgments(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	acceptedByTask := map[string]map[string]bool{}
+	for _, judgment := range judgments {
+		task := judgment.Task
+		if _, visible := threads[task.ThreadID]; !visible || acceptedByTask[task.ID] != nil {
+			continue
+		}
+		refs := map[string]bool{}
+		if judgment.Completion.Accepted(task, judgment.Revision) {
+			for _, ref := range judgment.Completion.CandidateRefs {
+				refs[ref] = true
+			}
+		}
+		acceptedByTask[task.ID] = refs
+	}
+
+	artifacts := make([]StudioArtifact, 0, 16)
+	for _, run := range runs {
+		refs := acceptedByTask[run.TaskID]
+		thread, visible := threads[run.ThreadID]
+		if len(refs) == 0 || !visible || run.Status != "succeeded" || run.Delivery == nil || thread.TaskID != run.TaskID {
+			continue
+		}
+		for _, ref := range run.Delivery.ArtifactRefs {
+			candidate := fmt.Sprintf("artifact:%s@v%d", ref.ID, ref.Version)
+			if !refs[candidate] {
+				continue
+			}
+			artifact, err := tx.Artifact(ref.ID, ref.Version)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if artifact.RunID != run.ID || artifact.ThreadID != thread.ID {
+				continue
+			}
+			delete(refs, candidate)
+			artifacts = append(artifacts, StudioArtifact{
+				ID:          artifact.ID,
+				Version:     artifact.Version,
+				ThreadID:    thread.ID,
+				ThreadTitle: thread.Title,
+				RunID:       run.ID,
+				Type:        artifact.Type,
+				Title:       artifact.Title,
+				CreatedAt:   artifact.CreatedAt,
+			})
+			if len(artifacts) == cap(artifacts) {
+				return artifacts, nil
+			}
+		}
+	}
+	return artifacts, nil
 }
 
 func (s *Server) workspaceStudio(rw http.ResponseWriter, r *http.Request) {
@@ -348,38 +411,9 @@ func (s *Server) workspaceStudio(rw http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Gather latest artifact versions across workspace threads for the gem cabinet.
-		latestArtifact := map[string]StudioArtifact{}
-		for _, th := range limitThreads {
-			items, err := tx.Artifacts(th.ID)
-			if err != nil {
-				return err
-			}
-			for _, art := range items {
-				prev, exists := latestArtifact[art.ID]
-				if !exists || art.Version > prev.Version {
-					latestArtifact[art.ID] = StudioArtifact{
-						ID:          art.ID,
-						Version:     art.Version,
-						ThreadID:    th.ID,
-						ThreadTitle: th.Title,
-						RunID:       art.RunID,
-						Type:        art.Type,
-						Title:       art.Title,
-						CreatedAt:   art.CreatedAt,
-					}
-				}
-			}
-		}
-		artifacts := make([]StudioArtifact, 0, len(latestArtifact))
-		for _, art := range latestArtifact {
-			artifacts = append(artifacts, art)
-		}
-		sort.Slice(artifacts, func(i, j int) bool {
-			return artifacts[i].CreatedAt > artifacts[j].CreatedAt
-		})
-		if len(artifacts) > 16 {
-			artifacts = artifacts[:16]
+		artifacts, err := studioArtifacts(tx, workspaceID, threadByID, runs)
+		if err != nil {
+			return err
 		}
 
 		studioThreads := make([]StudioThread, 0, len(limitThreads))

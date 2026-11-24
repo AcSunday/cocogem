@@ -31,6 +31,13 @@ afterEach(() => {
   request.mockReset();
 });
 
+async function choosePassed() {
+  fireEvent.click(
+    screen.getByRole("combobox", { name: "判断：结论有来源" }),
+  );
+  fireEvent.click(await screen.findByRole("option", { name: "通过" }));
+}
+
 const baseView: ProjectTaskView = {
   task: {
     id: "task",
@@ -294,10 +301,7 @@ it("opens a dedicated acceptance dialog and records an exact artifact version", 
   expect(screen.getByRole("dialog", { name: "人工验收" })).toBeVisible();
   expect(screen.getByRole("radio", { name: "研究报告 · v2" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "研究报告 · v2" })).toBeChecked();
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   await user.click(screen.getByRole("button", { name: "提交验收" }));
 
   await waitFor(() =>
@@ -395,10 +399,7 @@ it("keeps one save in flight despite dismiss and reopen attempts", async () => {
   await screen.findByRole("heading", { name: "完成可追溯研究" });
   await user.click(screen.getAllByRole("button", { name: "去验收" })[0]);
   const dialog = screen.getByRole("dialog", { name: "人工验收" });
-  await user.selectOptions(
-    within(dialog).getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   await user.click(within(dialog).getByRole("button", { name: "提交验收" }));
   expect(completionCalls()).toBe(1);
 
@@ -476,10 +477,7 @@ it("freezes the acceptance basis when a poll changes the task revision", async (
   await screen.findByRole("heading", { name: "完成可追溯研究" });
   await user.click(screen.getAllByRole("button", { name: "去验收" })[0]);
   const opened = screen.getByRole("dialog", { name: "人工验收" });
-  await user.selectOptions(
-    within(opened).getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   expect(
     within(opened).getByRole("radio", { name: "研究报告 · v2" }),
   ).toBeChecked();
@@ -547,10 +545,7 @@ it("uses an exact successful Delivery reply as the acceptance candidate", async 
   await screen.findByRole("heading", { name: "完成可追溯研究" });
   expect(screen.getByText(/研究结论与来源说明/)).toBeVisible();
   await user.click(screen.getAllByRole("button", { name: "去验收" })[0]);
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   await user.click(screen.getByRole("button", { name: "提交验收" }));
 
   await waitFor(() =>

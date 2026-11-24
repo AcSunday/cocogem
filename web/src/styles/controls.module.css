@@ -61,6 +61,7 @@ fieldset {
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 8px 12px;
   margin: 0;
+  min-inline-size: 0;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -335,13 +336,14 @@ small,
   width: 100%;
 }
 .select {
+  min-width: 0;
   width: 100%;
   justify-content: space-between;
   gap: 12px;
   min-height: 36px;
   padding: 7px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--surface);
   font-size: 14px;
   font-weight: 400;
@@ -367,12 +369,15 @@ small,
   border-color: var(--danger);
 }
 .select-menu {
+  position: fixed;
   inset: auto;
   margin: 0;
   padding: 6px;
+  max-width: calc(100vw - 16px);
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-lg);
@@ -403,8 +408,9 @@ small,
   background: var(--surface-3);
 }
 .select-option[aria-selected="true"].highlighted {
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent) 23%, var(--surface));
 }
+.select-option > span { min-width: 0; }
 .select-option[aria-disabled="true"] {
   color: var(--text-3);
   opacity: 0.55;

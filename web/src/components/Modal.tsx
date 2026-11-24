@@ -13,11 +13,13 @@ export function Modal({
   children,
   close,
   wide,
+  flush,
 }: {
   title: string;
   children: ReactNode;
   close: () => void;
   wide?: boolean;
+  flush?: boolean;
 }) {
   useLanguage();
   const ref = useRef<HTMLDialogElement>(null);
@@ -33,28 +35,41 @@ export function Modal({
     const caret =
       previous instanceof HTMLTextAreaElement ||
       previous instanceof HTMLInputElement
-        ? { start: previous.selectionStart, end: previous.selectionEnd }
+        ? {
+            start: previous.selectionStart,
+            end: previous.selectionEnd,
+            value: previous.value,
+          }
         : undefined;
     dialog?.showModal();
     return () => {
       dialog?.close();
-      previous?.focus();
+      previous?.focus({ preventScroll: true });
       if (
         caret &&
+        caret.start !== null &&
+        caret.end !== null &&
         (previous instanceof HTMLTextAreaElement ||
           previous instanceof HTMLInputElement)
       ) {
         // `dialog.close()` restores focus asynchronously in Chromium and resets
         // a text control's selection; reapply the caret on the next frame.
         const target = previous;
-        const text = target.value;
+        const restoredStart = target.selectionStart;
+        const restoredEnd = target.selectionEnd;
+        const { start, end, value } = caret;
         queueMicrotask(() =>
           requestAnimationFrame(() => {
             // The user may have typed or selected in the same frame; only a
             // control that still holds the same text gets the old caret back.
             if (document.activeElement !== target) return;
-            if (target.value !== text) return;
-            target.setSelectionRange(caret.start, caret.end);
+            if (target.value !== value) return;
+            if (
+              target.selectionStart !== restoredStart ||
+              target.selectionEnd !== restoredEnd
+            )
+              return;
+            target.setSelectionRange(start, end);
           }),
         );
       }
@@ -93,7 +108,9 @@ export function Modal({
             <Icon name="close" size={18} />
           </button>
         </div>
-        {children}
+        <div className={cx("modal-body", flush ? "modal-body-flush" : "")}>
+          {children}
+        </div>
       </div>
     </dialog>
   );

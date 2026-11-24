@@ -166,8 +166,8 @@ func TestWorkspaceStudioSnapshotAggregatesActivityRelaysPermissionsAndArtifacts(
 	if len(snap.PendingPermissions) != 1 || snap.PendingPermissions[0].Request.ID != perm.ID {
 		t.Fatalf("expected 1 pending permission, got %+v", snap.PendingPermissions)
 	}
-	if len(snap.Artifacts) != 1 || snap.Artifacts[0].Version != 2 || snap.Artifacts[0].Title != "Auth Race Audit v2" {
-		t.Fatalf("expected latest artifact version v2 only, got %+v", snap.Artifacts)
+	if len(snap.Artifacts) != 0 {
+		t.Fatalf("draft chat artifacts must stay out of the showcase: %+v", snap.Artifacts)
 	}
 
 	byAgent := map[string]StudioAgentActivity{}
@@ -182,5 +182,102 @@ func TestWorkspaceStudioSnapshotAggregatesActivityRelaysPermissionsAndArtifacts(
 	}
 	if byAgent[a2.ID].State != "waiting_permission" || byAgent[a2.ID].Station != "gate" {
 		t.Fatalf("agent 2 state=%+v want waiting_permission/gate", byAgent[a2.ID])
+	}
+}
+
+func TestWorkspaceStudioSnapshotShowsCurrentAcceptedDeliveryVersion(t *testing.T) {
+	for _, scenario := range []struct {
+		name                 string
+		deliveredVersion     int
+		completionGeneration int
+		wantAccepted         bool
+	}{
+		{"accepted version alongside a newer draft", 1, 2, true},
+		{"delivery omitted the accepted version", 2, 2, false},
+		{"completion belongs to a superseded evaluation", 1, 1, false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			s, db, cookie, csrf := pagingServer(t, workflow.DefaultLimits())
+			rw := apiCall(s, "POST", "/api/v1/workspaces", WorkspaceInput{Name: "Deliveries"}, cookie, csrf, nil)
+			if rw.Code != 200 {
+				t.Fatalf("create workspace: %d %s", rw.Code, rw.Body.String())
+			}
+			var workspace w.Workspace
+			if err := json.Unmarshal(rw.Body.Bytes(), &workspace); err != nil {
+				t.Fatal(err)
+			}
+			now := w.Now()
+			task := w.Task{
+				ID: w.NewID(), WorkspaceID: workspace.ID, ThreadID: w.NewID(),
+				CurrentRevision: 1, OwnerRevision: 1, Status: "completed",
+				EvaluationGeneration: 2, UpdatedAt: now, CreatedAt: now,
+			}
+			thread := w.Thread{ID: task.ThreadID, WorkspaceID: workspace.ID, TaskID: task.ID, Title: "Audit", Revision: 1, UpdatedAt: now}
+			revision := w.TaskRevision{TaskID: task.ID, Revision: 1, Digest: "inputs"}
+			artifact := w.Artifact{
+				ID: w.NewID(), Version: 1, Revision: 1, ThreadID: thread.ID, RunID: w.NewID(),
+				Type: "report", Title: "Accepted report", Body: "accepted", CreatedAt: now,
+			}
+			draft := artifact
+			draft.Version = 2
+			draft.Title = "Edited report"
+			deliveredRef := w.ArtifactRef{ID: artifact.ID, Version: scenario.deliveredVersion}
+			run := w.Run{
+				ID: artifact.RunID, WorkspaceID: workspace.ID, ThreadID: thread.ID,
+				TaskID: task.ID, Status: "succeeded", CreatedAt: now,
+				Delivery: &w.Delivery{ArtifactRefs: []w.ArtifactRef{deliveredRef}},
+			}
+			completion := w.CompletionRecord{
+				ID: w.NewID(), TaskID: task.ID, TaskRevision: 1, EvaluationGeneration: scenario.completionGeneration,
+				InputSnapshotDigest: revision.Digest, Validity: "current",
+				CandidateRefs: []string{"artifact:" + artifact.ID + "@v1"}, CreatedAt: now,
+			}
+			if err := db.Write(t.Context(), func(tx *store.Tx) error {
+				if err := tx.SaveThread(thread); err != nil {
+					return err
+				}
+				if err := tx.InsertTask(task); err != nil {
+					return err
+				}
+				if err := tx.InsertTaskRevision(revision); err != nil {
+					return err
+				}
+				if err := tx.InsertRun(run, "studio-delivery-key", "studio-delivery-hash"); err != nil {
+					return err
+				}
+				if err := tx.SaveArtifact(artifact); err != nil {
+					return err
+				}
+				if err := tx.SaveArtifact(draft); err != nil {
+					return err
+				}
+				return tx.InsertCompletion(completion)
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			readShowcase := func() []StudioArtifact {
+				t.Helper()
+				rw := apiCall(s, "GET", "/api/v1/workspaces/"+workspace.ID+"/studio", nil, cookie, csrf, nil)
+				if rw.Code != 200 {
+					t.Fatalf("read showcase: %d %s", rw.Code, rw.Body.String())
+				}
+				var snapshot StudioSnapshot
+				if err := json.Unmarshal(rw.Body.Bytes(), &snapshot); err != nil {
+					t.Fatal(err)
+				}
+				return snapshot.Artifacts
+			}
+			got := readShowcase()
+			if !scenario.wantAccepted {
+				if len(got) != 0 {
+					t.Fatalf("expected an empty showcase, got %+v", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0].ID != artifact.ID || got[0].Version != 1 || got[0].Title != artifact.Title {
+				t.Fatalf("expected only the accepted version, got %+v", got)
+			}
+		})
 	}
 }

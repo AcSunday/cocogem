@@ -11,7 +11,7 @@
   --border-strong: light-dark(rgba(15, 23, 42, 0.17), rgba(255, 255, 255, 0.16));
   --text: light-dark(#111622, #f0f2f6);
   --text-2: light-dark(#4b5568, #9ba5b7);
-  --text-3: light-dark(#687387, #6c778b);
+  --text-3: light-dark(#687387, #8792a6);
   --accent: light-dark(#2563eb, #4f8bff);
   --accent-hover: light-dark(#1d4ed8, #3b78f2);
   --accent-soft: light-dark(rgba(37, 99, 235, 0.09), rgba(79, 139, 255, 0.14));
@@ -77,13 +77,13 @@ h1 {
   font-size: 24px;
   line-height: 1.35;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 h2 {
   font-size: 18px;
   line-height: 1.4;
   font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
 }
 h3 {
   font-size: 15px;

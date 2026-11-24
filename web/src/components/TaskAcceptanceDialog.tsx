@@ -8,6 +8,7 @@ import controls from "../styles/controls.module.css";
 import acceptance from "../styles/task-acceptance.module.css";
 import { CandidateBar } from "./CandidateBar";
 import { Modal } from "./Modal";
+import { Select } from "./Select";
 
 const cx = scoped(base, controls, acceptance);
 
@@ -242,13 +243,13 @@ export function TaskAcceptanceDialog({
                 </legend>
                 <label className={cx("acceptance-judgement")}>
                   {t("判断", "Verdict")}
-                  <select
+                  <Select
                     aria-label={t(`判断：${text}`, `Verdict: ${text}`)}
                     value={result}
-                    onChange={(event) =>
+                    onChange={(value) =>
                       setResults((current) => ({
                         ...current,
-                        [criterion.criterion_id]: event.target.value,
+                        [criterion.criterion_id]: value,
                       }))
                     }
                   >
@@ -257,7 +258,7 @@ export function TaskAcceptanceDialog({
                         {option.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
                 <div className={cx("acceptance-evidence")}>
                   <span className={cx("acceptance-evidence-label")}>

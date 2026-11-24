@@ -120,19 +120,38 @@ const workspaces: Workspace[] = [
   },
 ];
 
+// jsdom lacks modal dialog methods. The browser suite exercises the native dialog.
+const dialogPrototype = HTMLDialogElement.prototype;
+const originalShowModal = dialogPrototype.showModal;
+const originalClose = dialogPrototype.close;
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  dialogPrototype.showModal = originalShowModal;
+  dialogPrototype.close = originalClose;
 });
 
 describe("StudioPage", () => {
-  it("renders workspace cats, inline gate approval, gem showcase and dispatches commands", async () => {
+  it("opens an accepted gem, reviews a gate request and dispatches a command", async () => {
+    dialogPrototype.showModal = function () {
+      this.open = true;
+    };
+    dialogPrototype.close = function () {
+      this.open = false;
+    };
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/v1/workspaces/ws-1/studio") {
         return Response.json(snapshot);
       }
-      if (url === "/api/v1/permission-requests/perm-1/decisions" && init?.method === "POST") {
-        return Response.json({ ...snapshot.pending_permissions[0].request, status: "allowed_once" });
+      if (
+        url === "/api/v1/permission-requests/perm-1/decisions" &&
+        init?.method === "POST"
+      ) {
+        return Response.json({
+          ...snapshot.pending_permissions[0].request,
+          status: "allowed_once",
+        });
       }
       return Response.json({});
     });
@@ -151,10 +170,16 @@ describe("StudioPage", () => {
       />,
     );
 
-    expect(await screen.findByText("Auth Audit Report")).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: /Auth Audit Report/ }),
+    );
+    expect(screen.getByText("Auth Audit Report")).toBeInTheDocument();
     expect(screen.getByText("git commit -m fix")).toBeInTheDocument();
 
-    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "审批" }));
+    const approval = screen.getByRole("dialog", { name: "门禁审批" });
+    expect(approval).toBeVisible();
     await user.click(screen.getByRole("button", { name: "仅本次允许" }));
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -167,7 +192,10 @@ describe("StudioPage", () => {
     await user.type(input, "@ragdoll 检查最新提交");
     await user.click(screen.getByRole("button", { name: "发送指令" }));
     await waitFor(() =>
-      expect(onDispatch).toHaveBeenCalledWith("@ragdoll 检查最新提交", undefined),
+      expect(onDispatch).toHaveBeenCalledWith(
+        "@ragdoll 检查最新提交",
+        undefined,
+      ),
     );
   });
 });

@@ -21,6 +21,13 @@ beforeAll(() => {
 
 afterEach(cleanup);
 
+async function choosePassed() {
+  fireEvent.click(
+    screen.getByRole("combobox", { name: "判断：结论有来源" }),
+  );
+  fireEvent.click(await screen.findByRole("option", { name: "通过" }));
+}
+
 const candidates = [
   { ref: "artifact:report@v2", label: "研究报告 · v2" },
   { ref: "message:reply", label: "会话交付 · 2026-11-04 08:00" },
@@ -52,10 +59,7 @@ it("submits an exact candidate and the outcome evidence", async () => {
   expect(screen.getByRole("radio", { name: "研究报告 · v2" })).toBeChecked();
   const evidence = screen.getByRole("checkbox", { name: "研究报告 · v2" });
   expect(evidence).toBeChecked();
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   await user.click(screen.getByRole("button", { name: "提交验收" }));
 
   await waitFor(() =>
@@ -92,10 +96,7 @@ it("reuses the same outcome evidence when the exact candidate changes", async ()
   const checkboxes = screen.getAllByRole("checkbox");
   expect(checkboxes[0]).not.toBeChecked();
   expect(checkboxes[1]).toBeChecked();
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   await user.click(screen.getByRole("button", { name: "提交验收" }));
 
   await waitFor(() =>
@@ -127,10 +128,7 @@ it("requires evidence for a passed criterion and keeps invalid input unsaved", a
     />,
   );
 
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   await user.click(screen.getByRole("checkbox", { name: "研究报告 · v2" }));
   expect(
     screen.getByText("标记为“通过”的验收项至少需要选择一项证据。"),
@@ -154,10 +152,7 @@ it("keeps the exact candidate and judgement when saving fails", async () => {
   );
 
   await user.click(screen.getByRole("radio", { name: /会话交付/ }));
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   await user.click(screen.getByRole("button", { name: "提交验收" }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent("保存失败");
@@ -189,10 +184,7 @@ it("does not treat an optional unchecked criterion as blocking completion", asyn
     />,
   );
 
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   expect(
     screen.queryByText(/项必需验收未通过或未核实/),
   ).not.toBeInTheDocument();
@@ -262,10 +254,7 @@ it("blocks every dismiss path while a save is pending", async () => {
     />,
   );
 
-  await user.selectOptions(
-    screen.getByRole("combobox", { name: "判断：结论有来源" }),
-    "passed",
-  );
+  await choosePassed();
   fireEvent.submit(screen.getByRole("form", { name: "人工验收表单" }));
   expect(submit).toHaveBeenCalledOnce();
 

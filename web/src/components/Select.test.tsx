@@ -95,3 +95,32 @@ it("scrolls keyboard choices inside the menu without scrolling its ancestors", a
   expect(list.scrollTop).toBe(0);
   expect(control).toHaveAttribute("aria-expanded", "true");
 });
+
+it("keeps an edge-positioned menu inside the viewport", async () => {
+  vi.stubGlobal("innerHeight", 190);
+  vi.stubGlobal("innerWidth", 320);
+  const scrollHeight = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get")
+    .mockReturnValue(180);
+  render(<Example />);
+  const control = screen.getByRole("combobox");
+  vi.spyOn(control, "getBoundingClientRect").mockReturnValue({
+    x: 245,
+    y: 155,
+    top: 155,
+    right: 395,
+    bottom: 191,
+    left: 245,
+    width: 150,
+    height: 36,
+    toJSON: () => ({}),
+  });
+
+  await userEvent.setup().click(control);
+  const list = screen.getByRole("listbox");
+  const menu = list as HTMLDivElement;
+  expect(menu.style.left).toBe("132px");
+  expect(menu.style.top).toBe("8px");
+  expect(menu.style.maxHeight).toBe("141px");
+  scrollHeight.mockRestore();
+  vi.unstubAllGlobals();
+});

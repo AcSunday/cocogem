@@ -47,9 +47,9 @@
 .welcome > h1 {
   margin-bottom: 16px;
   font-family: var(--font-display);
-  font-size: clamp(28px, 3.4vw, 36px);
+  font-size: 32px;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 .intro {
   margin: 4px 0 24px;
@@ -386,6 +386,9 @@
   background: var(--surface);
   font-size: 12.5px;
   color: var(--text-2);
+}
+.run-process[open] > .relay-strip {
+  border-bottom: 0;
 }
 .relay-strip.live {
   border-color: color-mix(in srgb, var(--teal) 38%, var(--border));
@@ -1055,13 +1058,12 @@
   color: var(--text);
 }
 .mention-options {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 12px;
-  z-index: 10;
-  min-width: 220px;
+  position: fixed;
+  z-index: 110;
   margin: 0;
   padding: 4px;
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface);
@@ -1076,8 +1078,13 @@
   border-radius: var(--radius-sm);
   font-size: 13px;
   cursor: pointer;
+  overflow-wrap: anywhere;
 }
-.mention-options li[aria-selected="true"] {
+.mention-options li > span:first-child {
+  flex-shrink: 0;
+}
+.mention-options li[aria-selected="true"],
+.mention-options li:hover {
   background: var(--accent-soft);
 }
 @media (max-width: 1100px) {

@@ -69,14 +69,15 @@
 }
 
 .usage-select {
-  height: var(--control-height);
-  padding: 0 28px 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
+  width: 100%;
+  min-height: var(--control-height);
   font-size: 13px;
-  max-width: 190px;
+}
+
+.usage-filter-slot {
+  flex: 0 1 190px;
+  width: auto;
+  min-width: min(140px, 100%);
 }
 
 .usage-kpi-grid {
@@ -110,7 +111,7 @@
   font-size: 24px;
   font-weight: 650;
   line-height: 1.2;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }

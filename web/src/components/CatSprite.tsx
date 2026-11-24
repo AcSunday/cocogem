@@ -135,7 +135,7 @@ export function CatCharacter({
   preset: CatPreset | string;
   pose?: CatPose;
   flip?: boolean;
-  size?: number;
+  size?: number | string;
   className?: string;
 }) {
   const cat =
@@ -155,23 +155,22 @@ export function CatCharacter({
         height: size,
         overflow: "hidden",
         transform: flip ? "scaleX(-1)" : undefined,
-        filter: "drop-shadow(0 6px 5px rgba(0, 0, 0, 0.52))",
       }}
     >
       <img
         src={SHEET_MAP[cat.id]}
-        width={size * 5}
-        height={size}
+        width={720}
+        height={144}
         alt=""
         aria-hidden="true"
         draggable={false}
         style={{
           display: "block",
-          width: `${size * 5}px`,
-          height: `${size}px`,
+          width: "500%",
+          height: "100%",
           maxWidth: "none",
           imageRendering: "pixelated",
-          transform: `translate3d(-${frameIndex * size}px, 0, 0)`,
+          transform: `translateX(-${frameIndex * 20}%)`,
         }}
       />
     </span>

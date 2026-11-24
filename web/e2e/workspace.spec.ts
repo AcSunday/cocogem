@@ -1,7 +1,22 @@
 import { expect, test, type Locator } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import setup from "./setup";
 
-test.use({ baseURL: process.env.COCOGEM_TEST_BASE });
+// The first-password journey needs a fresh database when run with other specs.
+test.use({
+  baseURL: async ({}, use) => {
+    const previous = process.env.COCOGEM_TEST_BASE;
+    const cleanup = await setup();
+    const baseURL = process.env.COCOGEM_TEST_BASE;
+    if (previous === undefined) delete process.env.COCOGEM_TEST_BASE;
+    else process.env.COCOGEM_TEST_BASE = previous;
+    try {
+      await use(baseURL);
+    } finally {
+      await cleanup();
+    }
+  },
+});
 
 test("create a team, run research, inspect evidence, export, follow up and cancel", async ({
   page,
@@ -34,7 +49,10 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "设置" });
     await dialog.getByRole("tab", { name: "外观", exact: true }).click();
-    await selectOption(dialog.getByLabel("外观模式", { exact: true }), value);
+    await selectOption(
+      dialog.getByRole("combobox", { name: "外观模式", exact: true }),
+      value,
+    );
     await dialog.getByRole("button", { name: "关闭窗口" }).click();
   };
   await page.goto("/");
@@ -220,7 +238,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     page.getByRole("complementary", { name: "协作资料" }),
   ).toBeHidden();
   await expect(
-    page.getByRole("button", { name: /自动化测试样例：讨论纪要.*讨论纪要 · v1/ }),
+    page.getByRole("button", {
+      name: /自动化测试样例：讨论纪要.*讨论纪要 · v1/,
+    }),
   ).toBeVisible({ timeout: 20000 });
   expect((await messageInput.boundingBox())!.height).toBeLessThan(96);
   const researchTimeline = page.getByTestId("conversation-timeline");
@@ -344,7 +364,9 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.getByLabel("输入问题").fill("@missing 帮我调查");
   await page.getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByLabel("输入问题")).toHaveValue("@missing 帮我调查");
-  await expect(page.getByRole("alert").filter({ hasText: "不可用" })).toBeVisible();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "不可用" }),
+  ).toBeVisible();
 
   // Keep text typed while the accepted POST response is delayed.
   await page.route("**/runs", async (route) => {
@@ -424,7 +446,8 @@ test("create a team, run research, inspect evidence, export, follow up and cance
     await appearanceSettings
       .getByRole("tab", { name: "外观", exact: true })
       .click();
-    const appearanceSelect = appearanceSettings.getByLabel("外观模式", {
+    const appearanceSelect = appearanceSettings.getByRole("combobox", {
+      name: "外观模式",
       exact: true,
     });
     await appearanceSelect.click();
@@ -453,7 +476,7 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.reload();
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(11, 13, 16)",
+    "rgb(12, 14, 18)",
   );
   await page.getByRole("button", { name: "设置", exact: true }).click();
   const persistedSettings = page.getByRole("dialog", { name: "设置" });
@@ -466,12 +489,12 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(248, 250, 252)",
+    "rgb(247, 248, 250)",
   );
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("html")).toHaveCSS(
     "background-color",
-    "rgb(11, 13, 16)",
+    "rgb(12, 14, 18)",
   );
 
   // A conversation keeps exactly the members the user selected.
@@ -589,10 +612,28 @@ test("create a team, run research, inspect evidence, export, follow up and cance
   expect(afterSettings.thread.coordinator_id).toBe(nextCoordinator);
   // A coordinator edit changes only the roster: message and run identity and
   // terminal state stay exactly as they were.
-  expect(afterSettings.messages.items.map((m: { id: string; status: string }) => [m.id, m.status]))
-    .toEqual(beforeSettings.messages.items.map((m: { id: string; status: string }) => [m.id, m.status]));
-  expect(afterSettings.runs.map((r: { id: string; status: string }) => [r.id, r.status]))
-    .toEqual(beforeSettings.runs.map((r: { id: string; status: string }) => [r.id, r.status]));
+  expect(
+    afterSettings.messages.items.map((m: { id: string; status: string }) => [
+      m.id,
+      m.status,
+    ]),
+  ).toEqual(
+    beforeSettings.messages.items.map((m: { id: string; status: string }) => [
+      m.id,
+      m.status,
+    ]),
+  );
+  expect(
+    afterSettings.runs.map((r: { id: string; status: string }) => [
+      r.id,
+      r.status,
+    ]),
+  ).toEqual(
+    beforeSettings.runs.map((r: { id: string; status: string }) => [
+      r.id,
+      r.status,
+    ]),
+  );
   await page.getByRole("button", { name: "会话设置", exact: true }).click();
   await expect(
     page.getByRole("combobox", { name: "协调者", exact: true }),

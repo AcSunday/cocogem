@@ -42,6 +42,21 @@ function operationLabel(toolName: string) {
   return dict[toolName] ?? toolName;
 }
 
+export function permissionPrompt(request: ToolPermissionRequest): PermissionPrompt {
+  return {
+    requestID: request.id,
+    activityKey: request.tool_call_id,
+    toolCallID: request.tool_call_id,
+    memberID: request.member_id,
+    memberName: request.member_name ?? "",
+    toolName: request.tool_name,
+    label: operationLabel(request.tool_name),
+    target: request.operation_summary?.trim() ?? "",
+    scope: request.normalized_resource_scope,
+    reason: request.reason,
+  };
+}
+
 /**
  * The Composer-facing pending queue. It sits directly above the Composer and
  * outside every run/process disclosure, so a blocked call stays visible even
@@ -95,19 +110,6 @@ export function PermissionQueue({
   // bounded `operation_summary` (command/path + effect) instead of inventing a
   // label. `target` is that summary when the server provided one; otherwise it
   // stays empty rather than duplicating the tool name as fake detail.
-  const summary = active.operation_summary?.trim() ?? "";
-  const prompt: PermissionPrompt = {
-    requestID: active.id,
-    activityKey: active.tool_call_id,
-    toolCallID: active.tool_call_id,
-    memberID: active.member_id,
-    memberName: active.member_name ?? "",
-    toolName: active.tool_name,
-    label: operationLabel(active.tool_name),
-    target: summary,
-    scope: active.normalized_resource_scope,
-    reason: active.reason,
-  };
   const position = items.findIndex((item) => item.id === active.id) + 1;
   return (
     <section
@@ -139,7 +141,7 @@ export function PermissionQueue({
       </div>
       <PermissionDecision
         key={active.id}
-        prompt={prompt}
+        prompt={permissionPrompt(active)}
         request={active}
         onDecide={(decision, grantScope) =>
           grantScope

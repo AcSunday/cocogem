@@ -323,6 +323,9 @@ function WorkspaceApp({
     new Map<string, { input: RunInput; key: string; threadID: string }>(),
   );
   const bootstrapKeys = useRef<Record<string, string>>({});
+  const studioSubmissions = useRef(
+    new Map<string, { message: string; key: string; threadID?: string }>(),
+  );
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const runs = view?.runs ?? [];
   const currentRun = runs.at(-1);
@@ -1228,6 +1231,57 @@ function WorkspaceApp({
       setBusy(false);
     }
   }
+
+  async function sendStudioCommand(text: string, threadID?: string) {
+    const scope = JSON.stringify([workspaceID, threadID]);
+    const previous = studioSubmissions.current.get(scope);
+    if (previous?.key && previous.message !== text) {
+      throw new Error(t(
+        "上次提交的结果仍待确认，请重试原指令。",
+        "The previous submission is unconfirmed. Retry the original message.",
+      ));
+    }
+    const submission = {
+      message: text,
+      key: previous?.key || crypto.randomUUID(),
+      threadID: threadID ?? previous?.threadID,
+    };
+    studioSubmissions.current.set(scope, submission);
+    const headers = { "Idempotency-Key": submission.key };
+    try {
+      if (!submission.threadID) {
+        const created = await api<BootstrapReply>("/api/v1/bootstrap", "POST", {
+          workspace_id: workspaceID,
+          title: threadTitle(text),
+        }, headers);
+        submission.threadID = created.thread.id;
+      }
+      await api<Run>(
+        `/api/v1/threads/${submission.threadID}/runs`,
+        "POST",
+        {
+          message: text,
+          targets: [],
+          source_urls: [],
+          source_ids: [],
+          artifact_refs: [],
+          research_scope: "auto",
+          retry_of_run_id: "",
+        } satisfies RunInput,
+        headers,
+      );
+    } catch (failure) {
+      if (failure instanceof APIError && failure.status >= 400 && failure.status < 500) {
+        // Reuse a conversation already created for the rejected draft.
+        if (!threadID && submission.threadID) submission.key = "";
+        else studioSubmissions.current.delete(scope);
+      }
+      throw failure;
+    }
+    studioSubmissions.current.delete(scope);
+    void loadThreads(workspaceID).catch(() => {});
+    return submission.threadID;
+  }
   async function stop() {
     if (!currentRun) return;
     try {
@@ -1357,10 +1411,16 @@ function WorkspaceApp({
   const messages = view?.messages.items ?? [];
   const hideWorkspaceSidebar =
     !!taskID || (!threadID && projectView !== "home");
+  const studioView = !taskID && !threadID && projectView === "studio";
   return (
     <div className={cx("app-shell")}>
-      <a className={cx("skip-link")} href="#composer-input">
-        {t("跳到输入框", "Skip to composer")}
+      <a
+        className={cx("skip-link")}
+        href={studioView ? "#studio-command" : hideWorkspaceSidebar ? "#workspace-content" : "#composer-input"}
+      >
+        {hideWorkspaceSidebar && !studioView
+          ? t("跳到主要内容", "Skip to main content")
+          : t("跳到输入框", "Skip to composer")}
       </a>
       <ProjectRail
         active={threadID ? "home" : taskID ? "tasks" : projectView}
@@ -1400,7 +1460,7 @@ function WorkspaceApp({
         }}
       />
       <section className={cx("workspace-main")}>
-        {!(!taskID && !threadID && projectView === "studio") && (
+        {!studioView && (
         <header className={cx("topbar")}>
           {!hideWorkspaceSidebar && (
             <button
@@ -1517,7 +1577,7 @@ function WorkspaceApp({
           </div>
         )}
         <div className={cx("workspace-columns")}>
-          <main className={cx("conversation")}>
+          <main className={cx("conversation")} id="workspace-content" tabIndex={-1}>
             <div className={cx("timeline-wrap")}>
               <div
                 className={cx("timeline")}
@@ -1565,52 +1625,12 @@ function WorkspaceApp({
                     />
                   ) : projectView === "studio" ? (
                     <StudioPage
+                      key={workspaceID}
                       workspaces={workspaces}
                       workspaceID={workspaceID}
                       onWorkspace={(id) => navigate(id, "", true, "", "studio")}
                       onOpenThread={(ws, id) => navigate(ws, id)}
-                      onDispatch={async (text, targetThreadID) => {
-                        if (!workspaceID) return undefined;
-                        let target = targetThreadID;
-                        if (!target) {
-                          const created = await api<Thread>(
-                            `/api/v1/workspaces/${workspaceID}/threads`,
-                            "POST",
-                            {
-                              title: threadTitle(text),
-                              agent_ids: available
-                                .slice(0, 10)
-                                .map((agent) => agent.id),
-                            },
-                          );
-                          target = created.id;
-                          await loadThreads(workspaceID);
-                        }
-                        const targets = available
-                          .filter((agent) =>
-                            new RegExp(
-                              `(^|\\s)@${agent.handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`,
-                              "i",
-                            ).test(text),
-                          )
-                          .map((agent) => agent.handle);
-                        await api<Run>(
-                          `/api/v1/threads/${target}/runs`,
-                          "POST",
-                          {
-                            message: text,
-                            targets,
-                            source_urls: [],
-                            source_ids: [],
-                            artifact_refs: [],
-                            research_scope: "",
-                            retry_of_run_id: "",
-                          } satisfies RunInput,
-                          { "Idempotency-Key": crypto.randomUUID() },
-                        );
-                        await loadThreads(workspaceID);
-                        return target;
-                      }}
+                      onDispatch={sendStudioCommand}
                     />
                   ) : workspace ? (
                     <ProjectHome
