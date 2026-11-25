@@ -4,6 +4,7 @@ package nativecli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -25,6 +26,39 @@ const (
 	processResultFrame = `{"type":"result","subtype":"success","is_error":false}`
 	processAuthFrame   = `{"type":"error","error":{"type":"authentication_error","message":"invalid key"}}`
 )
+
+func TestManagedGeminiWaitsBeforeRefreshingAnActiveSession(t *testing.T) {
+	root := t.TempDir()
+	lock, err := lockSessionDirectory(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.Close() })
+	request := testRequest()
+	request.Executor, request.Model = "gemini", "fixture-model"
+	request.SessionStorageRoot, request.SessionMode, request.SessionID = root, "resume", fakeSession
+	request.ExecutionMode = "full_access"
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	execute := func(context.Context, string, json.RawMessage) (string, error) {
+		return "", errors.New("unexpected host tool")
+	}
+	err = fakeProvider("notice").run(ctx, request, execute, discardObserve, runOptions{skipCheck: true})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("attempt overlapping the same session: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".cocogem")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("waiting attempt touched the active configuration: %v", err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GEMINI_CLI_HOME", "")
+	if err := fakeProvider("notice").run(t.Context(), request, execute, discardObserve, runOptions{skipCheck: true}); err != nil {
+		t.Fatalf("resume after release: %v", err)
+	}
+}
 
 // TestNativeProcessHelper is a synthetic native CLI. Modes either leave a
 // child behind with detached output or wait to be canceled.

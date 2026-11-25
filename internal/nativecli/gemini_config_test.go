@@ -61,6 +61,70 @@ func scopedGeminiOverrides(t *testing.T, settings map[string]any) []any {
 	return overrides
 }
 
+func TestGeminiManagedResumeRefreshesScopedConfiguration(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GEMINI_CLI_HOME", "")
+	for _, tc := range []struct {
+		name, approval string
+		trusted        bool
+	}{
+		{"host tools", "default", false},
+		{"full access", "yolo", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workdir := t.TempDir()
+			request := model.Request{Executor: "gemini", SessionStorageRoot: workdir, SessionMode: "fresh"}
+			first := &bridge{addr: "127.0.0.1:1234", token: "first-scoped-token", trustedNative: tc.trusted}
+			if _, _, err := prepareGemini(request, workdir, first, nil); err != nil {
+				t.Fatal(err)
+			}
+
+			request.SessionMode, request.SessionID = "resume", fakeSession
+			second := &bridge{addr: "127.0.0.1:2345", token: "second-scoped-token", trustedNative: tc.trusted}
+			args, _, err := prepareGemini(request, workdir, second, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			flags := strings.Join(args, "\n")
+			if capturedArg(flags, "--resume") != fakeSession || capturedArg(flags, "--approval-mode") != tc.approval {
+				t.Fatalf("wrong resume or approval arguments: %q", args)
+			}
+			settings, raw := scopedGeminiSettings(t, workdir)
+			servers := settings["mcpServers"].(map[string]any)
+			name := capturedArg(flags, "--allowed-mcp-server-names")
+			if len(servers) != 1 || servers[name] == nil || !strings.Contains(raw, "Bearer "+second.token) || strings.Contains(raw, first.token) {
+				t.Fatal("resumed CLI did not receive the current bridge")
+			}
+			policy, err := os.ReadFile(capturedArg(flags, "--admin-policy"))
+			if err != nil || !tc.trusted && !strings.Contains(string(policy), name) {
+				t.Fatalf("resumed CLI did not receive the current tool policy: %v", err)
+			}
+		})
+	}
+}
+
+func TestGeminiManagedConfigRejectsLinkedDirectories(t *testing.T) {
+	for _, name := range []string{".gemini", ".gemini/policies"} {
+		t.Run(name, func(t *testing.T) {
+			workdir, outside := t.TempDir(), t.TempDir()
+			path := filepath.Join(workdir, name)
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, path); err != nil {
+				t.Fatal(err)
+			}
+			gate := &bridge{addr: "127.0.0.1:1234", token: "fixturetoken123456"}
+			if _, _, err := prepareGemini(model.Request{}, workdir, gate, nil); err == nil {
+				t.Fatal("accepted a linked configuration directory")
+			}
+			if files, err := os.ReadDir(outside); err != nil || len(files) != 0 {
+				t.Fatalf("unexpected files outside the session: %v, %v", files, err)
+			}
+		})
+	}
+}
+
 func TestGeminiConfiguredThinkingDefaultsSurviveScopedSettings(t *testing.T) {
 	writeGeminiUserSettings(t)
 	plan, err := geminiPlan(t.Context(), "default")

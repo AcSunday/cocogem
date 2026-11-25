@@ -249,6 +249,15 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		if info, err := os.Lstat(base); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return errors.New("managed CLI session directory is not private")
 		}
+		if request.Executor == "gemini" {
+			// Gemini reads workspace settings from its stable session cwd.
+			// Keep this attempt's bridge and policy in place until the CLI exits.
+			lock, err := lockSessionDirectory(ctx, base)
+			if err != nil {
+				return err
+			}
+			defer lock.Close()
+		}
 	} else {
 		var err error
 		base, err = os.MkdirTemp("", "cocogem-native-*")

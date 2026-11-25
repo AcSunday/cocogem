@@ -107,6 +107,41 @@ func geminiThinkingOverrides(settings geminiSettings) []any {
 	return overrides
 }
 
+// A managed CLI uses the same working directory to find its native chat on
+// resume. Reuse only private directories created for that session.
+func ensureGeminiConfigDir(dir string) error {
+	err := os.Mkdir(dir, 0700)
+	if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		return errors.New("Gemini configuration requires a private directory")
+	}
+	return nil
+}
+
+// Rename a new 0600 file over the previous attempt's file. This also avoids
+// writing through an old file's symlink or hard link.
+func writeGeminiConfigFile(path string, data []byte) error {
+	file, err := os.CreateTemp(filepath.Dir(path), ".cocogem-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	if _, err := file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
+}
+
 func prepareGemini(request model.Request, workdir string, gate *bridge, launch *connectionPlan) ([]string, map[string]string, error) {
 	if err := geminiPolicyBoundary(); err != nil {
 		return nil, nil, err
@@ -114,11 +149,11 @@ func prepareGemini(request model.Request, workdir string, gate *bridge, launch *
 	serverName := "cocogem_" + gate.token[:12]
 	gate.nativePrefix = "mcp_" + serverName + "_"
 	dir := filepath.Join(workdir, ".gemini")
-	if err := os.Mkdir(dir, 0700); err != nil {
+	if err := ensureGeminiConfigDir(dir); err != nil {
 		return nil, nil, errors.New("create scoped Gemini configuration")
 	}
 	policyDir := filepath.Join(dir, "policies")
-	if err := os.Mkdir(policyDir, 0700); err != nil {
+	if err := ensureGeminiConfigDir(policyDir); err != nil {
 		return nil, nil, errors.New("create scoped Gemini policies")
 	}
 	// Nonempty --policy replaces the user policy directory; admin rules are authoritative.
@@ -126,7 +161,10 @@ func prepareGemini(request model.Request, workdir string, gate *bridge, launch *
 	if gate.trustedNative {
 		policy = "[[rule]]\ntoolName = \"*\"\ndecision = \"allow\"\npriority = 999\nallowRedirection = true\n"
 	}
-	if err := os.WriteFile(filepath.Join(policyDir, "cocogem.toml"), []byte(policy), 0600); err != nil {
+	// A reused directory may contain other policies. Only the current host
+	// policy belongs on the CLI's admin policy list.
+	policyPath := filepath.Join(policyDir, "cocogem.toml")
+	if err := writeGeminiConfigFile(policyPath, []byte(policy)); err != nil {
 		return nil, nil, errors.New("write scoped Gemini policies")
 	}
 	settings := map[string]any{
@@ -169,10 +207,14 @@ func prepareGemini(request model.Request, workdir string, gate *bridge, launch *
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "settings.json"), encoded, 0600); err != nil {
+	if err := writeGeminiConfigFile(filepath.Join(dir, "settings.json"), encoded); err != nil {
 		return nil, nil, errors.New("write scoped Gemini settings")
 	}
-	args := []string{"--output-format", "stream-json", "--approval-mode", "default", "--skip-trust", "--extensions", "none", "--allowed-mcp-server-names", serverName, "--policy", policyDir, "--admin-policy", policyDir, "--prompt", "Read the task on stdin; only use the supplied collaboration MCP tools and complete this step."}
+	approval, prompt := "default", "Read the task on stdin; only use the supplied collaboration MCP tools and complete this step."
+	if gate.trustedNative && !request.ReadOnly {
+		approval, prompt = "yolo", "Read the authorized task on stdin. Use native tools and Cocogem delivery/collaboration tools to complete it."
+	}
+	args := []string{"--output-format", "stream-json", "--approval-mode", approval, "--skip-trust", "--extensions", "none", "--allowed-mcp-server-names", serverName, "--policy", policyPath, "--admin-policy", policyPath, "--prompt", prompt}
 	if managedNativeSession(request) && request.SessionMode == "resume" && request.SessionID != "" {
 		args = append(args, "--resume", request.SessionID)
 	}
@@ -183,14 +225,6 @@ func prepareGemini(request model.Request, workdir string, gate *bridge, launch *
 				_ = os.Symlink(nativeTmp, filepath.Join(dir, "tmp"))
 			}
 		}
-	}
-	if gate.trustedNative && !request.ReadOnly {
-		for i, value := range args {
-			if value == "default" {
-				args[i] = "yolo"
-			}
-		}
-		args[len(args)-1] = "Read the authorized task on stdin. Use native tools and Cocogem delivery/collaboration tools to complete it."
 	}
 	return args, map[string]string{"GEMINI_CLI_TRUST_WORKSPACE": "true", "GEMINI_SYSTEM_MD": "", "GEMINI_WRITE_SYSTEM_MD": ""}, nil
 }
@@ -246,8 +280,15 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			if initialized || !sessionPattern.MatchString(event.SessionID) {
 				return newFailure(FailureProtocol, "native CLI session initialization is invalid")
 			}
+			mode := "fresh"
+			if gate.sessionMode == "resume" {
+				if event.SessionID != gate.sessionID {
+					return newFailure(FailureProtocol, "native CLI resumed a different session identity")
+				}
+				mode = "resume"
+			}
 			initialized, sessionID = true, event.SessionID
-			if err := gate.emit("native_session", map[string]any{"executor": "gemini", "session_id": sessionID, "mode": "fresh", "cwd": "isolated"}); err != nil {
+			if err := gate.emit("native_session", map[string]any{"executor": "gemini", "session_id": sessionID, "mode": mode, "cwd": "isolated"}); err != nil {
 				return err
 			}
 		case "message":
