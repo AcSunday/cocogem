@@ -79,7 +79,7 @@ func prepareCodexAppServer(request model.Request, workdir string, gate *bridge, 
 	patch := !request.ReadOnly && (fullAccess || slices.Contains(request.NativeTools, nativeCodexFile) || slices.Contains(request.NativeTools, nativeWrite))
 	image := fullAccess || slices.Contains(request.NativeTools, nativeCodexImage)
 	entry := map[string]any{
-		"slug": resolved, "display_name": resolved, "description": "Scoped collaboration agent", "supported_reasoning_levels": []any{}, "visibility": "list", "supported_in_api": true, "priority": 0,
+		"slug": resolved, "display_name": resolved, "description": "Scoped collaboration agent", "supported_reasoning_levels": []any{}, "shell_type": "disabled", "visibility": "list", "supported_in_api": true, "priority": 0,
 		"support_verbosity": false, "truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "experimental_supported_tools": []string{}, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false,
 		"tool_mode": nil, "multi_agent_version": nil, "node_repl_disabled": true, "use_responses_lite": false, "input_modalities": []string{"text"}, "model_messages": map[string]any{"instructions_template": "You are a collaboration agent. Use only the tools supplied for this step. Follow the supplied task and finish this turn."},
 	}
@@ -130,7 +130,7 @@ func prepareCodexAppServer(request model.Request, workdir string, gate *bridge, 
 	}
 	args = append(args, "-c", "model="+quoted(resolved))
 	features := map[string]any{}
-	for _, config := range []string{"approval_policy=\"on-request\"", "model_catalog_json=" + quoted(path), "web_search=\"disabled\"", "skills.include_instructions=false", "project_doc_max_bytes=0", "tools.update_plan.enabled=false", "tools.experimental_request_user_input.enabled=false", "mcp_servers.cocogem.url=" + quoted(gate.url()), "mcp_servers.cocogem.bearer_token_env_var=\"COCOGEM_MCP_TOKEN\"", "mcp_servers.cocogem.default_tools_approval_mode=\"auto\"", "shell_environment_policy.exclude=[\"COCOGEM_MCP_TOKEN\", \"CODEX_HOME\"]"} {
+	for _, config := range []string{"approval_policy=\"on-request\"", "model_catalog_json=" + quoted(path), "web_search=\"disabled\"", "skills.include_instructions=false", "project_doc_max_bytes=0", "tools.update_plan.enabled=false", "tools.experimental_request_user_input.enabled=false", "mcp_servers.cocogem.url=" + quoted(gate.url()), "mcp_servers.cocogem.bearer_token_env_var=\"COCOGEM_MCP_TOKEN\"", "mcp_servers.cocogem.default_tools_approval_mode=\"auto\"", codexShellEnvFlag()} {
 		args = append(args, "-c", config)
 	}
 	for _, feature := range []string{"shell_tool", "view_image", "multi_agent", "multi_agent_v2", "hooks", "plugins", "apps", "code_mode", "code_mode_host", "code_mode_only", "sleep_tool", "token_budget", "request_permissions_tool", "standalone_web_search", "goals"} {
@@ -157,7 +157,7 @@ func prepareCodexAppServer(request model.Request, workdir string, gate *bridge, 
 			"project_doc_max_bytes":    0,
 			"features":                 features,
 			"mcp_servers":              map[string]any{"cocogem": cocogem},
-			"shell_environment_policy": map[string]any{"exclude": []string{"COCOGEM_MCP_TOKEN", "CODEX_HOME"}, "ignore_default_excludes": false},
+			"shell_environment_policy": map[string]any{"exclude": codexShellEnvExclusions, "ignore_default_excludes": false},
 			"default_permissions":      profile,
 			"permissions": map[string]any{profile: map[string]any{
 				"filesystem":      codexFilesystemEntries(roots, hardlinkDenies, request.ReadOnly),
@@ -176,10 +176,7 @@ func prepareCodexAppServer(request model.Request, workdir string, gate *bridge, 
 	for _, tool := range request.Tools {
 		args = append(args, "-c", "mcp_servers.cocogem.tools."+tool.Name+".approval_mode=\"approve\"")
 	}
-	if env == nil {
-		env = map[string]string{}
-	}
-	env["COCOGEM_MCP_TOKEN"] = gate.token
+	env = mergeEnv(env, map[string]string{"COCOGEM_MCP_TOKEN": gate.token})
 	if _, set := env["CODEX_HOME"]; !set {
 		// A disposable or unmanaged run stays in the private workdir; a managed
 		// session already chose the user's own Codex home above.
@@ -485,10 +482,8 @@ func (s *codexAppServer) serve(ctx context.Context, reader io.Reader, prompt str
 		threadParams["config"] = s.threadConfig
 	}
 	method := "thread/start"
-	reportedMode := "fresh"
 	if resuming {
 		method = "thread/resume"
-		reportedMode = "resume"
 		threadParams["threadId"] = s.gate.sessionID
 	}
 	thread, err := s.request(ctx, method, threadParams)
@@ -509,14 +504,16 @@ func (s *codexAppServer) serve(ctx context.Context, reader io.Reader, prompt str
 			return err
 		}
 	}
-	if err := s.gate.emit("native_session", map[string]any{"executor": "codex", "session_id": s.threadID, "mode": reportedMode, "cwd": "native_home"}); err != nil {
+	if err := s.gate.acknowledgeSession("codex", s.threadID, "native_home"); err != nil {
 		return err
 	}
 	turnParams := map[string]any{
 		"threadId": s.threadID, "input": []any{map[string]any{"type": "text", "text": prompt}},
 		"approvalPolicy": approvalPolicy,
 	}
-	if s.gate != nil && s.gate.nativeFullAccess {
+	if s.gate.readOnly {
+		turnParams["sandboxPolicy"] = map[string]any{"type": "readOnly"}
+	} else if s.gate.nativeFullAccess {
 		turnParams["sandboxPolicy"] = map[string]any{"type": "dangerFullAccess"}
 	}
 	if _, err := s.request(ctx, "turn/start", turnParams); err != nil {

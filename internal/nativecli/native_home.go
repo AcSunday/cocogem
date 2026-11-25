@@ -1,11 +1,33 @@
 package nativecli
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 
 	"github.com/AcSunday/cocogem/internal/model"
 )
+
+// Pi, Codex and Gemini share a native history or a model catalog across
+// invocations of one managed session. Its directory lock lasts through exit.
+func prepareManagedSessionDirectory(ctx context.Context, dir, executor string) (*os.File, error) {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, errors.New("create private managed CLI session directory")
+	}
+	if info, err := os.Lstat(dir); err != nil || !info.IsDir() {
+		return nil, errors.New("managed CLI session directory is not private")
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return nil, errors.New("secure private managed CLI session directory")
+	}
+	switch executor {
+	case "pi", "codex", "gemini":
+		return lockSessionDirectory(ctx, dir)
+	default:
+		return nil, nil
+	}
+}
 
 // nativeStateRoot resolves the CLI's own persistent state directory. The host
 // never overrides it with a temporary CODEX_HOME/CLAUDE_CONFIG_DIR: OAuth token

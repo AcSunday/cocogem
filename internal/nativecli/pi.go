@@ -77,6 +77,28 @@ func piProbeModels(probeURL string) []byte {
 
 const piProbeSettings = `{"defaultProvider":"cocogem-probe","defaultModel":"cocogem-probe","defaultThinkingLevel":"off"}`
 
+func piSessionArgs(request model.Request) ([]string, error) {
+	if !managedNativeSession(request) {
+		return []string{"--no-session"}, nil
+	}
+	root := nativeStateRoot("pi")
+	if root == "" {
+		return nil, errors.New("cannot locate native Pi session storage")
+	}
+	if request.SessionMode == "resume" && !sessionPattern.MatchString(request.SessionID) {
+		return nil, errors.New("Pi resume requires an exact session ID")
+	}
+	dir := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, errors.New("cannot open native Pi session storage")
+	}
+	args := []string{"--session-dir", dir}
+	if request.SessionMode == "resume" {
+		args = append(args, "--session", request.SessionID)
+	}
+	return args, nil
+}
+
 // preparePi writes the scoped agent directory and returns the Pi invocation.
 // The bridge is the model's only tool source; Pi's own read/bash/edit/write
 // tools stay disabled because they have no deny-rule equivalent that would
@@ -106,20 +128,11 @@ func preparePi(request model.Request, workdir string, gate *bridge, probeURL str
 	}
 	// --no-extensions would also disable the built-in MCP extension, so user
 	// extensions are excluded through the scoped agent directory instead.
-	args := []string{"--mode", "json", "--print"}
-	if managedNativeSession(request) {
-		if nativeRoot := nativeStateRoot("pi"); nativeRoot != "" {
-			sessionDir := filepath.Join(nativeRoot, "sessions")
-			if err := os.MkdirAll(sessionDir, 0700); err == nil {
-				args = append(args, "--session-dir", sessionDir)
-			}
-		}
-		if request.SessionMode == "resume" && request.SessionID != "" {
-			args = append(args, "--session", request.SessionID)
-		}
-	} else {
-		args = append(args, "--no-session")
+	sessionArgs, err := piSessionArgs(request)
+	if err != nil {
+		return nil, nil, err
 	}
+	args := append([]string{"--mode", "json", "--print"}, sessionArgs...)
 	args = append(args, "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-builtin-tools")
 	if gate.trustedNative && !request.ReadOnly {
 		args = args[:len(args)-1]
@@ -276,7 +289,7 @@ func parsePi(reader io.Reader, gate *bridge, live *liveness) error {
 				return newFailure(FailureProtocol, "native CLI session initialization is invalid")
 			}
 			initialized, sessionID = true, event.ID
-			if err := gate.emit("native_session", map[string]any{"executor": "pi", "session_id": sessionID, "mode": "fresh", "cwd": "isolated"}); err != nil {
+			if err := gate.acknowledgeSession("pi", sessionID, "isolated"); err != nil {
 				return err
 			}
 		case "message_start":

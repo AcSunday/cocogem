@@ -240,22 +240,11 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	}
 	base := request.SessionStorageRoot
 	if managed {
-		if err := os.MkdirAll(base, 0700); err != nil {
-			return errors.New("create private managed CLI session directory")
+		lock, err := prepareManagedSessionDirectory(ctx, base, request.Executor)
+		if err != nil {
+			return err
 		}
-		if err := os.Chmod(base, 0700); err != nil {
-			return errors.New("secure private managed CLI session directory")
-		}
-		if info, err := os.Lstat(base); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return errors.New("managed CLI session directory is not private")
-		}
-		if request.Executor == "gemini" {
-			// Gemini reads workspace settings from its stable session cwd.
-			// Keep this attempt's bridge and policy in place until the CLI exits.
-			lock, err := lockSessionDirectory(ctx, base)
-			if err != nil {
-				return err
-			}
+		if lock != nil {
 			defer lock.Close()
 		}
 	} else {
@@ -266,9 +255,8 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		}
 		defer os.RemoveAll(base)
 	}
-	// Every runtime file (MCP config, settings, model catalog, CODEX_HOME and
-	// Gemini policies) lives under .cocogem. Managed mode preserves only this
-	// server-owned directory; the autonomous run removes it after the invocation.
+	// Managed sessions retain the server-owned cwd. Disposable runs remove it
+	// after the invocation.
 	workdir := filepath.Join(base, ".cocogem")
 	if err := os.MkdirAll(workdir, 0700); err != nil {
 		return errors.New("create isolated CLI directory")
@@ -278,6 +266,15 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	// the CLI enforces that boundary and the adapter refuses to expose the
 	// settings directory.
 	configDir, cwdDir := workdir, workdir
+	if managed && request.Executor == "pi" {
+		// Keep the session cwd stable, but isolate the connection files,
+		// extensions and MCP bridge credentials for each invocation.
+		configDir, err = os.MkdirTemp("", "cocogem-pi-config-*")
+		if err != nil {
+			return errors.New("create private Pi configuration directory")
+		}
+		defer os.RemoveAll(configDir)
+	}
 	if request.Executor == "claude" {
 		configDir = filepath.Join(workdir, "config")
 		if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -658,7 +655,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		args, env, err = prepareGemini(request, workdir, gate, launch)
 		env = mergeEnv(env, options.geminiEnv)
 	case "pi":
-		args, env, err = preparePi(request, workdir, gate, options.piProbeURL, launch)
+		args, env, err = preparePi(request, configDir, gate, options.piProbeURL, launch)
 	case "opencode":
 		args, env, err = p.prepareOpenCode(ctx, request, workdir, gate, options.openCodeProbeURL, launch)
 	}

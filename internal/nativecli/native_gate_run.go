@@ -69,6 +69,13 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 	if request.SessionMode == "resume" && (!managedNativeSession(request) || request.SessionID == "") {
 		return errors.New("a managed session resume requires its exact native session identity")
 	}
+	if adapter == "pi" && managedNativeSession(request) {
+		lock, err := prepareManagedSessionDirectory(ctx, request.SessionStorageRoot, adapter)
+		if err != nil {
+			return err
+		}
+		defer lock.Close()
+	}
 	base, err := os.MkdirTemp("", "cocogem-native-*")
 	if err != nil {
 		return errors.New("create isolated CLI directory")
