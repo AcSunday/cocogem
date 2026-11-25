@@ -271,7 +271,10 @@ export function Select({
               </div>
             ))}
           </div>,
-          document.body,
+          // A modal <dialog> makes everything outside its subtree inert, so the
+          // menu must live inside the dialog that owns the trigger; only a
+          // trigger outside any dialog portals to the document body.
+          trigger.current?.closest("dialog") ?? document.body,
         )}
     </span>
   );
