@@ -561,7 +561,11 @@ func CatalogueFor(root string, enabledIDs []string) (string, error) {
 func SnapshotHashFor(root string, enabledIDs []string) (string, error) {
 	project, _, err := projectSkills(root)
 	if err != nil {
-		return "", err
+		// A rejected project skills path (for example a symlinked .agents)
+		// means "no project skills", exactly as ListFor and CatalogueFor treat
+		// it. Failing here would block every run in that workspace. An enabled
+		// project skill that can no longer be found still fails below.
+		project = nil
 	}
 	if enabledIDs == nil {
 		return shared.snapshotHash(nil, project)

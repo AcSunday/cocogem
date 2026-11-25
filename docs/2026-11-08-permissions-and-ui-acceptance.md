@@ -98,7 +98,7 @@
 3. 非 macOS 实机隔离、另外四种适配器的真实供应商任务、真实公开发布/部署、移动真机软键盘仍为未验证。公开发布/部署的决定和单次效果已用本地 TLS handler 验证，没有对外发布测试内容。
 4. 候选目录隔离已在阶段 2 改为按会话/任务作用域的 `git worktree add --detach`：未绑定记录、并行子任务各自成域，未应用前源目录字节不变，Apply 前逐文件核对基线并拒绝覆盖外部修改，Discard 只销毁候选。相应行为由 `internal/execution`、`internal/workflow`、`internal/httpapi/candidates_test.go` 与前端 `CandidateBar` 测试覆盖；仍未在真实多仓大项目与全部平台组合上实测性能与 `git worktree prune` 边界。代码见 [`execution.go`](../internal/workflow/execution.go)、[`manager.go`](../internal/execution/manager.go)、[`candidates.go`](../internal/httpapi/candidates.go)。
 5. 后续静态核对发现，重启恢复在已确认进程退出或停止、但结果尚未提交时，仍可能重新排队未完成步骤。此前同次调用内不重放的测试不能证明重启窗口中未记录的原生副作用不会重复。代码见 [`connection_check.go`](../internal/workflow/connection_check.go)、[`recovery.go`](../internal/workflow/recovery.go) 和 [`recovery_settle.go`](../internal/workflow/recovery_settle.go)。阶段 2 已让用户人工「继续」放行对应候选现场并注入检查点摘要，自动恢复仍不在未核实副作用上重放。
-6. 后续静态核对发现，宿主外部 HTTP 写入只在首次请求前检查 HTTPS 和目标名单；默认客户端可能跟随重定向，后续目标未重新检查。此前本地 TLS handler 的允许/拒绝测试不覆盖该重定向边界。代码见 [`egress.go`](../internal/tools/egress.go)。
+6. 已修复（2026-11-25）：宿主外部 HTTP 写入此前只在首次请求前检查 HTTPS 和目标名单，默认客户端会跟随重定向，批准的请求体可被白名单内主机的 307/308 转发到名单外或降级到明文 HTTP。`NewHTTPEgress` 现在复制客户端并禁止自动跟随，重定向响应按失败返回；`TestHTTPEgressDoesNotFollowRedirects` 覆盖跨主机与降级两种情形，修复前该测试失败。仍只用本地 TLS handler 验证，没有对外发布测试内容。代码见 [`egress.go`](../internal/tools/egress.go)。
 
 ## 交付与运行
 

@@ -259,7 +259,7 @@ Gemini 的顶层和嵌套错误均按实际协议读取，非终止警告会继�
 
 ## 配置与启动
 
-开发需要 Go 1.26 系列且至少 1.26.10、Node.js 22.12+ 和 npm，建议 Node.js 24 LTS。构建后的 Web 服务无需 Node.js；CLI 执行仍依赖本机可执行程序。
+开发需要 Go 1.26 系列且至少 1.26.11、Node.js 22.12+ 和 npm，建议 Node.js 24 LTS。构建后的 Web 服务无需 Node.js；CLI 执行仍依赖本机可执行程序。
 
 ```sh
 make setup

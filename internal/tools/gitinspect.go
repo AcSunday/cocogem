@@ -38,17 +38,34 @@ const (
 // gitRevisionPattern accepts a hash, a branch/tag name or a bounded range.
 var gitRevisionPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_./~^@-]{0,199}$`)
 
+// sensitiveGitExcludes derives git pathspec exclusions from the shared
+// sensitive-path policy, so git_inspect cannot drift from DeniedPath and
+// SensitivePath. Every rule applies at the repository root and in any
+// subdirectory, and ignores case like the policy does.
+func sensitiveGitExcludes() []string {
+	excludes := []string{}
+	add := func(pattern string) {
+		excludes = append(excludes, ":(exclude,icase)"+pattern, ":(exclude,icase)**/"+pattern)
+	}
+	for _, name := range sensitiveNames {
+		add(name)
+		add(name + "/**")
+	}
+	for _, prefix := range sensitivePrefixes {
+		add(prefix + "*")
+	}
+	for _, suffix := range sensitiveSuffixes {
+		add("*" + suffix)
+	}
+	return excludes
+}
+
 // gitInspectArgs composes the fixed argv for one subcommand. The harden prefix
 // disables external diff drivers, textconv filters, fsmonitor helpers and
 // repository hooks so a command cannot execute project code as a side effect.
 func gitInspectArgs(in GitInspectInput, path string) ([]string, error) {
 	prefix := []string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "diff.external=", "-c", "core.pager=cat", "--no-pager"}
-	sensitiveExcludes := []string{
-		":(exclude).env", ":(exclude).env.*", ":(exclude)**/.env", ":(exclude)**/.env.*",
-		":(exclude)*.pem", ":(exclude)**/*.pem", ":(exclude)*.key", ":(exclude)**/*.key",
-		":(exclude)secrets/**", ":(exclude)**/secrets/**", ":(exclude).cocogem/**",
-		":(exclude)*.sqlite", ":(exclude)**/*.sqlite", ":(exclude).git-credentials", ":(exclude)**/.git-credentials",
-	}
+	sensitiveExcludes := sensitiveGitExcludes()
 	switch in.Subcommand {
 	case gitInspectStatus:
 		args := append(prefix, "status", "--porcelain=v1", "--branch", "--untracked-files=all", "--no-renames", "--", path)
@@ -59,9 +76,7 @@ func gitInspectArgs(in GitInspectInput, path string) ([]string, error) {
 			args = append(args, revision)
 		}
 		args = append(args, "--", path)
-		if path == "." {
-			args = append(args, sensitiveExcludes...)
-		}
+		args = append(args, sensitiveExcludes...)
 		return args, nil
 	case gitInspectLog:
 		limit := in.Limit
@@ -80,12 +95,11 @@ func gitInspectArgs(in GitInspectInput, path string) ([]string, error) {
 			revision = "HEAD"
 		}
 		args := append(prefix, "show", "--no-ext-diff", "--no-textconv", "--no-color", "--stat", "--format=fuller", revision)
-		if path != "" && path != "." {
-			args = append(args, "--", path)
-		} else {
-			args = append(args, "--", ".")
-			args = append(args, sensitiveExcludes...)
+		if path == "" {
+			path = "."
 		}
+		args = append(args, "--", path)
+		args = append(args, sensitiveExcludes...)
 		return args, nil
 	}
 	return nil, errors.New("unsupported git_inspect subcommand: use status, diff, log or show")

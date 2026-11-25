@@ -80,6 +80,7 @@ import {
 import { PermissionQueue } from "../components/PermissionQueue";
 import { executionModeOf, useGlobalSettings } from "./useGlobalSettings";
 import { t, useLanguage } from "../lib/i18n";
+import { useUnhandledRejection } from "./useUnhandledRejection";
 import {
   conversationCoordinator,
   errorText,
@@ -255,6 +256,8 @@ function WorkspaceApp({
   const [sourceID, setSourceID] = useState("");
   const [sourceLoading, setSourceLoading] = useState(false);
   const [error, setError] = useState("");
+  // Anything that escapes a handler lands in the same dismissible notice.
+  useUnhandledRejection(setError);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [modal, setModal] = useState<ModalState | null>(null);

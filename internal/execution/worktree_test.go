@@ -141,6 +141,57 @@ func TestPruneRemovesOrphanDirectories(t *testing.T) {
 	}
 }
 
+// TestPruneKeepsCompletedCandidatesAwaitingApply guards the restart path: a
+// finished candidate is exactly what the user still has to Apply or Discard, so
+// startup pruning must never reclaim its directory.
+func TestPruneKeepsCompletedCandidatesAwaitingApply(t *testing.T) {
+	db, root, run := executionFixture(t)
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	candidate, err := manager.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candidate.Path, "main.txt"), []byte("finished change"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Finish(t.Context(), candidate.ID); err != nil {
+		t.Fatal(err)
+	}
+	// The test is only meaningful if Finish really left the candidate completed.
+	var settled w.WorkspaceExecution
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		var err error
+		settled, err = tx.Execution(candidate.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if settled.Status != "completed" {
+		t.Fatalf("precondition: candidate status after Finish = %q, want completed", settled.Status)
+	}
+	// A server restart prunes with a fresh manager over the same data directory.
+	restarted := New(db, filepath.Dir(manager.Base()), "restarted-owner")
+	if restarted.Base() != manager.Base() {
+		t.Fatalf("restarted manager points at %q, want the original %q", restarted.Base(), manager.Base())
+	}
+	if err := restarted.Prune(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(candidate.Path); err != nil {
+		t.Fatalf("a completed candidate awaiting Apply was pruned: %v", err)
+	}
+	applied, err := manager.Apply(t.Context(), candidate.ID)
+	if err != nil {
+		t.Fatalf("apply after prune: %v", err)
+	}
+	if applied.Status != "applied" {
+		t.Fatalf("apply status = %q", applied.Status)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "main.txt")); err != nil || string(data) != "finished change" {
+		t.Fatalf("apply did not write back: %q %v", data, err)
+	}
+}
+
 // TestVerifyTreeIsIndependentAndLeavesTheAuthorUntouched is the A07 regression.
 func TestVerifyTreeIsIndependentAndLeavesTheAuthorUntouched(t *testing.T) {
 	db, _, run, _ := gitExecutionFixture(t)

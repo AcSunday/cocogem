@@ -124,3 +124,20 @@ it("keeps an edge-positioned menu inside the viewport", async () => {
   scrollHeight.mockRestore();
   vi.unstubAllGlobals();
 });
+
+// A modal dialog makes everything outside its subtree inert, so a menu portaled
+// to document.body shows its options but swallows no clicks. The menu must stay
+// inside the dialog that owns its trigger.
+it("renders the menu inside the owning dialog so its options stay clickable", async () => {
+  render(
+    <dialog open aria-label="设置">
+      <Example />
+    </dialog>,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("combobox"));
+  const dialog = screen.getByRole("dialog", { name: "设置" });
+  expect(dialog).toContainElement(screen.getByRole("listbox"));
+  await user.click(screen.getByRole("option", { name: "项目文档" }));
+  expect(screen.getByRole("combobox")).toHaveTextContent("项目文档");
+});

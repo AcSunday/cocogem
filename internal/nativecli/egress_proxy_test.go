@@ -68,6 +68,22 @@ func TestEgressProxyRejectsPrivateResolvedAddresses(t *testing.T) {
 	}
 }
 
+// TestEgressProxyRejectsReservedNonPrivateRanges covers destinations that are not
+// RFC 1918 yet are never public: carrier-grade NAT (Tailscale and similar), NAT64,
+// benchmarking and reserved space.
+func TestEgressProxyRejectsReservedNonPrivateRanges(t *testing.T) {
+	for _, raw := range []string{"100.64.0.1", "100.100.100.100", "100.127.255.254", "64:ff9b::a00:1", "198.18.0.1", "192.0.0.8", "240.0.0.1", "0.1.2.3"} {
+		if ip := net.ParseIP(raw); !unsafeEgressIP(ip) {
+			t.Fatalf("%s was treated as public egress", raw)
+		}
+	}
+	for _, raw := range []string{"100.63.255.255", "100.128.0.1"} {
+		if ip := net.ParseIP(raw); unsafeEgressIP(ip) {
+			t.Fatalf("%s was treated as non-public egress", raw)
+		}
+	}
+}
+
 func TestEgressProxyTargetPolicy(t *testing.T) {
 	proxy, err := newEgressProxy(nil)
 	if err != nil {

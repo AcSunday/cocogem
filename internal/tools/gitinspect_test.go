@@ -113,3 +113,49 @@ func TestGitInspectObservationIsBoundedJSON(t *testing.T) {
 		t.Fatalf("show observation = %+v", value)
 	}
 }
+
+// TestGitInspectDiffNeverPrintsSensitiveFilesUnderADirectory guards the credential
+// exclusions on every diff scope, not only the repository root.
+func TestGitInspectDiffNeverPrintsSensitiveFilesUnderADirectory(t *testing.T) {
+	root := gitInspectRepo(t)
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + root, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0"}
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v %s", strings.Join(args, " "), err, output)
+		}
+	}
+	write := func(version string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(root, "config"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"app.txt", ".env", ".npmrc", "deploy.pem", "id_rsa"} {
+			value := version + "-leaked-" + name
+			if name == "app.txt" {
+				value = version + "-visible"
+			}
+			if err := os.WriteFile(filepath.Join(root, "config", name), []byte(value), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	write("v1")
+	git("add", "--", "config")
+	git("-c", "user.name=Cocogem Test", "-c", "user.email=cocogem@example.invalid", "commit", "--quiet", "-m", "config")
+	write("v2")
+	for _, path := range []string{"config", "."} {
+		output, err := GitInspect(context.Background(), root, GitInspectInput{Subcommand: "diff", Path: path})
+		if err != nil {
+			t.Fatalf("diff %q: %v", path, err)
+		}
+		if strings.Contains(output, "leaked") {
+			t.Fatalf("diff %q printed credential content: %s", path, output)
+		}
+		if !strings.Contains(output, "v2-visible") {
+			t.Fatalf("diff %q lost the ordinary change: %s", path, output)
+		}
+	}
+}
