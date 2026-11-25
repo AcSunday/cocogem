@@ -21,10 +21,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/AcSunday/cocogem/internal/tools"
 )
 
 // egressProxy is the only outbound path for a sandboxed native command. It is
@@ -459,8 +462,19 @@ func newProxyCA() (*x509.Certificate, *ecdsa.PrivateKey, []byte, error) {
 // unsafeEgressIP rejects every non-public destination, including addresses an
 // attacker-controlled DNS name could rebind to.
 func unsafeEgressIP(ip net.IP) bool {
-	return ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast()
+	if ip == nil {
+		return true
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return true
+	}
+	// tools.PublicIP is the single reserved-range policy shared with the host web
+	// tools: it also rejects carrier-grade NAT (100.64.0.0/10), NAT64, benchmarking
+	// and other reserved space that the stdlib predicates do not cover.
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() ||
+		!tools.PublicIP(addr)
 }
 
 func subtleConstantTimeEqual(left, right string) bool {
