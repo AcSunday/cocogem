@@ -38,7 +38,7 @@ func runOtherNativeHelper(executor, mode string, arg func(string) string) {
 		if os.Getenv("GEMINI_CLI_TRUST_WORKSPACE") != "true" || arg("--allowed-mcp-server-names") != serverName {
 			os.Exit(43)
 		}
-		policy, err := os.ReadFile(filepath.Join(arg("--admin-policy"), "cocogem.toml"))
+		policy, err := os.ReadFile(arg("--admin-policy"))
 		if err != nil || !strings.Contains(string(policy), `decision = "deny"`) || !strings.Contains(string(policy), serverName) {
 			os.Exit(44)
 		}

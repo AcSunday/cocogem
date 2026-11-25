@@ -5,6 +5,36 @@ import (
 	"testing"
 )
 
+func TestGeminiResumeRequiresExactSessionAcknowledgement(t *testing.T) {
+	for _, tc := range []struct {
+		name, observed string
+		wantFailure    bool
+	}{
+		{"same session", fakeSession, false},
+		{"different session", "99999999-9999-4999-8999-999999999999", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var ack map[string]any
+			gate := newTestGate(t, nil, func(kind string, data map[string]any) error {
+				if kind == "native_session" {
+					ack = data
+				}
+				return nil
+			})
+			gate.sessionMode, gate.sessionID = "resume", fakeSession
+			frames := `{"type":"init","session_id":"` + tc.observed + "\"}\n" + `{"type":"result","status":"success"}`
+			err := parseGemini(strings.NewReader(frames), gate, nil)
+			if tc.wantFailure {
+				if FailureKindOf(err) != FailureProtocol || ack != nil {
+					t.Fatalf("different session: ack=%v err=%v", ack, err)
+				}
+			} else if err != nil || ack["mode"] != "resume" || ack["session_id"] != fakeSession {
+				t.Fatalf("resumed session: ack=%v err=%v", ack, err)
+			}
+		})
+	}
+}
+
 func TestGeminiTopLevelDiagnosticsRespectSeverityAndPreserveUsage(t *testing.T) {
 	for _, tc := range []struct {
 		name, frames string
