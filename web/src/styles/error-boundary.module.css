@@ -1,0 +1,37 @@
+/* Fallback screen for ErrorBoundary. Colors come from the shared tokens so the
+ * screen follows light and dark appearance without hard-coded values. */
+.crash {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  max-width: 560px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 24px;
+}
+.crash h1 {
+  margin: 0;
+}
+.crash-note {
+  margin: 0;
+  color: var(--text-2);
+}
+.crash-detail {
+  max-height: 160px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.crash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
