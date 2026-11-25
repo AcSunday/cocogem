@@ -321,7 +321,8 @@ function CollaborationSettings({
       default_coordinator_id: ids.has(current.default_coordinator_id ?? "")
         ? (current.default_coordinator_id ?? "")
         : "",
-      collaboration_budget: current.collaboration_budget,
+      // Only the coordinator is sent: the budget has its own form, and a
+      // field-merge PATCH must not resend a stale snapshot of it.
     };
   };
   const memberOptions = (current: string) => [

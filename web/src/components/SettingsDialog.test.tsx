@@ -167,16 +167,13 @@ it("clears an unavailable member instead of saving the stale id", async () => {
   ).toBeGreaterThan(0);
   await user.click(screen.getByRole("button", { name: "保存协作默认" }));
   await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
-  expect(saveSettings).toHaveBeenCalledWith({
-    default_coordinator_id: "",
-    collaboration_budget: {
-      auto_continuations: 20,
-      parallel_branches: 4,
-      writer_branches: 2,
-      fix_rounds: 3,
-      no_progress_failures: 2,
-    },
-  });
+  // Field merge: the defaults form owns only the coordinator. Resending the
+  // budget snapshot taken at mount would roll back a budget the budget form
+  // saved in the meantime.
+  expect(saveSettings).toHaveBeenCalledWith({ default_coordinator_id: "" });
+  expect(saveSettings.mock.calls[0][0]).not.toHaveProperty(
+    "collaboration_budget",
+  );
 });
 
 it("saves only the default coordinator and the budget in collaboration settings", async () => {
