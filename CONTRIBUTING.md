@@ -1,6 +1,6 @@
 # Contributing
 
-Use Go 1.26.10+ and Node.js 22.12+ (Node.js 24 LTS is recommended).
+Use Go 1.26.11+ and Node.js 22.12+ (Node.js 24 LTS is recommended).
 Read [the product document](docs/product.md) before changing behavior.
 Follow its [project layout](docs/product.md#项目结构) when adding files.
 

@@ -7,7 +7,7 @@
 让 Claude Code、Codex、Gemini、Pi 和 OpenCode 在同一个工作空间里讨论、研究、开发与复核。
 
 [![CI](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml/badge.svg)](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.26.10+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26.11+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Node.js](https://img.shields.io/badge/Node.js-22.12+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -43,7 +43,7 @@ Cocogem 把它们放进同一个本地工作空间：你描述目标，成员分
 
 ## 快速开始
 
-准备 Go 1.26.10+（1.26 系列）、Node.js 22.12+（建议 24 LTS）和 npm，以及至少一个已能正常使用的本机 CLI。
+准备 Go 1.26.11+（1.26 系列）、Node.js 22.12+（建议 24 LTS）和 npm，以及至少一个已能正常使用的本机 CLI。
 
 ```sh
 git clone https://github.com/AcSunday/cocogem.git
