@@ -142,10 +142,15 @@ func NewHTTPEgress(hosts []string, client *http.Client) *HTTPEgress {
 			cleaned = append(cleaned, host)
 		}
 	}
-	if client == nil {
-		client = http.DefaultClient
+	// An approved request is bound to one exact destination, so a redirect must
+	// never carry the body to a host or scheme that was not checked. Work on a
+	// copy so neither the caller's client nor http.DefaultClient is modified.
+	var guarded http.Client
+	if client != nil {
+		guarded = *client
 	}
-	return &HTTPEgress{Client: client, Hosts: cleaned}
+	guarded.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &HTTPEgress{Client: &guarded, Hosts: cleaned}
 }
 
 // Forward performs exactly the approved request against an allowed host.
