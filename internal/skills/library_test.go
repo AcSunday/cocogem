@@ -517,3 +517,61 @@ func TestBuiltInSkillMarkdownLinksResolveAndAgentsDirSymlinkRejected(t *testing.
 		t.Fatalf("symlinked .agents directory should return an error, got %+v", infos)
 	}
 }
+
+// TestRejectedProjectSkillsPathDegradesToBuiltInsEverywhere proves a project whose
+// .agents or .agents/skills is a symlink still gets a usable run snapshot: discovery
+// rejects the path, and every consumer treats it as "no project skills" instead of
+// failing the whole run.
+func TestRejectedProjectSkillsPathDegradesToBuiltInsEverywhere(t *testing.T) {
+	t.Parallel()
+	outside := t.TempDir()
+	escape := filepath.Join(outside, "skills", "escape")
+	if err := os.MkdirAll(escape, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(escape, "SKILL.md"), []byte("---\nname: escape\ndescription: escaped\n---\nBody\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	builtIn, err := SnapshotHash(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layouts := map[string]func(root string) error{
+		"symlinked .agents": func(root string) error {
+			return os.Symlink(outside, filepath.Join(root, ".agents"))
+		},
+		"symlinked .agents/skills": func(root string) error {
+			if err := os.MkdirAll(filepath.Join(root, ".agents"), 0700); err != nil {
+				return err
+			}
+			return os.Symlink(filepath.Join(outside, "skills"), filepath.Join(root, ".agents", "skills"))
+		},
+	}
+	for name, build := range layouts {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := build(root); err != nil {
+				t.Skip("symlinks unavailable:", err)
+			}
+			if _, _, err := projectSkills(root); err == nil {
+				t.Fatal("discovery must still reject the symlinked path")
+			}
+			hash, err := SnapshotHashFor(root, nil)
+			if err != nil {
+				t.Fatalf("a rejected project skills path must not fail the run snapshot: %v", err)
+			}
+			if hash != builtIn {
+				t.Fatal("a rejected project skills path leaked into the snapshot")
+			}
+			catalogue, err := CatalogueFor(root, nil)
+			if err != nil || strings.Contains(catalogue, "escape") {
+				t.Fatalf("catalogue leaked a rejected skill = %v, err = %v", strings.Contains(catalogue, "escape"), err)
+			}
+			for _, info := range ListFor(root) {
+				if info.Project {
+					t.Fatalf("project skill %q listed from a rejected path", info.ID)
+				}
+			}
+		})
+	}
+}
