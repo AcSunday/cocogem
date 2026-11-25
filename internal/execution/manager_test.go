@@ -192,6 +192,103 @@ func TestApplyWritesBackAndDiscardKeepsTheProjectClean(t *testing.T) {
 	}
 }
 
+// TestApplyAndDiscardAreLockedWhileARunUsesTheCandidate keeps a user from
+// destroying or publishing a worktree that an active run is still writing.
+func TestApplyAndDiscardAreLockedWhileARunUsesTheCandidate(t *testing.T) {
+	db, root, run := executionFixture(t)
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	candidate, err := manager.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candidate.Path, "main.txt"), []byte("in progress"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	active := w.Run{ID: "active-run", WorkspaceID: run.WorkspaceID, ThreadID: run.ThreadID, TaskID: run.TaskID, Status: "running", ExecutionRef: candidate.ID, CreatedAt: w.Now()}
+	if err := db.Write(t.Context(), func(tx *store.Tx) error { return tx.InsertRun(active, "lock-key", "lock-hash") }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Apply(t.Context(), candidate.ID); !errors.Is(err, w.ErrConflict) {
+		t.Fatalf("apply during a run = %v, want a conflict", err)
+	}
+	if _, err := manager.Discard(t.Context(), candidate.ID); !errors.Is(err, w.ErrConflict) {
+		t.Fatalf("discard during a run = %v, want a conflict", err)
+	}
+	if _, err := os.Stat(candidate.Path); err != nil {
+		t.Fatalf("a locked candidate lost its directory: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "main.txt")); err != nil || string(data) != "baseline" {
+		t.Fatalf("a locked apply changed the project: %q %v", data, err)
+	}
+}
+
+// TestRestartedManagerTakesOverACompletedCandidate covers the restart path: the
+// server generates a new lease owner on every start, and a finished candidate
+// that is still waiting for Apply must be usable by the next write turn.
+func TestRestartedManagerTakesOverACompletedCandidate(t *testing.T) {
+	db, root, run := executionFixture(t)
+	data := filepath.Join(t.TempDir(), "executions")
+	first := New(db, data, "owner-before-restart")
+	candidate, err := first.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candidate.Path, "main.txt"), []byte("first turn"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Finish(t.Context(), candidate.ID); err != nil {
+		t.Fatal(err)
+	}
+	second := New(db, data, "owner-after-restart")
+	reused, err := second.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatalf("prepare after restart: %v", err)
+	}
+	if reused.ID != candidate.ID {
+		t.Fatalf("restart derived a new candidate %q instead of continuing %q", reused.ID, candidate.ID)
+	}
+	if reused.LeaseOwner != "owner-after-restart" {
+		t.Fatalf("reused candidate lease owner = %q, want the restarted manager", reused.LeaseOwner)
+	}
+	if err := os.WriteFile(filepath.Join(reused.Path, "main.txt"), []byte("second turn"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Finish(t.Context(), reused.ID); err != nil {
+		t.Fatalf("finish after restart: %v", err)
+	}
+	// The effect record describes the candidate's whole change from its baseline,
+	// so a later turn extends it instead of conflicting with the first turn.
+	if err := db.Read(t.Context(), func(tx *store.Tx) error {
+		finished, err := tx.Execution(reused.ID)
+		if err != nil {
+			return err
+		}
+		effect, err := tx.EffectByKey("task", "execution:"+reused.ID)
+		if err != nil {
+			return err
+		}
+		if effect.BeforeDigest != candidate.TreeDigest {
+			t.Fatalf("effect before digest = %q, want the baseline %q", effect.BeforeDigest, candidate.TreeDigest)
+		}
+		if effect.AfterDigest != finished.TreeDigest || effect.AfterDigest == effect.BeforeDigest {
+			t.Fatalf("effect after digest = %q, want the latest tree %q", effect.AfterDigest, finished.TreeDigest)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := second.Apply(t.Context(), reused.ID)
+	if err != nil {
+		t.Fatalf("apply after restart: %v", err)
+	}
+	if applied.Status != "applied" {
+		t.Fatalf("apply status = %q", applied.Status)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "main.txt")); err != nil || string(data) != "second turn" {
+		t.Fatalf("apply did not write back: %q %v", data, err)
+	}
+}
+
 // TestApplyRefusesToOverwriteAnExternalEdit is the A04 conflict guard.
 func TestApplyRefusesToOverwriteAnExternalEdit(t *testing.T) {
 	db, root, run := executionFixture(t)

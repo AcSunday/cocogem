@@ -211,6 +211,22 @@ func (t *Tx) SaveExecutionEpoch(v w.WorkspaceExecution, expectedEpoch int) error
 	return err
 }
 
+// TakeOverCompletedExecution moves a finished, unapplied candidate to a new
+// lease owner and epoch. Nobody holds a lease on a completed candidate, so the
+// takeover is guarded by the exact epoch and status the caller observed rather
+// than by the previous owner, which no longer exists after a server restart.
+func (t *Tx) TakeOverCompletedExecution(v w.WorkspaceExecution, expectedEpoch int) error {
+	result, err := t.tx.ExecContext(t.ctx, "UPDATE workspace_executions SET lease_epoch=?,lease_expires_at=?,status=?,body=? WHERE id=? AND lease_epoch=? AND status='completed'", v.LeaseEpoch, v.LeaseExpiresAt, v.Status, body(v), v.ID, expectedEpoch)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err == nil && count == 0 {
+		return w.ErrConflict
+	}
+	return err
+}
+
 // Execution reads one execution directory.
 func (t *Tx) Execution(id string) (w.WorkspaceExecution, error) {
 	return get[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE id=?", id)
@@ -242,9 +258,12 @@ func (t *Tx) ThreadExecutions(threadID string) ([]w.WorkspaceExecution, error) {
 	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE thread_id=? ORDER BY rowid", threadID)
 }
 
-// ActiveExecutions lists every live candidate directory for reconciliation.
+// ActiveExecutions lists every candidate directory the host must keep on disk.
+// A completed candidate is unapplied work waiting for the user to Apply or
+// Discard it, so it is retained exactly like an active one; only applied,
+// discarded and failed records release their directory.
 func (t *Tx) ActiveExecutions() ([]w.WorkspaceExecution, error) {
-	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE status IN ('active','quarantined','uncertain') ORDER BY rowid")
+	return list[w.WorkspaceExecution](t, "SELECT body FROM workspace_executions WHERE status IN ('active','completed','quarantined','uncertain') ORDER BY rowid")
 }
 
 // SaveEffect creates or reconciles a host-managed effect.

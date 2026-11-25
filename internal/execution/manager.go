@@ -175,10 +175,13 @@ func (m *Manager) Prepare(ctx context.Context, run w.Run) (w.WorkspaceExecution,
 			if item.Status == "completed" {
 				candidate = item
 				candidate.Status = "active"
+				// The lease owner is regenerated on every server start, so a
+				// finished candidate is taken over by the current manager.
+				candidate.LeaseOwner = m.owner
 				candidate.LeaseEpoch = item.LeaseEpoch + 1
 				candidate.LeaseExpiresAt = now.Add(leaseTTL).Format(time.RFC3339Nano)
 				candidate.UpdatedAt = now.Format(time.RFC3339Nano)
-				return tx.SaveExecutionEpoch(candidate, item.LeaseEpoch)
+				return tx.TakeOverCompletedExecution(candidate, item.LeaseEpoch)
 			}
 			expires, parseErr := time.Parse(time.RFC3339Nano, item.LeaseExpiresAt)
 			if item.LeaseOwner != m.owner || parseErr != nil || !expires.After(now) {
@@ -524,6 +527,16 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 				RequestDigest: digest(before), Status: "applied", BeforeDigest: before, AfterDigest: after,
 				Observation: "candidate tree reconciled; integration and external side effects are not observed", CreatedAt: candidate.CreatedAt, UpdatedAt: candidate.UpdatedAt}
 			if previous, err := tx.EffectByKey(candidate.TaskID, effect.IdempotencyKey); err == nil {
+				// The record covers the candidate's whole change from its baseline.
+				// A later turn extends it only when it starts exactly where the
+				// previous one ended; any other start means the tree changed outside
+				// a run, which stays a conflict.
+				if previous.AfterDigest == before {
+					previous.AfterDigest = after
+					previous.Status = "applied"
+					previous.UpdatedAt = candidate.UpdatedAt
+					return tx.SaveEffect(previous)
+				}
 				if previous.RequestDigest != effect.RequestDigest {
 					return w.ErrConflict
 				}
@@ -553,17 +566,8 @@ func (m *Manager) Apply(ctx context.Context, id string) (w.WorkspaceExecution, e
 		if err != nil {
 			return err
 		}
-		activeRuns, err := tx.Active()
-		if err != nil {
-			return err
-		}
-		for _, r := range activeRuns {
-			if r.ExecutionRef == candidate.ID {
-				running = true
-				break
-			}
-		}
-		return nil
+		running, err = candidateInUse(tx, candidate.ID)
+		return err
 	}); err != nil {
 		return candidate, err
 	}
@@ -888,17 +892,43 @@ func (m *Manager) applyCopy(ctx context.Context, candidate w.WorkspaceExecution)
 	return m.settle(ctx, candidate, "applied", true)
 }
 
-// Discard removes the candidate without touching the bound project.
+// Discard removes the candidate without touching the bound project. Like Apply
+// it is refused while an active run still uses the candidate, so a user cannot
+// delete a worktree that a native process is writing to. Host reclamation on
+// permanent delete, purge and workspace deletion does not go through here.
 func (m *Manager) Discard(ctx context.Context, id string) (w.WorkspaceExecution, error) {
 	var candidate w.WorkspaceExecution
+	var running bool
 	if err := m.store.Read(ctx, func(tx *store.Tx) error {
 		var err error
 		candidate, err = tx.Execution(id)
+		if err != nil {
+			return err
+		}
+		running, err = candidateInUse(tx, candidate.ID)
 		return err
 	}); err != nil {
 		return candidate, err
 	}
+	if running {
+		return candidate, fmt.Errorf("%w: candidate is locked while a run is active", w.ErrConflict)
+	}
 	return m.settle(ctx, candidate, "discarded", true)
+}
+
+// candidateInUse reports whether a queued, running or canceling run still owns
+// the candidate. Apply and Discard share this single lock.
+func candidateInUse(tx *store.Tx, id string) (bool, error) {
+	active, err := tx.Active()
+	if err != nil {
+		return false, err
+	}
+	for _, run := range active {
+		if run.ExecutionRef == id {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // settle marks the record terminal and reclaims the derived directory.
