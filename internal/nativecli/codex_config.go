@@ -2,6 +2,7 @@ package nativecli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/url"
@@ -14,6 +15,14 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/net/http/httpguts"
 )
+
+// Only the Codex process needs the scoped bridge and provider environment.
+var codexShellEnvExclusions = []string{"COCOGEM_MCP_TOKEN", "CODEX_HOME", "COCOGEM_CODEX_CONNECTION_*"}
+
+func codexShellEnvFlag() string {
+	exclusions, _ := json.Marshal(codexShellEnvExclusions)
+	return "shell_environment_policy.exclude=" + string(exclusions)
+}
 
 // Only connection fields enter the child configuration. Hooks, tools and plugins stay host-owned.
 type codexConnection struct {

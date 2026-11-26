@@ -195,13 +195,11 @@ func parsePiRPC(reader io.Reader, gate *bridge, live *liveness, input *piRPCStdi
 				var state struct {
 					SessionID string `json:"sessionId"`
 				}
-				if json.Unmarshal(event.Data, &state) != nil || !sessionPattern.MatchString(state.SessionID) {
+				if sessionID != "" || json.Unmarshal(event.Data, &state) != nil || !sessionPattern.MatchString(state.SessionID) {
 					return newFailure(FailureProtocol, "Pi did not report a valid session identity")
 				}
 				sessionID = state.SessionID
-				if err := gate.emit("native_session", map[string]any{
-					"executor": "pi", "session_id": sessionID, "mode": "fresh", "cwd": "per-call",
-				}); err != nil {
+				if err := gate.acknowledgeSession("pi", sessionID, "per-call"); err != nil {
 					return err
 				}
 				if err := input.sendPrompt(); err != nil {

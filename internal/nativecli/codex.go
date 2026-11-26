@@ -39,7 +39,8 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 		"support_verbosity": false, "apply_patch_tool_type": nil, "truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "experimental_supported_tools": []string{}, "include_skills_usage_instructions": false, "include_apps_usage_instructions": false, "include_plugin_usage_instructions": false,
 		"tool_mode": nil, "multi_agent_version": nil, "node_repl_disabled": true, "use_responses_lite": false, "input_modalities": []string{"text"}, "model_messages": map[string]any{"instructions_template": "You are a collaboration agent. Use only the tools supplied for this step. Follow the supplied task and finish this turn."},
 	}
-	if gate.trustedNative {
+	writable := gate.trustedNative && !request.ReadOnly
+	if writable {
 		entry["shell_type"] = "shell_command"
 		entry["apply_patch_tool_type"] = "freeform"
 		entry["input_modalities"] = []string{"text", "image"}
@@ -59,21 +60,14 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 	if nativeWeb {
 		webSearch = "live"
 	}
-	args := []string{"exec"}
-	if managedNativeSession(request) && request.SessionMode == "resume" && request.SessionID != "" {
-		args = append(args, "resume", request.SessionID)
+	sandbox := "read-only"
+	if writable {
+		sandbox = "danger-full-access"
 	}
-	args = append(args, "--json", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules")
+	// The sandbox and color flags belong to exec, including on resumed turns.
+	args := []string{"exec", "--sandbox", sandbox, "--color", "never", "--json", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules"}
 	if !managedNativeSession(request) {
 		args = append(args, "--ephemeral")
-	}
-	args = append(args, "--sandbox", "read-only", "--color", "never")
-	if gate.trustedNative && !request.ReadOnly {
-		for i, value := range args {
-			if value == "read-only" {
-				args[i] = "danger-full-access"
-			}
-		}
 	}
 	args = append(args, connectionArgs...)
 	if nativeWeb && slices.ContainsFunc(args, func(arg string) bool { return strings.HasPrefix(arg, "model_providers.cocogem_connection.") }) {
@@ -82,11 +76,11 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 		args = append(args, "-c", "model_providers.cocogem_connection.supports_standalone_web_search=true")
 	}
 	args = append(args, "--model", resolved)
-	for _, config := range []string{"approval_policy=\"never\"", "model_catalog_json=" + quoted(path), "web_search=" + quoted(webSearch), "skills.include_instructions=false", "project_doc_max_bytes=0", "tools.update_plan.enabled=false", "tools.experimental_request_user_input.enabled=false", "mcp_servers.cocogem.url=" + quoted(gate.url()), "mcp_servers.cocogem.bearer_token_env_var=\"COCOGEM_MCP_TOKEN\"", "mcp_servers.cocogem.default_tools_approval_mode=\"auto\""} {
+	for _, config := range []string{"approval_policy=\"never\"", "model_catalog_json=" + quoted(path), "web_search=" + quoted(webSearch), "skills.include_instructions=false", "project_doc_max_bytes=0", "tools.update_plan.enabled=false", "tools.experimental_request_user_input.enabled=false", "mcp_servers.cocogem.url=" + quoted(gate.url()), "mcp_servers.cocogem.bearer_token_env_var=\"COCOGEM_MCP_TOKEN\"", "mcp_servers.cocogem.default_tools_approval_mode=\"auto\"", codexShellEnvFlag()} {
 		args = append(args, "-c", config)
 	}
 	for _, feature := range []string{"shell_tool", "view_image", "multi_agent", "multi_agent_v2", "hooks", "plugins", "apps", "code_mode", "code_mode_host", "code_mode_only", "sleep_tool", "token_budget", "request_permissions_tool", "standalone_web_search", "goals"} {
-		enabled := gate.trustedNative && (feature == "shell_tool" || feature == "view_image")
+		enabled := writable && (feature == "shell_tool" || feature == "view_image")
 		args = append(args, "-c", fmt.Sprintf("features.%s=%t", feature, enabled))
 	}
 	for _, tool := range request.Tools {
@@ -99,15 +93,19 @@ func prepareCodex(request model.Request, workdir string, gate *bridge, probe boo
 		args = withoutReasoningEffort(args)
 		args = append(args, "-c", `model_reasoning_effort="`+request.ThinkingLevel+`"`)
 	}
-	if env == nil {
-		env = map[string]string{}
+	if managedNativeSession(request) && request.SessionMode == "resume" {
+		if !sessionPattern.MatchString(request.SessionID) {
+			return nil, nil, errors.New("Codex resume requires an exact session ID")
+		}
+		args = append(args, "resume", request.SessionID)
 	}
+	// The frozen connection can be shared by concurrent member attempts.
+	env = mergeEnv(env, map[string]string{"COCOGEM_MCP_TOKEN": gate.token})
 	if managedNativeSession(request) {
 		if state := nativeStateRoot("codex"); state != "" {
 			env["CODEX_HOME"] = state
 		}
 	}
-	env["COCOGEM_MCP_TOKEN"] = gate.token
 	return args, env, nil
 }
 
@@ -307,7 +305,7 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 				return newFailure(FailureProtocol, "native CLI session initialization is invalid")
 			}
 			initialized, sessionID = true, event.ThreadID
-			if err := gate.emit("native_session", map[string]any{"executor": "codex", "session_id": sessionID, "mode": "fresh", "cwd": "isolated"}); err != nil {
+			if err := gate.acknowledgeSession("codex", sessionID, "isolated"); err != nil {
 				return err
 			}
 		case "turn.started":

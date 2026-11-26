@@ -60,6 +60,28 @@ func TestManagedGeminiWaitsBeforeRefreshingAnActiveSession(t *testing.T) {
 	}
 }
 
+func TestPiAndCodexSerializeManagedSessionLaunches(t *testing.T) {
+	for _, executor := range []string{"pi", "codex"} {
+		t.Run(executor, func(t *testing.T) {
+			root := t.TempDir()
+			lock, err := prepareManagedSessionDirectory(t.Context(), root, executor)
+			if err != nil || lock == nil {
+				t.Fatalf("first launch: lock=%v err=%v", lock, err)
+			}
+			defer lock.Close()
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			second, err := prepareManagedSessionDirectory(ctx, root, executor)
+			if second != nil {
+				second.Close()
+			}
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("overlapping launch: %v", err)
+			}
+		})
+	}
+}
+
 // TestNativeProcessHelper is a synthetic native CLI. Modes either leave a
 // child behind with detached output or wait to be canceled.
 func TestNativeProcessHelper(t *testing.T) {

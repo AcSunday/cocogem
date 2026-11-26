@@ -280,15 +280,8 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			if initialized || !sessionPattern.MatchString(event.SessionID) {
 				return newFailure(FailureProtocol, "native CLI session initialization is invalid")
 			}
-			mode := "fresh"
-			if gate.sessionMode == "resume" {
-				if event.SessionID != gate.sessionID {
-					return newFailure(FailureProtocol, "native CLI resumed a different session identity")
-				}
-				mode = "resume"
-			}
 			initialized, sessionID = true, event.SessionID
-			if err := gate.emit("native_session", map[string]any{"executor": "gemini", "session_id": sessionID, "mode": mode, "cwd": "isolated"}); err != nil {
+			if err := gate.acknowledgeSession("gemini", sessionID, "isolated"); err != nil {
 				return err
 			}
 		case "message":

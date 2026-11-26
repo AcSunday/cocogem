@@ -260,6 +260,18 @@ func (b *bridge) toolFree() bool {
 	return b.reportsEveryTool && !b.toolSeen
 }
 
+// acknowledgeSession binds the CLI's reported identity to the requested turn.
+func (b *bridge) acknowledgeSession(executor, id, cwd string) error {
+	mode := "fresh"
+	if b.sessionMode == "resume" {
+		if id != b.sessionID {
+			return newFailure(FailureProtocol, "native CLI resumed a different session identity")
+		}
+		mode = "resume"
+	}
+	return b.emit("native_session", map[string]any{"executor": executor, "session_id": id, "mode": mode, "cwd": cwd})
+}
+
 func (b *bridge) emit(kind string, data map[string]any) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
