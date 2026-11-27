@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -363,5 +364,70 @@ func TestConcurrentManagersHaveOneWinner(t *testing.T) {
 	}
 	if success != 1 || conflicts != 1 {
 		t.Fatalf("success=%d conflicts=%d", success, conflicts)
+	}
+}
+
+func TestMaterializeCopyCleansPartialDirectoryOnFailure(t *testing.T) {
+	db, root, run := executionFixture(t)
+	// A single 33 MiB sparse file exceeds the 32 MiB per-file copy limit.
+	big := filepath.Join(root, "large.bin")
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(33 << 20); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	candidate, err := manager.Prepare(t.Context(), run)
+	if !errors.Is(err, ErrSourceTooLarge) {
+		t.Fatalf("Prepare error = %v, want ErrSourceTooLarge", err)
+	}
+	if _, statErr := os.Stat(candidate.Path); !os.IsNotExist(statErr) {
+		t.Fatalf("partial candidate directory leaked on disk: %s (%v)", candidate.Path, statErr)
+	}
+}
+
+func TestLargeGitWorktreeFallsBackToGitTreeDigest(t *testing.T) {
+	db, repo, run, _ := gitExecutionFixture(t)
+	run.WriteBranch = true
+	manager := New(db, filepath.Join(t.TempDir(), "executions"), "owner")
+	manager.digestTree = func(string) (string, error) {
+		return "", tools.ErrDigestTooLarge
+	}
+	candidate, err := manager.Prepare(t.Context(), run)
+	if err != nil {
+		t.Fatalf("Prepare large git worktree: %v", err)
+	}
+	if candidate.Kind != "git_worktree" || candidate.TreeDigest == "" || candidate.BaseTreeDigest == "" {
+		t.Fatalf("unexpected candidate metadata: %+v", candidate)
+	}
+	if err := os.WriteFile(filepath.Join(candidate.Path, "main.txt"), []byte("updated in large repo\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Finish(t.Context(), candidate.ID); err != nil {
+		t.Fatalf("Finish large git worktree: %v", err)
+	}
+	verify, err := manager.VerifyTree(t.Context(), candidate.ID, "review-step")
+	if err != nil {
+		t.Fatalf("VerifyTree large git worktree: %v", err)
+	}
+	if err := manager.DestroyVerifyTree(t.Context(), verify, candidate.ID); err != nil {
+		t.Fatalf("DestroyVerifyTree large git worktree: %v", err)
+	}
+	applied, err := manager.Apply(t.Context(), candidate.ID)
+	if err != nil {
+		t.Fatalf("Apply large git worktree: %v", err)
+	}
+	if applied.Status != "applied" {
+		t.Fatalf("applied status = %q", applied.Status)
+	}
+	got, err := os.ReadFile(filepath.Join(repo, "main.txt"))
+	if err != nil || string(got) != "updated in large repo\n" {
+		t.Fatalf("applied content = %q (%v)", got, err)
 	}
 }

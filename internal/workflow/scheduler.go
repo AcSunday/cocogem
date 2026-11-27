@@ -272,6 +272,7 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 	}
 	slog.Info("run started", "workspace_id", run.WorkspaceID, "thread_id", run.ThreadID, "run_id", run.ID)
 	waiting := map[string]bool{}
+	var loopErr error
 	for {
 		var current w.Run
 		if err = e.Store.Read(ctx, func(tx *store.Tx) error {
@@ -282,6 +283,7 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 			steps, readErr = tx.Steps(run.ID)
 			return readErr
 		}); err != nil {
+			loopErr = err
 			break
 		}
 		// A planning step may have selected a workflow and persisted it while
@@ -292,6 +294,7 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		if run.TaskID != "" && (run.TaskDirectory == "" || (run.WriteBranch && run.ExecutionRef == "")) && e.Executions != nil {
 			run, err = e.prepareExecution(ctx, run)
 			if err != nil {
+				loopErr = err
 				break
 			}
 			if run.ExecutionRef != "" && activeExecRef == "" {
@@ -299,7 +302,7 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 				if hb, hbErr := e.Executions.Heartbeat(parent, activeExecRef, e.report); hbErr == nil {
 					stopHeartbeat = hb
 				} else {
-					err = hbErr
+					loopErr = hbErr
 					break
 				}
 			}
@@ -345,8 +348,10 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 				skipped = true
 				steps[i].Status = "skipped"
 				steps[i].Error = "upstream step did not succeed"
-				if err := e.saveStep(ctx, steps[i], "step_finished"); err != nil {
+				if saveErr := e.saveStep(ctx, steps[i], "step_finished"); saveErr != nil {
+					loopErr = saveErr
 					cancel()
+					break
 				}
 			} else if depsOK {
 				ready = append(ready, i)
@@ -387,11 +392,13 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 			return readErr
 		})
 		if err != nil {
+			loopErr = err
 			cancel()
 			break
 		}
 		branches, branchErr := e.acquireStepBranches(ctx, run, ready, steps)
 		if branchErr != nil {
+			loopErr = branchErr
 			cancel()
 			break
 		}
@@ -407,7 +414,8 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		}
 		wg.Wait()
 		stopDispatch()
-		if err := e.releaseStepBranches(context.WithoutCancel(ctx), run, branches); err != nil {
+		if releaseErr := e.releaseStepBranches(context.WithoutCancel(ctx), run, branches); releaseErr != nil {
+			loopErr = releaseErr
 			cancel()
 			break
 		}
@@ -428,6 +436,11 @@ func (e *Engine) executeRun(parent context.Context, run w.Run) {
 		if step.Status == "failed" && step.FailureKind == failureRunTimeout {
 			runTimedOut = true
 		}
+	}
+	if loopErr != nil && !runTimedOut && !errors.Is(loopErr, context.Canceled) {
+		slog.Error("run scheduler failed before settling remaining steps", "run_id", run.ID, "error", loopErr)
+		e.finish(parent, run, "failed", loopErr)
+		return
 	}
 	status, cause, kind := aggregateSteps(steps, runTimedOut)
 	if kind != "" {

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -124,6 +125,46 @@ func (e *Engine) prepareExecution(ctx context.Context, run w.Run) (w.Run, error)
 	}
 	candidate, err := e.Executions.Prepare(ctx, run)
 	if err != nil {
+		if errors.Is(err, execution.ErrSourceTooLarge) || errors.Is(err, tools.ErrDigestTooLarge) {
+			slog.Warn("candidate isolation skipped; source exceeds isolated copy limits",
+				"run_id", run.ID, "workspace_root", run.Workspace.Root, "error", err)
+			if writeErr := e.Store.Write(ctx, func(tx *store.Tx) error {
+				current, readErr := tx.Run(run.ID)
+				if readErr != nil {
+					return readErr
+				}
+				if current.WriteBranch {
+					current.WriteBranch = false
+					// TaskRunStarted incremented ActiveWriters when this run
+					// entered with WriteBranch=true; release that slot now so
+					// TaskRunFinished (which sees WriteBranch=false) does not
+					// permanently leak the writer quota.
+					if current.BudgetStarted && current.BudgetAccountID != "" {
+						account, accErr := tx.BudgetAccount(current.BudgetAccountID)
+						if accErr != nil {
+							return accErr
+						}
+						account.ActiveWriters = max(0, account.ActiveWriters-1)
+						account.Revision++
+						account.UpdatedAt = w.Now()
+						if saveAccErr := tx.SaveBudgetAccount(account, account.Revision-1); saveAccErr != nil {
+							return saveAccErr
+						}
+					}
+				}
+				run = current
+				if saveErr := tx.SaveRun(current); saveErr != nil {
+					return saveErr
+				}
+				return tx.AppendEvent(run.ID, "", run.CoordinatorID, "native_notice", map[string]any{
+					"kind":    "candidate_isolation_skipped",
+					"message": "bound workspace is not a git repository and exceeds isolated copy limits; continuing directly in the workspace root",
+				})
+			}); writeErr != nil {
+				return run, writeErr
+			}
+			return run, nil
+		}
 		return run, err
 	}
 	run.ExecutionRef = candidate.ID
