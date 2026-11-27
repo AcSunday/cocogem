@@ -790,8 +790,8 @@ func (s *codexAppServer) handleNotification(message codexMessage) error {
 				ID      string          `json:"id"`
 				Type    string          `json:"type"`
 				Text    string          `json:"text"`
-				Summary []string        `json:"summary"`
-				Content []string        `json:"content"`
+				Summary json.RawMessage `json:"summary"`
+				Content json.RawMessage `json:"content"`
 				Command string          `json:"command"`
 				Status  string          `json:"status"`
 				Error   json.RawMessage `json:"error"`
@@ -802,6 +802,8 @@ func (s *codexAppServer) handleNotification(message codexMessage) error {
 			return newFailure(FailureProtocol, "Codex emitted an invalid thread item")
 		}
 		switch params.Item.Type {
+		case "userMessage":
+			return nil
 		case "agentMessage":
 			if message.Method == "item/completed" && !s.deltaSeen[params.Item.ID] && params.Item.Text != "" {
 				if s.live != nil {
@@ -854,11 +856,11 @@ func (s *codexAppServer) handleNotification(message codexMessage) error {
 			}
 			if message.Method == "item/completed" && !s.reasoningSeen[params.Item.ID] {
 				text := strings.TrimSpace(params.Item.Text)
-				if text == "" && len(params.Item.Summary) > 0 {
-					text = strings.TrimSpace(strings.Join(params.Item.Summary, "\n"))
+				if text == "" {
+					text = extractCodexItemText(params.Item.Summary)
 				}
-				if text == "" && len(params.Item.Content) > 0 {
-					text = strings.TrimSpace(strings.Join(params.Item.Content, "\n"))
+				if text == "" {
+					text = extractCodexItemText(params.Item.Content)
 				}
 				if text != "" && s.gate != nil {
 					if err := s.gate.activity(activityReasoning); err != nil {
@@ -1014,4 +1016,43 @@ func codexChangePaths(raw json.RawMessage) ([]string, bool) {
 		return paths, len(paths) != 0
 	}
 	return nil, false
+}
+
+// extractCodexItemText extracts plain text from Codex item summary/content
+// fields, supporting string, []string, and structured block arrays.
+func extractCodexItemText(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ""
+	}
+	var single string
+	if json.Unmarshal(trimmed, &single) == nil {
+		return strings.TrimSpace(single)
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(trimmed, &items) != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		var s string
+		if json.Unmarshal(item, &s) == nil {
+			if t := strings.TrimSpace(s); t != "" {
+				parts = append(parts, t)
+			}
+			continue
+		}
+		var block struct {
+			Text    string `json:"text"`
+			Summary string `json:"summary"`
+		}
+		if json.Unmarshal(item, &block) == nil {
+			if t := strings.TrimSpace(block.Text); t != "" {
+				parts = append(parts, t)
+			} else if t := strings.TrimSpace(block.Summary); t != "" {
+				parts = append(parts, t)
+			}
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }

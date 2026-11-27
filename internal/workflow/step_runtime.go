@@ -689,13 +689,13 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 			case "native_session":
 				session := stringValue(data["session_id"])
 				mode := stringValue(data["mode"])
-				if session == "" || mode != x.attempt.SessionMode {
+				if session == "" || mode != current.SessionMode {
 					return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "native CLI changed the acknowledged session mode or omitted its identity"}
 				}
-				if mode == "resume" && session != x.attempt.SessionID {
+				if mode == "resume" && session != current.SessionID {
 					return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "native CLI resumed a different session identity"}
 				}
-				if x.attempt.Recovery == "context_fresh" && x.retiredSession != "" && session == x.retiredSession {
+				if current.Recovery == "context_fresh" && x.retiredSession != "" && session == x.retiredSession {
 					return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "context_fresh_reused_session: the native CLI reused the retired session; fresh recovery was not confirmed"}
 				}
 				current.SessionID = session

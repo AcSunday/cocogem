@@ -639,3 +639,43 @@ func TestCodexAppServerEmitsThinkingFromDeltasAndCompletedItem(t *testing.T) {
 		t.Fatalf("visible text = %q, want %q", got, "final answer")
 	}
 }
+
+func TestCodexAppServerHandlesUserMessageAndStructuredReasoningItems(t *testing.T) {
+	var thinking []string
+	var texts []string
+	gate := newTestGate(t, nil, func(kind string, data map[string]any) error {
+		switch kind {
+		case "thinking":
+			thinking = append(thinking, data["text"].(string))
+		case "text":
+			texts = append(texts, data["text"].(string))
+		}
+		return nil
+	})
+	server := &codexAppServer{
+		gate:          gate,
+		deltaSeen:     map[string]bool{},
+		reasoningSeen: map[string]bool{},
+		completed:     map[string]bool{},
+		startedItem:   map[string]string{},
+		fileChanges:   map[string]json.RawMessage{},
+	}
+	notifications := []codexMessage{
+		{Method: "item/started", Params: json.RawMessage(`{"item":{"type":"userMessage","id":"u1","content":[{"type":"text","text":"say hi","text_elements":[]}]}}`)},
+		{Method: "item/completed", Params: json.RawMessage(`{"item":{"type":"userMessage","id":"u1","content":[{"type":"text","text":"say hi","text_elements":[]}]}}`)},
+		{Method: "item/started", Params: json.RawMessage(`{"item":{"type":"reasoning","id":"r1","summary":[],"content":[]}}`)},
+		{Method: "item/completed", Params: json.RawMessage(`{"item":{"type":"reasoning","id":"r1","summary":[{"type":"summary_text","text":"structured summary"}],"content":[]}}`)},
+		{Method: "item/completed", Params: json.RawMessage(`{"item":{"type":"agentMessage","id":"m1","text":"hello"}}`)},
+	}
+	for _, msg := range notifications {
+		if err := server.handleNotification(msg); err != nil {
+			t.Fatalf("handleNotification(%s): %v", msg.Method, err)
+		}
+	}
+	if got := strings.Join(thinking, "|"); got != "structured summary" {
+		t.Fatalf("thinking = %q, want %q", got, "structured summary")
+	}
+	if got := strings.Join(texts, ""); got != "hello" {
+		t.Fatalf("visible text = %q, want %q", got, "hello")
+	}
+}

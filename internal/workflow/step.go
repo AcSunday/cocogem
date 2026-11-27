@@ -108,13 +108,10 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 			// thinking signature after Stop), seal the broken session and retry
 			// cleanly with a fresh session + Continuity Capsule in this same step.
 			if err != nil && request.SessionMode == "resume" && !rt.mutated.Load() && stepCtx.Err() == nil && shouldAutoSealResumeError(err) {
-				if sealErr := e.sealBrokenSession(stepCtx, rt.attempt.ExecutionSessionRef); sealErr == nil {
+				if freshAttempt, retiredNativeSession, sealErr := e.sealAndResetFreshAttempt(stepCtx, run, step, a, adapter, connection, sourceSnapshot, rt.attempt.ID, request.SessionID); sealErr == nil {
 					rt.mu.Lock()
-					rt.attempt.SessionMode = "fresh"
-					rt.attempt.SessionID = ""
-					rt.attempt.Recovery = "context_fresh"
-					rt.retiredSession = rt.attempt.ExecutionSessionRef
-					freshAttempt := rt.attempt
+					rt.attempt = freshAttempt
+					rt.retiredSession = retiredNativeSession
 					rt.mu.Unlock()
 					if freshReq, freshErr := e.buildRequest(stepCtx, run, step, a, allowed, required, connection, adapter, message, handoff, scope, history, all, sourceSnapshot, previousDraft, freshAttempt); freshErr == nil {
 						if prep.workRoot != "" {
@@ -283,19 +280,48 @@ func shouldAutoSealResumeError(err error) bool {
 	return false
 }
 
-func (e *Engine) sealBrokenSession(ctx context.Context, sessionID string) error {
-	if sessionID == "" {
-		return nil
-	}
-	return e.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
-		session, err := tx.Session(sessionID)
+func (e *Engine) sealAndResetFreshAttempt(ctx context.Context, run w.Run, step w.Step, a w.Agent, adapter agent.AdapterInfo, connection agent.ConnectionInfo, sourceSnapshot []w.Source, attemptID, fallbackSessionID string) (w.Attempt, string, error) {
+	var updated w.Attempt
+	var retiredNativeSession string
+	err := e.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
+		current, err := tx.Attempt(attemptID)
 		if err != nil {
 			return err
 		}
-		session.Status = "sealed"
-		session.Acknowledgement = "sealed"
-		session.NativeSessionID = ""
-		session.UpdatedAt = w.Now()
-		return tx.SaveSession(session)
+		retiredNativeSession = current.SessionID
+		if retiredNativeSession == "" {
+			retiredNativeSession = fallbackSessionID
+		}
+		if err := sealExecutionSession(tx, current.ExecutionSessionRef); err != nil {
+			return err
+		}
+		current.SessionMode = "fresh"
+		current.SessionID = ""
+		current.Recovery = "context_fresh"
+		session, err := prepareExecutionSession(tx, sessionInput{
+			run: run, step: step, member: a, adapter: adapter, connection: connection,
+			attempt: current, sources: sourceSnapshot,
+		})
+		if err != nil {
+			return err
+		}
+		if session.ID != "" {
+			current.ExecutionSessionRef = session.ID
+			current.SessionFingerprint = session.Fingerprint
+			if err := tx.SaveSession(session); err != nil {
+				return err
+			}
+		}
+		if err := tx.SaveAttempt(current); err != nil {
+			return err
+		}
+		if retiredNativeSession != "" {
+			if err := tx.AppendEvent(run.ID, step.ID, a.ID, "session_retired", map[string]any{"attempt_id": current.ID, "session_id": retiredNativeSession}); err != nil {
+				return err
+			}
+		}
+		updated = current
+		return nil
 	})
+	return updated, retiredNativeSession, err
 }
