@@ -355,10 +355,10 @@ func classifyNativeCall(name string, input json.RawMessage, cwd string, roots []
 		return ""
 	}
 	switch strings.ToLower(name) {
-	case "webfetch", "websearch", "web_search", "fetch":
-		return "network", pick("url", "query"), nil, true
-	case "bash", "shell", "run_shell_command", "exec", "command":
-		command := pick("command", "cmd")
+	case "webfetch", "websearch", "web_search", "fetch", "search_web", "read_url_content":
+		return "network", pick("url", "Url", "query"), nil, true
+	case "bash", "shell", "run_shell_command", "run_command", "exec", "command", "notebook_execution":
+		command := pick("command", "cmd", "CommandLine")
 		primary = command
 		if cwd == "" && len(roots) != 0 {
 			cwd = roots[0]
@@ -380,7 +380,8 @@ func classifyNativeCall(name string, input json.RawMessage, cwd string, roots []
 		// path as a data target.
 		return "execute", primary, resolveShellTargets(parsed, cwd), parsed.Network
 	}
-	target := pick("path", "file_path", "notebook_path", "directory", "cwd")
+	target := pick("path", "file_path", "notebook_path", "directory", "cwd",
+		"Path", "AbsolutePath", "TargetFile", "DirectoryPath", "SearchDirectory", "SearchPath")
 	if target == "" {
 		target = "."
 	}

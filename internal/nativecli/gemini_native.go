@@ -28,7 +28,7 @@ type geminiNativeSession struct {
 	launch  *connectionPlan
 }
 
-func prepareGeminiNativeSession(request model.Request, base, workdir string, gate *bridge, live *liveness, launch *connectionPlan, probeURL string) (*geminiNativeSession, error) {
+func prepareGeminiNativeSession(request model.Request, base, workdir string, gate *bridge, live *liveness, launch *connectionPlan, probeURL, upstreamProxy string) (*geminiNativeSession, error) {
 	if request.WorkspaceRoot == "" {
 		return nil, errors.New("project-autonomous native execution requires a bound project root")
 	}
@@ -60,6 +60,10 @@ func prepareGeminiNativeSession(request model.Request, base, workdir string, gat
 		})
 		if proxyErr != nil {
 			return nil, errors.New("native egress policy unavailable: " + proxyErr.Error())
+		}
+		if err := proxy.setUpstreamProxy(upstreamProxy); err != nil {
+			proxy.close()
+			return nil, errors.New("native upstream proxy is unavailable: " + err.Error())
 		}
 		session.proxy = proxy
 		sandbox.proxyURL, sandbox.proxyAddr = proxy.url(), proxy.addr()

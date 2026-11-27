@@ -109,12 +109,13 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 	}
 	live := newLiveness(ctx, cancel, observe, request.FirstResponseTimeout, request.StallTimeout, request.StallAction)
 	gate.live = live
+	effectiveProxy := p.effectiveProxy(request, false)
 	var nativeNames []string
 	var cmd *exec.Cmd
 	switch adapter {
 	case "gemini":
 		nativeNames = geminiGateToolNames(request)
-		session, err := prepareGeminiNativeSession(request, base, workdir, gate, live, launch, "")
+		session, err := prepareGeminiNativeSession(request, base, workdir, gate, live, launch, "", effectiveProxy)
 		if err != nil {
 			return err
 		}
@@ -135,6 +136,9 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 		cmd.Dir = request.WorkspaceRoot
 		cmd.Env = removeEnv(overrideEnv(baseEnvironment(cmd.Env), launch.geminiGatedEnv), launch.geminiGatedUnset)
 		cmd.Env = overrideEnv(cmd.Env, env)
+		if effectiveProxy != "" {
+			cmd.Env = overrideEnv(cmd.Env, nativeProxyEnv(effectiveProxy, os.Getenv("NO_PROXY")+","+os.Getenv("no_proxy")))
+		}
 		if err := configureGeminiSSE(cmd, workdir); err != nil {
 			return err
 		}
@@ -146,7 +150,7 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 		return finishGateAttempt(parent, ctx, gate, live, processErr)
 	case "pi":
 		nativeNames = piGateToolNames(request)
-		session, err := preparePiNativeSession(request, base, workdir, gate, live, launch, "")
+		session, err := preparePiNativeSession(request, base, workdir, gate, live, launch, "", effectiveProxy)
 		if err != nil {
 			return err
 		}
@@ -166,6 +170,9 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 		cmd = command("pi", args...)
 		cmd.Dir = request.WorkspaceRoot
 		cmd.Env = overrideEnv(mergeBaseEnvironment(cmd.Env, launchEnvironment(launch)), env)
+		if effectiveProxy != "" {
+			cmd.Env = overrideEnv(cmd.Env, nativeProxyEnv(effectiveProxy, os.Getenv("NO_PROXY")+","+os.Getenv("no_proxy")))
+		}
 		live.start()
 		defer live.stop()
 		inputText := request.System + "\n\nComplete the assigned step with the supplied native and Cocogem tools. Prefer the native tools for file and command work; use the Cocogem tools for member handoff and final delivery.\nUser messages and upstream evidence:\n" + string(prompt)

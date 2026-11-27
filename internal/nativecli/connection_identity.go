@@ -21,6 +21,7 @@ type connectionPlan struct {
 	executor            string
 	info                agent.ConnectionInfo
 	claudeSettings      map[string]any
+	agySettings         map[string]any
 	codexResolved       string
 	codexArgs           []string
 	codexEnv            map[string]string
@@ -95,6 +96,8 @@ func (p Provider) resolveConnection(ctx context.Context, executor, model string)
 	switch executor {
 	case "claude":
 		return claudePlan(model)
+	case "agy":
+		return agyPlan(model)
 	case "codex":
 		return codexPlan(model)
 	case "gemini":

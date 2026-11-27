@@ -337,3 +337,60 @@ func TestLiveSystemProxySearch(t *testing.T) {
 	}
 	t.Logf("provider=%s results=%d first=%s fetched=%s", web.SearchProvider(), len(sources), sources[0].URL, source.URL)
 }
+
+func TestResolveProxySettingDefaultsToAutoAndHonorsExplicitOptOut(t *testing.T) {
+	t.Setenv("COCOGEM_WEB_PROXY", "http://127.0.0.1:7897")
+	if got := resolveProxySetting(); got != "http://127.0.0.1:7897" {
+		t.Fatalf("explicit proxy=%q want http://127.0.0.1:7897", got)
+	}
+	t.Setenv("COCOGEM_WEB_PROXY", "")
+	if got := resolveProxySetting(); got != "" {
+		t.Fatalf("explicit empty opt-out=%q want empty", got)
+	}
+	_ = os.Unsetenv("COCOGEM_WEB_PROXY")
+	if got := resolveProxySetting(); got != "auto" {
+		t.Fatalf("unset COCOGEM_WEB_PROXY=%q want auto", got)
+	}
+}
+
+func TestAutoProxyPrefersSystemThenEnvIncludingAllProxy(t *testing.T) {
+	var hits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = io.WriteString(w, "auto proxied")
+	}))
+	defer proxy.Close()
+
+	original := detectSystemProxy
+	defer func() { detectSystemProxy = original }()
+
+	// System proxy takes precedence when configured.
+	detectSystemProxy = func() (string, error) { return proxy.URL, nil }
+	t.Setenv("ALL_PROXY", "http://127.0.0.1:19999")
+	web, err := newWeb("", "auto", "auto")
+	if err != nil || web.ProxyURL() != proxy.URL {
+		t.Fatalf("auto system proxy = %q, err = %v", web.ProxyURL(), err)
+	}
+
+	// Falls back cleanly to env (including ALL_PROXY) when system proxy is empty.
+	detectSystemProxy = func() (string, error) { return "", nil }
+	for _, key := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("ALL_PROXY", proxy.URL)
+	web, err = newWeb("", "auto", "auto")
+	if err != nil || web.ProxyURL() != proxy.URL {
+		t.Fatalf("auto ALL_PROXY fallback = %q, err = %v", web.ProxyURL(), err)
+	}
+	if _, err := web.Fetch(context.Background(), "http://example.com/auto"); err != nil || hits.Load() != 1 {
+		t.Fatalf("auto proxy fetch failed: hits=%d err=%v", hits.Load(), err)
+	}
+
+	// "off" disables proxy even if system/env proxies are present.
+	detectSystemProxy = func() (string, error) { return proxy.URL, nil }
+	web, err = newWeb("", "auto", "off")
+	if err != nil || web.ProxyURL() != "" {
+		t.Fatalf("off proxy leaked %q (err=%v)", web.ProxyURL(), err)
+	}
+}

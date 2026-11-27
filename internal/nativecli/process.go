@@ -156,11 +156,14 @@ func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd
 	}
 	var streamErr error
 	var geminiOutput byteCounter
+	var agyOutput byteCounter
 	switch executor {
 	case "codex":
 		streamErr = parseCodex(stdout, gate, live)
 	case "gemini":
 		streamErr = parseGemini(io.TeeReader(stdout, &geminiOutput), gate, live)
+	case "agy":
+		streamErr = parseAgy(io.TeeReader(stdout, &agyOutput), gate, live)
 	case "pi":
 		streamErr = parsePi(stdout, gate, live)
 	default:
@@ -184,6 +187,9 @@ func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd
 	groupErr := convergeProcessGroup(cmd, identity, owned)
 	if executor == "gemini" {
 		streamErr = geminiStartupFailure(streamErr, stderr.String(), int64(geminiOutput))
+	}
+	if executor == "agy" {
+		streamErr = agyStartupFailure(streamErr, stderr.String(), int64(agyOutput))
 	}
 	return streamFailure(ctx.Err(), groupErr, streamErr, waitErr)
 }

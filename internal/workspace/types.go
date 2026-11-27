@@ -54,7 +54,7 @@ const MinContextTokens = 1024
 // variants at runtime instead of assuming the same choices for every model.
 func ThinkingLevels(executor string) []string {
 	switch executor {
-	case "claude":
+	case "claude", "agy":
 		return []string{"low", "medium", "high", "xhigh", "max"}
 	case "codex":
 		return []string{"low", "medium", "high", "xhigh", "ultra", "max"}
@@ -622,10 +622,10 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	if !handlePattern.MatchString(a.Handle) {
 		return errors.New("handle must match [a-z][a-z0-9-]{1,31}")
 	}
-	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "gemini", "pi", "opencode"}, a.Executor) {
+	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "agy", "gemini", "pi", "opencode"}, a.Executor) {
 		return errors.New("executor is not supported")
 	}
-	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "gemini" || a.Executor == "pi" || a.Executor == "opencode" {
+	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "agy" || a.Executor == "gemini" || a.Executor == "pi" || a.Executor == "opencode" {
 		if len(a.Model) > 150 || strings.TrimSpace(a.Model) == "" || strings.HasPrefix(a.Model, "-") || strings.ContainsAny(a.Model, "\r\n\x00") {
 			return errors.New("CLI model must be default or a model identifier")
 		}

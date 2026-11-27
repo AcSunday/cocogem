@@ -38,11 +38,12 @@ const cx = scoped(
   settings,
 );
 
-const executors = ["claude", "codex", "gemini", "pi", "opencode"];
+const executors = ["claude", "codex", "agy", "gemini", "pi", "opencode"];
 /** Empty keeps the CLI's own default; only these explicit levels are forwarded. */
 const thinkingLevels: Record<string, string[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
   codex: ["low", "medium", "high", "xhigh", "ultra", "max"],
+  agy: ["low", "medium", "high", "xhigh", "max"],
   gemini: ["low", "high"],
   pi: ["low", "medium", "high", "xhigh", "max"],
 };

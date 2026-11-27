@@ -64,6 +64,8 @@ function executorLabel(raw: string): string {
       return "Claude";
     case "codex":
       return "Codex";
+    case "agy":
+      return "Antigravity";
     case "gemini":
       return "Gemini";
     case "pi":

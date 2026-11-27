@@ -34,6 +34,12 @@ var adapters = map[string]adapterSpec{
 		resumeFlags:  []string{"--resume"},
 		capabilities: []string{"stream_json", "scoped_mcp", "ephemeral_session", "tool_allowlist"},
 	},
+	"agy": {
+		name: "agy", adapter: "agy-stream-json", minVersion: [3]int{1, 5, 0},
+		flags:        []string{"--input-format", "--output-format", "--settings", "--add-dir", "--disable-slash-commands"},
+		resumeFlags:  []string{"--conversation"},
+		capabilities: []string{"stream_json", "scoped_mcp", "ephemeral_session", "tool_allowlist"},
+	},
 	"codex": {
 		name: "codex", adapter: "codex-exec-json", minVersion: [3]int{0, 100, 0},
 		flags:        []string{"--ignore-user-config", "--ignore-rules", "--ephemeral", "--sandbox", "--json"},

@@ -454,8 +454,8 @@ function ServiceSettings({
         <h3>{t("服务状态", "Service status")}</h3>
         <p>
           {t(
-            "成员直接调用本机安装的 Claude、Codex、Gemini、Pi 或 OpenCode CLI，复用你本机已配置好的模型与登录认证，网页端不会读取或保存你的密钥。",
-            "Members invoke your locally installed Claude, Codex, Gemini, Pi, or OpenCode CLI, reusing your local model, provider, and auth configuration. The web UI never reads or stores your credentials.",
+            "成员直接调用本机安装的 Claude、Codex、Antigravity (agy)、Gemini、Pi 或 OpenCode CLI，复用你本机已配置好的模型与登录认证，网页端不会读取或保存你的密钥。",
+            "Members invoke your locally installed Claude, Codex, Antigravity (agy), Gemini, Pi, or OpenCode CLI, reusing your local model, provider, and auth configuration. The web UI never reads or stores your credentials.",
           )}
         </p>
         <div className={cx("settings-grid")}>
@@ -639,7 +639,7 @@ function ServiceSettings({
               >
                 {(system.executors?.length
                   ? system.executors.map((item) => item.id)
-                  : ["claude", "codex", "gemini", "pi", "opencode"]
+                  : ["claude", "codex", "agy", "gemini", "pi", "opencode"]
                 ).map((id) => (
                   <option key={id} value={id}>
                     {id}

@@ -21,7 +21,18 @@ import (
 
 // Provider delegates the tool loop to the native CLI. Its zero value is ready.
 type Provider struct {
-	command func(string, ...string) *exec.Cmd
+	command      func(string, ...string) *exec.Cmd
+	DefaultProxy string
+}
+
+func (p Provider) effectiveProxy(request model.Request, skipCheck bool) string {
+	if request.NativeProxy != "" {
+		return request.NativeProxy
+	}
+	if skipCheck {
+		return ""
+	}
+	return p.DefaultProxy
 }
 
 // ExecutorInfo distinguishes an installed CLI from one supported by this adapter.
@@ -65,8 +76,8 @@ func (p Provider) CheckConnection(ctx context.Context, executor, model string) e
 
 // Discover probes version and isolation flags; connection still needs an explicit call.
 func Discover(ctx context.Context) []ExecutorInfo {
-	result := make([]ExecutorInfo, 0, 5)
-	for _, id := range []string{"claude", "codex", "gemini", "pi", "opencode"} {
+	result := make([]ExecutorInfo, 0, 6)
+	for _, id := range []string{"claude", "codex", "agy", "gemini", "pi", "opencode"} {
 		info, _ := Inspect(ctx, id)
 		result = append(result, ExecutorInfo{ID: info.ID, Installed: info.Installed, Version: info.Version, Supported: info.Supported, Reason: info.Reason, Adapter: info.Adapter, Isolation: info.Isolation, Program: info.Program, Identity: info.Identity, Capabilities: info.Capabilities})
 	}
@@ -141,6 +152,9 @@ type runOptions struct {
 	codexEnv         map[string]string
 	geminiEnv        map[string]string
 	geminiUnset      []string
+	agyProbeURL      string
+	agySettings      map[string]any
+	agyEnv           map[string]string
 	piProbeURL       string
 	openCodeProbeURL string
 	// Test-only local egress fixture controls. Production never sets these.
@@ -157,6 +171,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	if observe == nil || execute == nil {
 		return errors.New("native CLI requires execution and observation handlers")
 	}
+	effectiveProxy := p.effectiveProxy(request, options.skipCheck)
 	if (request.ExecutionMode == "workspace_autonomous" || request.ReadOnly) && request.AuthorizeNative != nil {
 		switch request.Executor {
 		case "gemini":
@@ -223,14 +238,13 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	gate.sessionMode, gate.sessionID = request.SessionMode, request.SessionID
 	gate.managedSession = managedNativeSession(request)
 	gate.readOnly = request.ReadOnly
-	// Claude and Gemini print every tool request in their stream before running
-	// it, and their parsers note each one. The other adapters make no such
-	// claim, so their failures are never treated as proven tool-free.
-	gate.reportsEveryTool = request.Executor == "claude" || request.Executor == "gemini"
+	// Claude, Gemini and Antigravity print every tool request in their stream
+	// before running it, and their parsers note each one.
+	gate.reportsEveryTool = request.Executor == "claude" || request.Executor == "gemini" || request.Executor == "agy"
 	managed := managedNativeSession(request)
 	if request.SessionStorageRoot != "" && !request.EphemeralSession {
 		switch request.Executor {
-		case "claude", "codex", "gemini", "pi", "opencode":
+		case "claude", "codex", "agy", "gemini", "pi", "opencode":
 		default:
 			return fmt.Errorf("executor %q does not support managed sessions", request.Executor)
 		}
@@ -275,7 +289,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		}
 		defer os.RemoveAll(configDir)
 	}
-	if request.Executor == "claude" {
+	if request.Executor == "claude" || request.Executor == "agy" {
 		configDir = filepath.Join(workdir, "config")
 		if err := os.MkdirAll(configDir, 0700); err != nil {
 			return errors.New("create isolated CLI configuration directory")
@@ -291,7 +305,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	}
 	fullAccess := request.ExecutionMode == "full_access"
 	interactive := request.Executor == "claude" && (request.ExecutionMode == "workspace_autonomous" || request.ExecutionMode == "full_access" && request.AuthorizeNative != nil)
-	boundary := (request.Executor == "claude" || request.Executor == "opencode") && request.ExecutionMode == "workspace_autonomous"
+	boundary := (request.Executor == "claude" || request.Executor == "opencode" || request.Executor == "agy") && request.ExecutionMode == "workspace_autonomous"
 	codexAppServer := request.Executor == "codex" && (request.ExecutionMode == "workspace_autonomous" || request.ExecutionMode == "full_access") && request.AuthorizeNative != nil
 	var sandbox *nativeSandbox
 	var approver *nativeApprover
@@ -342,6 +356,9 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			if request.Executor == "claude" {
 				interactive = false
 			}
+			if request.Executor == "agy" {
+				request.NativeTools = withoutNativeFileEffectTools(request.NativeTools)
+			}
 			if err := gate.notice("native_boundary_unavailable", sandboxErr.Error()+"; native file/command tools are disabled for this step"); err != nil {
 				return err
 			}
@@ -368,9 +385,20 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			proxy, proxyErr := newEgressProxy(func(host, method string) {
 				_ = gate.notice("native_egress_blocked", "sandboxed command attempted "+method+" "+host+"; arbitrary external writes are not authorized")
 			})
+			if proxyErr == nil && effectiveProxy != "" {
+				if err := proxy.setUpstreamProxy(effectiveProxy); err != nil {
+					proxy.close()
+					proxyErr = err
+					proxy = nil
+				}
+			}
 			if proxyErr != nil {
 				if request.Executor == "claude" {
 					interactive = false
+				}
+				if request.Executor == "agy" {
+					sandbox = nil
+					request.NativeTools = withoutNativeFileEffectTools(request.NativeTools)
 				}
 				if err := gate.notice("native_boundary_unavailable", "egress policy unavailable: "+proxyErr.Error()); err != nil {
 					return err
@@ -389,6 +417,10 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 				if caErr := sandbox.setCA(proxy.caPEM); caErr != nil {
 					if request.Executor == "claude" {
 						interactive = false
+					}
+					if request.Executor == "agy" {
+						sandbox = nil
+						request.NativeTools = withoutNativeFileEffectTools(request.NativeTools)
 					}
 					if err := gate.notice("native_boundary_unavailable", caErr.Error()); err != nil {
 						return err
@@ -454,7 +486,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		// Keep read-only native tools only when the OS boundary is unavailable.
 		files, web = sanitizeExecutionNativeTools(request.Executor, request.NativeTools, request.WorkspaceRoot, "workspace_autonomous")
 	}
-	if gate.trustedNative && request.Executor == "claude" {
+	if gate.trustedNative && (request.Executor == "claude" || request.Executor == "agy") {
 		files = []string{nativeRead, nativeGlob, nativeGrep, nativeBash, nativeWrite, nativeEdit}
 		web = []string{nativeWebFetch, nativeWebSearch}
 	}
@@ -464,7 +496,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		// file access on the platform MCP path instead of trusting a parser.
 		files, degraded = nil, true
 	}
-	if request.Executor == "claude" {
+	if request.Executor == "claude" || request.Executor == "agy" {
 		cwdDir = filepath.Join(workdir, "cwd")
 		if len(files) != 0 {
 			// Deny rules are enforced relative to the working directory, not
@@ -497,6 +529,10 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	live := newLiveness(ctx, cancel, observe, request.FirstResponseTimeout, request.StallTimeout, request.StallAction)
 	gate.live = live
 	if interactive {
+		approver = newNativeApprover(gate, live, request, adapter.ID, sandbox)
+		approver.setDangerousPaths(dangerous)
+	}
+	if request.Executor == "agy" && ((request.ExecutionMode == "workspace_autonomous" && sandbox != nil) || (fullAccess && request.AuthorizeNative != nil)) {
 		approver = newNativeApprover(gate, live, request, adapter.ID, sandbox)
 		approver.setDangerousPaths(dangerous)
 	}
@@ -541,6 +577,12 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		switch request.Executor {
 		case "claude":
 			options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": configDir})
+		case "agy":
+			agyHome := filepath.Join(workdir, "agy-home")
+			if err := os.MkdirAll(agyHome, 0700); err != nil {
+				return errors.New("create isolated Antigravity home directory")
+			}
+			options.agyEnv = mergeEnv(options.agyEnv, map[string]string{"HOME": agyHome})
 		case "codex":
 			options.codexEnv = mergeEnv(options.codexEnv, map[string]string{"CODEX_HOME": workdir})
 		case "gemini":
@@ -557,6 +599,8 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			switch request.Executor {
 			case "claude":
 				options.claudeSettings = plan.claudeSettings
+			case "agy":
+				options.agySettings = plan.agySettings
 			case "gemini":
 				if plan.geminiModel != "" && plan.geminiModel != "cli-default" {
 					request.Model = plan.geminiModel
@@ -580,67 +624,103 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		}
 		launch = &plan
 	}
-	server := map[string]any{"type": "http", "url": gate.url(), "headers": map[string]string{"Authorization": "Bearer " + gate.token}}
-	config := map[string]any{"mcpServers": map[string]any{"cocogem": server}}
-	encoded, err := json.Marshal(config)
-	if err != nil {
-		return err
+	var args []string
+	var env map[string]string
+	if request.Executor != "agy" {
+		server := map[string]any{"type": "http", "url": gate.url(), "headers": map[string]string{"Authorization": "Bearer " + gate.token}}
+		config := map[string]any{"mcpServers": map[string]any{"cocogem": server}}
+		encoded, err := json.Marshal(config)
+		if err != nil {
+			return err
+		}
+		configPath := filepath.Join(configDir, "mcp.json")
+		if err := os.WriteFile(configPath, encoded, 0600); err != nil {
+			return errors.New("write scoped CLI configuration")
+		}
+		settingsPath := filepath.Join(configDir, "settings.json")
+		settings := map[string]any{"disableAllHooks": true, "enabledPlugins": map[string]any{}}
+		if request.Executor == "claude" {
+			base := options.claudeSettings
+			if base == nil {
+				base, err = claudeConnectionSettings()
+				if err != nil {
+					return err
+				}
+			}
+			if fullAccess {
+				settings = map[string]any{}
+				for key, value := range base {
+					settings[key] = value
+				}
+				settings["disableAllHooks"] = true
+				settings["enabledPlugins"] = map[string]any{}
+				settings["autoMemoryEnabled"] = false
+			} else {
+				settings = claudeStepSettings(base, configDir)
+			}
+		}
+		safeSettings, err := json.Marshal(settings)
+		if err != nil {
+			return errors.New("encode scoped CLI connection settings")
+		}
+		if err := os.WriteFile(settingsPath, safeSettings, 0600); err != nil {
+			return errors.New("write isolated CLI settings")
+		}
+		if interactive {
+			args = claudeBidirectionalArgs(configPath, settingsPath, nativeNames, request)
+		} else {
+			args = claudeExecutionArgs(configPath, settingsPath, nativeNames, request)
+		}
+		if request.Executor == "claude" && !managedNativeSession(request) {
+			options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": configDir})
+		}
+		if nativeState := nativeStateRoot(request.Executor); nativeState != "" && request.Executor == "claude" && managedNativeSession(request) && !request.EphemeralSession {
+			options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": nativeState})
+		}
+		if request.Executor == "claude" && request.ThinkingLevel != "" {
+			args = append(args, "--effort", request.ThinkingLevel)
+		}
 	}
-	configPath := filepath.Join(configDir, "mcp.json")
-	if err := os.WriteFile(configPath, encoded, 0600); err != nil {
-		return errors.New("write scoped CLI configuration")
-	}
-	settingsPath := filepath.Join(configDir, "settings.json")
-	settings := map[string]any{"disableAllHooks": true, "enabledPlugins": map[string]any{}}
-	if request.Executor == "claude" {
-		base := options.claudeSettings
-		if base == nil {
-			base, err = claudeConnectionSettings()
+	switch request.Executor {
+	case "agy":
+		staging := filepath.Join(base, "staged")
+		if err := os.MkdirAll(staging, 0700); err != nil {
+			return errors.New("create private staging directory")
+		}
+		brokerCwd := cwdDir
+		if request.WorkspaceRoot != "" {
+			if absRoot, absErr := filepath.Abs(request.WorkspaceRoot); absErr == nil {
+				brokerCwd = absRoot
+			}
+		}
+		agyBroker, brokerErr := newGateBroker(approver, sandbox, staging, brokerCwd, "agy")
+		if brokerErr != nil {
+			return brokerErr
+		}
+		defer agyBroker.close()
+		agyBroker.fullAccess = fullAccess && approver != nil
+		mcpSchemaDir := ""
+		if probeHome := options.agyEnv["HOME"]; probeHome != "" {
+			mcpSchemaDir = filepath.Join(probeHome, ".gemini", "antigravity-cli", "mcp", "cocogem")
+		} else if home, homeErr := os.UserHomeDir(); homeErr == nil && home != "" {
+			mcpSchemaDir = filepath.Join(home, ".gemini", "antigravity-cli", "mcp", "cocogem")
+		}
+		allowedRoots := []string{}
+		for _, root := range []string{request.WorkspaceRoot, request.WorkingDirectory, request.IOInputs} {
+			if root != "" {
+				allowedRoots = append(allowedRoots, root)
+			}
+		}
+		agyBroker.agyPolicy = newAgyGatePolicy(files, web, allowedRoots, mcpSchemaDir, request.ReadOnly, fullAccess)
+		baseSettings := options.agySettings
+		if baseSettings == nil && !options.skipCheck {
+			baseSettings, err = agyConnectionSettings()
 			if err != nil {
 				return err
 			}
 		}
-		if fullAccess {
-			settings = map[string]any{}
-			for key, value := range base {
-				settings[key] = value
-			}
-			settings["disableAllHooks"] = true
-			settings["enabledPlugins"] = map[string]any{}
-			settings["autoMemoryEnabled"] = false
-		} else {
-			settings = claudeStepSettings(base, configDir)
-		}
-	}
-	safeSettings, err := json.Marshal(settings)
-	if err != nil {
-		return errors.New("encode scoped CLI connection settings")
-	}
-	if err := os.WriteFile(settingsPath, safeSettings, 0600); err != nil {
-		return errors.New("write isolated CLI settings")
-	}
-	var args []string
-	if interactive {
-		args = claudeBidirectionalArgs(configPath, settingsPath, nativeNames, request)
-	} else {
-		args = claudeExecutionArgs(configPath, settingsPath, nativeNames, request)
-	}
-	if request.Executor == "claude" && !managedNativeSession(request) {
-		// A disposable run must not appear in the user's native history list.
-		// The scoped MCP settings still come from this private config dir; only
-		// the resumable state root is the CLI's own home when a session is
-		// managed. A plan-only non-managed turn keeps the user's own root too,
-		// because its read-only evidence should remain inspectable.
-		options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": configDir})
-	}
-	if nativeState := nativeStateRoot(request.Executor); nativeState != "" && request.Executor == "claude" && managedNativeSession(request) && !request.EphemeralSession {
-		options.claudeEnv = mergeEnv(options.claudeEnv, map[string]string{"CLAUDE_CONFIG_DIR": nativeState})
-	}
-	if request.Executor == "claude" && request.ThinkingLevel != "" {
-		args = append(args, "--effort", request.ThinkingLevel)
-	}
-	var env map[string]string
-	switch request.Executor {
+		args, err = prepareAgy(request, configDir, gate, agyBroker, baseSettings, options.agyProbeURL)
+		env = mergeEnv(env, options.agyEnv)
 	case "codex":
 		if codexAppServer {
 			args, env, err = prepareCodexAppServer(request, workdir, gate, launch, codexProfile, codexRoots, dangerous, &codexThreadConfig)
@@ -668,17 +748,16 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		// workspace root. Project memory auto-discovery is disabled explicitly.
 		env = mergeEnv(env, map[string]string{"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"})
 	}
-	if len(web) != 0 {
+	if effectiveProxy != "" {
 		// The resolved public-web proxy applies to this child only. Probe
-		// requests carry no NativeProxy, so local fake endpoints stay direct.
-		// It also affects the CLI's own upstream connection path while native
-		// web is enabled; loopback MCP and existing NO_PROXY entries stay direct.
-		env = mergeEnv(env, nativeProxyEnv(request.NativeProxy, os.Getenv("NO_PROXY")+","+os.Getenv("no_proxy")))
+		// requests clear DefaultProxy, so local fake endpoints stay direct.
+		// Loopback MCP and existing NO_PROXY entries stay direct.
+		env = mergeEnv(env, nativeProxyEnv(effectiveProxy, os.Getenv("NO_PROXY")+","+os.Getenv("no_proxy")))
 	}
 	if request.Executor == "pi" && request.ThinkingLevel != "" {
 		args = append(args, "--thinking", request.ThinkingLevel)
 	}
-	if request.Executor != "codex" && request.Executor != "pi" && request.Executor != "opencode" && request.Model != "" && request.Model != "default" {
+	if request.Executor != "codex" && request.Executor != "pi" && request.Executor != "opencode" && !(request.Executor == "agy" && options.agyProbeURL != "") && request.Model != "" && request.Model != "default" {
 		if strings.HasPrefix(request.Model, "-") || len(request.Model) > 200 {
 			return errors.New("invalid CLI model")
 		}
@@ -723,6 +802,12 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		}
 		cmd.Env = removeEnv(cmd.Env, options.geminiUnset)
 	}
+	if options.skipCheck && effectiveProxy == "" {
+		if cmd.Env == nil {
+			cmd.Env = os.Environ()
+		}
+		cmd.Env = removeEnv(cmd.Env, []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"})
+	}
 	if request.Executor == "gemini" {
 		if err := configureGeminiSSE(cmd, workdir); err != nil {
 			return err
@@ -739,7 +824,13 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		instruction = "Prefer the supplied native tools for their granted operations (" + strings.Join(nativeNames, ", ") + "); the CLI executes them under its own permissions. If a native tool fails or returns no usable content, report the exact error, then use the corresponding platform MCP fallback when available. Native search results are leads, and native web output is a CLI-processed observation, not a raw page. " + instruction
 	}
 	inputText := request.System + "\n\n" + instruction + " User messages and upstream evidence:\n" + string(prompt)
-	if !interactive && !codexAppServer {
+	if request.Executor == "agy" {
+		agyPayload, payloadErr := agyStdinPayload(inputText)
+		if payloadErr != nil {
+			return payloadErr
+		}
+		cmd.Stdin = strings.NewReader(agyPayload)
+	} else if !interactive && !codexAppServer {
 		cmd.Stdin = strings.NewReader(inputText)
 	}
 	var processErr error

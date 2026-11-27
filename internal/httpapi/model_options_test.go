@@ -108,6 +108,7 @@ func TestVerifyForwardsExecutionOptionsAndKeysVerification(t *testing.T) {
 		t.Fatalf("verify did not forward execution options to the provider: %+v", capture.requests)
 	}
 	verify(VerifyInput{Executor: "claude", Model: "default", ThinkingLevel: "low"}, 200)
+	verify(VerifyInput{Executor: "agy", Model: "default", ThinkingLevel: "xhigh"}, 200)
 	s.mu.Lock()
 	keys := map[string]bool{"claude:default:context=64000:thinking=high": s.verified["claude:default:context=64000:thinking=high"] != "", "claude:default:thinking=low": s.verified["claude:default:thinking=low"] != ""}
 	s.mu.Unlock()
@@ -118,6 +119,7 @@ func TestVerifyForwardsExecutionOptionsAndKeysVerification(t *testing.T) {
 	}
 	calls := len(capture.requests)
 	verify(VerifyInput{Executor: "claude", Model: "default", ThinkingLevel: "ultra"}, 400)
+	verify(VerifyInput{Executor: "agy", Model: "default", ThinkingLevel: "ultra"}, 400)
 	verify(VerifyInput{Executor: "gemini", Model: "default", ThinkingLevel: "high"}, 400)
 	verify(VerifyInput{Executor: "claude", Model: "default", ContextSize: 512}, 400)
 	if len(capture.requests) != calls {

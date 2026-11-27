@@ -17,6 +17,7 @@ import "strings"
 const (
 	nativeIDGemini = "gemini:"
 	nativeIDPi     = "pi:"
+	nativeIDAgy    = "agy:"
 )
 
 // nativeToolID returns the canonical host identity for one CLI tool call.
@@ -26,13 +27,25 @@ func nativeToolID(adapter, cliID string) string {
 		return ""
 	}
 	prefix := nativeIDPi
-	if adapter == "gemini" {
+	switch adapter {
+	case "gemini":
 		prefix = nativeIDGemini
+	case "agy":
+		prefix = nativeIDAgy
 	}
 	if strings.HasPrefix(cliID, prefix) {
 		return cliID
 	}
 	return prefix + cliID
+}
+
+func trimNativeIDPrefix(id string) string {
+	for _, prefix := range []string{nativeIDGemini, nativeIDPi, nativeIDAgy} {
+		if strings.HasPrefix(id, prefix) {
+			return strings.TrimPrefix(id, prefix)
+		}
+	}
+	return id
 }
 
 // nativeToolIDMatches reports whether two ids denote the same host call. It
@@ -45,6 +58,5 @@ func nativeToolIDMatches(a, b string) bool {
 	if a == b {
 		return true
 	}
-	return strings.TrimPrefix(a, nativeIDGemini) == strings.TrimPrefix(strings.TrimPrefix(b, nativeIDGemini), nativeIDPi) ||
-		strings.TrimPrefix(a, nativeIDPi) == strings.TrimPrefix(strings.TrimPrefix(b, nativeIDPi), nativeIDGemini)
+	return trimNativeIDPrefix(a) == trimNativeIDPrefix(b)
 }

@@ -58,7 +58,25 @@ type egressProxy struct {
 	closed        bool
 	allowTest     bool // tests may target loopback; production never does
 	upstreamRoots *x509.CertPool
+	upstreamProxy *url.URL
 	approve       func(ctx context.Context, method, target, digest string) (bool, string)
+}
+
+func (p *egressProxy) setUpstreamProxy(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		p.upstreamProxy = nil
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil {
+		return errors.New("invalid upstream proxy URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "socks5" && parsed.Scheme != "socks5h" {
+		return errors.New("upstream proxy must use http, https or socks5")
+	}
+	p.upstreamProxy = parsed
+	return nil
 }
 
 func newEgressProxy(onBlock func(host, method string)) (*egressProxy, error) {
@@ -318,9 +336,17 @@ func (p *egressProxy) forward(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *egressProxy) roundTrip(target *url.URL, original *http.Request, sni string) (*http.Response, error) {
+	proxyFunc := func(*http.Request) (*url.URL, error) { return nil, nil }
+	dial := p.dialContext
+	if p.upstreamProxy != nil {
+		proxyFunc = http.ProxyURL(p.upstreamProxy)
+		// The upstream proxy URL itself is commonly loopback (e.g. local Clash),
+		// while publicTarget already rejected private/loopback target hosts.
+		dial = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
+	}
 	transport := &http.Transport{
-		Proxy:       nil,
-		DialContext: p.dialContext,
+		Proxy:       proxyFunc,
+		DialContext: dial,
 		TLSClientConfig: &tls.Config{
 			ServerName: sni,
 			MinVersion: tls.VersionTLS12,
@@ -368,9 +394,15 @@ func (p *egressProxy) publicTarget(ctx context.Context, host string) bool {
 	if net.ParseIP(host) != nil {
 		return !unsafeEgressIP(net.ParseIP(host)) || p.allowTest && net.ParseIP(host).IsLoopback()
 	}
+	lower := strings.ToLower(strings.TrimSuffix(host, "."))
+	if lower == "localhost" || strings.HasSuffix(lower, ".local") || strings.HasSuffix(lower, ".internal") {
+		return p.allowTest && lower == "localhost"
+	}
 	addresses, err := p.lookup(ctx, host)
 	if err != nil || len(addresses) == 0 {
-		return false
+		// When forwarding through an explicit upstream proxy, local DNS may be
+		// unavailable for external public domains while the proxy resolves them.
+		return p.upstreamProxy != nil && p.resolve == nil && !p.allowTest && strings.Contains(lower, ".")
 	}
 	allowed := false
 	for _, address := range addresses {

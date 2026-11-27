@@ -23,7 +23,7 @@ type piNativeSession struct {
 	probeURL string
 }
 
-func preparePiNativeSession(request model.Request, base, workdir string, gate *bridge, live *liveness, launch *connectionPlan, probeURL string) (*piNativeSession, error) {
+func preparePiNativeSession(request model.Request, base, workdir string, gate *bridge, live *liveness, launch *connectionPlan, probeURL, upstreamProxy string) (*piNativeSession, error) {
 	if request.WorkspaceRoot == "" {
 		return nil, errors.New("project-autonomous native execution requires a bound project root")
 	}
@@ -53,6 +53,10 @@ func preparePiNativeSession(request model.Request, base, workdir string, gate *b
 		})
 		if proxyErr != nil {
 			return nil, errors.New("native egress policy unavailable: " + proxyErr.Error())
+		}
+		if err := proxy.setUpstreamProxy(upstreamProxy); err != nil {
+			proxy.close()
+			return nil, errors.New("native upstream proxy is unavailable: " + err.Error())
 		}
 		session.proxy = proxy
 		sandbox.proxyURL, sandbox.proxyAddr = proxy.url(), proxy.addr()

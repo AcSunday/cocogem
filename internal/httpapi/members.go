@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 
 	"github.com/AcSunday/cocogem/internal/store"
 	"github.com/AcSunday/cocogem/internal/tools"
@@ -23,6 +24,7 @@ func (s *Server) initializeMembers(tx *store.Tx, workspaceID string) error {
 				available = append(available, executor.ID)
 			}
 		}
+		preferred := []string{"claude", "codex", "agy"}
 		for i, name := range []string{"布偶猫", "缅因猫", "橘猫"} {
 			handles := []string{"ragdoll", "maine", "orange"}
 			avatars := []string{"cat:ragdoll", "cat:maine", "cat:orange"}
@@ -31,10 +33,16 @@ func (s *Server) initializeMembers(tx *store.Tx, workspaceID string) error {
 			if len(s.config.Models) > 0 {
 				agent.Model = s.config.Models[0]
 			}
-			if len(available) > 0 {
+			if slices.Contains(available, preferred[i]) {
+				agent.Executor, agent.Model = preferred[i], "default"
+			} else if len(available) > 0 {
 				agent.Executor, agent.Model = available[i%len(available)], "default"
 			} else if len(executors) > 0 {
-				agent.Executor, agent.Model = "claude", "default"
+				if i == 2 {
+					agent.Executor, agent.Model = "agy", "default"
+				} else {
+					agent.Executor, agent.Model = "claude", "default"
+				}
 			}
 			if err := tx.SaveAgent(agent); err != nil {
 				return err

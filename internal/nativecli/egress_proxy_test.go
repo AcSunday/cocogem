@@ -286,3 +286,45 @@ func TestEgressProxyHoldsExternalWriteForApproval(t *testing.T) {
 		t.Fatalf("GET count = %d", gets.Load())
 	}
 }
+
+func TestEgressProxyRoutesThroughUpstreamProxyAndBlocksUnauthorizedWrites(t *testing.T) {
+	var upstreamHits, postHits atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamHits.Add(1)
+		if r.Method == http.MethodPost {
+			postHits.Add(1)
+		}
+		_, _ = io.WriteString(w, "VIA_UPSTREAM")
+	}))
+	defer upstream.Close()
+
+	proxy, err := newEgressProxy(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.close()
+	proxy.allowTest = true
+	if err := proxy.setUpstreamProxy(upstream.URL); err != nil {
+		t.Fatal(err)
+	}
+	client := proxyClient(t, proxy)
+	resp, err := client.Get("http://127.0.0.1:80/hello")
+	if err != nil {
+		t.Fatalf("GET through upstream proxy failed: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "VIA_UPSTREAM" || upstreamHits.Load() != 1 {
+		t.Fatalf("upstream proxy response = %d %q hits=%d", resp.StatusCode, body, upstreamHits.Load())
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, "http://127.0.0.1:80/write", strings.NewReader("payload"))
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden || postHits.Load() != 0 {
+		t.Fatalf("unauthorized POST escaped upstream proxy: status=%d posts=%d", resp.StatusCode, postHits.Load())
+	}
+}
