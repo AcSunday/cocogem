@@ -550,6 +550,9 @@ func parseClaudeStream(raw json.RawMessage) (claudeStreamEvent, bool) {
 		event.kind = "message_stop"
 	case "content_block_start":
 		event.kind, event.blockType, event.text = "block_start", stream.ContentBlock.Type, stream.ContentBlock.Text
+		if event.blockType == "thinking" && event.text == "" {
+			event.text = stream.ContentBlock.Thinking
+		}
 	case "content_block_delta":
 		switch stream.Delta.Type {
 		case "text_delta":

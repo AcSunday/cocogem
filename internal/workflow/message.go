@@ -179,6 +179,10 @@ func extendPreview(preview []byte, closed bool, maxBytes int, chunk []byte) ([]b
 	return append(preview, piece...), true
 }
 
+// Flush persists any buffered text immediately so subsequent tool events
+// preserve exact chronological ordering against preceding text snapshots.
+func (m *messageWriter) Flush() error { return m.flushDue() }
+
 // flushDue publishes the bounded tail on the 100ms timer.
 func (m *messageWriter) flushDue() error {
 	m.mu.Lock()

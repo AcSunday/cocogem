@@ -36,13 +36,15 @@ type agyEvent struct {
 		Model          string `json:"model"`
 	} `json:"init"`
 	StepUpdate *struct {
-		StepIndex int       `json:"step_index"`
-		State     string    `json:"state"`
-		StepType  string    `json:"step_type"`
-		ToolName  string    `json:"tool_name"`
-		TextDelta string    `json:"text_delta"`
-		Usage     *agyUsage `json:"usage"`
-		ToolInfo  *struct {
+		StepIndex     int       `json:"step_index"`
+		State         string    `json:"state"`
+		StepType      string    `json:"step_type"`
+		ToolName      string    `json:"tool_name"`
+		TextDelta     string    `json:"text_delta"`
+		ThinkingDelta string    `json:"thinking_delta"`
+		Thought       string    `json:"thought"`
+		Usage         *agyUsage `json:"usage"`
+		ToolInfo      *struct {
 			Name       string          `json:"name"`
 			Parameters json.RawMessage `json:"parameters"`
 			Output     string          `json:"output"`
@@ -136,6 +138,15 @@ func parseAgy(reader io.Reader, gate *bridge, live *liveness) error {
 			}
 			switch su.StepType {
 			case "agent_response":
+				if thought := firstNonEmpty(su.ThinkingDelta, su.Thought); thought != "" {
+					if strings.TrimSpace(thought) != "" {
+						live.valid("thinking")
+						_ = gate.activity(activityReasoning)
+					}
+					if err := gate.emit("thinking", map[string]any{"block_id": fmt.Sprintf("agy:%d", su.StepIndex), "text": thought}); err != nil {
+						return err
+					}
+				}
 				if su.TextDelta != "" {
 					textStreamed = true
 					if strings.TrimSpace(su.TextDelta) != "" {
@@ -152,6 +163,11 @@ func parseAgy(reader io.Reader, gate *bridge, live *liveness) error {
 			case "planner_response", "thinking":
 				live.valid("thinking")
 				_ = gate.activity(activityReasoning)
+				if thought := firstNonEmpty(su.ThinkingDelta, su.Thought, su.TextDelta); thought != "" {
+					if err := gate.emit("thinking", map[string]any{"block_id": fmt.Sprintf("agy:%d", su.StepIndex), "text": thought}); err != nil {
+						return err
+					}
+				}
 
 			case "tool":
 				gate.noteTool()

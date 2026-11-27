@@ -2,10 +2,14 @@ package nativecli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/AcSunday/cocogem/internal/model"
 )
 
 // claudeVisibleText joins the text events a parse emitted, in order.
@@ -373,5 +377,107 @@ func TestToolFreeNeedsProofOnEveryLeaf(t *testing.T) {
 	inferred := newFailure(FailureNetwork, "output could not be read")
 	if ToolFree(toolFreeFailure(inferred)) {
 		t.Fatal("an unconfirmed failure was marked tool-free")
+	}
+}
+
+func TestClaudeAssistantThinkingWithoutStreamAndNamelessDedup(t *testing.T) {
+	collectThinking := func(events []capturedEvent) string {
+		var out strings.Builder
+		for _, ev := range events {
+			if ev.kind == "thinking" {
+				out.WriteString(ev.data["text"].(string))
+			}
+		}
+		return out.String()
+	}
+
+	t.Run("standalone complete assistant thinking frame", func(t *testing.T) {
+		stream := claudeFrames(
+			claudeInitFrame(),
+			`{"type":"assistant","uuid":"a1","message":{"id":"msg_only","content":[{"type":"thinking","thinking":"standalone thought"},{"type":"text","text":"visible reply"}]}}`,
+			claudeResultFrame(),
+		)
+		events, err := parseWithEvents(t, nil, stream, parseClaude)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := collectThinking(events); got != "standalone thought" {
+			t.Fatalf("thinking = %q, want %q", got, "standalone thought")
+		}
+		if got := claudeVisibleText(events); got != "visible reply\n" {
+			t.Fatalf("visible text = %q, want %q", got, "visible reply\n")
+		}
+	})
+
+	t.Run("omitted message_start id deduplicates streamed and complete thinking across turns", func(t *testing.T) {
+		stream := claudeFrames(
+			claudeInitFrame(),
+			// First message omits message.id on message_start.
+			claudeStreamFrame("s1", `{"type":"message_start","message":{}}`),
+			claudeStreamFrame("s2", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`),
+			claudeStreamFrame("s3", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"first "}}`),
+			claudeStreamFrame("s4", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"thought"}}`),
+			`{"type":"assistant","uuid":"a1","message":{"id":"msg_1","content":[{"type":"thinking","thinking":"first thought"}]}}`,
+			claudeStreamFrame("s5", `{"type":"content_block_stop","index":0}`),
+			claudeStreamFrame("s6", `{"type":"message_stop"}`),
+			// Second message also omits message.id on message_start.
+			claudeStreamFrame("s7", `{"type":"message_start","message":{}}`),
+			claudeStreamFrame("s8", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`),
+			claudeStreamFrame("s9", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"|second thought"}}`),
+			`{"type":"assistant","uuid":"a2","message":{"id":"msg_2","content":[{"type":"thinking","thinking":"|second thought"}]}}`,
+			claudeStreamFrame("s10", `{"type":"content_block_stop","index":0}`),
+			`{"type":"assistant","uuid":"a3","message":{"id":"msg_2","content":[{"type":"text","text":"final answer"}]}}`,
+			claudeStreamFrame("s13", `{"type":"message_stop"}`),
+			claudeResultFrame(),
+		)
+		events, err := parseWithEvents(t, nil, stream, parseClaude)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := collectThinking(events); got != "first thought|second thought" {
+			t.Fatalf("thinking duplicated or lost = %q, want %q", got, "first thought|second thought")
+		}
+		if got := claudeVisibleText(events); got != "final answer\n" {
+			t.Fatalf("visible text = %q, want %q", got, "final answer\n")
+		}
+	})
+}
+
+func TestBridgeEmitsThinkingStrictlyBeforeHostMCPToolStarted(t *testing.T) {
+	var order []string
+	gate, err := newBridge(t.Context(), []model.Tool{{Name: "read_file", Schema: map[string]any{"type": "object"}}}, func(context.Context, string, json.RawMessage) (string, error) {
+		return `{"content":"ok"}`, nil
+	}, func(kind string, _ map[string]any) error {
+		if kind == "thinking" || kind == "tool_started" || kind == "tool_finished" {
+			order = append(order, kind)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.close()
+
+	if err := gate.emit("thinking", map[string]any{"block_id": "b1", "text": "inspect file first"}); err != nil {
+		t.Fatal(err)
+	}
+	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"a.go"}}}`
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, gate.url(), strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+gate.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("bridge status = %d", resp.StatusCode)
+	}
+	want := "thinking,tool_started,tool_finished"
+	if strings.Join(order, ",") != want {
+		t.Fatalf("bridge event order = %v, want %s", order, want)
 	}
 }

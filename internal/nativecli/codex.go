@@ -258,6 +258,7 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 	sessionID := ""
 	activity := newActivityTracker()
 	agentText := newTextStreams()
+	reasoningText := newTextStreams()
 	finishedItems := map[string]bool{}
 	webPending := map[string]bool{}
 	resourcePending := map[string]codexResourceCall{}
@@ -363,13 +364,19 @@ func parseCodex(reader io.Reader, gate *bridge, live *liveness) error {
 					}
 				}
 			case "reasoning":
-				// Reasoning text is metadata for liveness only; its content is
-				// never emitted or persisted. The activity signal only tells core
-				// to refresh LastProgress and clear a warning.
 				if text := event.Item.Text; strings.TrimSpace(text) != "" && activity.newText(event.Item.ID, text) {
 					live.valid("reasoning")
 					if err := gate.activity(activityReasoning); err != nil {
 						return err
+					}
+					delta := text
+					if d, err := reasoningText.snapshotUnchecked("codex-reasoning:"+event.Item.ID, text); err == nil {
+						delta = d
+					}
+					if delta != "" {
+						if err := gate.emit("thinking", map[string]any{"block_id": "codex:" + event.Item.ID, "text": delta}); err != nil {
+							return err
+						}
 					}
 				}
 			case "plan", "todo_list", "reasoning_summary":

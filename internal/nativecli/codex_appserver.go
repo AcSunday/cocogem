@@ -39,15 +39,16 @@ type codexAppServer struct {
 	finished bool
 	failure  error
 
-	agentText    strings.Builder
-	deltaSeen    map[string]bool
-	completed    map[string]bool
-	startedItem  map[string]string
-	fileChanges  map[string]json.RawMessage
-	roots        []string
-	denies       []string
-	profile      string
-	threadConfig map[string]any
+	agentText     strings.Builder
+	deltaSeen     map[string]bool
+	reasoningSeen map[string]bool
+	completed     map[string]bool
+	startedItem   map[string]string
+	fileChanges   map[string]json.RawMessage
+	roots         []string
+	denies        []string
+	profile       string
+	threadConfig  map[string]any
 
 	// Per-turn token accumulation from thread/tokenUsage/updated notifications.
 	// lastTotal deduplicates repeated notifications and lets resumed threads
@@ -359,7 +360,7 @@ func (p Provider) streamCodexAppServer(ctx context.Context, cmd *exec.Cmd, gate 
 	if live != nil {
 		live.dispatched()
 	}
-	server := &codexAppServer{gate: gate, live: live, approver: approver, stdin: stdin, pending: map[int]chan json.RawMessage{}, deltaSeen: map[string]bool{}, completed: map[string]bool{}, startedItem: map[string]string{}, fileChanges: map[string]json.RawMessage{}, roots: roots, denies: denies, profile: profile, threadConfig: threadConfig}
+	server := &codexAppServer{gate: gate, live: live, approver: approver, stdin: stdin, pending: map[int]chan json.RawMessage{}, deltaSeen: map[string]bool{}, reasoningSeen: map[string]bool{}, completed: map[string]bool{}, startedItem: map[string]string{}, fileChanges: map[string]json.RawMessage{}, roots: roots, denies: denies, profile: profile, threadConfig: threadConfig}
 	identity, owned, err := inspectOwnership(cmd.Process.Pid, cmd.Path)
 	if err != nil {
 		terminateProcess(cmd)
@@ -753,12 +754,44 @@ func (s *codexAppServer) handleNotification(message codexMessage) error {
 			s.live.valid("text")
 		}
 		return s.gate.emit("text", map[string]any{"text": params.Delta, "activity": strings.TrimSpace(params.Delta) != ""})
+	case "item/reasoning/summaryPartAdded":
+		return nil
+	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta":
+		var params struct {
+			Delta  string `json:"delta"`
+			ItemID string `json:"itemId"`
+		}
+		if json.Unmarshal(message.Params, &params) != nil || params.Delta == "" {
+			return nil
+		}
+		if s.reasoningSeen == nil {
+			s.reasoningSeen = map[string]bool{}
+		}
+		if params.ItemID != "" {
+			s.reasoningSeen[params.ItemID] = true
+		}
+		if strings.TrimSpace(params.Delta) != "" {
+			if s.live != nil {
+				s.live.valid("reasoning")
+			}
+			if s.gate != nil {
+				if err := s.gate.activity(activityReasoning); err != nil {
+					return err
+				}
+			}
+		}
+		if s.gate != nil {
+			return s.gate.emit("thinking", map[string]any{"block_id": "codex:" + params.ItemID, "text": params.Delta})
+		}
+		return nil
 	case "item/started", "item/completed":
 		var params struct {
 			Item struct {
 				ID      string          `json:"id"`
 				Type    string          `json:"type"`
 				Text    string          `json:"text"`
+				Summary []string        `json:"summary"`
+				Content []string        `json:"content"`
 				Command string          `json:"command"`
 				Status  string          `json:"status"`
 				Error   json.RawMessage `json:"error"`
@@ -811,9 +844,30 @@ func (s *codexAppServer) handleNotification(message codexMessage) error {
 				}
 				return s.gate.emit("tool_finished", map[string]any{"tool_call_id": id, "name": "Edit", "status": "ok", "origin": "native"})
 			}
-		case "mcpToolCall", "webSearch", "reasoning":
+		case "mcpToolCall", "webSearch":
 			if s.live != nil {
 				s.live.valid("tool_call")
+			}
+		case "reasoning":
+			if s.live != nil {
+				s.live.valid("reasoning")
+			}
+			if message.Method == "item/completed" && !s.reasoningSeen[params.Item.ID] {
+				text := strings.TrimSpace(params.Item.Text)
+				if text == "" && len(params.Item.Summary) > 0 {
+					text = strings.TrimSpace(strings.Join(params.Item.Summary, "\n"))
+				}
+				if text == "" && len(params.Item.Content) > 0 {
+					text = strings.TrimSpace(strings.Join(params.Item.Content, "\n"))
+				}
+				if text != "" && s.gate != nil {
+					if err := s.gate.activity(activityReasoning); err != nil {
+						return err
+					}
+					if err := s.gate.emit("thinking", map[string]any{"block_id": "codex:" + params.Item.ID, "text": text}); err != nil {
+						return err
+					}
+				}
 			}
 		default:
 			if s.gate != nil {

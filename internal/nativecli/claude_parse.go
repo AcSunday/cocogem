@@ -65,9 +65,13 @@ type claudeParser struct {
 	// Partial-message deltas are emitted once; the later complete assistant
 	// frame is compared against a bounded length/digest window and only its
 	// unseen suffix is sent. The visible body is never retained here.
-	streamMessageID string
-	streams         *textStreams
-	blocks          claudeBlocks
+	streamMessageID      string
+	streamMessageSeq     int
+	streams              *textStreams
+	blocks               claudeBlocks
+	thinkingStreams      *textStreams
+	openThinkingBlocks   []string
+	thinkingStreamedKeys map[string]bool
 }
 
 // claudeBlockWindow bounds how many unconfirmed streamed blocks and frame
@@ -198,13 +202,15 @@ func parseClaude(reader io.Reader, gate *bridge, live *liveness) error {
 
 func parseClaudeWithControl(reader io.Reader, gate *bridge, live *liveness, control *claudeControl) error {
 	p := &claudeParser{
-		gate:        gate,
-		live:        live,
-		control:     control,
-		activity:    newActivityTracker(),
-		nativeCalls: map[string]*claudeNativeCall{},
-		deniedCalls: map[string]*deniedCall{},
-		streams:     newTextStreams(),
+		gate:                 gate,
+		live:                 live,
+		control:              control,
+		activity:             newActivityTracker(),
+		nativeCalls:          map[string]*claudeNativeCall{},
+		deniedCalls:          map[string]*deniedCall{},
+		streams:              newTextStreams(),
+		thinkingStreams:      newTextStreams(),
+		thinkingStreamedKeys: map[string]bool{},
 	}
 	return p.parse(reader)
 }
@@ -344,11 +350,12 @@ func (p *claudeParser) handleAssistant(event claudeEvent, errorCode string) erro
 	var message struct {
 		ID      string `json:"id"`
 		Content []struct {
-			Type  string          `json:"type"`
-			ID    string          `json:"id"`
-			Name  string          `json:"name"`
-			Text  string          `json:"text"`
-			Input json.RawMessage `json:"input"`
+			Type     string          `json:"type"`
+			ID       string          `json:"id"`
+			Name     string          `json:"name"`
+			Text     string          `json:"text"`
+			Thinking string          `json:"thinking"`
+			Input    json.RawMessage `json:"input"`
 		} `json:"content"`
 	}
 	if json.Unmarshal(event.Message, &message) != nil {
@@ -377,9 +384,13 @@ func (p *claudeParser) handleAssistant(event claudeEvent, errorCode string) erro
 			if err := p.handleAssistantText(item, index, block.Text); err != nil {
 				return err
 			}
-		case "thinking", "redacted_thinking":
-			// Internal reasoning is never shown, recorded or counted without
-			// fixture evidence for this adapter.
+		case "thinking":
+			if block.Thinking != "" {
+				if err := p.handleAssistantThinking(item, index, block.Thinking); err != nil {
+					return err
+				}
+			}
+		case "redacted_thinking":
 		default:
 			return newFailure(FailureProtocol, "native CLI emitted an unknown assistant content block")
 		}
@@ -440,6 +451,68 @@ func (p *claudeParser) handleToolUse(item string, index int, callID, name string
 		p.live.valid("tool_call")
 	}
 	return nil
+}
+
+func (p *claudeParser) emitStreamThinking(key, text string) error {
+	if text == "" {
+		return nil
+	}
+	if strings.TrimSpace(text) != "" {
+		p.live.valid("reasoning")
+		if err := p.gate.activity(activityReasoning); err != nil {
+			return err
+		}
+	} else if !p.thinkingStreamedKeys[key] {
+		return nil
+	}
+	delta, err := p.thinkingStreams.delta(key, text)
+	if err != nil {
+		return err
+	}
+	if !p.thinkingStreamedKeys[key] {
+		p.thinkingStreamedKeys[key] = true
+		p.openThinkingBlocks = append(p.openThinkingBlocks, key)
+	}
+	if delta == "" {
+		return nil
+	}
+	return p.gate.emit("thinking", map[string]any{"block_id": key, "text": delta})
+}
+
+func (p *claudeParser) handleAssistantThinking(item string, index int, thinking string) error {
+	if thinking == "" {
+		return nil
+	}
+	// Match against any open streamed thinking block whose prefix covers this
+	// complete block, even when message_start omitted message.id.
+	for i, key := range p.openThinkingBlocks {
+		if _, extends := p.thinkingStreams.covers(key, thinking); extends {
+			p.openThinkingBlocks = append(p.openThinkingBlocks[:i:i], p.openThinkingBlocks[i+1:]...)
+			suffix, _, err := p.thinkingStreams.authoritative(key, thinking)
+			if err != nil || suffix == "" {
+				return nil
+			}
+			if strings.TrimSpace(suffix) != "" {
+				p.live.valid("reasoning")
+				if err := p.gate.activity(activityReasoning); err != nil {
+					return err
+				}
+			}
+			return p.gate.emit("thinking", map[string]any{"block_id": key, "text": suffix})
+		}
+	}
+	key := fmt.Sprintf("frame:%s#%d", item, index)
+	delta, _, err := p.thinkingStreams.authoritative(key, thinking)
+	if err != nil || delta == "" {
+		return nil
+	}
+	if strings.TrimSpace(delta) != "" {
+		p.live.valid("reasoning")
+		if err := p.gate.activity(activityReasoning); err != nil {
+			return err
+		}
+	}
+	return p.gate.emit("thinking", map[string]any{"block_id": key, "text": delta})
 }
 
 func (p *claudeParser) handleAssistantText(item string, index int, text string) error {
@@ -553,15 +626,24 @@ func (p *claudeParser) handleStreamEvent(event claudeEvent, line []byte) error {
 	}
 	switch streamEvent.kind {
 	case "message_start":
+		p.streamMessageSeq++
+		p.openThinkingBlocks = nil
 		if streamEvent.messageID != "" {
 			p.streamMessageID = streamEvent.messageID
+		} else {
+			p.streamMessageID = ""
 		}
 		return nil
 	case "message_stop":
 		p.streamMessageID = ""
+		p.openThinkingBlocks = nil
 		return nil
 	}
 	key := claudeStreamKey(p.streamMessageID, streamEvent.index)
+	thinkingKey := key
+	if p.streamMessageID == "" {
+		thinkingKey = fmt.Sprintf("anon-stream-%d#%d", p.streamMessageSeq, streamEvent.index)
+	}
 	switch streamEvent.kind {
 	case "block_start":
 		switch streamEvent.blockType {
@@ -575,6 +657,9 @@ func (p *claudeParser) handleStreamEvent(event claudeEvent, line []byte) error {
 			p.blocks.streamed(p.streamMessageID, key)
 			return emitClaudeDelta(streamEvent.text, key, p.streams, p.live, p.gate)
 		}
+		if streamEvent.blockType == "thinking" && streamEvent.text != "" {
+			return p.emitStreamThinking(thinkingKey, streamEvent.text)
+		}
 	case "text_delta":
 		if p.streams.blockType(key) == "thinking" {
 			return nil
@@ -587,11 +672,10 @@ func (p *claudeParser) handleStreamEvent(event claudeEvent, line []byte) error {
 		}
 		return emitClaudeDelta(streamEvent.text, key, p.streams, p.live, p.gate)
 	case "thinking_delta":
-		if p.activity.duplicateFrame(event.UUID, line) || strings.TrimSpace(streamEvent.text) == "" {
+		if p.activity.duplicateFrame(event.UUID, line) || streamEvent.text == "" {
 			return nil
 		}
-		p.live.valid("reasoning")
-		return p.gate.activity(activityReasoning)
+		return p.emitStreamThinking(thinkingKey, streamEvent.text)
 	}
 	return nil
 }
