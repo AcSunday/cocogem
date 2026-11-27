@@ -14,14 +14,13 @@ import (
 // CLAUDE_CONFIG_DIR.
 func TestNativeStateRootKeepsEachCLIPersistentState(t *testing.T) {
 	home := t.TempDir()
-	for _, key := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "GEMINI_CLI_HOME", "PI_HOME", "XDG_DATA_HOME"} {
+	for _, key := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_HOME", "XDG_DATA_HOME"} {
 		t.Setenv(key, "")
 	}
 	t.Setenv("HOME", home)
 	cases := map[string]string{
 		"claude":   filepath.Join(home, ".claude"),
 		"codex":    filepath.Join(home, ".codex"),
-		"gemini":   filepath.Join(home, ".gemini"),
 		"pi":       filepath.Join(home, ".pi"),
 		"opencode": filepath.Join(home, ".local", "share", "opencode"),
 	}

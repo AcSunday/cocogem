@@ -85,7 +85,7 @@ func TestGateHardlinkScanUnverifiedRootFailsClosed(t *testing.T) {
 	}
 	defer gate.close()
 	live := newLiveness(t.Context(), func() {}, discardObserve, 0, 0, "warn")
-	approver := newNativeApprover(gate, live, request, "gemini", sandbox)
+	approver := newNativeApprover(gate, live, request, "agy", sandbox)
 	if err := applyGateHardlinkPolicy(gate, approver, sandbox, scan); err != nil {
 		t.Fatalf("recording the unverified scan failed: %v", err)
 	}
@@ -129,9 +129,9 @@ func TestGateHardlinkLinkedFileCannotModifyOutsideOriginal(t *testing.T) {
 	if err := applyGateHardlinkPolicy(broker.approver.gate, broker.approver, sandbox, scan); err != nil {
 		t.Fatal(err)
 	}
-	input, _ := json.Marshal(map[string]string{"command": "printf ESCAPE > " + shellQuote(linked)})
+	input, _ := json.Marshal(map[string]string{"CommandLine": "printf ESCAPE > " + shellQuote(linked)})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-hardlink", Name: "run_shell_command", Input: input,
+		CallID: "call-hardlink", Name: "run_command", Input: input,
 	})
 	if decision.Allow {
 		t.Fatal("a command writing through an outside-linked inode was allowed")
@@ -170,9 +170,9 @@ func TestGateHardlinkLinkIsRefusedByApprover(t *testing.T) {
 	if err := applyGateHardlinkPolicy(broker.approver.gate, broker.approver, sandbox, scan); err != nil {
 		t.Fatal(err)
 	}
-	input, _ := json.Marshal(map[string]string{"command": "printf X > " + shellQuote(linked)})
+	input, _ := json.Marshal(map[string]string{"CommandLine": "printf X > " + shellQuote(linked)})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-hardlink-refused", Name: "run_shell_command", Input: input,
+		CallID: "call-hardlink-refused", Name: "run_command", Input: input,
 	})
 	if decision.Allow {
 		t.Fatal("a command targeting a file linked outside the project was allowed")
@@ -203,9 +203,9 @@ func TestGateApprovedOutsideWorkingDirectoryRunsInSameCall(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: request.Resource}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	input, _ := json.Marshal(map[string]any{"command": "printf HERE > marker.txt", "dir_path": outsideDir})
+	input, _ := json.Marshal(map[string]any{"CommandLine": "printf HERE > marker.txt", "Cwd": outsideDir})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-outside-cwd", Name: "run_shell_command", Input: input,
+		CallID: "call-outside-cwd", Name: "run_command", Input: input,
 	})
 	if !decision.Allow {
 		t.Fatalf("an approved outside working directory was refused: %s", decision.Reason)
@@ -218,13 +218,13 @@ func TestGateApprovedOutsideWorkingDirectoryRunsInSameCall(t *testing.T) {
 	if err := json.Unmarshal(decision.Input, &narrowed); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(narrowed["command"], "sandbox-exec") {
-		t.Fatalf("the approved command was not sandboxed: %q", narrowed["command"])
+	if !strings.Contains(narrowed["CommandLine"], "sandbox-exec") {
+		t.Fatalf("the approved command was not sandboxed: %q", narrowed["CommandLine"])
 	}
-	if !strings.Contains(narrowed["command"], outsideDir) {
-		t.Fatalf("the sandbox did not include the approved directory: %q", narrowed["command"])
+	if !strings.Contains(narrowed["CommandLine"], outsideDir) {
+		t.Fatalf("the sandbox did not include the approved directory: %q", narrowed["CommandLine"])
 	}
-	out, err := execShell(narrowed["command"])
+	out, err := execShell(narrowed["CommandLine"])
 	if err != nil {
 		t.Fatalf("the approved command failed: %v (%s)", err, out)
 	}
@@ -253,9 +253,9 @@ func TestGateDeniedOutsideWorkingDirectoryIsRefused(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: request.Resource}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	input, _ := json.Marshal(map[string]any{"command": "printf HERE > marker.txt", "dir_path": outsideDir})
+	input, _ := json.Marshal(map[string]any{"CommandLine": "printf HERE > marker.txt", "Cwd": outsideDir})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-outside-cwd-denied", Name: "run_shell_command", Input: input,
+		CallID: "call-outside-cwd-denied", Name: "run_command", Input: input,
 	})
 	if decision.Allow {
 		t.Fatal("a denied outside working directory was allowed")
@@ -291,10 +291,10 @@ func TestGateOutsideWorkingDirectoryDoesNotWidenOtherTargets(t *testing.T) {
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
 	input, _ := json.Marshal(map[string]any{
-		"command": "printf X > " + shellQuote(other), "dir_path": outsideDir,
+		"CommandLine": "printf X > " + shellQuote(other), "Cwd": outsideDir,
 	})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-widen", Name: "run_shell_command", Input: input,
+		CallID: "call-widen", Name: "run_command", Input: input,
 	})
 	if decision.Allow {
 		t.Fatal("an extra approved directory authorized an unrelated outside target")

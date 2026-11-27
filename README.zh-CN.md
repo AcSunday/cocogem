@@ -4,7 +4,7 @@
 
 **把问题交给一个团队。**
 
-让 Claude Code、Codex、Gemini、Pi 和 OpenCode 在同一个工作空间里讨论、研究、开发与复核。
+让 Claude Code、Codex、Antigravity、Pi 和 OpenCode 在同一个工作空间里讨论、研究、开发与复核。
 
 [![CI](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml/badge.svg)](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.26.11+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
@@ -97,7 +97,7 @@ make build
 | --- | --- | --- |
 | Claude Code | `claude` | 双向 stream-json 审批、受限 MCP，原生工具按次落实执行边界 |
 | Codex | `codex` | 已验证的 macOS 版本使用 app-server 与项目/任务窄权限配置；原生协议无法表达按次外部范围，项目外操作由范围受限的宿主工具承接 |
-| Gemini CLI | `gemini` | stream-json、私有工具 hooks、受限 MCP 与确切范围的原生执行 |
+| Antigravity | `agy` | stream-json、PreToolUse/PostToolUse hooks、受限 MCP 与按次沙箱原生执行 |
 | Pi | `pi` | RPC、私有工具扩展和受限 MCP，在原生效果发生前审批 |
 | OpenCode | `opencode` | 独立 v2 服务与私有执行前插件，实时正文、受限 MCP 和模型思考变体 |
 
@@ -112,7 +112,7 @@ Web 工作空间 · 成员与路由 · 共享技能
    ↓
 Go 服务 · 计划与权限 · 受限 MCP · 来源与检查点
    ↓
-Claude Code / Codex / Gemini / Pi / OpenCode
+Claude Code / Codex / Antigravity / Pi / OpenCode
    ↓
 共享对话 · 独立复核 · 版本化交付物
 ```

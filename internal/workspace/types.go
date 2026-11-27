@@ -58,10 +58,6 @@ func ThinkingLevels(executor string) []string {
 		return []string{"low", "medium", "high", "xhigh", "max"}
 	case "codex":
 		return []string{"low", "medium", "high", "xhigh", "ultra", "max"}
-	case "gemini":
-		// The installed Gemini CLI exposes thinkingLevel LOW/HIGH through its
-		// scoped modelConfigs.generateContentConfig, not a CLI flag.
-		return []string{"low", "high"}
 	case "pi":
 		return []string{"low", "medium", "high", "xhigh", "max"}
 	default:
@@ -622,10 +618,10 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	if !handlePattern.MatchString(a.Handle) {
 		return errors.New("handle must match [a-z][a-z0-9-]{1,31}")
 	}
-	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "agy", "gemini", "pi", "opencode"}, a.Executor) {
+	if a.Executor != "" && !slices.Contains([]string{"claude", "codex", "agy", "pi", "opencode"}, a.Executor) {
 		return errors.New("executor is not supported")
 	}
-	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "agy" || a.Executor == "gemini" || a.Executor == "pi" || a.Executor == "opencode" {
+	if a.Executor == "claude" || a.Executor == "codex" || a.Executor == "agy" || a.Executor == "pi" || a.Executor == "opencode" {
 		if len(a.Model) > 150 || strings.TrimSpace(a.Model) == "" || strings.HasPrefix(a.Model, "-") || strings.ContainsAny(a.Model, "\r\n\x00") {
 			return errors.New("CLI model must be default or a model identifier")
 		}
@@ -640,9 +636,6 @@ func ValidateAgent(a Agent, peers []Agent, models, tools []string) error {
 	}
 	if err := ValidateExecutionOptions(a.Executor, a.ContextSize, a.ThinkingLevel); err != nil {
 		return err
-	}
-	if a.Executor == "gemini" && a.ThinkingLevel != "" && (a.Model == "" || a.Model == "default") {
-		return errors.New("Gemini thinking_level requires an explicit model so the scoped override can match it")
 	}
 	for _, capability := range a.Capabilities {
 		if strings.TrimSpace(capability) != capability || capability == "" || len([]rune(capability)) > 100 {

@@ -4,7 +4,7 @@
 
 **Give your task a team.**
 
-Let Claude Code, Codex, Gemini, Pi, and OpenCode discuss, research, develop, and review in one workspace.
+Let Claude Code, Codex, Antigravity, Pi, and OpenCode discuss, research, develop, and review in one workspace.
 
 [![CI](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml/badge.svg)](https://github.com/AcSunday/cocogem/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.26.11+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
@@ -97,7 +97,7 @@ Project-autonomous command execution currently uses the macOS boundary. Other op
 | --- | --- | --- |
 | Claude Code | `claude` | Bidirectional stream-json approvals, scoped MCP and native tools with per-operation execution boundaries |
 | Codex | `codex` | On verified macOS versions, app-server with a restricted project/task permission profile; outside operations use scoped host tools because native approvals cannot express a one-call outside scope |
-| Gemini CLI | `gemini` | stream-json with private tool hooks, scoped MCP and scoped native execution |
+| Antigravity | `agy` | stream-json with PreToolUse/PostToolUse hooks, scoped MCP and per-call sandboxed native execution |
 | Pi | `pi` | RPC with a private tool extension, scoped MCP and execution-before-effect approvals |
 | OpenCode | `opencode` | Private v2 server with an execution-before-effect plugin; live text deltas, scoped MCP and model thinking variants |
 
@@ -112,7 +112,7 @@ Web workspace · Members and routing · Shared skills
    ↓
 Go service · Plans and permissions · Scoped MCP · Sources and checkpoints
    ↓
-Claude Code / Codex / Gemini / Pi / OpenCode
+Claude Code / Codex / Antigravity / Pi / OpenCode
    ↓
 Shared conversations · Independent review · Versioned deliverables
 ```

@@ -91,18 +91,6 @@ func TestParsersAcceptLargeCumulativeStreams(t *testing.T) {
 			},
 			tail: `{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}` + "\n",
 		},
-		{
-			name:   "gemini",
-			parse:  parseGemini,
-			prefix: `{"type":"init","session_id":"` + fakeSession + `"}` + "\n",
-			line: func(i int) string {
-				if i < noise {
-					return `{"type":"thought","content":"noise"}` + "\n"
-				}
-				return fmt.Sprintf(`{"type":"message","id":"msg-%d","role":"assistant","content":%q}`+"\n", i, chunk)
-			},
-			tail: `{"type":"result","status":"success","stats":{"input_tokens":1,"output_tokens":1}}` + "\n",
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -139,12 +127,6 @@ func TestParsersRejectOversizedFrame(t *testing.T) {
 			parse: parseCodex,
 			head:  `{"type":"thread.started","thread_id":"` + fakeSession + `"}` + "\n" + `{"type":"turn.started"}` + "\n",
 			line:  `{"type":"item.updated","item":{"id":"p1","type":"plan","text":"` + huge + `"}}` + "\n",
-		},
-		{
-			name:  "gemini",
-			parse: parseGemini,
-			head:  `{"type":"init","session_id":"` + fakeSession + `"}` + "\n",
-			line:  `{"type":"thought","content":"` + huge + `"}` + "\n",
 		},
 	}
 	for _, test := range tests {
@@ -593,64 +575,6 @@ func TestCodexItemValidationAndProgress(t *testing.T) {
 	}
 }
 
-func TestGeminiOnlyAssistantTextCountsAsProgress(t *testing.T) {
-	texts := 0
-	gate := newTestGate(t, testRequest().Tools, func(kind string, _ map[string]any) error {
-		if kind == "text" {
-			texts++
-		}
-		return nil
-	})
-	gate.nativePrefix = "mcp_cocogem_"
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	head := `{"type":"init","session_id":"` + fakeSession + `"}` + "\n"
-	fake := time.Now()
-	old := fake.Add(-time.Minute)
-	resetLive := func() *liveness {
-		live := newLiveness(ctx, cancel, discardObserve, 0, time.Minute, "stop")
-		live.now = func() time.Time { return fake }
-		live.dispatched()
-		live.mu.Lock()
-		live.lastProgress = old
-		live.mu.Unlock()
-		return live
-	}
-	userEcho := head + `{"type":"message","role":"user","content":"echo"}` + "\n" + `{"type":"message","role":"assistant","content":""}` + "\n" + `{"type":"result","status":"success"}` + "\n"
-	live := resetLive()
-	if err := parseGemini(strings.NewReader(userEcho), gate, live); err != nil {
-		t.Fatal(err)
-	}
-	live.mu.Lock()
-	echoSeen := live.firstSeen || !live.lastProgress.Equal(old)
-	live.mu.Unlock()
-	if echoSeen || texts != 0 {
-		t.Fatal("a user echo or empty assistant frame counted as progress")
-	}
-	answer := head + `{"type":"message","role":"assistant","content":"answer"}` + "\n" + `{"type":"result","status":"success"}` + "\n"
-	live = resetLive()
-	if err := parseGemini(strings.NewReader(answer), gate, live); err != nil {
-		t.Fatal(err)
-	}
-	live.mu.Lock()
-	answerSeen := live.firstSeen
-	live.mu.Unlock()
-	if !answerSeen || texts != 1 {
-		t.Fatal("assistant text did not count as progress")
-	}
-	tool := head + `{"type":"tool_use","tool_name":"mcp_cocogem_read_file"}` + "\n" + `{"type":"result","status":"success"}` + "\n"
-	live = resetLive()
-	if err := parseGemini(strings.NewReader(tool), gate, live); err != nil {
-		t.Fatal(err)
-	}
-	live.mu.Lock()
-	toolSeen := live.firstSeen
-	live.mu.Unlock()
-	if !toolSeen {
-		t.Fatal("an allowed Gemini tool start did not establish first response")
-	}
-}
-
 func TestAppendFailureKeepsCancellationFirst(t *testing.T) {
 	failures := appendFailure(nil, context.Canceled)
 	failures = appendFailure(failures, newFailure(FailureStallTimeout, "stall"))
@@ -723,74 +647,6 @@ func TestClaudeStreamEventBeforeInitIsRejected(t *testing.T) {
 	err := parseClaude(strings.NewReader(stream), gate, live)
 	if FailureKindOf(err) != FailureProtocol {
 		t.Fatalf("a stream event before session initialization was accepted: %v", err)
-	}
-}
-
-func TestGeminiWhitespaceAndDuplicateFrameSemantics(t *testing.T) {
-	texts := []string{}
-	activities := []bool{}
-	gate, err := newBridge(context.Background(), testRequest().Tools, nil, func(kind string, data map[string]any) error {
-		if kind == "text" {
-			texts = append(texts, data["text"].(string))
-			activities = append(activities, data["activity"].(bool))
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(gate.close)
-	gate.nativePrefix = "mcp_cocogem_"
-	head := `{"type":"init","session_id":"` + fakeSession + `"}` + "\n"
-	tail := `{"type":"result","status":"success"}` + "\n"
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	fake := time.Now()
-	old := fake.Add(-time.Minute)
-	resetLive := func() *liveness {
-		live := newLiveness(ctx, cancel, discardObserve, 0, time.Minute, "stop")
-		live.now = func() time.Time { return fake }
-		live.dispatched()
-		live.mu.Lock()
-		live.lastProgress = old
-		live.mu.Unlock()
-		return live
-	}
-	whitespace := head + `{"type":"message","role":"assistant","content":" \n\t "}` + "\n" + tail
-	live := resetLive()
-	if err := parseGemini(strings.NewReader(whitespace), gate, live); err != nil {
-		t.Fatal(err)
-	}
-	live.mu.Lock()
-	seen := live.firstSeen
-	stale := live.lastProgress.Equal(old)
-	live.mu.Unlock()
-	if seen || !stale || len(texts) != 1 || texts[0] != " \n\t " || activities[0] {
-		t.Fatalf("whitespace-only content must be kept verbatim without refreshing liveness: texts=%q activities=%v", texts, activities)
-	}
-	texts, activities = nil, nil
-	identified := `{"type":"message","id":"m1","role":"assistant","content":"answer"}` + "\n"
-	live = resetLive()
-	if err := parseGemini(strings.NewReader(head+identified+identified+tail), gate, live); err != nil {
-		t.Fatal(err)
-	}
-	if len(texts) != 1 {
-		t.Fatalf("an exact identified frame replay was emitted %d times", len(texts))
-	}
-	anonymous := `{"type":"message","role":"assistant","content":"answer"}` + "\n"
-	texts, activities = nil, nil
-	live = resetLive()
-	if err := parseGemini(strings.NewReader(head+anonymous+anonymous+tail), gate, live); err != nil {
-		t.Fatal(err)
-	}
-	if len(texts) != 2 {
-		t.Fatalf("frames without an identity must keep delta text, emitted %d", len(texts))
-	}
-	live.mu.Lock()
-	seen = live.firstSeen
-	live.mu.Unlock()
-	if !seen {
-		t.Fatal("legitimate non-empty assistant output did not count as activity")
 	}
 }
 
@@ -1208,75 +1064,6 @@ func TestNativeActivityObservationFailureStopsParsers(t *testing.T) {
 				t.Fatalf("observation failure was swallowed: err=%v gate=%v", err, gate.failure())
 			}
 		})
-	}
-}
-
-func TestGeminiKeepsWhitespaceDeltasWithoutRefreshingProgress(t *testing.T) {
-	var texts []string
-	var flags []bool
-	gate := newTestGate(t, testRequest().Tools, func(kind string, data map[string]any) error {
-		if kind == "text" {
-			texts = append(texts, data["text"].(string))
-			flags = append(flags, data["activity"].(bool))
-		}
-		return nil
-	})
-	gate.nativePrefix = "mcp_cocogem_"
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	fake := time.Now()
-	old := fake.Add(-time.Minute)
-	head := `{"type":"init","session_id":"` + fakeSession + `"}` + "\n"
-	tail := `{"type":"result","status":"success"}` + "\n"
-	message := func(content string) string {
-		return fmt.Sprintf(`{"type":"message","role":"assistant","content":%q}`+"\n", content)
-	}
-	live := newLiveness(ctx, cancel, discardObserve, 0, time.Minute, "stop")
-	live.now = func() time.Time { return fake }
-	live.dispatched()
-	live.mu.Lock()
-	live.lastProgress = old
-	live.mu.Unlock()
-	if err := parseGemini(strings.NewReader(head+message("hello")+message("\n")+message("world")+tail), gate, live); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(texts, "") != "hello\nworld" {
-		t.Fatalf("whitespace delta was lost: %q", texts)
-	}
-	want := []bool{true, false, true}
-	for index := range want {
-		if flags[index] != want[index] {
-			t.Fatalf("activity flags=%v, want %v", flags, want)
-		}
-	}
-	live.mu.Lock()
-	progress := live.lastProgress
-	live.mu.Unlock()
-	if !progress.Equal(fake) {
-		t.Fatalf("visible deltas did not refresh progress: %v", progress)
-	}
-	texts, flags = nil, nil
-	whitespace := newLiveness(ctx, cancel, discardObserve, 0, time.Minute, "stop")
-	whitespace.now = func() time.Time { return fake }
-	whitespace.dispatched()
-	whitespace.mu.Lock()
-	whitespace.lastProgress = old
-	whitespace.mu.Unlock()
-	if err := parseGemini(strings.NewReader(head+message(" \n\t ")+tail), gate, whitespace); err != nil {
-		t.Fatal(err)
-	}
-	whitespace.mu.Lock()
-	seen, stale := whitespace.firstSeen, whitespace.lastProgress.Equal(old)
-	whitespace.mu.Unlock()
-	if seen || !stale || len(texts) != 1 || texts[0] != " \n\t " || flags[0] {
-		t.Fatalf("whitespace-only content was mishandled: seen=%v stale=%v texts=%q flags=%v", seen, stale, texts, flags)
-	}
-	texts, flags = nil, nil
-	if err := parseGemini(strings.NewReader(head+message("中文")+message("中文")+tail), gate, live); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(texts, "|") != "中文|中文" || len(flags) != 2 || !flags[0] || !flags[1] {
-		t.Fatalf("anonymous equal text was deduped: texts=%q flags=%v", texts, flags)
 	}
 }
 

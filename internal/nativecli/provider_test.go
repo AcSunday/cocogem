@@ -49,8 +49,6 @@ func TestNativeCLIHelperProcess(t *testing.T) {
 		switch executor {
 		case "codex":
 			fmt.Println("codex-cli 0.163.0")
-		case "gemini":
-			fmt.Println("0.64.0")
 		default:
 			fmt.Println("2.1.301 (Claude Code)")
 		}
@@ -480,7 +478,7 @@ func TestNativeWithoutMemberLimitFollowsCLIConfig(t *testing.T) {
 
 func TestCapabilitiesFailClosed(t *testing.T) {
 	t.Parallel()
-	if capabilityError("claude", "2.1.301", "--tools") == nil || capabilityError("gemini", "0.64.0", "--tools") == nil || capabilityError("codex", "1", "--tools") == nil {
+	if capabilityError("claude", "2.1.301", "--tools") == nil || capabilityError("codex", "1", "--tools") == nil {
 		t.Fatal("uninspected CLI capabilities were accepted")
 	}
 }
@@ -686,9 +684,6 @@ func TestCheckConnectionValidatesLocalConfiguration(t *testing.T) {
 	t.Setenv("CODEX_HOME", codexDir)
 	if err := (Provider{}).CheckConnection(context.Background(), "codex", "default"); err == nil {
 		t.Fatal("missing Codex default model was accepted")
-	}
-	if err := (Provider{}).CheckConnection(context.Background(), "gemini", "default"); err != nil {
-		t.Fatal(err)
 	}
 }
 

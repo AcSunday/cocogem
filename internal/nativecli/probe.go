@@ -210,15 +210,6 @@ func runIsolationProbe(ctx context.Context, info agent.AdapterInfo) probeResult 
 			"-c", `model_providers.cocogem_probe.requires_openai_auth=false`,
 			"-c", `model_providers.cocogem_probe.supports_websockets=false`,
 		}
-	case "gemini":
-		options.geminiEnv = map[string]string{
-			"GEMINI_API_KEY":            "cocogem-probe-token",
-			"GOOGLE_API_KEY":            "cocogem-probe-token",
-			"GOOGLE_GEMINI_BASE_URL":    server.url,
-			"GEMINI_CLI_AUTH_OVERRIDE":  "gemini-api-key",
-			"GOOGLE_GENAI_USE_VERTEXAI": "false",
-			"GOOGLE_GENAI_USE_GCA":      "false",
-		}
 	case "agy":
 		sentinelDir, dirErr := os.MkdirTemp("", "cocogem-agy-probe-*")
 		if dirErr != nil {
@@ -334,13 +325,6 @@ func (p *probeServer) handle(w http.ResponseWriter, r *http.Request) {
 		} else {
 			writeCodexText(w)
 		}
-	case "gemini":
-		w.Header().Set("Content-Type", "text/event-stream")
-		if turn == 1 {
-			writeGeminiTool(w, body)
-		} else {
-			writeGeminiText(w)
-		}
 	case "agy":
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch turn {
@@ -354,7 +338,7 @@ func (p *probeServer) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			writeAgyProbeMCPTool(w)
 		default:
-			writeGeminiText(w)
+			writeAgyProbeText(w)
 		}
 	case "pi", "opencode":
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -418,25 +402,6 @@ func (p *probeServer) validateTools(body []byte) {
 				continue
 			}
 			p.fail(tool.Name)
-		}
-	case "gemini":
-		var payload struct {
-			Tools []struct {
-				FunctionDeclarations []struct {
-					Name string `json:"name"`
-				} `json:"functionDeclarations"`
-			} `json:"tools"`
-		}
-		if json.Unmarshal(body, &payload) != nil {
-			return
-		}
-		for _, tool := range payload.Tools {
-			for _, declaration := range tool.FunctionDeclarations {
-				name := declaration.Name
-				if !strings.HasSuffix(name, "_probe") && !strings.HasSuffix(name, "_read_context") && !strings.HasSuffix(name, "_read_source") {
-					p.fail(name)
-				}
-			}
 		}
 	case "agy":
 		var payload struct {
@@ -517,31 +482,7 @@ func writeCodexText(w http.ResponseWriter) {
 	writeSSEJSON(w, map[string]any{"type": "response.completed", "response": map[string]any{"id": "resp_probe_done", "status": "completed", "output": []any{item}, "usage": map[string]any{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}})
 }
 
-func writeGeminiTool(w http.ResponseWriter, body []byte) {
-	var input struct {
-		Tools []struct {
-			FunctionDeclarations []struct {
-				Name string `json:"name"`
-			} `json:"functionDeclarations"`
-		} `json:"tools"`
-	}
-	_ = json.Unmarshal(body, &input)
-	name := ""
-	for _, tool := range input.Tools {
-		for _, declaration := range tool.FunctionDeclarations {
-			if strings.HasSuffix(declaration.Name, "_probe") || strings.Contains(declaration.Name, "probe") {
-				name = declaration.Name
-			}
-		}
-	}
-	if name == "" {
-		writeGeminiText(w)
-		return
-	}
-	writeSSEJSON(w, map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"role": "model", "parts": []any{map[string]any{"functionCall": map[string]any{"name": name, "args": map[string]any{}}}}}, "finishReason": "STOP", "index": 0}}, "usageMetadata": map[string]any{"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2}})
-}
-
-func writeGeminiText(w http.ResponseWriter) {
+func writeAgyProbeText(w http.ResponseWriter) {
 	writeSSEJSON(w, map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"role": "model", "parts": []any{map[string]any{"text": "isolation probe complete"}}}, "finishReason": "STOP", "index": 0}}, "usageMetadata": map[string]any{"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2}})
 }
 

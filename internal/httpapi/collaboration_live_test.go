@@ -66,7 +66,7 @@ func TestLiveMixedCLICollaboration(t *testing.T) {
 	if coordinatorCLI != "codex" {
 		researcherCLI = choose("codex", researcherCLI)
 	}
-	reviewerCLI := choose("gemini", coordinatorCLI)
+	reviewerCLI := choose("agy", coordinatorCLI)
 	if configured := os.Getenv("COCOGEM_LIVE_REVIEWER_CLI"); configured != "" {
 		if !slices.Contains(available, configured) {
 			t.Fatal("configured acceptance reviewer CLI is not installed and supported")

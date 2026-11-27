@@ -364,7 +364,7 @@ it("offers a member-specific retry above the input and preserves a draft when di
   const input = screen.getByLabelText("输入问题");
   expect(input.closest("form")).toContainElement(button);
   expect(screen.getByText(/重试只补跑该成员并保留上下文/)).toBeVisible();
-  expect(screen.getByText(/Gemini 未确认回复成功/)).toBeVisible();
+  expect(screen.getByText(/CLI 没有确认回复成功/)).toBeVisible();
   await userEvent.setup().click(button);
   expect(retry).toHaveBeenCalledWith("failed");
   expect(input).toHaveValue("另一个问题的草稿");

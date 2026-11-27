@@ -113,7 +113,7 @@ func (r browserRunner) Run(ctx context.Context, request model.Request, execute a
 				if err := observe("text", map[string]any{"text": "橘猫的首次回复未完成。"}); err != nil {
 					return err
 				}
-				return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "Gemini returned an empty, truncated or malformed response; this step did not complete"}
+				return &nativecli.Failure{Kind: nativecli.FailureProtocol, Reason: "native CLI did not confirm success (result=result_error, category=incomplete_response)"}
 			}
 		}
 		return observe("text", map[string]any{"text": "成员回复已完成（成员重试合成验证）。"})

@@ -447,7 +447,7 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 	request.EphemeralSession = step.Role == "reviewer" || step.Role == "critic"
 	if !request.EphemeralSession && attempt.ExecutionSessionRef != "" && e.NativeSessionRoot != "" && slices.Contains(adapter.Capabilities, "session_resume_ack=supported") {
 		// The ledger key names the Cocogem session row that may reuse this native
-		// session across all 5 CLIs (Claude, Codex, Gemini, Pi, OpenCode). The CLI's
+		// session across the supported CLIs (Claude, Codex, Antigravity, Pi, OpenCode). The CLI's
 		// actual session files stay in its own home directory.
 		request.SessionStorageRoot = filepath.Join(e.NativeSessionRoot, attempt.ExecutionSessionRef)
 	}

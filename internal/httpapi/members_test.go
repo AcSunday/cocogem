@@ -71,7 +71,7 @@ func TestGlobalMembersCanBeReusedAndLocallyRestricted(t *testing.T) {
 	s, err := New(Config{Host: "local.test", WebDir: dir, AuthFile: filepath.Join(dir, "auth.json"), Models: []string{"default"}, Executors: []ExecutorInfo{
 		{ID: "claude", Installed: true, Supported: true},
 		{ID: "codex", Installed: true, Supported: true},
-		{ID: "gemini", Installed: true, Supported: true},
+		{ID: "agy", Installed: true, Supported: true},
 	}}, db, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestGlobalMembersCanBeReusedAndLocallyRestricted(t *testing.T) {
 	if len(globals.Items) != 3 || len(linked.Items) != 3 {
 		t.Fatalf("workspaces duplicated global members: %+v %+v", globals, linked)
 	}
-	for i, executor := range []string{"claude", "codex", "gemini"} {
+	for i, executor := range []string{"claude", "codex", "agy"} {
 		if globals.Items[i].ID != linked.Items[i].ID || globals.Items[i].Executor != executor || globals.Items[i].WorkspaceID != "" || globals.Items[i].Membership != nil {
 			t.Fatalf("global binding not reused: %+v %+v", globals.Items[i], linked.Items[i])
 		}
@@ -228,7 +228,7 @@ func TestDefaultOrangeMemberUsesAntigravityCLI(t *testing.T) {
 		{ID: "claude", Installed: true, Supported: true},
 		{ID: "codex", Installed: true, Supported: true},
 		{ID: "agy", Installed: true, Supported: true},
-		{ID: "gemini", Installed: true, Supported: true},
+		{ID: "pi", Installed: true, Supported: true},
 	}}, db, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -7,12 +7,9 @@ import (
 	"strings"
 )
 
-// Installed native tool schemas. These are the exact fields the installed CLIs
-// declare (dumped with `native-protocol-probes/gemini_schema_dump.py` from the
-// real 0.67.0 binary; Pi 1.5.0 declares path/command as noted). Classification
-// must use the fields the CLI actually sends -- a host that reads only `path`
-// turns Gemini's `read_file{file_path:...}` and `glob{dir_path:...}` into the
-// project directory, which would auto-allow an outside read.
+// Installed native tool schemas. Classification must use the exact fields the
+// CLI actually sends so a missing field can never default to the project
+// directory and auto-allow an outside read.
 type gateToolSpec struct {
 	// action is the workspace action used in the permission request.
 	action string
@@ -23,26 +20,6 @@ type gateToolSpec struct {
 	commandKey string
 	// network marks a tool whose effect is a public read, not a file target.
 	network bool
-}
-
-// geminiNativeToolSpecs covers every native tool the gated Gemini step declares.
-var geminiNativeToolSpecs = map[string]gateToolSpec{
-	"read_file":                 {action: "read", pathKeys: []string{"file_path"}},
-	"write_file":                {action: "write", pathKeys: []string{"file_path"}},
-	"replace":                   {action: "write", pathKeys: []string{"file_path"}},
-	"glob":                      {action: "read", pathKeys: []string{"dir_path"}},
-	"grep_search":               {action: "read", pathKeys: []string{"dir_path"}},
-	"list_directory":            {action: "read", pathKeys: []string{"dir_path"}},
-	"run_shell_command":         {action: "execute", commandKey: "command", pathKeys: []string{"dir_path"}},
-	"web_fetch":                 {action: "network", network: true},
-	"google_web_search":         {action: "network", network: true},
-	"read_many_files":           {action: "read", pathKeys: []string{"dir_path"}},
-	"write_todos":               {action: "write"},
-	"update_topic":              {action: "read"},
-	"enter_plan_mode":           {action: "read"},
-	"exit_plan_mode":            {action: "read"},
-	"list_background_processes": {action: "read"},
-	"read_background_output":    {action: "read"},
 }
 
 // piNativeToolSpecs covers the built-in Pi tools the gate extension guards.
@@ -105,12 +82,14 @@ func classifyNativeCallForGate(adapter, name string, input json.RawMessage, cwd 
 		call.HostTool, call.Action = true, "host"
 		return call, nil
 	}
-	specs := geminiNativeToolSpecs
+	var specs map[string]gateToolSpec
 	switch adapter {
 	case "pi":
 		specs = piNativeToolSpecs
 	case "agy":
 		specs = agyNativeToolSpecs
+	default:
+		return call, errors.New("unsupported native gate adapter")
 	}
 	spec, ok := specs[name]
 	if !ok {

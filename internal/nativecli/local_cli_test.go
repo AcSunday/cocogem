@@ -227,103 +227,6 @@ func TestInstalledPiToolRegistry(t *testing.T) {
 	}
 }
 
-func TestInstalledGeminiToolRegistry(t *testing.T) {
-	if os.Getenv("COCOGEM_CHECK_INSTALLED_GEMINI") != "1" {
-		t.Skip("set COCOGEM_CHECK_INSTALLED_GEMINI=1 for a local provider-free binary check")
-	}
-	requests := make(chan []string, 8)
-	var turns atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "countTokens") {
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"totalTokens":1}`)
-			return
-		}
-		var input struct {
-			Tools []struct {
-				Declarations []struct {
-					Name string `json:"name"`
-				} `json:"functionDeclarations"`
-			} `json:"tools"`
-		}
-		if json.NewDecoder(r.Body).Decode(&input) != nil {
-			http.Error(w, "invalid", 400)
-			return
-		}
-		var names []string
-		for _, tool := range input.Tools {
-			for _, fn := range tool.Declarations {
-				names = append(names, fn.Name)
-			}
-		}
-		requests <- names
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, ": PING\r\n\r\n")
-		chosen := ""
-		for _, name := range names {
-			if strings.HasSuffix(name, "_read_file") {
-				chosen = name
-			}
-		}
-		if turns.Add(1) == 1 && chosen != "" {
-			raw, _ := json.Marshal(map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"role": "model", "parts": []any{map[string]any{"functionCall": map[string]any{"name": chosen, "args": map[string]any{"path": "README.md"}}}}}, "finishReason": "STOP", "index": 0}}, "usageMetadata": map[string]any{"promptTokenCount": 3, "candidatesTokenCount": 4, "totalTokenCount": 7}})
-			fmt.Fprintf(w, "data: %s\n\n", raw)
-			return
-		}
-		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"public fixture answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":4,\"totalTokenCount\":7}}\n\n")
-	}))
-	defer server.Close()
-	p := Provider{command: func(id string, args ...string) *exec.Cmd {
-		cmd := exec.Command(id, args...)
-		cmd.Env = overrideEnv(os.Environ(), map[string]string{"GEMINI_API_KEY": "cocogem-local-dummy", "GOOGLE_API_KEY": "cocogem-local-dummy", "GOOGLE_GEMINI_BASE_URL": server.URL, "GEMINI_CLI_AUTH_OVERRIDE": "gemini-api-key", "GOOGLE_GENAI_USE_VERTEXAI": "false", "GOOGLE_GENAI_USE_GCA": "false"})
-		return cmd
-	}}
-	request := testRequest()
-	request.Executor = "gemini"
-	request.Model = "gemini-local-fixture"
-	request.Tools = append(request.Tools, contextProbeTools()...)
-	request.RequiredTools = []string{"read_file", "read_context", "read_source"}
-	request.FirstResponseTimeout = 30 * time.Second
-	request.StallTimeout = 30 * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	var calls atomic.Int32
-	err := p.Run(ctx, request, func(context.Context, string, json.RawMessage) (string, error) {
-		calls.Add(1)
-		return `{"source":"public fixture"}`, nil
-	}, func(string, map[string]any) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("native loop host calls=%d", calls.Load())
-	}
-	seen := map[string]bool{}
-	for {
-		select {
-		case names := <-requests:
-			for _, name := range names {
-				if !strings.HasPrefix(name, "mcp_cocogem_") {
-					t.Errorf("unexpected native Gemini tool %q", name)
-					continue
-				}
-				for _, suffix := range []string{"_read_file", "_read_context", "_read_source"} {
-					if strings.HasSuffix(name, suffix) {
-						seen[suffix] = true
-					}
-				}
-			}
-		default:
-			for _, suffix := range []string{"_read_file", "_read_context", "_read_source"} {
-				if !seen[suffix] {
-					t.Fatalf("host MCP tool %s missing from the Gemini tool menu", suffix)
-				}
-			}
-			return
-		}
-	}
-}
-
 // TestInstalledClaudeToolRegistry uses the installed Claude binary with a
 // local Anthropic-protocol fixture; no provider credential or model is used.
 func TestInstalledClaudeToolRegistry(t *testing.T) {
@@ -420,7 +323,7 @@ func TestInstalledIsolationProbes(t *testing.T) {
 	if os.Getenv("COCOGEM_CHECK_INSTALLED_ISOLATION") != "1" {
 		t.Skip("set COCOGEM_CHECK_INSTALLED_ISOLATION=1 for installed isolation probes")
 	}
-	for _, id := range []string{"claude", "codex", "agy", "gemini", "pi", "opencode"} {
+	for _, id := range []string{"claude", "codex", "agy", "pi", "opencode"} {
 		t.Run(id, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()

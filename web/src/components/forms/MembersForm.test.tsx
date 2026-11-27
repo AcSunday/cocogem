@@ -34,12 +34,12 @@ const executorInfo = (id: string, reason = "") => ({
   isolation: "enforced",
   protocol: "runtime",
 });
-const system = (executors = ["claude", "codex", "gemini"]): System => ({
+const system = (executors = ["claude", "codex", "pi"]): System => ({
   models: ["default"],
   executors: executors.map((id) =>
     id === "codex"
       ? executorInfo(id, "只读工具范围由 Cocogem 管理")
-      : id === "gemini"
+      : id === "pi"
         ? executorInfo(id, "缺少安全工具模式")
         : executorInfo(id),
   ),
@@ -170,7 +170,7 @@ it("keeps the created identity and configures a CLI without granting tools", asy
       model: "chosen-model",
     }),
   );
-  await chooseOption(user, screen.getByLabelText("执行 CLI"), "gemini");
+  await chooseOption(user, screen.getByLabelText("执行 CLI"), "pi");
   expect(screen.getByRole("status")).toHaveTextContent("缺少安全工具模式");
 });
 
@@ -628,43 +628,6 @@ it("accepts an explicit context limit above the former platform ceiling", async 
   await user.click(screen.getByRole("button", { name: "保存成员" }));
   expect(save).toHaveBeenCalledWith(
     expect.objectContaining({ context_size: 500000 }),
-  );
-});
-
-it("requires an explicit Gemini model before enabling thinking levels", async () => {
-  const save = vi.fn(async (value: Agent) => value);
-  render(
-    <MembersForm
-      agents={[member()]}
-      system={system(["claude", "gemini"])}
-      workspaceID="ws"
-      close={() => {}}
-      save={save}
-    />,
-  );
-  const user = userEvent.setup();
-  await open(user, /布偶猫/);
-  await chooseOption(user, screen.getByLabelText("执行 CLI"), "gemini");
-  const thinking = screen.getByLabelText("思考等级（留空保持 CLI 默认）");
-  expect(
-    screen.getByText(
-      "Gemini 选择思考等级前必须填写明确模型，不能留空使用默认。",
-    ),
-  ).toBeInTheDocument();
-  expect(thinking).toBeDisabled();
-  await user.type(
-    screen.getByLabelText("模型（留空使用 CLI 默认）"),
-    "gemini-pro",
-  );
-  expect(thinking).toBeEnabled();
-  await chooseOption(user, thinking, "low");
-  await user.click(screen.getByRole("button", { name: "保存成员" }));
-  expect(save).toHaveBeenCalledWith(
-    expect.objectContaining({
-      executor: "gemini",
-      model: "gemini-pro",
-      thinking_level: "low",
-    }),
   );
 });
 

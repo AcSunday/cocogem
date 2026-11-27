@@ -9,7 +9,7 @@ import (
 	"github.com/AcSunday/cocogem/internal/model"
 )
 
-// Pi, Codex and Gemini share a native history or a model catalog across
+// Pi and Codex share a native history or a model catalog across
 // invocations of one managed session. Its directory lock lasts through exit.
 func prepareManagedSessionDirectory(ctx context.Context, dir, executor string) (*os.File, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -22,7 +22,7 @@ func prepareManagedSessionDirectory(ctx context.Context, dir, executor string) (
 		return nil, errors.New("secure private managed CLI session directory")
 	}
 	switch executor {
-	case "pi", "codex", "gemini":
+	case "pi", "codex":
 		return lockSessionDirectory(ctx, dir)
 	default:
 		return nil, nil
@@ -55,11 +55,6 @@ func nativeStateRoot(executor string) string {
 			return value
 		}
 		return filepath.Join(home, ".codex")
-	case "gemini":
-		if value := os.Getenv("GEMINI_CLI_HOME"); value != "" {
-			return value
-		}
-		return filepath.Join(home, ".gemini")
 	case "pi":
 		if value := os.Getenv("PI_HOME"); value != "" {
 			return value

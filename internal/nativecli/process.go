@@ -155,13 +155,10 @@ func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd
 		}
 	}
 	var streamErr error
-	var geminiOutput byteCounter
 	var agyOutput byteCounter
 	switch executor {
 	case "codex":
 		streamErr = parseCodex(stdout, gate, live)
-	case "gemini":
-		streamErr = parseGemini(io.TeeReader(stdout, &geminiOutput), gate, live)
 	case "agy":
 		streamErr = parseAgy(io.TeeReader(stdout, &agyOutput), gate, live)
 	case "pi":
@@ -185,24 +182,10 @@ func streamProcessWithClaude(ctx context.Context, executor string, cmd *exec.Cmd
 	waitErr := cmd.Wait()
 	joinCancel()
 	groupErr := convergeProcessGroup(cmd, identity, owned)
-	if executor == "gemini" {
-		streamErr = geminiStartupFailure(streamErr, stderr.String(), int64(geminiOutput))
-	}
 	if executor == "agy" {
 		streamErr = agyStartupFailure(streamErr, stderr.String(), int64(agyOutput))
 	}
 	return streamFailure(ctx.Err(), groupErr, streamErr, waitErr)
-}
-
-func geminiStartupFailure(streamErr error, stderr string, outputBytes int64) error {
-	var failure *Failure
-	if outputBytes != 0 || !errors.As(streamErr, &failure) || failure.Kind != FailureProtocol || failure.Reason != "native CLI ended without a confirmed terminal result" {
-		return streamErr
-	}
-	if strings.Contains(stderr, "Please set an Auth method in your ") || strings.Contains(stderr, "Invalid auth method selected.") {
-		return newFailure(FailureAuthentication, "Gemini could not use its existing authentication settings in the scoped execution environment")
-	}
-	return streamErr
 }
 
 // streamFailure joins the independent results of one stream process. A
