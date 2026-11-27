@@ -344,11 +344,11 @@ func WorkspaceDigest(root string) (string, error) {
 		}
 		files++
 		if files > maxDigestFiles {
-			return errDigestTooLarge
+			return ErrDigestTooLarge
 		}
 		bytes += info.Size()
 		if bytes > maxDigestBytes {
-			return errDigestTooLarge
+			return ErrDigestTooLarge
 		}
 		f, openErr := r.OpenFile(relative, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 		if openErr != nil {
@@ -387,7 +387,8 @@ const (
 	maxDigestBytes = 512 << 20
 )
 
-var errDigestTooLarge = errors.New("project tree exceeds the workspace digest limit")
+// ErrDigestTooLarge reports that a workspace exceeds the bounded file-digest limit.
+var ErrDigestTooLarge = errors.New("project tree exceeds the workspace digest limit")
 
 func validSHA256(value string) bool {
 	if len(value) != 64 {

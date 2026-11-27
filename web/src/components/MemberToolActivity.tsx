@@ -6,9 +6,11 @@ import {
   missingFinishLabel,
   readActivityDecision,
   saveActivityDecision,
+  toolInputPreview,
   toolStatusLabel,
   unresolvedPermissionActivities,
   type PermissionPrompt,
+  type ProcessStep,
   type ToolActivity,
   type ToolActivityGroup,
   type ToolActivityStatus,
@@ -129,10 +131,42 @@ function StatusText({ status }: { status: ToolActivityStatus }) {
   );
 }
 
-function ActivityItem({ activity }: { activity: ToolActivity }) {
+function formattedInput(activity: ToolActivity): string {
+  if (activity.inputPreview) return activity.inputPreview;
+  if (activity.input === undefined || activity.input === null) return "";
+  if (typeof activity.input === "string") return activity.input.trim();
+  try {
+    const raw = JSON.stringify(activity.input, null, 2);
+    if (!raw || raw === "{}" || raw === "null") return "";
+    return raw.length > 2000 ? `${raw.slice(0, 2000)}…` : raw;
+  } catch {
+    return toolInputPreview(activity.input);
+  }
+}
+
+/**
+ * Individual tool call row inside the chronological execution trace. Collapsed
+ * by default so active thinking and step progression stay scannable; clicking
+ * reveals full arguments and tool output.
+ */
+function ToolStepItem({ activity }: { activity: ToolActivity }) {
+  const [expanded, setExpanded] = useState(false);
+  const inputText = expanded ? formattedInput(activity) : "";
+  const hasDetails =
+    Boolean(inputText) ||
+    Boolean(activity.output) ||
+    activity.status === "unknown";
   return (
-    <>
-      <div className={styles.itemHead}>
+    <div className={styles.toolStep} data-tool-status={activity.status}>
+      <button
+        type="button"
+        className={styles.toolToggle}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className={styles.toolChevron} aria-hidden="true">
+          <Icon name="chevron" size={11} />
+        </span>
         <span className={styles.itemName}>
           {activity.label}
           {activity.target ? ` · ${activity.target}` : ""}
@@ -144,72 +178,148 @@ function ActivityItem({ activity }: { activity: ToolActivity }) {
         {activity.exitCode !== undefined && (
           <span className={styles.exit}>exit {activity.exitCode}</span>
         )}
-      </div>
-      {activity.inputPreview && (
-        <pre className={styles.input} tabIndex={0}>
-          {activity.inputPreview}
-        </pre>
-      )}
-      {activity.status === "unknown" && (
-        <p className={styles.hint}>{missingFinishLabel(activity)}</p>
-      )}
-      {activity.output && (
-        <>
-          <pre className={styles.output} tabIndex={0}>
-            {activity.output}
-          </pre>
-          {activity.outputTruncated && (
+      </button>
+      {expanded && (
+        <div className={styles.toolDetail}>
+          {inputText && (
+            <pre className={styles.input} tabIndex={0}>
+              {inputText}
+            </pre>
+          )}
+          {activity.status === "unknown" && (
+            <p className={styles.hint}>{missingFinishLabel(activity)}</p>
+          )}
+          {activity.output && (
+            <>
+              <pre className={styles.output} tabIndex={0}>
+                {activity.output}
+              </pre>
+              {activity.outputTruncated && (
+                <p className={styles.hint}>
+                  {t("输出已截断。", "Output truncated.")}
+                </p>
+              )}
+            </>
+          )}
+          {!hasDetails && (
             <p className={styles.hint}>
-              {t("输出已截断。", "Output truncated.")}
+              {activity.status === "running" || activity.status === "queued"
+                ? t("工具正在执行，暂无输出。", "Tool is running; no output yet.")
+                : t("无额外参数或输出。", "No additional arguments or output.")}
             </p>
           )}
-        </>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
+function ThinkingStepItem({
+  step,
+}: {
+  step: Extract<ProcessStep, { kind: "thinking" }>;
+}) {
+  return (
+    <div
+      className={styles.thinkingBlock}
+      data-running={step.running ? "true" : undefined}
+    >
+      <div className={styles.thinkingHead}>
+        <span className={styles.thinkingDot} aria-hidden="true" />
+        <span className={styles.thinkingLabel}>
+          {step.running
+            ? t("思考中…", "Thinking…")
+            : step.placeholder
+              ? t("已完成思考", "Thought")
+              : t("思考过程", "Thought")}
+        </span>
+      </div>
+      {!step.placeholder && step.text && (
+        <div className={styles.thinkingBody}>{step.text}</div>
+      )}
+      {step.truncated && (
+        <p className={styles.hint}>
+          {t("思考过程已截断。", "Thought process truncated.")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function NarrationStepItem({
+  step,
+}: {
+  step: Extract<ProcessStep, { kind: "narration" }>;
+}) {
+  return <div className={styles.narrationBody}>{step.text}</div>;
+}
+
 /**
- * One member step's consecutive tool calls. Collapsed by default, and only the
- * reader toggles it: streaming events never rewrite the expand decision.
- * A blocked call's action UI lives in PendingToolAuthorization instead, so an
- * outer process disclosure can never hide it.
+ * One member step's chronological execution process (chain of thought + tool
+ * calls). Open automatically while the member is actively executing—with each
+ * individual tool call collapsed by default—and automatically collapses once
+ * the member finishes so only the final result stays prominent. An explicit
+ * reader toggle overrides the automatic state.
  */
 export function ToolActivityBlock({
   group,
+  active = false,
+  showNarration = true,
   onHistory,
 }: {
   group: ToolActivityGroup;
+  /** True while the owning member step/reply is still executing. */
+  active?: boolean;
+  /** Include pre-tool narration inside the process timeline when split from the final result. */
+  showNarration?: boolean;
   onHistory?: (activity: ToolActivity) => void;
 }) {
   useLanguage();
-  const decision = activityDecisionKey(group);
-  const [open, setOpen] = useState(
-    () => readActivityDecision(decision) ?? false,
+  const decisionKey = activityDecisionKey(group);
+  const [decision, setDecision] = useState<boolean | undefined>(() =>
+    readActivityDecision(decisionKey),
   );
+  const open = decision ?? active;
   const listID = `tool-activity-${group.key.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
   const toggle = () => {
     const next = !open;
-    setOpen(next);
-    saveActivityDecision(decision, next);
+    setDecision(next);
+    saveActivityDecision(decisionKey, next);
   };
+  const allSteps: ProcessStep[] =
+    group.steps && group.steps.length > 0
+      ? group.steps
+      : group.activities.map((activity) => ({
+          kind: "tool",
+          key: activity.key,
+          seq: activity.seq,
+          activity,
+        }));
+  const steps = showNarration
+    ? allSteps
+    : allSteps.filter((step) => step.kind !== "narration");
   const duration = group.activities.reduce(
     (sum, activity) => sum + (activity.durationMs ?? 0),
     0,
   );
-  const running = group.activities.some(
-    (activity) =>
-      activity.status === "running" || activity.status === "queued",
-  );
+  const running =
+    active ||
+    group.activities.some(
+      (activity) =>
+        activity.status === "running" || activity.status === "queued",
+    ) ||
+    steps.some((step) => step.kind === "thinking" && step.running);
   const unknown = group.activities.find(
     (activity) => activity.status === "unknown",
   );
+  if (!steps.length && !group.summary) return null;
   return (
     <div
       className={styles.activity}
       data-testid="tool-activity"
       data-step-id={group.stepID || undefined}
       data-running={running ? "true" : undefined}
+      data-open={open ? "true" : undefined}
     >
       <div className={styles.head}>
         <button
@@ -239,9 +349,25 @@ export function ToolActivityBlock({
       </div>
       {open && (
         <ol className={styles.list} id={listID}>
-          {group.activities.map((activity) => (
-            <li key={activity.key} className={styles.item}>
-              <ActivityItem activity={activity} />
+          {steps.map((step) => (
+            <li
+              key={step.key}
+              className={
+                step.kind === "thinking"
+                  ? styles.thinkingItem
+                  : step.kind === "narration"
+                    ? styles.narrationItem
+                    : styles.item
+              }
+              data-process-kind={step.kind}
+            >
+              {step.kind === "thinking" ? (
+                <ThinkingStepItem step={step} />
+              ) : step.kind === "narration" ? (
+                <NarrationStepItem step={step} />
+              ) : (
+                <ToolStepItem activity={step.activity} />
+              )}
             </li>
           ))}
         </ol>
@@ -258,11 +384,13 @@ export function ToolActivityBlock({
 export function MemberToolActivity({
   groups,
   agents = [],
+  activeStepIDs,
   onHistory,
   showMember = true,
 }: {
   groups: ToolActivityGroup[];
   agents?: Agent[];
+  activeStepIDs?: Set<string>;
   onHistory?: (activity: ToolActivity) => void;
   showMember?: boolean;
 }) {
@@ -275,6 +403,9 @@ export function MemberToolActivity({
     >
       {groups.map((group) => {
         const name = memberDisplayName(group.memberID, agents);
+        const isActive = Boolean(
+          group.stepID && activeStepIDs?.has(group.stepID),
+        );
         return (
           <section
             key={group.key}
@@ -288,7 +419,11 @@ export function MemberToolActivity({
             {showMember && name && (
               <small className={styles.member}>{name}</small>
             )}
-            <ToolActivityBlock group={group} onHistory={onHistory} />
+            <ToolActivityBlock
+              group={group}
+              active={isActive}
+              onHistory={onHistory}
+            />
           </section>
         );
       })}

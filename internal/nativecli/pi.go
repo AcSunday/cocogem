@@ -356,9 +356,14 @@ func parsePi(reader io.Reader, gate *bridge, live *liveness) error {
 				}
 			case "thinking_start", "thinking_end":
 			case "thinking_delta":
-				if strings.TrimSpace(update.Delta) != "" {
-					live.valid("reasoning")
-					if err := gate.activity(activityReasoning); err != nil {
+				if update.Delta != "" {
+					if strings.TrimSpace(update.Delta) != "" {
+						live.valid("reasoning")
+						if err := gate.activity(activityReasoning); err != nil {
+							return err
+						}
+					}
+					if err := gate.emit("thinking", map[string]any{"block_id": key, "text": update.Delta}); err != nil {
 						return err
 					}
 				}

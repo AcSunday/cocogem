@@ -279,7 +279,12 @@ func parseOpenCodeEvents(ctx context.Context, reader *openCodeEvents, session st
 				if kind == "text" {
 					err = gate.emit("text", map[string]any{"text": text, "activity": strings.TrimSpace(text) != ""})
 				} else {
-					err = gate.activity(activityReasoning)
+					if strings.TrimSpace(text) != "" {
+						err = gate.activity(activityReasoning)
+					}
+					if err == nil {
+						err = gate.emit("thinking", map[string]any{"block_id": message + ":" + key, "text": text})
+					}
 				}
 				if err != nil {
 					return err

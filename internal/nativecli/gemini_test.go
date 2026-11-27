@@ -68,3 +68,33 @@ func TestGeminiTopLevelDiagnosticsRespectSeverityAndPreserveUsage(t *testing.T) 
 		})
 	}
 }
+
+func TestParseGeminiEmitsThinkingFromThoughtFramesAndFlag(t *testing.T) {
+	var thinking, texts strings.Builder
+	gate := newTestGate(t, nil, func(kind string, data map[string]any) error {
+		switch kind {
+		case "thinking":
+			thinking.WriteString(data["text"].(string))
+		case "text":
+			texts.WriteString(data["text"].(string))
+		}
+		return nil
+	})
+	live := newLiveness(t.Context(), func() {}, discardObserve, 0, 0, "warn")
+	stream := strings.Join([]string{
+		`{"type":"init","session_id":"` + fakeSession + `"}`,
+		`{"type":"thought","id":"t1","content":"check repo first; "}`,
+		`{"type":"message","id":"t2","role":"assistant","thought":true,"content":"verify fix"}`,
+		`{"type":"message","id":"m1","role":"assistant","content":"Done."}`,
+		`{"type":"result","status":"success"}`,
+	}, "\n") + "\n"
+	if err := parseGemini(strings.NewReader(stream), gate, live); err != nil {
+		t.Fatalf("parseGemini: %v", err)
+	}
+	if thinking.String() != "check repo first; verify fix" {
+		t.Fatalf("thinking = %q, want %q", thinking.String(), "check repo first; verify fix")
+	}
+	if texts.String() != "Done." {
+		t.Fatalf("visible text = %q, want %q", texts.String(), "Done.")
+	}
+}

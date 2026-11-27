@@ -255,6 +255,8 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			SessionID  string          `json:"session_id"`
 			Role       string          `json:"role"`
 			Content    string          `json:"content"`
+			Thinking   string          `json:"thinking"`
+			Thought    bool            `json:"thought"`
 			ToolID     string          `json:"tool_id"`
 			Status     string          `json:"status"`
 			Severity   string          `json:"severity"`
@@ -284,9 +286,48 @@ func parseGemini(reader io.Reader, gate *bridge, live *liveness) error {
 			if err := gate.acknowledgeSession("gemini", sessionID, "isolated"); err != nil {
 				return err
 			}
+		case "thought", "thinking":
+			if !initialized {
+				return newFailure(FailureProtocol, "native CLI replied before session initialization")
+			}
+			text := firstNonEmpty(event.Content, event.Thinking)
+			if text == "" {
+				break
+			}
+			if event.ID != "" && activity.duplicate(event.ID, line) {
+				break
+			}
+			if strings.TrimSpace(text) != "" {
+				live.valid("reasoning")
+				if err := gate.activity(activityReasoning); err != nil {
+					return err
+				}
+			}
+			if err := gate.emit("thinking", map[string]any{"block_id": "gemini:" + event.ID, "text": text}); err != nil {
+				return err
+			}
 		case "message":
 			if !initialized {
 				return newFailure(FailureProtocol, "native CLI replied before session initialization")
+			}
+			if event.Thought && event.Role == "assistant" {
+				text := firstNonEmpty(event.Content, event.Thinking)
+				if text == "" {
+					break
+				}
+				if event.ID != "" && activity.duplicate(event.ID, line) {
+					break
+				}
+				if strings.TrimSpace(text) != "" {
+					live.valid("reasoning")
+					if err := gate.activity(activityReasoning); err != nil {
+						return err
+					}
+				}
+				if err := gate.emit("thinking", map[string]any{"block_id": "gemini:" + event.ID, "text": text}); err != nil {
+					return err
+				}
+				break
 			}
 			// User echoes and empty frames carry no assistant output. Non-empty
 			// assistant content is kept even when whitespace-only, because it may

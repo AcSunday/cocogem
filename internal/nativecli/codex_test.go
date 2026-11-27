@@ -171,3 +171,34 @@ func TestInstalledCodexMCPResourceHelpers(t *testing.T) {
 		})
 	}
 }
+
+func TestParseCodexEmitsThinkingIncrementallyWithoutLeakingText(t *testing.T) {
+	var thinking, texts []string
+	gate := newTestGate(t, nil, func(kind string, data map[string]any) error {
+		switch kind {
+		case "thinking":
+			thinking = append(thinking, data["text"].(string))
+		case "text":
+			texts = append(texts, data["text"].(string))
+		}
+		return nil
+	})
+	live := newLiveness(t.Context(), func() {}, discardObserve, 0, 0, "warn")
+	stream := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"` + fakeSession + `"}`,
+		`{"type":"turn.started"}`,
+		`{"type":"item.updated","item":{"id":"r1","type":"reasoning","text":"step one"}}`,
+		`{"type":"item.updated","item":{"id":"r1","type":"reasoning","text":"step one -> step two"}}`,
+		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"visible reply"}}`,
+		`{"type":"turn.completed"}`,
+	}, "\n") + "\n"
+	if err := parseCodex(strings.NewReader(stream), gate, live); err != nil {
+		t.Fatalf("parseCodex: %v", err)
+	}
+	if got := strings.Join(thinking, "|"); got != "step one| -> step two" {
+		t.Fatalf("thinking = %q, want %q", got, "step one| -> step two")
+	}
+	if got := strings.Join(texts, ""); got != "visible reply\n" {
+		t.Fatalf("visible text = %q, want %q", got, "visible reply\n")
+	}
+}

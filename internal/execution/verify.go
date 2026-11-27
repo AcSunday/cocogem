@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -57,6 +59,11 @@ func (m *Manager) VerifyCandidate(ctx context.Context, id string, sources []w.So
 		return CandidateVerification{}, err
 	}
 	current, err := m.digestTree(candidate.Path)
+	if errors.Is(err, tools.ErrDigestTooLarge) && candidate.Kind == "git_worktree" {
+		if treeOID, treeErr := m.snapshotWorktreeTree(ctx, candidate.Path); treeErr == nil {
+			current, err = "git-tree:"+treeOID, nil
+		}
+	}
 	if err != nil {
 		return CandidateVerification{}, fmt.Errorf("digest candidate tree: %w", err)
 	}
@@ -184,6 +191,11 @@ func (m *Manager) VerifyDirectRoot(ctx context.Context, root, workspaceID, threa
 
 func (m *Manager) verifyFromRoot(ctx context.Context, sourcePath, canonicalRoot, workspaceID, threadID, taskID, ownerMemberID string, isGit bool, stepID string) (w.WorkspaceExecution, error) {
 	before, err := m.digestTree(sourcePath)
+	if errors.Is(err, tools.ErrDigestTooLarge) && isGit {
+		if treeOID, treeErr := m.snapshotWorktreeTree(ctx, sourcePath); treeErr == nil {
+			before, err = "git-tree:"+treeOID, nil
+		}
+	}
 	if err != nil {
 		return w.WorkspaceExecution{}, err
 	}
@@ -257,7 +269,22 @@ func (m *Manager) DestroyVerifyTree(ctx context.Context, verification w.Workspac
 	if reviewedPath == "" {
 		return nil
 	}
-	after, err := m.digestTree(reviewedPath)
+	var after string
+	var err error
+	if strings.HasPrefix(verification.TreeDigest, "git-tree:") {
+		if treeOID, treeErr := m.snapshotWorktreeTree(ctx, reviewedPath); treeErr == nil {
+			after = "git-tree:" + treeOID
+		} else {
+			err = treeErr
+		}
+	} else {
+		after, err = m.digestTree(reviewedPath)
+		if errors.Is(err, tools.ErrDigestTooLarge) && verification.BaseRevision != "" {
+			if treeOID, treeErr := m.snapshotWorktreeTree(ctx, reviewedPath); treeErr == nil {
+				after, err = "git-tree:"+treeOID, nil
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}

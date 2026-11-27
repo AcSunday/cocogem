@@ -401,3 +401,40 @@ it("shows only the settled method as readable text", () => {
   rerender(<ToolTimeline agents={[member]} events={[]} />);
   expect(screen.queryByText(/本轮方法/)).toBeNull();
 });
+
+it("renders coalesced thinking_delta history alongside tool records", async () => {
+  const user = userEvent.setup();
+  render(
+    <ToolTimeline
+      agents={[member]}
+      events={[
+        event(1, "thinking_delta", {
+          attempt_id: "a1",
+          block_id: "b1",
+          text: "先查目录，",
+        }),
+        event(2, "thinking_delta", {
+          attempt_id: "a1",
+          block_id: "b1",
+          text: "再读源码。",
+        }),
+        event(3, "tool_started", {
+          tool_call_id: "c1",
+          name: "read_file",
+          input: { path: "main.go" },
+        }),
+        event(4, "tool_finished", {
+          tool_call_id: "c1",
+          name: "read_file",
+          status: "ok",
+          output: "package main",
+        }),
+      ]}
+      mode="history"
+    />,
+  );
+  expect(screen.getAllByText("思考过程")).toHaveLength(1);
+  await user.click(screen.getByText("思考过程"));
+  expect(screen.getByText("先查目录，再读源码。")).toBeVisible();
+  expect(screen.getByText("读取文件")).toBeVisible();
+});

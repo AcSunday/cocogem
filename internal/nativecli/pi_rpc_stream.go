@@ -283,8 +283,13 @@ func parsePiRPC(reader io.Reader, gate *bridge, live *liveness, input *piRPCStdi
 					}
 				}
 			case "thinking_delta":
-				if strings.TrimSpace(update.Delta) != "" {
-					if err := piReasoning(gate, live); err != nil {
+				if update.Delta != "" {
+					if strings.TrimSpace(update.Delta) != "" {
+						if err := piReasoning(gate, live); err != nil {
+							return err
+						}
+					}
+					if err := gate.emit("thinking", map[string]any{"block_id": key, "text": update.Delta}); err != nil {
 						return err
 					}
 				}

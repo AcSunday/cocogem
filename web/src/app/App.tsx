@@ -8,6 +8,7 @@ import {
   mergeMessage,
   loadThreadPage,
   applyMessageDelta,
+  eventMessage,
   eventHistory,
   uploadSource,
   threadCandidates,
@@ -62,6 +63,9 @@ import {
 import { Sidebar } from "../components/Sidebar";
 import { Welcome } from "../components/Welcome";
 import {
+  eventAttempt,
+  eventRun,
+  eventStep,
   mergeAttempt,
   mergeByID,
   mergeRun,
@@ -894,6 +898,12 @@ function WorkspaceApp({
           confirmedSeq.current[id] ?? 0,
           cursor,
         );
+        // Initialize snapshotSeq from the run cursor on history failure so live
+        // message_delta frames emitted after cursor are not dropped forever.
+        snapshotSeq.current[id] = Math.max(
+          snapshotSeq.current[id] ?? 0,
+          cursor,
+        );
       } finally {
         if (!canceled) {
           setSeededRunID(id);
@@ -918,6 +928,31 @@ function WorkspaceApp({
     const thread = threadID;
     const after = confirmedSeq.current[id] ?? 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let disposed = false;
+    let sseRefreshing = false;
+    let sseRefreshQueued = false;
+    const scheduleSSERefresh = () => {
+      if (disposed) return;
+      if (sseRefreshing) {
+        sseRefreshQueued = true;
+        return;
+      }
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        if (disposed) return;
+        sseRefreshing = true;
+        void refreshThread(thread)
+          .catch((error) => setError(errorText(error)))
+          .finally(() => {
+            sseRefreshing = false;
+            if (!disposed && sseRefreshQueued) {
+              sseRefreshQueued = false;
+              scheduleSSERefresh();
+            }
+          });
+      }, 80);
+    };
     const stream = new EventSource(
       `/api/v1/runs/${id}/events${after ? `?after=${after}` : ""}`,
     );
@@ -950,6 +985,68 @@ function WorkspaceApp({
           void permissions.request();
         }
       }
+      // Fold run/step/attempt/message lifecycle frames straight from SSE so
+      // replying members and their chat bubbles appear immediately instead of
+      // waiting for an HTTP refresh round-trip.
+      const nextRun = eventRun(event);
+      if (nextRun?.id === id) {
+        setView((current) => {
+          if (!current || current.thread.id !== thread) return current;
+          const runs = current.runs.map((run) =>
+            run.id === id ? mergeRun(run, nextRun) : run,
+          );
+          return runs.every((run, index) => run === current.runs[index])
+            ? current
+            : { ...current, runs };
+        });
+      }
+      const nextStep = eventStep(event);
+      if (nextStep?.run_id === id) {
+        setStepsByRun((current) => ({
+          ...current,
+          [id]: mergeByID(current[id], [nextStep], mergeStep),
+        }));
+      }
+      const nextAttempt = eventAttempt(event);
+      if (nextAttempt?.run_id === id) {
+        setAttemptsByRun((current) => ({
+          ...current,
+          [id]: mergeByID(current[id], [nextAttempt], mergeAttempt),
+        }));
+      }
+      if (
+        event.type === "message_started" ||
+        event.type === "message_finished"
+      ) {
+        const incoming = eventMessage(event);
+        if (incoming && incoming.run_id === id) {
+          messageWatermark.current[incoming.id] = Math.max(
+            messageWatermark.current[incoming.id] ?? 0,
+            event.seq,
+          );
+          setView((current) => {
+            if (!current || current.thread.id !== thread) return current;
+            const at = current.messages.items.findIndex(
+              (item) => item.id === incoming.id,
+            );
+            if (at >= 0) {
+              const merged = mergeMessage(current.messages.items[at], incoming);
+              if (merged === current.messages.items[at]) return current;
+              const items = current.messages.items.slice();
+              items[at] = merged;
+              return { ...current, messages: { ...current.messages, items } };
+            }
+            if (messageCursorRef.current !== "") return current;
+            return {
+              ...current,
+              messages: {
+                ...current.messages,
+                items: [...current.messages.items, incoming],
+              },
+            };
+          });
+        }
+      }
       // Replayed deltas predate the loaded snapshot; only newer ones update it.
       if (
         event.type === "message_delta" &&
@@ -965,24 +1062,41 @@ function WorkspaceApp({
         const messageID =
           typeof data.message_id === "string" ? data.message_id : "";
         if (messageID) messageWatermark.current[messageID] = event.seq;
+        const snapshotMessage = eventMessage(event);
         setView((current) => {
           if (!current) return current;
           const items = applyMessageDelta(current.messages.items, event);
-          return items === current.messages.items
-            ? current
-            : { ...current, messages: { ...current.messages, items } };
+          if (items !== current.messages.items) {
+            return { ...current, messages: { ...current.messages, items } };
+          }
+          if (
+            snapshotMessage &&
+            snapshotMessage.run_id === id &&
+            messageCursorRef.current === "" &&
+            !current.messages.items.some(
+              (item) => item.id === snapshotMessage.id,
+            )
+          ) {
+            return {
+              ...current,
+              messages: {
+                ...current.messages,
+                items: [...current.messages.items, snapshotMessage],
+              },
+            };
+          }
+          return current;
         });
       }
-      if (!timer)
-        timer = setTimeout(() => {
-          timer = undefined;
-          void refreshThread(thread).catch((error) =>
-            setError(errorText(error)),
-          );
-        }, 80);
+      scheduleSSERefresh();
       if (event.type === "run_finished") {
         stream.close();
         setConnection("");
+        if (timer) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        sseRefreshQueued = false;
         void refreshThread(thread);
       }
     };
@@ -996,6 +1110,7 @@ function WorkspaceApp({
       });
     };
     return () => {
+      disposed = true;
       stream.close();
       if (timer) clearTimeout(timer);
     };

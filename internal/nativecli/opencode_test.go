@@ -150,3 +150,40 @@ func TestOpenCodeObserverFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOpenCodeReasoningEmitsThinkingWithoutLeakingVisibleText(t *testing.T) {
+	var thinking, texts strings.Builder
+	gate, err := newBridge(t.Context(), []model.Tool{}, func(context.Context, string, json.RawMessage) (string, error) {
+		return "", nil
+	}, func(kind string, data map[string]any) error {
+		switch kind {
+		case "thinking":
+			thinking.WriteString(data["text"].(string))
+		case "text":
+			texts.WriteString(data["text"].(string))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.close()
+	live := newLiveness(t.Context(), func() {}, discardObserve, 0, 0, "warn")
+	stream := openCodeStart() +
+		openCodeSSE("session.reasoning.started", map[string]any{"ordinal": 0}) +
+		openCodeSSE("session.reasoning.delta", map[string]any{"ordinal": 0, "delta": "private reasoning"}) +
+		openCodeSSE("session.reasoning.ended", map[string]any{"ordinal": 0, "text": "private reasoning"}) +
+		openCodeSSE("session.text.started", map[string]any{"ordinal": 1}) +
+		openCodeSSE("session.text.delta", map[string]any{"ordinal": 1, "delta": "final answer"}) +
+		openCodeSSE("session.text.ended", map[string]any{"ordinal": 1, "text": "final answer"}) +
+		openCodeEnd("stop")
+	if err := parseOpenCodeEvents(t.Context(), newOpenCodeEvents(strings.NewReader(stream)), openCodeSession, gate, live, nil, "", ""); err != nil {
+		t.Fatalf("parseOpenCodeEvents: %v", err)
+	}
+	if thinking.String() != "private reasoning" {
+		t.Fatalf("thinking = %q, want %q", thinking.String(), "private reasoning")
+	}
+	if texts.String() != "final answer" {
+		t.Fatalf("visible text = %q, want %q", texts.String(), "final answer")
+	}
+}

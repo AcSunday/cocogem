@@ -235,11 +235,20 @@ func (m *Manager) materialize(ctx context.Context, root string, candidate *w.Wor
 	}
 	resolved, err := canonical(candidate.Path)
 	if err != nil {
+		_ = m.removeDirectory(context.WithoutCancel(ctx), *candidate)
 		return err
 	}
 	candidate.Path = resolved
 	digest, err := m.digestTree(candidate.Path)
+	if errors.Is(err, tools.ErrDigestTooLarge) && candidate.Kind == "git_worktree" {
+		if candidate.BaseTreeDigest != "" {
+			digest, err = candidate.BaseTreeDigest, nil
+		} else if treeOID, treeErr := m.snapshotWorktreeTree(ctx, candidate.Path); treeErr == nil {
+			digest, err = "git-tree:"+treeOID, nil
+		}
+	}
 	if err != nil {
+		_ = m.removeDirectory(context.WithoutCancel(ctx), *candidate)
 		return err
 	}
 	candidate.TreeDigest = digest
@@ -275,17 +284,24 @@ func (m *Manager) materializeWorktree(ctx context.Context, root string, candidat
 		return fmt.Errorf("snapshot candidate baseline: %w", err)
 	}
 	candidate.BaseSnapshotOID = snapshotOID
-	candidate.BaseTreeDigest, err = m.digestTree(candidate.Path)
+	digest, err := m.digestTree(candidate.Path)
+	if errors.Is(err, tools.ErrDigestTooLarge) {
+		if treeOID, treeErr := m.snapshotWorktreeTree(ctx, candidate.Path); treeErr == nil {
+			digest, err = "git-tree:"+treeOID, nil
+		}
+	}
 	if err != nil {
+		_, _ = m.git(ctx, root, "worktree", "remove", "--force", "--", candidate.Path)
 		return err
 	}
+	candidate.BaseTreeDigest = digest
 	return nil
 }
 
-// snapshotWorktreeCommit captures the exact current working tree (tracked +
-// non-ignored untracked files) as an unreferenced git commit using a temporary
-// GIT_INDEX_FILE, without mutating HEAD or the worktree's own index.
-func (m *Manager) snapshotWorktreeCommit(ctx context.Context, dir, parentOID string) (string, error) {
+// snapshotWorktreeTree captures the exact current working tree (tracked +
+// non-ignored untracked files) as a deterministic git tree OID using a
+// temporary GIT_INDEX_FILE, without mutating HEAD or the worktree's own index.
+func (m *Manager) snapshotWorktreeTree(ctx context.Context, dir string) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "cocogem-git-index-*")
 	if err != nil {
 		return "", err
@@ -306,15 +322,22 @@ func (m *Manager) snapshotWorktreeCommit(ctx context.Context, dir, parentOID str
 	if _, err := runWithIndex("add", "-A"); err != nil {
 		return "", err
 	}
-	treeOID, err := runWithIndex("write-tree")
+	return runWithIndex("write-tree")
+}
+
+// snapshotWorktreeCommit captures the exact current working tree (tracked +
+// non-ignored untracked files) as an unreferenced git commit using a temporary
+// GIT_INDEX_FILE, without mutating HEAD or the worktree's own index.
+func (m *Manager) snapshotWorktreeCommit(ctx context.Context, dir, parentOID string) (string, error) {
+	treeOID, err := m.snapshotWorktreeTree(ctx, dir)
 	if err != nil {
 		return "", err
 	}
-	commitArgs := []string{"commit-tree", treeOID, "-m", "cocogem candidate snapshot"}
+	commitArgs := []string{"-c", "user.name=Cocogem", "-c", "user.email=cocogem@local.invalid", "commit-tree", treeOID, "-m", "cocogem candidate snapshot"}
 	if parentOID != "" {
-		commitArgs = []string{"commit-tree", treeOID, "-p", parentOID, "-m", "cocogem candidate snapshot"}
+		commitArgs = []string{"-c", "user.name=Cocogem", "-c", "user.email=cocogem@local.invalid", "commit-tree", treeOID, "-p", parentOID, "-m", "cocogem candidate snapshot"}
 	}
-	return runWithIndex(commitArgs...)
+	return m.git(ctx, dir, commitArgs...)
 }
 
 // syncDirtyWorkspace replays the user's uncommitted tracked changes and copies
@@ -352,7 +375,7 @@ func (m *Manager) syncDirtyWorkspace(ctx context.Context, root, target string) e
 		files++
 		size += info.Size()
 		if files > 20000 || size > 512<<20 || info.Size() > 32<<20 {
-			return errors.New("untracked source files exceed isolated copy limits")
+			return fmt.Errorf("%w: untracked source files exceed isolated copy limits", ErrSourceTooLarge)
 		}
 		if err := copyRegularFile(filepath.Join(root, name), filepath.Join(target, name), info); err != nil {
 			return err
@@ -378,18 +401,22 @@ func (m *Manager) materializeCopy(ctx context.Context, root string, candidate *w
 		return fmt.Errorf("digest source before copy: %w", err)
 	}
 	if err := copyTree(ctx, root, candidate.Path); err != nil {
+		_ = os.RemoveAll(candidate.Path)
 		return err
 	}
 	after, err := m.digestTree(root)
 	if err != nil {
+		_ = os.RemoveAll(candidate.Path)
 		return fmt.Errorf("digest source after copy: %w", err)
 	}
 	if before != after {
+		_ = os.RemoveAll(candidate.Path)
 		return errors.New("source tree changed during isolated copy")
 	}
 	candidate.BaseTreeDigest = before
 	candidate.BaseFiles, err = digestFiles(candidate.Path)
 	if err != nil {
+		_ = os.RemoveAll(candidate.Path)
 		return err
 	}
 	return nil
@@ -506,6 +533,11 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 		return nil
 	}
 	after, digestErr := m.digestTree(candidate.Path)
+	if errors.Is(digestErr, tools.ErrDigestTooLarge) && candidate.Kind == "git_worktree" {
+		if treeOID, treeErr := m.snapshotWorktreeTree(ctx, candidate.Path); treeErr == nil {
+			after, digestErr = "git-tree:"+treeOID, nil
+		}
+	}
 	if digestErr != nil {
 		candidate.Status = "uncertain"
 		candidate.UpdatedAt = m.now().UTC().Format(time.RFC3339Nano)
@@ -549,6 +581,10 @@ func (m *Manager) Finish(ctx context.Context, id string) error {
 	}
 	return m.store.Write(ctx, func(tx *store.Tx) error { return tx.SaveExecutionEpoch(candidate, candidate.LeaseEpoch) })
 }
+
+// ErrSourceTooLarge reports that a non-git source directory (or untracked set)
+// exceeds the bounded file-copy limits for candidate isolation.
+var ErrSourceTooLarge = errors.New("source exceeds isolated copy limits")
 
 // ErrApplyConflict reports that the bound project changed after the candidate
 // was derived, so writing it back would overwrite an external edit.
@@ -1124,7 +1160,7 @@ func copyTree(ctx context.Context, source, target string) error {
 		files++
 		size += info.Size()
 		if files > 20000 || size > 512<<20 || info.Size() > 32<<20 {
-			return errors.New("source exceeds isolated copy limits")
+			return ErrSourceTooLarge
 		}
 		return copyRegularFile(path, destination, info)
 	})

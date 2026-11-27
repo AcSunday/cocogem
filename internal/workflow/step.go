@@ -70,6 +70,7 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 		e.report(err)
 		stopStep()
 	})
+	rt.thinking = newThinkingWriter(e.Store, stepCtx, 150*time.Millisecond, run.ID, step.ID, a.ID, attempt.ID)
 	request, requestErr := e.buildRequest(stepCtx, run, step, a, allowed, required, connection, adapter, message, handoff, scope, history, all, sourceSnapshot, previousDraft, rt.attempt)
 	if requestErr == nil && prep.workRoot != "" {
 		// A reviewer step runs inside its own sandbox copy, never the author's
@@ -142,6 +143,9 @@ func (e *Engine) executeStepWith(ctx context.Context, run w.Run, step w.Step, hi
 	rt.closed = true
 	rt.mu.Unlock()
 	rt.execWG.Wait()
+	if rt.thinking != nil {
+		_ = rt.thinking.Close()
+	}
 	if closeErr := rt.writer.Close(); closeErr != nil && err == nil {
 		err = closeErr
 	} else if closeErr != nil {

@@ -18,6 +18,7 @@ import {
   missingFinishLabel,
   projectToolActivity,
   toolStatusLabel,
+  type ProcessStep,
   type ToolActivity,
   type ToolActivityStatus,
 } from "../lib/toolActivity";
@@ -176,12 +177,21 @@ export function ToolTimeline({
   const projected = projectToolActivity(events, { mode, runStatus });
   const activityAtSeq = new Map<number, ToolActivity>();
   const attachedFinishes = new Set<number>();
-  for (const group of projected)
+  const thinkingAtSeq = new Map<
+    number,
+    Extract<ProcessStep, { kind: "thinking" }>
+  >();
+  for (const group of projected) {
     for (const activity of group.activities) {
       activityAtSeq.set(activity.seq, activity);
       if (activity.finishSeq !== undefined && !activity.missingStart)
         attachedFinishes.add(activity.finishSeq);
     }
+    for (const step of group.steps) {
+      if (step.kind === "thinking" && !step.placeholder && step.text)
+        thinkingAtSeq.set(step.seq, step);
+    }
+  }
   // method_recorded is a run-level event without a step or member group.
   const runNotices = events.filter(
     (event) => !event.agent_id && methodEventLabel(event),
@@ -268,6 +278,23 @@ export function ToolTimeline({
                     {notice}
                   </p>
                 ) : null;
+              }
+              if (event.type === "thinking_delta") {
+                const thought = thinkingAtSeq.get(event.seq);
+                if (!thought) return null;
+                return (
+                  <details className={cx("tool-record")} key={event.seq}>
+                    <summary>
+                      <span>{t("思考过程", "Thought")}</span>
+                    </summary>
+                    <pre className={cx("pre")}>{thought.text}</pre>
+                    {thought.truncated && (
+                      <p className={cx("muted")}>
+                        {t("思考过程已截断。", "Thought process truncated.")}
+                      </p>
+                    )}
+                  </details>
+                );
               }
               if (event.type === "tool_finished") {
                 if (attachedFinishes.has(event.seq)) return null;

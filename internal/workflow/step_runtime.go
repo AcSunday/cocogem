@@ -49,6 +49,7 @@ type stepRuntime struct {
 
 	mu             sync.Mutex
 	writer         *messageWriter
+	thinking       *thinkingWriter
 	attempt        w.Attempt
 	sources        []w.Source
 	nativeCaptured map[string]bool
@@ -506,6 +507,9 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 		if text == "" {
 			return nil
 		}
+		if x.thinking != nil {
+			_ = x.thinking.Flush()
+		}
 		// The adapter decides whether a frame is real activity; a missing flag
 		// (test runner, non-native loop) falls back to non-blank text.
 		activity, explicit := data["activity"].(bool)
@@ -521,6 +525,30 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 		// Non-progress text is still persisted exactly, just not credited as
 		// liveness.
 		return x.writer.AppendDuplicate(text)
+	case "thinking":
+		text := stringValue(data["text"])
+		if text == "" {
+			return nil
+		}
+		blockID := stringValue(data["block_id"])
+		if x.thinking != nil {
+			return x.thinking.Append(blockID, text)
+		}
+		payload := map[string]any{
+			"attempt_id": x.attempt.ID,
+			"text":       text,
+		}
+		if blockID != "" {
+			payload["block_id"] = blockID
+		}
+		return x.engine.Store.Write(x.ctx, func(tx *store.Tx) error {
+			if strings.TrimSpace(text) != "" {
+				if err := touchAttempt(tx, x.attempt.ID, w.Now()); err != nil {
+					return err
+				}
+			}
+			return tx.AppendEvent(x.run.ID, x.step.ID, x.agent.ID, "thinking_delta", payload)
+		})
 	case "reasoning":
 		// Reasoning content never enters storage; only its support flag.
 		supported, _ := data["supported"].(bool)
@@ -635,6 +663,14 @@ func (x *stepRuntime) observeEvent(kind string, data map[string]any) error {
 			return tx.AppendEvent(x.run.ID, x.step.ID, x.agent.ID, "usage_updated", data)
 		})
 	case "native_adapter", "native_session", "native_process", "tool_started", "tool_finished":
+		if kind == "tool_started" {
+			if x.thinking != nil {
+				_ = x.thinking.Flush()
+			}
+			if x.writer != nil {
+				_ = x.writer.Flush()
+			}
+		}
 		return x.engine.Store.Write(x.ctx, func(tx *store.Tx) error {
 			current, err := tx.Attempt(x.attempt.ID)
 			if err != nil {

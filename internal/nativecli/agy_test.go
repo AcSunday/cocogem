@@ -170,6 +170,41 @@ func TestParseAgyStreamAndStartupFailure(t *testing.T) {
 	}
 }
 
+func TestParseAgyThinkingDoesNotLeakIntoVisibleText(t *testing.T) {
+	var thinking, texts strings.Builder
+	gate, err := newBridge(t.Context(), nil, func(context.Context, string, json.RawMessage) (string, error) {
+		return "{}", nil
+	}, func(kind string, data map[string]any) error {
+		switch kind {
+		case "thinking":
+			thinking.WriteString(data["text"].(string))
+		case "text":
+			texts.WriteString(data["text"].(string))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.close()
+	live := newLiveness(t.Context(), func() {}, func(string, map[string]any) error { return nil }, 0, 0, "")
+	stream := strings.Join([]string{
+		`{"event":"init","conversation_id":"11111111-1111-4111-8111-111111111111","init":{}}`,
+		`{"event":"step_update","step_update":{"step_index":1,"state":"ACTIVE","step_type":"thinking","text_delta":"check files first"}}`,
+		`{"event":"step_update","step_update":{"step_index":2,"state":"ACTIVE","step_type":"agent_response","thinking_delta":" and verify","text_delta":"Final answer."}}`,
+		`{"event":"result","result":{"conversation_id":"11111111-1111-4111-8111-111111111111","status":"SUCCESS","response":"Final answer."}}`,
+	}, "\n") + "\n"
+	if err := parseAgy(strings.NewReader(stream), gate, live); err != nil {
+		t.Fatalf("parseAgy error: %v", err)
+	}
+	if thinking.String() != "check files first and verify" {
+		t.Fatalf("thinking = %q, want %q", thinking.String(), "check files first and verify")
+	}
+	if texts.String() != "Final answer." {
+		t.Fatalf("visible text = %q, want %q", texts.String(), "Final answer.")
+	}
+}
+
 func TestAgyGatePolicyEnforcesMCPAndNativeBoundaries(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

@@ -597,3 +597,45 @@ func TestInstalledCodexAppServerStrictConfigFailsBounded(t *testing.T) {
 		t.Fatal("malformed config executed a native tool")
 	}
 }
+
+func TestCodexAppServerEmitsThinkingFromDeltasAndCompletedItem(t *testing.T) {
+	var thinking []string
+	var texts []string
+	gate := newTestGate(t, nil, func(kind string, data map[string]any) error {
+		switch kind {
+		case "thinking":
+			thinking = append(thinking, data["text"].(string))
+		case "text":
+			texts = append(texts, data["text"].(string))
+		}
+		return nil
+	})
+	server := &codexAppServer{
+		gate:          gate,
+		deltaSeen:     map[string]bool{},
+		reasoningSeen: map[string]bool{},
+		completed:     map[string]bool{},
+		startedItem:   map[string]string{},
+		fileChanges:   map[string]json.RawMessage{},
+	}
+	notifications := []codexMessage{
+		{Method: "item/reasoning/summaryTextDelta", Params: json.RawMessage(`{"itemId":"r1","delta":"first step "}`)},
+		{Method: "item/reasoning/textDelta", Params: json.RawMessage(`{"itemId":"r1","delta":"details"}`)},
+		// Completed frame for r1 must NOT duplicate already-streamed deltas.
+		{Method: "item/completed", Params: json.RawMessage(`{"item":{"id":"r1","type":"reasoning","summary":["first step details"]}}`)},
+		// Completed frame for unstreamed r2 MUST emit fallback summary.
+		{Method: "item/completed", Params: json.RawMessage(`{"item":{"id":"r2","type":"reasoning","summary":["second reasoning"]}}`)},
+		{Method: "item/agentMessage/delta", Params: json.RawMessage(`{"itemId":"m1","delta":"final answer"}`)},
+	}
+	for _, msg := range notifications {
+		if err := server.handleNotification(msg); err != nil {
+			t.Fatalf("handleNotification(%s): %v", msg.Method, err)
+		}
+	}
+	if got := strings.Join(thinking, "|"); got != "first step |details|second reasoning" {
+		t.Fatalf("thinking = %q, want %q", got, "first step |details|second reasoning")
+	}
+	if got := strings.Join(texts, ""); got != "final answer" {
+		t.Fatalf("visible text = %q, want %q", got, "final answer")
+	}
+}

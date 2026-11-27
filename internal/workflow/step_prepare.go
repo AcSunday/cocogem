@@ -3,13 +3,16 @@ package workflow
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/AcSunday/cocogem/internal/agent"
+	"github.com/AcSunday/cocogem/internal/execution"
 	"github.com/AcSunday/cocogem/internal/nativecli"
 	"github.com/AcSunday/cocogem/internal/store"
+	"github.com/AcSunday/cocogem/internal/tools"
 	w "github.com/AcSunday/cocogem/internal/workspace"
 )
 
@@ -45,25 +48,33 @@ func isIndependentReview(step w.Step) bool {
 
 // prepareReviewSandbox materializes the reviewer's isolated copy of the author's
 // exact candidate tree (or direct-write project tree) before any child process starts.
-func (e *Engine) prepareReviewSandbox(ctx context.Context, run w.Run, step w.Step) (*w.WorkspaceExecution, error) {
+// When a non-git root exceeds isolated copy limits, it reports sandboxSkipped=true
+// so the caller atomically degrades the step to read-only before computing allowed
+// tools, InputPlanDigest, and step_started.
+func (e *Engine) prepareReviewSandbox(ctx context.Context, run w.Run, step w.Step) (*w.WorkspaceExecution, bool, error) {
 	if e.Executions == nil || !isIndependentReview(step) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if run.ExecutionRef != "" {
 		verification, err := e.Executions.VerifyTree(ctx, run.ExecutionRef, step.ID)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		return &verification, nil
+		return &verification, false, nil
 	}
 	if run.Workspace.Root != "" {
 		verification, err := e.Executions.VerifyDirectRoot(ctx, run.Workspace.Root, run.WorkspaceID, run.ThreadID, run.TaskID, step.FromAgentID, step.ID)
 		if err != nil {
-			return nil, err
+			if errors.Is(err, execution.ErrSourceTooLarge) || errors.Is(err, tools.ErrDigestTooLarge) {
+				slog.Warn("review sandbox skipped; source exceeds isolated copy limits",
+					"run_id", run.ID, "step_id", step.ID, "workspace_root", run.Workspace.Root, "error", err)
+				return nil, true, nil
+			}
+			return nil, false, err
 		}
-		return &verification, nil
+		return &verification, false, nil
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
 func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step, history, all []w.Message, sourceSnapshot []w.Source) stepPreparation {
@@ -96,6 +107,68 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 				connectionBlocked = true
 			}
 		}
+	}
+	// Materialize the reviewer's independent sandbox before computing allowed
+	// tools, InputPlanDigest, and step_started so any oversized non-git read-only
+	// degradation is reflected consistently across prompt, policy, and events.
+	var verifyDir *w.WorkspaceExecution
+	var sandboxSkipped bool
+	var sandboxErr error
+	if a.Executor == "" || e.Adapters == nil || adapter.Supported {
+		verifyDir, sandboxSkipped, sandboxErr = e.prepareReviewSandbox(ctx, run, step)
+		if sandboxSkipped {
+			step.ReadOnly = true
+		}
+	}
+	cleanupVerify := func() {
+		if verifyDir == nil || e.Executions == nil {
+			return
+		}
+		cleanCtx, stopClean := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer stopClean()
+		if cleanErr := e.Executions.RemoveDirectories(cleanCtx, []w.WorkspaceExecution{*verifyDir}); cleanErr != nil {
+			e.report(cleanErr)
+		}
+		verifyDir = nil
+	}
+	if sandboxErr != nil {
+		now := w.Now()
+		step.Status = "failed"
+		step.FailureKind = failureUnknown
+		step.Error = sandboxErr.Error()
+		if saveErr := e.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
+			existing, err := tx.StepAttempts(step.ID)
+			if err != nil {
+				return err
+			}
+			number := len(existing) + 1
+			failedAttempt := w.Attempt{
+				ID: w.NewID(), RunID: run.ID, StepID: step.ID, Number: number,
+				Status: "failed", FailureKind: failureUnknown, Error: sandboxErr.Error(),
+				Reason: "initial", StartedAt: now, LastProgress: now, FinishedAt: now,
+				Executor: a.Executor, Model: a.Model, ResolvedModel: connection.ResolvedModel,
+				ConnectionID: connection.Identity, Adapter: adapter.Adapter,
+				CLIVersion: adapter.Version, CLIProgram: adapter.Program, CLIIdentity: adapter.Identity,
+				SessionMode: "fresh",
+			}
+			step.AttemptCount = number
+			if err := tx.SaveAttempt(failedAttempt); err != nil {
+				return err
+			}
+			if err := tx.SaveStep(step); err != nil {
+				return err
+			}
+			if err := tx.AppendEvent(run.ID, step.ID, a.ID, "attempt_started", failedAttempt); err != nil {
+				return err
+			}
+			if err := tx.AppendEvent(run.ID, step.ID, a.ID, "attempt_finished", failedAttempt); err != nil {
+				return err
+			}
+			return tx.AppendEvent(run.ID, step.ID, a.ID, "step_finished", step)
+		}); saveErr != nil {
+			e.report(saveErr)
+		}
+		return stepPreparation{step: step, stopped: true}
 	}
 	allowed := e.allowedTools(run, a, step)
 	required := RequiredArtifact(step, effectiveInput(run))
@@ -319,9 +392,18 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 				return err
 			}
 		}
+		if sandboxSkipped {
+			if err := tx.AppendEvent(run.ID, step.ID, a.ID, "native_notice", map[string]any{
+				"kind":    "verify_sandbox_skipped",
+				"message": "bound workspace is not a git repository and exceeds isolated copy limits; running review read-only in the workspace root",
+			}); err != nil {
+				return err
+			}
+		}
 		return tx.AppendEvent(run.ID, step.ID, a.ID, "message_started", message)
 	})
 	if err != nil {
+		cleanupVerify()
 		step.Status = "failed"
 		step.FailureKind = failureUnknown
 		step.Error = err.Error()
@@ -331,43 +413,15 @@ func (e *Engine) prepareStepAttempt(ctx context.Context, run w.Run, step w.Step,
 		return stepPreparation{step: step, stopped: true}
 	}
 	if attempt.Status == "blocked" {
+		cleanupVerify()
 		return stepPreparation{step: step, stopped: true}
 	}
 	if step.Status == "failed" {
+		cleanupVerify()
 		// A frozen step deadline already elapsed; no CLI was launched.
 		return stepPreparation{step: step, stopped: true}
 	}
 
-	// The reviewer's independent sandbox is materialized before the child process
-	// starts, so a review can never read the author's live tree.
-	verifyDir, sandboxErr := e.prepareReviewSandbox(ctx, run, step)
-	if sandboxErr != nil {
-		now := w.Now()
-		step.Status = "failed"
-		step.FailureKind = failureUnknown
-		step.Error = sandboxErr.Error()
-		attempt.Status = "failed"
-		attempt.FailureKind = failureUnknown
-		attempt.Error = sandboxErr.Error()
-		attempt.FinishedAt = now
-		message.Status = "failed"
-		if saveErr := e.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
-			if err := tx.SaveAttempt(attempt); err != nil {
-				return err
-			}
-			if err := tx.SaveMessage(message); err != nil {
-				return err
-			}
-			if err := tx.SaveStep(step); err != nil {
-				return err
-			}
-			_ = tx.AppendEvent(run.ID, step.ID, a.ID, "attempt_finished", attempt)
-			return tx.AppendEvent(run.ID, step.ID, a.ID, "step_finished", step)
-		}); saveErr != nil {
-			e.report(saveErr)
-		}
-		return stepPreparation{step: step, stopped: true}
-	}
 	// The step's working root defaults to the run's project or candidate root.
 	workRoot := run.ProjectRoot()
 	if verifyDir != nil {
