@@ -45,6 +45,9 @@ type gateBroker struct {
 
 	aliases *gateAliases
 
+	fullAccess bool
+	agyPolicy  *agyGatePolicy
+
 	mu       sync.Mutex
 	decided  map[string]*gateSettled
 	commits  map[string]*gateCommit
@@ -103,6 +106,8 @@ func newGateBroker(approver *nativeApprover, sandbox *nativeSandbox, staging, cw
 	mux.HandleFunc("/gate/gemini/authorize", broker.serveGeminiAuthorize)
 	mux.HandleFunc("/gate/gemini/finalize", broker.serveGeminiFinalize)
 	mux.HandleFunc("/gate/pi/tool_call", broker.servePiToolCall)
+	mux.HandleFunc("/gate/agy/authorize", broker.serveAgyAuthorize)
+	mux.HandleFunc("/gate/agy/finalize", broker.serveAgyFinalize)
 	broker.server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 60 * time.Second, MaxHeaderBytes: 8192}
 	go func() { _ = broker.server.Serve(listener) }()
 	return broker, nil
@@ -322,7 +327,7 @@ func (b *gateBroker) finalizeByPath(path string, failed bool) error {
 // the approved boundary. Shell commands run inside a per-call seatbelt profile
 // holding exactly the scopes the host approved.
 func (b *gateBroker) scopeInput(ctx context.Context, request gateRequest, call gateCall, authorization nativeAuthorization) (json.RawMessage, *gateCommit, string, error) {
-	if call.Spec.network {
+	if call.Spec.network || b.fullAccess {
 		return request.Input, nil, "", nil
 	}
 	if call.Spec.commandKey != "" {
@@ -373,6 +378,9 @@ func (b *gateBroker) scopeInput(ctx context.Context, request gateRequest, call g
 }
 
 func (b *gateBroker) scopeCommand(ctx context.Context, request gateRequest, call gateCall, authorization nativeAuthorization) (json.RawMessage, *gateCommit, string, error) {
+	if b.fullAccess {
+		return request.Input, nil, "", nil
+	}
 	if b.sandbox == nil || !b.sandbox.canWrap() {
 		return nil, nil, "the native command boundary is unavailable on this platform", nil
 	}

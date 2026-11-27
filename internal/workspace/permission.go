@@ -219,11 +219,12 @@ func ScopeContains(root, target string) bool {
 // in requests and grants.
 func ActionForNativeTool(name string) string {
 	switch strings.ToLower(name) {
-	case "write", "edit", "apply_patch", "write_file", "replace", "multiedit":
+	case "write", "edit", "apply_patch", "write_file", "replace", "multiedit",
+		"write_to_file", "edit_file", "replace_file_content", "multi_replace_file_content", "sed_file", "notebook_edit":
 		return "write"
-	case "bash", "shell", "run_shell_command", "exec", "command":
+	case "bash", "shell", "run_shell_command", "run_command", "exec", "command", "notebook_execution":
 		return "execute"
-	case "webfetch", "websearch", "web_search", "fetch":
+	case "webfetch", "websearch", "web_search", "fetch", "search_web", "read_url_content":
 		return "network"
 	default:
 		return "read"

@@ -99,7 +99,7 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 	}
 	config["plugins"] = plugins
 	if request.ExecutionMode == "workspace_autonomous" && gate.sandbox != nil && gate.modelGateway == nil {
-		gateway, err := openCodeModelGateway(config, plan.openCodeModel)
+		gateway, err := openCodeModelGateway(config, plan.openCodeModel, p.effectiveProxy(request, probeURL != ""))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -135,7 +135,7 @@ func (p Provider) prepareOpenCode(ctx context.Context, request model.Request, di
 // openCodeModelGateway points the sandboxed CLI at a loopback reverse proxy so
 // the model connection stays outside the sandbox while tool processes see only
 // the private listener.
-func openCodeModelGateway(config map[string]any, selectedModel string) (*modelGateway, error) {
+func openCodeModelGateway(config map[string]any, selectedModel, upstreamProxy string) (*modelGateway, error) {
 	providerID, modelID, valid := strings.Cut(selectedModel, "/")
 	if valid && providerID != "" && modelID != "" {
 		// OpenCode gives an explicit providers entry precedence over the
@@ -155,7 +155,7 @@ func openCodeModelGateway(config map[string]any, selectedModel string) (*modelGa
 			if base == "" {
 				break
 			}
-			gateway, err := newModelGateway(base)
+			gateway, err := newModelGateway(base, upstreamProxy)
 			if err != nil {
 				return nil, err
 			}

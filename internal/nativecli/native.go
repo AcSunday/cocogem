@@ -114,7 +114,7 @@ func onlineScope(scope string) bool {
 func NativeTools(executor string, allowed []string, scope string) []string {
 	out := []string{}
 	switch executor {
-	case "claude":
+	case "claude", "agy":
 		if slices.Contains(allowed, "read_file") {
 			out = append(out, nativeRead)
 		}
@@ -152,7 +152,7 @@ func NativeExecutionTools(executor string, allowed []string, scope, mode string,
 	if readOnly {
 		return out
 	}
-	if executor == "claude" && (mode == "workspace_autonomous" || mode == "full_access") {
+	if (executor == "claude" || executor == "agy") && (mode == "workspace_autonomous" || mode == "full_access") {
 		if slices.Contains(allowed, "write_file") {
 			out = append(out, nativeWrite, nativeEdit)
 		}
@@ -183,7 +183,7 @@ func sanitizeNativeTools(executor string, requested []string, root string) (file
 func sanitizeExecutionNativeTools(executor string, requested []string, root string, mode string) (files, web []string) {
 	var known []string
 	switch executor {
-	case "claude":
+	case "claude", "agy":
 		switch mode {
 		case "workspace_autonomous":
 			known = claudeAutonomousNames

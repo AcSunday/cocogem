@@ -121,6 +121,8 @@ func TestExecutionOptionsValidation(t *testing.T) {
 		{"context below minimum", func(a *Agent) { a.ContextSize = MinContextTokens - 1 }, true},
 		{"unsupported level for claude", func(a *Agent) { a.ThinkingLevel = "ultra" }, true},
 		{"unsupported executor level", func(a *Agent) { a.Executor, a.ThinkingLevel = "gemini", "medium" }, true},
+		{"agy xhigh default model", func(a *Agent) { a.Executor, a.ThinkingLevel = "agy", "xhigh" }, false},
+		{"agy unsupported level", func(a *Agent) { a.Executor, a.ThinkingLevel = "agy", "ultra" }, true},
 		{"gemini needs explicit model", func(a *Agent) { a.Executor, a.ThinkingLevel = "gemini", "high" }, true},
 		{"gemini with explicit model", func(a *Agent) { a.Executor, a.Model, a.ThinkingLevel = "gemini", "fixture-model", "high" }, false},
 		{"opencode high", func(a *Agent) { a.Executor, a.ThinkingLevel = "opencode", "high" }, false},
@@ -186,7 +188,7 @@ func TestTerminal(t *testing.T) {
 }
 
 func TestNativeExecutorUsesItsOwnModelSelection(t *testing.T) {
-	for _, executor := range []string{"claude", "codex", "gemini", "pi", "opencode"} {
+	for _, executor := range []string{"claude", "codex", "agy", "gemini", "pi", "opencode"} {
 		t.Run(executor, func(t *testing.T) {
 			a := Agent{DisplayName: "研究员", Handle: "research", Executor: executor, Model: "default"}
 			if err := ValidateAgent(a, nil, nil, nil); err != nil {

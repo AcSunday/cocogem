@@ -86,9 +86,10 @@ it("renders built-in pixel cat presets and optional CLI corner badges", () => {
     <>
       <Avatar name="布偶猫" avatar="cat:ragdoll" executor="claude" />
       <Avatar name="暹罗猫" avatar="cat:siamese" executor="codex" small />
+      <Avatar name="橘猫" avatar="cat:orange" executor="agy" />
     </>,
   );
-  expect(container.querySelectorAll("img")).toHaveLength(2);
+  expect(container.querySelectorAll("img")).toHaveLength(3);
   expect(container.querySelector('[title="Claude Code"]')).toHaveAttribute(
     "data-cli",
     "C",
@@ -96,5 +97,9 @@ it("renders built-in pixel cat presets and optional CLI corner badges", () => {
   expect(container.querySelector('[title="Codex"]')).toHaveAttribute(
     "data-cli",
     "X",
+  );
+  expect(container.querySelector('[title="Antigravity"]')).toHaveAttribute(
+    "data-cli",
+    "A",
   );
 });

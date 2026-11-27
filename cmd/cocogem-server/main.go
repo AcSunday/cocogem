@@ -52,6 +52,22 @@ func main() {
 	}
 }
 
+func resolveProxySetting() string {
+	if value, ok := os.LookupEnv("COCOGEM_WEB_PROXY"); ok {
+		return strings.TrimSpace(value)
+	}
+	return "auto"
+}
+
+func envProxyURL() string {
+	for _, key := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func newWeb(searchKey, provider, proxy string) (*tools.Web, error) {
 	if provider == "" {
 		provider = "auto"
@@ -69,6 +85,16 @@ func newWeb(searchKey, provider, proxy string) (*tools.Web, error) {
 	default:
 		return nil, fmt.Errorf("COCOGEM_SEARCH_PROVIDER must be auto, brave, bing, duckduckgo, public or off")
 	}
+	if strings.EqualFold(proxy, "off") || strings.EqualFold(proxy, "direct") || strings.EqualFold(proxy, "none") {
+		proxy = ""
+	}
+	if proxy == "auto" {
+		if detected, err := detectSystemProxy(); err == nil && detected != "" {
+			proxy = detected
+		} else {
+			proxy = envProxyURL()
+		}
+	}
 	if proxy == "system" {
 		detected, err := detectSystemProxy()
 		if err != nil {
@@ -77,13 +103,7 @@ func newWeb(searchKey, provider, proxy string) (*tools.Web, error) {
 		proxy = detected
 	}
 	if proxy == "env" {
-		proxy = ""
-		for _, key := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
-			if value := os.Getenv(key); value != "" {
-				proxy = value
-				break
-			}
-		}
+		proxy = envProxyURL()
 	}
 	if proxy != "" {
 		if err := web.UseProxy(proxy); err != nil {
@@ -210,7 +230,7 @@ func run() error {
 	if searchProvider == "" {
 		searchProvider = "auto"
 	}
-	web, err := newWeb(searchKey, searchProvider, os.Getenv("COCOGEM_WEB_PROXY"))
+	web, err := newWeb(searchKey, searchProvider, resolveProxySetting())
 	if err != nil {
 		return err
 	}
@@ -226,7 +246,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	native := nativecli.Provider{}
+	native := nativecli.Provider{DefaultProxy: web.ProxyURL()}
 	// External publish/deploy/install is offered only when an exact allowlist is
 	// configured. There is no implicit public-web write path.
 	var egress tools.Egress
@@ -273,6 +293,9 @@ func run() error {
 	httpServer := &http.Server{Addr: *listen, Handler: server.Handler(), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	fmt.Printf("Cocogem: http://%s/\n", *listen)
 	fmt.Printf("Data: %s\n", dataDir)
+	if web.ProxyURL() != "" {
+		fmt.Printf("Proxy: %s\n", web.ProxyURL())
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
 	select {

@@ -25,6 +25,7 @@ function nameTone(name: string) {
 const cliBadgeMeta: Record<string, { letter: string; cls: string; title: string }> = {
   claude: { letter: "C", cls: "cli-claude", title: "Claude Code" },
   codex: { letter: "X", cls: "cli-codex", title: "Codex" },
+  agy: { letter: "A", cls: "cli-agy", title: "Antigravity" },
   gemini: { letter: "G", cls: "cli-gemini", title: "Gemini CLI" },
   pi: { letter: "π", cls: "cli-pi", title: "Pi" },
   opencode: { letter: "O", cls: "cli-opencode", title: "OpenCode" },

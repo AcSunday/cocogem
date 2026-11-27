@@ -213,3 +213,41 @@ func TestMemberProfileWithoutToolsIsUsable(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultOrangeMemberUsesAntigravityCLI(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("test"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s, err := New(Config{Host: "local.test", WebDir: dir, AuthFile: filepath.Join(dir, "auth.json"), Models: []string{"default"}, Executors: []ExecutorInfo{
+		{ID: "claude", Installed: true, Supported: true},
+		{ID: "codex", Installed: true, Supported: true},
+		{ID: "agy", Installed: true, Supported: true},
+		{ID: "gemini", Installed: true, Supported: true},
+	}}, db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var globals struct{ Items []w.Agent }
+	setup := apiCall(s, http.MethodPost, "/auth/setup", PasswordInput{Password: "default-orange-test"}, nil, "", nil)
+	cookie := setup.Result().Cookies()[0]
+	var session SessionReply
+	_ = json.Unmarshal(setup.Body.Bytes(), &session)
+	apiCall(s, http.MethodPost, "/api/v1/workspaces", WorkspaceInput{Name: "橘猫默认测试"}, cookie, session.CSRFToken, nil)
+	resp := apiCall(s, http.MethodGet, "/api/v1/agents", nil, cookie, session.CSRFToken, nil)
+	if resp.Code != http.StatusOK || json.Unmarshal(resp.Body.Bytes(), &globals) != nil || len(globals.Items) != 3 {
+		t.Fatalf("global agents = %d %s", resp.Code, resp.Body.String())
+	}
+	got := map[string]string{}
+	for _, a := range globals.Items {
+		got[a.Handle] = a.Executor
+	}
+	if got["ragdoll"] != "claude" || got["maine"] != "codex" || got["orange"] != "agy" {
+		t.Fatalf("default executors = %+v want ragdoll=claude maine=codex orange=agy", got)
+	}
+}

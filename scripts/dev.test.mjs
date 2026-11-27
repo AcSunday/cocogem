@@ -15,8 +15,8 @@ async function available(port) {
   });
 }
 
-test('development backend opts into the OS proxy unless configured', () => {
-  assert.equal(backendEnv({}).COCOGEM_WEB_PROXY, 'system');
+test('development backend defaults to auto proxy unless configured', () => {
+  assert.equal(backendEnv({}).COCOGEM_WEB_PROXY, 'auto');
   assert.equal(backendEnv({ COCOGEM_WEB_PROXY: 'http://proxy.example:18080' }).COCOGEM_WEB_PROXY, 'http://proxy.example:18080');
   assert.equal(backendEnv({ COCOGEM_WEB_PROXY: '' }).COCOGEM_WEB_PROXY, '');
 });

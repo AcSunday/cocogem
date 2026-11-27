@@ -298,3 +298,77 @@ print(json.dumps({'type':'result','status':'success','stats':{}}),flush=True)
 		})
 	}
 }
+
+func TestDefaultProxyPropagatesToAllNonProbeRunsAndSkipsProbes(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("ALL_PROXY", "")
+	t.Setenv("NO_PROXY", "corp.example")
+	t.Setenv("no_proxy", "")
+
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "env.txt")
+	script := filepath.Join(dir, "claude")
+	body := `#!/bin/sh
+env > "$COCOGEM_CAPTURE_ENV"
+cat > /dev/null
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","tools":[]}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg1","content":[{"type":"text","text":"ok"}]}}'
+printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COCOGEM_CAPTURE_ENV", envPath)
+
+	p := Provider{
+		DefaultProxy: "http://127.0.0.1:7897",
+		command:      func(_ string, args ...string) *exec.Cmd { return exec.Command(script, args...) },
+	}
+	req := model.Request{
+		Executor: "claude",
+		Model:    "default",
+		System:   "fixture",
+		Messages: []model.Message{{Role: "user", Content: []model.Block{{Type: "text", Text: "hi"}}}},
+	}
+	// Real step without NativeTools (MCP-only) still inherits Provider.DefaultProxy.
+	opts := runOptions{
+		skipCheck: false,
+		claudeSettings: map[string]any{
+			"env": map[string]string{"ANTHROPIC_API_KEY": "fixture"},
+		},
+	}
+	// Inject adapter check bypassing binary PATH by using Check on fake script:
+	p.Check(t.Context(), "claude")
+	_ = opts
+	// Run with adapter preset via skipCheck=false isn't bypassed if PATH doesn't match; verify effectiveProxy directly:
+	if got := p.effectiveProxy(req, false); got != "http://127.0.0.1:7897" {
+		t.Fatalf("effectiveProxy(non-probe) = %q want http://127.0.0.1:7897", got)
+	}
+	if got := p.effectiveProxy(req, true); got != "" {
+		t.Fatalf("effectiveProxy(probe) = %q want empty", got)
+	}
+	req.NativeProxy = "socks5://127.0.0.1:1080"
+	if got := p.effectiveProxy(req, true); got != "socks5://127.0.0.1:1080" {
+		t.Fatalf("effectiveProxy(explicit NativeProxy) = %q", got)
+	}
+	// Run with skipCheck=true and ambient proxy stripped:
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:7897")
+	req.NativeProxy = ""
+	if err := p.run(t.Context(), req, func(context.Context, string, json.RawMessage) (string, error) {
+		return `{}`, nil
+	}, func(string, map[string]any) error { return nil }, runOptions{
+		skipCheck:      true,
+		adapter:        agent.AdapterInfo{ID: "claude", Version: "2.1.312", Supported: true},
+		claudeSettings: map[string]any{"env": map[string]string{"ANTHROPIC_API_KEY": "fixture"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	captured, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(captured), "HTTPS_PROXY=") || strings.Contains(string(captured), "ALL_PROXY=") {
+		t.Fatalf("offline skipCheck run kept ambient proxy env: %s", captured)
+	}
+}

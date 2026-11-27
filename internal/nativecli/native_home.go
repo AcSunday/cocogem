@@ -48,6 +48,8 @@ func nativeStateRoot(executor string) string {
 			return value
 		}
 		return filepath.Join(home, ".claude")
+	case "agy":
+		return filepath.Join(home, ".gemini", "antigravity")
 	case "codex":
 		if value := os.Getenv("CODEX_HOME"); value != "" {
 			return value

@@ -646,4 +646,6 @@ it("switches between Chinese and English in Settings → Appearance", async () =
   await chooseOption(user, screen.getByLabelText("Language"), "zh-CN");
   expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("zh-CN");
   expect(screen.getByRole("heading", { name: "设置" })).toBeVisible();
+  await user.click(screen.getByRole("tab", { name: "服务" }));
+  expect(screen.getByText(/Antigravity \(agy\)/)).toBeVisible();
 });

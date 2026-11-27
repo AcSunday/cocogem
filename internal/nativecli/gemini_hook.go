@@ -32,7 +32,7 @@ BeforeTool) path=authorize ;;
 AfterTool) path=finalize ;;
 *) path=authorize ;;
 esac
-reply=$(printf '%s' "$payload" | /usr/bin/curl --silent --show-error --max-time 3600 \
+reply=$(printf '%s' "$payload" | /usr/bin/curl --noproxy 127.0.0.1,localhost --silent --show-error --max-time 3600 \
   -H 'Content-Type: application/json' -H "Authorization: Bearer ` + token + `" \
   --data-binary @- "` + brokerURL + `/gate/gemini/$path" 2>/dev/null)
 status=$?

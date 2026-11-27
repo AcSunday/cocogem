@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -217,6 +219,18 @@ func runIsolationProbe(ctx context.Context, info agent.AdapterInfo) probeResult 
 			"GOOGLE_GENAI_USE_VERTEXAI": "false",
 			"GOOGLE_GENAI_USE_GCA":      "false",
 		}
+	case "agy":
+		sentinelDir, dirErr := os.MkdirTemp("", "cocogem-agy-probe-*")
+		if dirErr != nil {
+			return probeResult{reason: dirErr.Error()}
+		}
+		defer os.RemoveAll(sentinelDir)
+		server.deniedSentinel = filepath.Join(sentinelDir, "denied-marker")
+		options.agyProbeURL = server.url
+		options.agyEnv = map[string]string{
+			"GEMINI_API_KEY":         "cocogem-probe-token",
+			"GOOGLE_GEMINI_BASE_URL": server.url,
+		}
 	case "pi":
 		// Pi has no endpoint environment override; preparePi writes a scoped
 		// models.json provider that points at the local probe.
@@ -244,13 +258,14 @@ func runIsolationProbe(ctx context.Context, info agent.AdapterInfo) probeResult 
 }
 
 type probeServer struct {
-	url       string
-	server    *http.Server
-	ln        net.Listener
-	id        string
-	turn      atomic.Int32
-	mu        sync.Mutex
-	violation string
+	url            string
+	server         *http.Server
+	ln             net.Listener
+	id             string
+	deniedSentinel string
+	turn           atomic.Int32
+	mu             sync.Mutex
+	violation      string
 }
 
 func (p *probeServer) fail(reason string) {
@@ -324,6 +339,21 @@ func (p *probeServer) handle(w http.ResponseWriter, r *http.Request) {
 		if turn == 1 {
 			writeGeminiTool(w, body)
 		} else {
+			writeGeminiText(w)
+		}
+	case "agy":
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch turn {
+		case 1:
+			writeAgyProbeDeniedTool(w, p.deniedSentinel)
+		case 2:
+			if p.deniedSentinel != "" {
+				if _, statErr := os.Stat(p.deniedSentinel); statErr == nil {
+					p.fail("run_command executed despite PreToolUse deny hook")
+				}
+			}
+			writeAgyProbeMCPTool(w)
+		default:
 			writeGeminiText(w)
 		}
 	case "pi", "opencode":
@@ -408,6 +438,31 @@ func (p *probeServer) validateTools(body []byte) {
 				}
 			}
 		}
+	case "agy":
+		var payload struct {
+			Tools []struct {
+				FunctionDeclarations []struct {
+					Name string `json:"name"`
+				} `json:"functionDeclarations"`
+			} `json:"tools"`
+		}
+		if json.Unmarshal(body, &payload) != nil {
+			return
+		}
+		hasMCP := false
+		for _, tool := range payload.Tools {
+			for _, declaration := range tool.FunctionDeclarations {
+				if declaration.Name == "call_mcp_tool" {
+					hasMCP = true
+				}
+				if strings.HasPrefix(declaration.Name, "mcp_") || strings.HasPrefix(declaration.Name, "mcp__") {
+					p.fail(declaration.Name)
+				}
+			}
+		}
+		if len(payload.Tools) != 0 && !hasMCP {
+			p.fail("missing call_mcp_tool")
+		}
 	case "pi", "opencode":
 		var payload struct {
 			Tools []struct {
@@ -488,6 +543,14 @@ func writeGeminiTool(w http.ResponseWriter, body []byte) {
 
 func writeGeminiText(w http.ResponseWriter) {
 	writeSSEJSON(w, map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"role": "model", "parts": []any{map[string]any{"text": "isolation probe complete"}}}, "finishReason": "STOP", "index": 0}}, "usageMetadata": map[string]any{"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2}})
+}
+
+func writeAgyProbeDeniedTool(w http.ResponseWriter, sentinel string) {
+	writeSSEJSON(w, map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"role": "model", "parts": []any{map[string]any{"functionCall": map[string]any{"name": "run_command", "args": map[string]any{"CommandLine": "touch " + sentinel}}}}}, "finishReason": "STOP", "index": 0}}, "usageMetadata": map[string]any{"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2}})
+}
+
+func writeAgyProbeMCPTool(w http.ResponseWriter) {
+	writeSSEJSON(w, map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"role": "model", "parts": []any{map[string]any{"functionCall": map[string]any{"name": "call_mcp_tool", "args": map[string]any{"ServerName": "cocogem", "ToolName": "probe", "Arguments": map[string]any{}}}}}}, "finishReason": "STOP", "index": 0}}, "usageMetadata": map[string]any{"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2}})
 }
 
 func writePiTool(w http.ResponseWriter) {

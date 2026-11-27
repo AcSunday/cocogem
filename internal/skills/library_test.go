@@ -213,7 +213,7 @@ func TestSharedInstructionsUseRuntimeMembers(t *testing.T) {
 	t.Parallel()
 	for name, file := range bundledFiles(t) {
 		content := strings.ToLower(string(file.Data))
-		for _, binding := range []string{"claude", "codex", "gemini", "布偶猫", "缅因猫", "橘猫"} {
+		for _, binding := range []string{"claude", "codex", "agy", "antigravity", "gemini", "布偶猫", "缅因猫", "橘猫"} {
 			if strings.Contains(content, binding) {
 				t.Errorf("%s contains a fixed member or CLI binding %q", name, binding)
 			}

@@ -56,6 +56,31 @@ var piNativeToolSpecs = map[string]gateToolSpec{
 	"ls":    {action: "read", pathKeys: []string{"path"}},
 }
 
+// agyNativeToolSpecs covers the built-in Antigravity CLI tools guarded by PreToolUse.
+var agyNativeToolSpecs = map[string]gateToolSpec{
+	"read_file":                  {action: "read", pathKeys: []string{"Path"}},
+	"view_file":                  {action: "read", pathKeys: []string{"AbsolutePath"}},
+	"view_file_outline":          {action: "read", pathKeys: []string{"AbsolutePath"}},
+	"view_code_item":             {action: "read", pathKeys: []string{"File"}},
+	"find_by_name":               {action: "read", pathKeys: []string{"SearchDirectory"}},
+	"list_dir":                   {action: "read", pathKeys: []string{"DirectoryPath"}},
+	"grep_search":                {action: "read", pathKeys: []string{"SearchPath"}},
+	"write_file":                 {action: "write", pathKeys: []string{"Path"}},
+	"write_to_file":              {action: "write", pathKeys: []string{"TargetFile"}},
+	"edit_file":                  {action: "write", pathKeys: []string{"Path"}},
+	"replace_file_content":       {action: "write", pathKeys: []string{"TargetFile"}},
+	"multi_replace_file_content": {action: "write", pathKeys: []string{"TargetFile"}},
+	"sed_file":                   {action: "write", pathKeys: []string{"TargetFile"}},
+	"notebook_edit":              {action: "write", pathKeys: []string{"Path"}},
+	"run_command":                {action: "execute", commandKey: "CommandLine", pathKeys: []string{"Cwd"}},
+	"notebook_execution":         {action: "execute", commandKey: "CommandLine", pathKeys: []string{"Cwd"}},
+	"search_web":                 {action: "network", network: true},
+	"read_url_content":           {action: "network", network: true},
+	"command_status":             {action: "read"},
+	"send_command_input":         {action: "execute"},
+	"read_terminal":              {action: "read"},
+}
+
 // gateCall is one classified pre-effect call. Input is the CLI's original
 // input; Normalized is the copy the shared authorizer sees, with the target
 // written into `file_path` so an adapter-specific field can never be missed.
@@ -81,8 +106,11 @@ func classifyNativeCallForGate(adapter, name string, input json.RawMessage, cwd 
 		return call, nil
 	}
 	specs := geminiNativeToolSpecs
-	if adapter == "pi" {
+	switch adapter {
+	case "pi":
 		specs = piNativeToolSpecs
+	case "agy":
+		specs = agyNativeToolSpecs
 	}
 	spec, ok := specs[name]
 	if !ok {

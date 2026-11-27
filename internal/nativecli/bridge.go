@@ -337,6 +337,7 @@ type tokenUsage struct {
 	Input              *int `json:"input_tokens"`
 	Output             *int `json:"output_tokens"`
 	CacheRead          *int `json:"cache_read_input_tokens"`
+	CacheReadAlt       *int `json:"cache_read_tokens"`
 	CacheCreation      *int `json:"cache_creation_input_tokens"`
 	CachedInput        *int `json:"cached_input_tokens"`
 	Cached             *int `json:"cached"`
@@ -370,7 +371,7 @@ func (b *bridge) recordUsage(usage tokenUsage) error {
 	if usage.InputTokensDetails != nil {
 		detailsCached = usage.InputTokensDetails.CachedTokens
 	}
-	cacheRead := firstIntPtr(usage.CacheRead, usage.CachedInput, usage.Cached, detailsCached)
+	cacheRead := firstIntPtr(usage.CacheRead, usage.CacheReadAlt, usage.CachedInput, usage.Cached, detailsCached)
 	cacheCreation := usage.CacheCreation
 	if usage.Input == nil && usage.Output == nil && cacheRead == nil && cacheCreation == nil && usage.ReportedCostUSD == nil {
 		return nil
@@ -566,6 +567,9 @@ func (b *bridge) call(raw json.RawMessage) any {
 	schema := b.schemas[params.Name]
 	if schema == nil {
 		return toolResult("Tool is not allowed for this member.", true)
+	}
+	if len(bytes.TrimSpace(params.Arguments)) == 0 {
+		params.Arguments = json.RawMessage("{}")
 	}
 	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(params.Arguments))
 	if err != nil || schema.Validate(value) != nil {

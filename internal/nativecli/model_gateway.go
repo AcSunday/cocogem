@@ -19,18 +19,30 @@ type modelGateway struct {
 	listener net.Listener
 	server   *http.Server
 	target   *url.URL
+	proxy    *url.URL
 }
 
-func newModelGateway(baseURL string) (*modelGateway, error) {
+func newModelGateway(baseURL, upstreamProxy string) (*modelGateway, error) {
 	target, err := url.Parse(baseURL)
 	if err != nil || target.Scheme != "http" && target.Scheme != "https" || target.Host == "" || target.User != nil {
 		return nil, errors.New("model endpoint is invalid for the loopback gateway")
+	}
+	var proxyURL *url.URL
+	if raw := strings.TrimSpace(upstreamProxy); raw != "" {
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Hostname() == "" || parsed.User != nil {
+			return nil, errors.New("model gateway upstream proxy URL is invalid")
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "socks5" && parsed.Scheme != "socks5h" {
+			return nil, errors.New("model gateway upstream proxy must use http, https or socks5")
+		}
+		proxyURL = parsed
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, errors.New("open private model gateway")
 	}
-	gateway := &modelGateway{listener: listener, target: target}
+	gateway := &modelGateway{listener: listener, target: target, proxy: proxyURL}
 	gateway.server = &http.Server{Handler: gateway, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 0, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 64 * 1024}
 	go func() { _ = gateway.server.Serve(listener) }()
 	return gateway, nil
@@ -59,7 +71,11 @@ func (g *modelGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outbound.Header.Del("Proxy-Authorization")
 	outbound.Header.Del("Proxy-Connection")
 	outbound.Host = g.target.Host
-	transport := &http.Transport{Proxy: nil, ResponseHeaderTimeout: 120 * time.Second}
+	var proxyFunc func(*http.Request) (*url.URL, error)
+	if g.proxy != nil {
+		proxyFunc = http.ProxyURL(g.proxy)
+	}
+	transport := &http.Transport{Proxy: proxyFunc, ResponseHeaderTimeout: 120 * time.Second}
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(outbound)
 	transport.CloseIdleConnections()
