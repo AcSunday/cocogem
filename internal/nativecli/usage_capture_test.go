@@ -99,30 +99,6 @@ func TestCodexAppServerCapturesTokenUsageAcrossTurnsAndDeduplicates(t *testing.T
 	}
 }
 
-func TestGeminiNormalizesCachedTokens(t *testing.T) {
-	var captured map[string]any
-	gate := newTestGate(t, testRequest().Tools, func(kind string, data map[string]any) error {
-		if kind == "usage" {
-			captured = data
-		}
-		return nil
-	})
-	frames := strings.Join([]string{
-		`{"type":"init","session_id":"` + fakeSession + `"}`,
-		`{"type":"message","role":"assistant","content":"hi"}`,
-		`{"type":"result","status":"success","stats":{"input_tokens":1200,"cached":900,"output_tokens":60}}`,
-	}, "\n") + "\n"
-	if err := parseGemini(strings.NewReader(frames), gate, &liveness{}); err != nil {
-		t.Fatalf("parseGemini failed: %v", err)
-	}
-	if err := gate.emitUsage(); err != nil {
-		t.Fatal(err)
-	}
-	if captured["known"] != true || captured["input_tokens"] != 300 || captured["cache_read_tokens"] != 900 || captured["output_tokens"] != 60 {
-		t.Fatalf("unexpected Gemini usage: %+v", captured)
-	}
-}
-
 func TestPiAccumulatesCacheTokensAndReportedCostAcrossResponses(t *testing.T) {
 	var captured map[string]any
 	gate := newTestGate(t, testRequest().Tools, func(kind string, data map[string]any) error {

@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -99,10 +98,6 @@ func (s *Server) verify(rw http.ResponseWriter, r *http.Request) {
 	}
 	if err := w.ValidateExecutionOptions(in.Executor, in.ContextSize, in.ThinkingLevel); err != nil {
 		respond(rw, r, nil, err)
-		return
-	}
-	if in.Executor == "gemini" && in.ThinkingLevel != "" && in.Model == "default" {
-		respond(rw, r, nil, errors.New("Gemini thinking_level requires an explicit model"))
 		return
 	}
 	s.refreshExecutors(r.Context())

@@ -106,11 +106,9 @@ func onlineScope(scope string) bool {
 	return scope == "auto" || scope == "web_discovery"
 }
 
-// NativeTools maps effective host grants to CLI-owned tools. Codex and Gemini
-// are intentionally narrower: no native file tools, and Gemini native web is
-// not enabled because its stream-json tool_result does not expose the actual
-// returned content. Pi has no native subset:
-// its read/bash/edit/write tools cannot be bounded to the workspace root.
+// NativeTools maps effective host grants to CLI-owned tools. Codex is
+// intentionally narrower: no native file tools. Pi has no native subset: its
+// read/bash/edit/write tools cannot be bounded to the workspace root.
 func NativeTools(executor string, allowed []string, scope string) []string {
 	out := []string{}
 	switch executor {

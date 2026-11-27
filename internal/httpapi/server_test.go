@@ -352,7 +352,7 @@ func TestExecutorCapabilitiesFailClosed(t *testing.T) {
 	s := &Server{config: Config{Executors: []ExecutorInfo{
 		{ID: "claude", Installed: true, Supported: true},
 		{ID: "codex", Installed: true, Supported: false, Reason: "restricted adapter unavailable"},
-		{ID: "gemini", Installed: false},
+		{ID: "pi", Installed: false},
 	}}}
 	for _, tc := range []struct {
 		name     string
@@ -363,7 +363,7 @@ func TestExecutorCapabilitiesFailClosed(t *testing.T) {
 		{"missing explicit migration", "", true},
 		{"unknown", "invented", true},
 		{"unsupported", "codex", true},
-		{"not installed", "gemini", true},
+		{"not installed", "pi", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := s.validateExecutor(tc.executor); (err != nil) != tc.wantErr {

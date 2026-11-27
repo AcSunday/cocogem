@@ -16,7 +16,7 @@ test("persisted task handoffs, skill settings and whole-run cancellation", async
       index
     ],
     capabilities: [id],
-    executor: ["claude", "codex", "gemini"][index],
+    executor: ["claude", "codex", "agy"][index],
     model: "default",
     tools: [],
     disabled: false,

@@ -81,7 +81,7 @@ test("retries only the failed member from a dismissible Composer notice", async 
   const form = input.locator("xpath=ancestor::form");
   const notice = form.getByRole("status").filter({ hasText: "成员回复未完成" });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("Gemini 返回了空响应");
+  await expect(notice).toContainText("上游返回了不完整或格式异常的响应");
   const box = (await notice.boundingBox())!;
   expect(box.y + box.height).toBeLessThanOrEqual((await form.boundingBox())!.y);
   await page.screenshot({ path: testInfo.outputPath("member-retry.png") });

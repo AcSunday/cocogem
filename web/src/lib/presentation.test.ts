@@ -766,19 +766,18 @@ it("keeps unknown labels as readable keys instead of prototype objects", () => {
   expect(methodLabel("__proto__")).toBe("__proto__");
 });
 
-it("explains Gemini failures without guessing credentials and labels member retries", () => {
-  for (const reason of [
-    "unknown: native CLI did not confirm success (result=result_error, category=execution); check the CLI locally",
-    "protocol: Gemini reported an unsuccessful result without diagnostic details; this step did not complete",
-  ]) {
-    expect(runErrorText(reason)).toBe("Gemini 未确认回复成功，CLI 没有提供具体失败原因；可以重试该成员。");
-  }
-  expect(runErrorText("protocol: Gemini returned an empty, truncated or malformed response; this step did not complete")).toContain("本次回复未完成");
-  expect(runErrorText("protocol: Gemini model stream ended with an incomplete event; this step did not complete")).toContain("响应流不完整");
-  expect(runErrorText("provider_transient: Gemini provider returned a temporary server error; this step did not complete")).toContain("上游服务暂时出错");
-  expect(runErrorText("unknown: Gemini provider returned an unclassified stream error; this step did not complete")).toContain("上游服务返回了错误");
-  expect(runErrorText("quota: Gemini provider reported a quota or rate limit; this step did not complete")).toContain("额度或速率限制");
-  expect(runErrorText("authentication: Gemini provider rejected the existing authentication; this step did not complete")).toContain("未接受现有认证");
-  expect(runErrorText("permissions: Gemini provider denied this request; this step did not complete")).toContain("拒绝了这次请求");
+it("explains native CLI failures without guessing credentials and labels member retries", () => {
+  expect(
+    runErrorText(
+      "unknown: native CLI did not confirm success (result=result_error, category=execution); check the CLI locally",
+    ),
+  ).toBe(
+    "CLI 没有确认回复成功，也没有给出可归类的失败原因，本次回复未完成；可以重试该成员。",
+  );
+  expect(
+    runErrorText(
+      "protocol: native CLI did not confirm success (result=result_error, category=incomplete_response)",
+    ),
+  ).toContain("上游返回了不完整或格式异常的响应");
   expect(runMethod({ retry_of_step_id: "failed-step" }).label).toBe("成员重试");
 });

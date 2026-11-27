@@ -52,12 +52,12 @@ const system: System = {
       protocol: "runtime",
     },
     {
-      id: "gemini",
+      id: "pi",
       installed: true,
       version: "old",
       supported: false,
       reason: "缺少安全工具模式",
-      adapter: "gemini-stream-json",
+      adapter: "pi-json",
       isolation: "unavailable",
       protocol: "runtime",
     },
@@ -328,7 +328,7 @@ it("verifies the selected local CLI and exact model, with unsupported versions d
   expect(
     await screen.findByText(/该 CLI 与模型上次已验证/),
   ).toBeInTheDocument();
-  await chooseOption(user, screen.getByLabelText("验证 CLI"), "gemini");
+  await chooseOption(user, screen.getByLabelText("验证 CLI"), "pi");
   expect(
     screen.getByRole("button", { name: "验证模型连接（可能产生用量）" }),
   ).toBeDisabled();

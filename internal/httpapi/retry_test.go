@@ -121,7 +121,7 @@ func TestRetryEndpointAcceptsExactFailedStepAndRequiresStableKey(t *testing.T) {
 			return err
 		}
 		failed = steps[0]
-		failed.Status, failed.Error = "failed", "Gemini did not confirm success"
+		failed.Status, failed.Error = "failed", "unknown: native CLI did not confirm success (result=result_error, category=execution)"
 		return tx.SaveStep(failed)
 	}); err != nil {
 		t.Fatal(err)

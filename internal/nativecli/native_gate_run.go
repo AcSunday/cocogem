@@ -7,26 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/AcSunday/cocogem/internal/agent"
 	"github.com/AcSunday/cocogem/internal/model"
 )
 
-// RunGeminiNative is the project_autonomous Gemini entry point. It owns the
-// whole per-attempt lifecycle (bridge, sandbox, gate broker, egress proxy,
-// private hook, CLI process) so the host only has to decide whether to call it.
-//
-// provider.go should dispatch here when
-//
-//	request.Executor == "gemini" && request.ExecutionMode == "workspace_autonomous" && request.AuthorizeNative != nil
-//
-// and fall back to the existing print path for full_access or a nil callback.
-func (p Provider) RunGeminiNative(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
-	return p.runGateAdapter(ctx, request, execute, observe, "gemini")
-}
-
-// RunPiNative is the project_autonomous Pi entry point with the same contract.
+// RunPiNative is the project_autonomous Pi entry point. It owns the whole
+// per-attempt lifecycle (bridge, sandbox, gate broker, egress proxy, private
+// extension, CLI process) so the host only has to decide whether to call it.
 func (p Provider) RunPiNative(ctx context.Context, request model.Request, execute agent.Execute, observe agent.Observe) error {
 	return p.runGateAdapter(ctx, request, execute, observe, "pi")
 }
@@ -93,61 +81,12 @@ func (p Provider) runGateAdapter(ctx context.Context, request model.Request, exe
 		return newFailure(FailureHostInputLimit, "required context exceeds the %d-token host input budget", budget)
 	}
 	launch := resolveLaunchPlan(request)
-	if adapter == "gemini" && launch == nil {
-		info, err := p.InspectExecutionConnection(ctx, adapter, request.Model, request.ThinkingLevel)
-		if err != nil {
-			return err
-		}
-		if request.ExpectedConnection.Identity != "" && request.ExpectedConnection.Identity != info.Identity {
-			return errors.New("Gemini connection changed before the gated launch")
-		}
-		plan, ok := cachedPlan(adapter, info.Identity)
-		if !ok {
-			return errors.New("Gemini connection snapshot is unavailable")
-		}
-		launch = &plan
-	}
 	live := newLiveness(ctx, cancel, observe, request.FirstResponseTimeout, request.StallTimeout, request.StallAction)
 	gate.live = live
 	effectiveProxy := p.effectiveProxy(request, false)
 	var nativeNames []string
 	var cmd *exec.Cmd
 	switch adapter {
-	case "gemini":
-		nativeNames = geminiGateToolNames(request)
-		session, err := prepareGeminiNativeSession(request, base, workdir, gate, live, launch, "", effectiveProxy)
-		if err != nil {
-			return err
-		}
-		defer session.close()
-		args, env, err := session.nativeArgs()
-		if err != nil {
-			return err
-		}
-		if err := gate.emit("native_adapter", map[string]any{
-			"executor": adapterInfo.ID, "version": adapterInfo.Version, "program": adapterInfo.Program,
-			"identity": adapterInfo.Identity, "adapter": "gemini-hook-gate", "isolation": "per-call-sandbox",
-			"native_tools": nativeNames,
-		}); err != nil {
-			return err
-		}
-		gate.setNative(nativeNames)
-		cmd = command("gemini", args...)
-		cmd.Dir = request.WorkspaceRoot
-		cmd.Env = removeEnv(overrideEnv(baseEnvironment(cmd.Env), launch.geminiGatedEnv), launch.geminiGatedUnset)
-		cmd.Env = overrideEnv(cmd.Env, env)
-		if effectiveProxy != "" {
-			cmd.Env = overrideEnv(cmd.Env, nativeProxyEnv(effectiveProxy, os.Getenv("NO_PROXY")+","+os.Getenv("no_proxy")))
-		}
-		if err := configureGeminiSSE(cmd, workdir); err != nil {
-			return err
-		}
-		inputText := request.System + "\n\nComplete the assigned step with the supplied native and Cocogem tools. Prefer the native tools for file and command work; use the Cocogem tools for member handoff and final delivery.\nUser messages and upstream evidence:\n" + string(prompt)
-		cmd.Stdin = strings.NewReader(inputText)
-		live.start()
-		defer live.stop()
-		processErr := p.streamGeminiNative(ctx, cmd, gate, live, session)
-		return finishGateAttempt(parent, ctx, gate, live, processErr)
 	case "pi":
 		nativeNames = piGateToolNames(request)
 		session, err := preparePiNativeSession(request, base, workdir, gate, live, launch, "", effectiveProxy)
@@ -200,14 +139,6 @@ func finishGateAttempt(parent, ctx context.Context, gate *bridge, live *liveness
 	return nil
 }
 
-// baseEnvironment keeps the provider-injected environment when present.
-func baseEnvironment(current []string) []string {
-	if len(current) != 0 {
-		return current
-	}
-	return os.Environ()
-}
-
 // mergeBaseEnvironment prefers the provider-injected env, then the frozen launch.
 func mergeBaseEnvironment(current, fallback []string) []string {
 	if len(current) != 0 {
@@ -235,11 +166,6 @@ func launchEnvironment(plan *connectionPlan) []string {
 		return os.Environ()
 	}
 	return append([]string{}, plan.piEnv...)
-}
-
-// geminiGateToolNames is the native catalog the gated Gemini step declares.
-func geminiGateToolNames(request model.Request) []string {
-	return []string{"read_file", "write_file", "replace", "glob", "grep_search", "list_directory", "run_shell_command"}
 }
 
 // piGateToolNames is the native catalog the gated Pi step declares.

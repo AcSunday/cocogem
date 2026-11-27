@@ -18,8 +18,8 @@ import (
 )
 
 // gateBroker is the per-attempt loopback endpoint a CLI-owned pre-effect gate
-// calls. Gemini's private BeforeTool/AfterTool hooks and Pi's private
-// tool_call/tool_result extension both post here.
+// calls. Antigravity's PreToolUse/PostToolUse hooks and Pi's private
+// tool_call/tool_result extension post here.
 //
 // The broker only decides and narrows input; the CLI still performs the effect,
 // so native tool results, events and session identity stay the CLI's own. An
@@ -42,8 +42,6 @@ type gateBroker struct {
 	listener net.Listener
 	server   *http.Server
 	token    string
-
-	aliases *gateAliases
 
 	fullAccess bool
 	agyPolicy  *agyGatePolicy
@@ -97,14 +95,11 @@ func newGateBroker(approver *nativeApprover, sandbox *nativeSandbox, staging, cw
 	broker := &gateBroker{
 		approver: approver, sandbox: sandbox, staging: staging, cwd: cwd, adapter: adapter,
 		listener: listener, token: hex.EncodeToString(secret[:]),
-		aliases: newGateAliases(),
 		decided: map[string]*gateSettled{}, commits: map[string]*gateCommit{}, heldPath: map[string]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/gate/authorize", broker.serveAuthorize)
 	mux.HandleFunc("/gate/finalize", broker.serveFinalize)
-	mux.HandleFunc("/gate/gemini/authorize", broker.serveGeminiAuthorize)
-	mux.HandleFunc("/gate/gemini/finalize", broker.serveGeminiFinalize)
 	mux.HandleFunc("/gate/pi/tool_call", broker.servePiToolCall)
 	mux.HandleFunc("/gate/agy/authorize", broker.serveAgyAuthorize)
 	mux.HandleFunc("/gate/agy/finalize", broker.serveAgyFinalize)
@@ -114,14 +109,6 @@ func newGateBroker(approver *nativeApprover, sandbox *nativeSandbox, staging, cw
 }
 
 func (b *gateBroker) url() string { return "http://" + b.listener.Addr().String() }
-
-// nativeAliases is the per-attempt identity map shared with the stream parser.
-func (b *gateBroker) nativeAliases() *gateAliases {
-	if b == nil {
-		return nil
-	}
-	return b.aliases
-}
 
 func (b *gateBroker) close() {
 	if b == nil {
@@ -305,22 +292,6 @@ func (b *gateBroker) finalize(callID string, failed bool) error {
 		return errors.New("the approved outside write could not be committed")
 	}
 	return nil
-}
-
-// finalizeByPath resolves the pending commit of a tool that reported only its
-// original path (Gemini's AfterTool receives the pre-rewrite input).
-func (b *gateBroker) finalizeByPath(path string, failed bool) error {
-	if path == "" {
-		return nil
-	}
-	resolved := resolvePhysicalPath(path)
-	b.mu.Lock()
-	callID := b.heldPath[resolved]
-	b.mu.Unlock()
-	if callID == "" {
-		return nil
-	}
-	return b.finalize(callID, failed)
 }
 
 // scopeInput turns one approved call into something the CLI cannot use to leave

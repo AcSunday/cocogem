@@ -47,7 +47,6 @@ func TestMemberExecutionOptionsCRUD(t *testing.T) {
 	}
 	create(w.Agent{DisplayName: "low", Handle: "low", Executor: "claude", Model: "default", ContextSize: w.MinContextTokens - 1, Tools: []string{}}, 400)
 	create(w.Agent{DisplayName: "bad", Handle: "bad", Executor: "claude", Model: "default", ThinkingLevel: "ultra", Tools: []string{}}, 400)
-	create(w.Agent{DisplayName: "gemini", Handle: "gemini", Executor: "gemini", Model: "default", ThinkingLevel: "high", Tools: []string{}}, 400)
 	create(w.Agent{DisplayName: "pi", Handle: "pi-agent", Executor: "pi", Model: "default", ThinkingLevel: "high", Tools: []string{}}, 200)
 	create(w.Agent{DisplayName: "pi-bad", Handle: "pi-bad", Executor: "pi", Model: "default", ThinkingLevel: "ultra", Tools: []string{}}, 400)
 
@@ -120,7 +119,6 @@ func TestVerifyForwardsExecutionOptionsAndKeysVerification(t *testing.T) {
 	calls := len(capture.requests)
 	verify(VerifyInput{Executor: "claude", Model: "default", ThinkingLevel: "ultra"}, 400)
 	verify(VerifyInput{Executor: "agy", Model: "default", ThinkingLevel: "ultra"}, 400)
-	verify(VerifyInput{Executor: "gemini", Model: "default", ThinkingLevel: "high"}, 400)
 	verify(VerifyInput{Executor: "claude", Model: "default", ContextSize: 512}, 400)
 	if len(capture.requests) != calls {
 		t.Fatal("invalid execution options still reached the provider")

@@ -258,10 +258,10 @@ func TestNativeToolIDIsCanonical(t *testing.T) {
 	if got := nativeToolID("pi", "pi:call_1"); got != "pi:call_1" {
 		t.Fatalf("already-prefixed pi id=%q", got)
 	}
-	if got := nativeToolID("gemini", "abc"); got != "gemini:abc" {
-		t.Fatalf("gemini id=%q", got)
+	if got := nativeToolID("agy", "abc"); got != "agy:abc" {
+		t.Fatalf("agy id=%q", got)
 	}
-	if got := nativeToolID("gemini", ""); got != "" {
+	if got := nativeToolID("agy", ""); got != "" {
 		t.Fatalf("empty id=%q, want empty", got)
 	}
 	if !nativeToolIDMatches("pi:call_1", "call_1") || !nativeToolIDMatches("call_1", "pi:call_1") {

@@ -353,3 +353,12 @@ func agyStartupFailure(streamErr error, stderr string, outputBytes int64) error 
 	}
 	return streamErr
 }
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}

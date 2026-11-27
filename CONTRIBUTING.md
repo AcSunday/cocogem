@@ -36,11 +36,11 @@ Native CLI adapters have three different verification levels. `make test` uses
 only temporary subprocess fixtures; `make e2e` uses an isolated, test-only Go
 HTTP/SSE harness with synthetic model and source fixtures. No fixture model or
 offline runtime mode is exposed by the application.
-To exercise installed Codex/Gemini binaries against a local fake model and
+To exercise installed Codex binaries against a local fake model and
 scoped MCP, run:
 
 ```sh
-COCOGEM_CHECK_INSTALLED_CODEX=1 COCOGEM_CHECK_INSTALLED_GEMINI=1 \
+COCOGEM_CHECK_INSTALLED_CODEX=1 \
   go test ./internal/nativecli -run TestInstalled -v
 ```
 

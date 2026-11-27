@@ -38,13 +38,12 @@ const cx = scoped(
   settings,
 );
 
-const executors = ["claude", "codex", "agy", "gemini", "pi", "opencode"];
+const executors = ["claude", "codex", "agy", "pi", "opencode"];
 /** Empty keeps the CLI's own default; only these explicit levels are forwarded. */
 const thinkingLevels: Record<string, string[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],
   codex: ["low", "medium", "high", "xhigh", "ultra", "max"],
   agy: ["low", "medium", "high", "xhigh", "max"],
-  gemini: ["low", "high"],
   pi: ["low", "medium", "high", "xhigh", "max"],
 };
 const minContextTokens = 1024;
@@ -417,7 +416,6 @@ function MemberEditor({
     !value.thinking_level ||
     (!variantLoading && !variantError && levels.includes(value.thinking_level));
   const model = value.model.trim() || "default";
-  const geminiNeedsModel = value.executor === "gemini" && model === "default";
   const executorInfo = system.executors?.find(
     (item) => item.id === value.executor,
   );
@@ -506,16 +504,6 @@ function MemberEditor({
       });
       return;
     }
-    if (geminiNeedsModel && value.thinking_level) {
-      setVerifyState({
-        key: verifyKey,
-        error: t(
-          "Gemini 选择思考等级前必须填写明确的模型。",
-          "Specify an explicit model before selecting a thinking level for Gemini.",
-        ),
-      });
-      return;
-    }
     setVerifying(true);
     setVerifyState(null);
     void api<{ verified_at: string }>("/api/v1/system/verify", "POST", {
@@ -563,15 +551,6 @@ function MemberEditor({
         t(
           "当前模型不支持此思考级别，请重新选择。",
           "The current model does not support this thinking level; please choose another.",
-        ),
-      );
-      return;
-    }
-    if (geminiNeedsModel && value.thinking_level) {
-      setError(
-        t(
-          "Gemini 选择思考等级前必须填写明确的模型。",
-          "Specify an explicit model before selecting a thinking level for Gemini.",
         ),
       );
       return;
@@ -870,11 +849,6 @@ function MemberEditor({
                 update({
                   model: event.target.value || "default",
                   ...(openCode ? { thinking_level: "" } : {}),
-                  ...(value.executor === "gemini" &&
-                  (!event.target.value.trim() ||
-                    event.target.value.trim() === "default")
-                    ? { thinking_level: "" }
-                    : {}),
                 })
               }
             />
@@ -934,7 +908,6 @@ function MemberEditor({
             disabled={
               !value.executor ||
               (!levels.length && !value.thinking_level) ||
-              geminiNeedsModel ||
               variantLoading
             }
             onChange={(thinking) => update({ thinking_level: thinking })}
@@ -954,14 +927,6 @@ function MemberEditor({
               </option>
             ))}
           </Select>
-          {geminiNeedsModel && (
-            <small>
-              {t(
-                "Gemini 选择思考等级前必须填写明确模型，不能留空使用默认。",
-                "Specify an explicit model before choosing a thinking level for Gemini.",
-              )}
-            </small>
-          )}
           <small>
             {value.executor === "opencode"
               ? variantLoading

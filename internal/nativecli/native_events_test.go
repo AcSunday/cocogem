@@ -451,13 +451,6 @@ func TestCodexWebSearchCompletionRequiredAndReplayCannotReopen(t *testing.T) {
 	}
 }
 
-func TestGeminiNativeWebStaysUnavailableWithoutFaithfulResults(t *testing.T) {
-	stream := fmt.Sprintf(`{"type":"init","session_id":%q}`+"\n"+`{"type":"tool_use","tool_name":"google_web_search","tool_id":"g1","parameters":{"query":"fixture"}}`+"\n"+`{"type":"tool_result","tool_id":"g1","status":"success","output":"Content processed from prompt."}`+"\n"+`{"type":"result","status":"success"}`+"\n", nativeSession)
-	if _, err := parseWithEvents(t, nil, stream, parseGemini); err == nil {
-		t.Fatal("Gemini native web was accepted even though its tool result does not expose the actual content")
-	}
-}
-
 func TestCodexNativeWebLaunchFlags(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

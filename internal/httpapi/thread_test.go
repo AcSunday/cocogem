@@ -29,7 +29,7 @@ func TestThreadRenameSurvivesDisabledMember(t *testing.T) {
 	s, err := New(Config{Host: "local.test", WebDir: dir, AuthFile: filepath.Join(dir, "auth.json"), Models: []string{"default"}, Executors: []ExecutorInfo{
 		{ID: "claude", Installed: true, Supported: true},
 		{ID: "codex", Installed: true, Supported: true},
-		{ID: "gemini", Installed: true, Supported: true},
+		{ID: "agy", Installed: true, Supported: true},
 	}}, db, nil)
 	if err != nil {
 		t.Fatal(err)

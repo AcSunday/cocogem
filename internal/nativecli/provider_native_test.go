@@ -242,20 +242,8 @@ rpc('tools/list',{})
 rpc('tools/call',{'name':'read_file','arguments':{'path':os.path.realpath(path).lstrip('/')}})
 print(json.dumps({'type':'turn.completed','usage':{}}),flush=True)
 `,
-		"gemini": `import sys,json,os,urllib.request
-path=os.path.join(os.getcwd(),'.gemini','settings.json')
-config=next(iter(json.load(open(path))['mcpServers'].values()))
-headers=dict(config['headers']);headers['Content-Type']='application/json'
-def rpc(method,params):
- req=urllib.request.Request(config['url'],data=json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(),headers=headers)
- with urllib.request.urlopen(req,timeout=10) as r:return json.load(r)
-session='00000000-0000-4000-8000-000000000001'
-print(json.dumps({'type':'init','session_id':session}),flush=True)
-rpc('tools/call',{'name':'read_file','arguments':{'path':os.path.realpath(path).lstrip('/')}})
-print(json.dumps({'type':'result','status':'success','stats':{}}),flush=True)
-`,
 	}
-	for _, executor := range []string{"claude", "codex", "gemini"} {
+	for _, executor := range []string{"claude", "codex"} {
 		t.Run(executor, func(t *testing.T) {
 			script := filepath.Join(t.TempDir(), "cli.py")
 			if err := os.WriteFile(script, []byte(scripts[executor]), 0600); err != nil {

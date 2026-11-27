@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 
@@ -25,13 +23,6 @@ type connectionPlan struct {
 	codexResolved       string
 	codexArgs           []string
 	codexEnv            map[string]string
-	geminiModel         string
-	geminiEnv           map[string]string
-	geminiUnset         []string
-	geminiGatedEnv      map[string]string
-	geminiGatedUnset    []string
-	geminiThinking      []any
-	geminiAuthType      string
 	piAuth              []byte
 	piModels            []byte
 	piSettings          []byte
@@ -100,8 +91,6 @@ func (p Provider) resolveConnection(ctx context.Context, executor, model string)
 		return agyPlan(model)
 	case "codex":
 		return codexPlan(model)
-	case "gemini":
-		return geminiPlan(ctx, model)
 	case "pi":
 		return p.piPlan(ctx, model)
 	case "opencode":
@@ -180,99 +169,6 @@ func codexInfoFromLaunch(resolved string, args []string, env map[string]string) 
 		"env_keys": envKeys,
 	}
 	return agent.ConnectionInfo{ResolvedModel: resolved, Identity: connectionDigest(fields)}
-}
-
-// geminiConnectionEnv is the complete environment allowlist that can change
-// the Gemini CLI connection. Keys absent from the recorded plan stay absent at
-// launch: the CLI treats a present empty value differently from an unset key
-// when loading its own .env.
-var geminiConnectionEnv = []string{
-	"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_CLI_AUTH_OVERRIDE",
-	"GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
-	"GEMINI_MODEL", "GOOGLE_GENAI_MODEL", "GEMINI_CLI_MODEL", "GEMINI_CLI_HOME", "GEMINI_CONFIG_DIR",
-}
-
-func geminiPlan(ctx context.Context, model string) (connectionPlan, error) {
-	settingsFile := geminiSettingsFile()
-	settingsHash := ""
-	var settingsData []byte
-	if settingsFile != "" {
-		if data, err := os.ReadFile(settingsFile); err == nil && len(data) <= 1024*1024 {
-			settingsData = data
-			settingsHash = connectionDigest(string(data))
-		}
-	}
-	var settings geminiSettings
-	if len(settingsData) > 0 {
-		_ = json.Unmarshal(settingsData, &settings)
-	}
-	fileEnv, err := geminiConnectionFileEnv(ctx)
-	if err != nil {
-		return connectionPlan{}, err
-	}
-	env := map[string]string{}
-	unset := []string{}
-	gatedEnv := map[string]string{}
-	for key, value := range fileEnv {
-		gatedEnv[key] = value
-	}
-	gatedUnset := []string{}
-	present := []string{}
-	for _, key := range geminiConnectionEnv {
-		value, ok := os.LookupEnv(key)
-		if ok {
-			env[key] = value
-			gatedEnv[key] = value
-		} else {
-			unset = append(unset, key)
-		}
-		if _, ok := gatedEnv[key]; !ok {
-			gatedUnset = append(gatedUnset, key)
-			continue
-		}
-		present = append(present, key)
-	}
-	resolved := model
-	if resolved == "" || resolved == "default" {
-		for _, key := range []string{"GEMINI_MODEL", "GOOGLE_GENAI_MODEL", "GEMINI_CLI_MODEL"} {
-			if value := gatedEnv[key]; value != "" {
-				resolved = value
-				break
-			}
-		}
-	}
-	if (resolved == "" || resolved == "default") && settings.Model.Name != "" {
-		resolved = settings.Model.Name
-	}
-	if resolved == "" || resolved == "default" {
-		resolved = "cli-default"
-	}
-	fields := map[string]any{"executor": "gemini", "model": resolved, "settings_hash": settingsHash}
-	for key, value := range gatedEnv {
-		if key != "GEMINI_API_KEY" && key != "GOOGLE_API_KEY" {
-			fields[key] = value
-		} else {
-			fields[key] = value != ""
-		}
-	}
-	// Presence itself is connection-relevant, so an explicit empty value and
-	// an unset key must not share an identity.
-	fields["env_present"] = present
-	info := agent.ConnectionInfo{ResolvedModel: resolved, Identity: connectionDigest(fields)}
-	return connectionPlan{executor: "gemini", info: info, geminiModel: resolved, geminiEnv: env, geminiUnset: unset, geminiGatedEnv: gatedEnv, geminiGatedUnset: gatedUnset, geminiThinking: geminiThinkingOverrides(settings), geminiAuthType: settings.Security.Auth.SelectedType}, nil
-}
-
-func geminiSettingsFile() string {
-	if home := os.Getenv("GEMINI_CLI_HOME"); home != "" {
-		return filepath.Join(home, ".gemini", "settings.json")
-	}
-	if dir := os.Getenv("GEMINI_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "settings.json")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".gemini", "settings.json")
-	}
-	return ""
 }
 
 func connectionDigest(value any) string {

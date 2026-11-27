@@ -249,55 +249,6 @@ export function runErrorText(error = "", status = "") {
       "当前 CLI 的接口协议与现有上游不匹配，请检查本机 CLI 的服务地址与供应商映射。",
       "The local CLI's API protocol does not match the configured upstream endpoint. Check your local CLI endpoint and provider settings.",
     );
-  if (
-    error.includes(
-      "Gemini returned an empty, truncated or malformed response",
-    )
-  )
-    return t(
-      "Gemini 返回了空响应、截断内容或无效工具调用，本次回复未完成；可以重试该成员。",
-      "Gemini returned an empty, truncated, or malformed response. This reply did not finish; you can retry this member.",
-    );
-  if (error.includes("Gemini model stream ended with an incomplete event"))
-    return t(
-      "Gemini 的模型响应流不完整，本次回复未完成；可以重试该成员。",
-      "The Gemini response stream ended incomplete. This reply did not finish; you can retry this member.",
-    );
-  if (error.includes("Gemini provider returned a temporary server error"))
-    return t(
-      "Gemini 上游服务暂时出错，本次回复未完成；可以稍后重试该成员。",
-      "The Gemini upstream service returned a temporary server error. You can retry this member shortly.",
-    );
-  if (error.includes("Gemini provider returned an unclassified stream error"))
-    return t(
-      "Gemini 上游服务返回了错误，本次回复未完成；可以稍后重试该成员。",
-      "The Gemini upstream service returned a stream error. You can retry this member shortly.",
-    );
-  if (error.includes("Gemini provider reported a quota or rate limit"))
-    return t(
-      "Gemini 上游服务报告额度或速率限制，本次回复未完成；可以稍后重试该成员。",
-      "The Gemini upstream service reported a quota or rate limit. You can retry this member later.",
-    );
-  if (error.includes("Gemini provider rejected the existing authentication"))
-    return t(
-      "Gemini 上游服务未接受现有认证，本次回复未完成；请检查本机 CLI 的连接配置。",
-      "The Gemini upstream service rejected the current authentication. Check your local CLI connection settings.",
-    );
-  if (error.includes("Gemini provider denied this request"))
-    return t(
-      "Gemini 上游服务拒绝了这次请求，本次回复未完成。",
-      "The Gemini upstream service denied this request.",
-    );
-  if (
-    error.includes("result=result_error, category=execution") ||
-    error.includes(
-      "Gemini reported an unsuccessful result without diagnostic details",
-    )
-  )
-    return t(
-      "Gemini 未确认回复成功，CLI 没有提供具体失败原因；可以重试该成员。",
-      "Gemini did not confirm a successful reply and the CLI provided no specific error details; you can retry this member.",
-    );
   const native =
     /(?:^|[\s\]:])([a-z_]+): native CLI did not confirm success \(result=[a-z0-9_.-]+(?:, status=(\d+))?, category=([a-z_]+)\)/.exec(
       error,

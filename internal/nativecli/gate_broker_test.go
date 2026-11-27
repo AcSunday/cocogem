@@ -21,7 +21,7 @@ import (
 func gateTestRequest(t *testing.T, root string, decide func(model.NativePermissionRequest) (model.NativePermissionDecision, error)) model.Request {
 	t.Helper()
 	request := testRequest()
-	request.Executor = "gemini"
+	request.Executor = "agy"
 	request.ExecutionMode = "workspace_autonomous"
 	request.WorkspaceRoot = root
 	request.AuthorizeNative = func(_ context.Context, request model.NativePermissionRequest) (model.NativePermissionDecision, error) {
@@ -86,9 +86,9 @@ func TestGateDenyHasNoEffect(t *testing.T) {
 		return model.NativePermissionDecision{Allow: false, Scope: model.NativeScopeDeny, Reason: "user denied"}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	input, _ := json.Marshal(map[string]string{"command": "printf EFFECT > denied.txt"})
+	input, _ := json.Marshal(map[string]string{"CommandLine": "printf EFFECT > denied.txt"})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-deny", Name: "run_shell_command", Input: input,
+		CallID: "call-deny", Name: "run_command", Input: input,
 	})
 	if decision.Allow {
 		t.Fatal("a denied call was reported as allowed")
@@ -96,8 +96,8 @@ func TestGateDenyHasNoEffect(t *testing.T) {
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("the denied command produced an effect")
 	}
-	if reply := geminiGateReply("BeforeTool", decision); !strings.Contains(reply, `"deny"`) {
-		t.Fatalf("CLI reply is not a denial: %s", reply)
+	if decision.Reason != "user denied" {
+		t.Fatalf("unexpected deny reason: %q", decision.Reason)
 	}
 }
 
@@ -114,9 +114,9 @@ func TestGateAllowOnceRunsExactlyOnce(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: root}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	input, _ := json.Marshal(map[string]string{"command": "printf ONCE > once.txt"})
+	input, _ := json.Marshal(map[string]string{"CommandLine": "printf ONCE > once.txt"})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-once", Name: "run_shell_command", Input: input,
+		CallID: "call-once", Name: "run_command", Input: input,
 	})
 	if !decision.Allow {
 		t.Fatalf("an approved call was refused: %s", decision.Reason)
@@ -128,10 +128,10 @@ func TestGateAllowOnceRunsExactlyOnce(t *testing.T) {
 	if err := json.Unmarshal(decision.Input, &narrowed); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(narrowed["command"], "sandbox-exec") {
-		t.Fatalf("the approved command was not narrowed into the per-call sandbox: %q", narrowed["command"])
+	if !strings.Contains(narrowed["CommandLine"], "sandbox-exec") {
+		t.Fatalf("the approved command was not narrowed into the per-call sandbox: %q", narrowed["CommandLine"])
 	}
-	if out, err := execShell(narrowed["command"]); err != nil {
+	if out, err := execShell(narrowed["CommandLine"]); err != nil {
 		t.Fatalf("the approved command failed: %v (%s)", err, out)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "once.txt"))
@@ -139,13 +139,13 @@ func TestGateAllowOnceRunsExactlyOnce(t *testing.T) {
 		t.Fatalf("approved write result=%q err=%v", data, err)
 	}
 	outside := filepath.Join(filepath.Dir(root), "escape.txt")
-	out, _ := execShell(strings.Replace(narrowed["command"], "once.txt", outside, 1))
+	out, _ := execShell(strings.Replace(narrowed["CommandLine"], "once.txt", outside, 1))
 	if _, err := os.Stat(outside); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the per-call profile did not block an outside write: %s", out)
 	}
 }
 
-// Gemini's installed read_file schema uses `file_path`, not `path`. A host that
+// Antigravity's read_file schema uses `Path`, not `path`. A host that
 // classified only `path` would resolve the project directory, auto-allow, and
 // let the CLI open the outside file.
 func TestGateInstalledReadFileFieldReachesHost(t *testing.T) {
@@ -166,10 +166,9 @@ func TestGateInstalledReadFileFieldReachesHost(t *testing.T) {
 		return model.NativePermissionDecision{Allow: false, Scope: model.NativeScopeDeny, Reason: "synthetic"}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	// Exact installed payload shape: read_file{file_path, start_line?, end_line?}
-	input, _ := json.Marshal(map[string]any{"file_path": outside})
+	input, _ := json.Marshal(map[string]any{"Path": outside})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "gemini:read-outside", Name: "read_file", Input: input,
+		CallID: "agy:read-outside", Name: "read_file", Input: input,
 	})
 	if decision.Allow {
 		t.Fatal("an outside read_file was auto-allowed")
@@ -205,11 +204,11 @@ func TestGateInstalledPathFieldsAreResolved(t *testing.T) {
 		want   string
 		action string
 	}{
-		{"write_file", map[string]any{"file_path": filepath.Join(outside, "w.txt"), "content": "X"}, filepath.Join(outside, "w.txt"), "write"},
-		{"replace", map[string]any{"file_path": filepath.Join(outside, "r.txt"), "old_string": "a", "new_string": "b"}, filepath.Join(outside, "r.txt"), "write"},
-		{"glob", map[string]any{"dir_path": outside, "pattern": "*"}, outside, "read"},
-		{"grep_search", map[string]any{"dir_path": outside, "pattern": "x"}, outside, "read"},
-		{"list_directory", map[string]any{"dir_path": outside}, outside, "read"},
+		{"write_file", map[string]any{"Path": filepath.Join(outside, "w.txt"), "Content": "X"}, filepath.Join(outside, "w.txt"), "write"},
+		{"edit_file", map[string]any{"Path": filepath.Join(outside, "r.txt")}, filepath.Join(outside, "r.txt"), "write"},
+		{"find_by_name", map[string]any{"SearchDirectory": outside, "Pattern": "*"}, outside, "read"},
+		{"grep_search", map[string]any{"SearchPath": outside, "Query": "x"}, outside, "read"},
+		{"list_dir", map[string]any{"DirectoryPath": outside}, outside, "read"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var seen model.NativePermissionRequest
@@ -256,9 +255,9 @@ func TestGateShellOutsideWorkingDirectory(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: scope}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, approved)
-	input, _ := json.Marshal(map[string]any{"command": "ls", "dir_path": outside})
+	input, _ := json.Marshal(map[string]any{"CommandLine": "ls", "Cwd": outside})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-outside-cwd", Name: "run_shell_command", Input: input,
+		CallID: "call-outside-cwd", Name: "run_command", Input: input,
 	})
 	if !decision.Allow {
 		t.Fatalf("an approved outside working directory was refused: %s", decision.Reason)
@@ -267,8 +266,8 @@ func TestGateShellOutsideWorkingDirectory(t *testing.T) {
 	if err := json.Unmarshal(decision.Input, &narrowed); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(narrowed["command"], outside) {
-		t.Fatalf("the approved command did not run in the approved directory: %q", narrowed["command"])
+	if !strings.Contains(narrowed["CommandLine"], outside) {
+		t.Fatalf("the approved command did not run in the approved directory: %q", narrowed["CommandLine"])
 	}
 	// The same call is refused when the host denies that directory.
 	denied := gateTestRequest(t, root, func(request model.NativePermissionRequest) (model.NativePermissionDecision, error) {
@@ -279,14 +278,14 @@ func TestGateShellOutsideWorkingDirectory(t *testing.T) {
 	})
 	deniedBroker, _, _, _ := gateTestBroker(t, denied)
 	refused := deniedBroker.authorize(context.Background(), gateRequest{
-		CallID: "call-outside-cwd-denied", Name: "run_shell_command", Input: input,
+		CallID: "call-outside-cwd-denied", Name: "run_command", Input: input,
 	})
 	if refused.Allow {
 		t.Fatal("a denied outside working directory was allowed")
 	}
 }
 
-// An inside dir_path is allowed and keeps its real working directory.
+// An inside Cwd is allowed and keeps its real working directory.
 func TestGateShellInsideWorkingDirectory(t *testing.T) {
 	area := t.TempDir()
 	root := filepath.Join(area, "workspace")
@@ -298,19 +297,19 @@ func TestGateShellInsideWorkingDirectory(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: root}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	input, _ := json.Marshal(map[string]any{"command": "printf X > marker.txt", "dir_path": inside})
+	input, _ := json.Marshal(map[string]any{"CommandLine": "printf X > marker.txt", "Cwd": inside})
 	decision := broker.authorize(context.Background(), gateRequest{
-		CallID: "call-inside-cwd", Name: "run_shell_command", Input: input,
+		CallID: "call-inside-cwd", Name: "run_command", Input: input,
 	})
 	if !decision.Allow {
-		t.Fatalf("an inside dir_path was refused: %s", decision.Reason)
+		t.Fatalf("an inside Cwd was refused: %s", decision.Reason)
 	}
 	var narrowed map[string]string
 	if err := json.Unmarshal(decision.Input, &narrowed); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(narrowed["command"], inside) {
-		t.Fatalf("the approved command did not run in the declared directory: %q", narrowed["command"])
+	if !strings.Contains(narrowed["CommandLine"], inside) {
+		t.Fatalf("the approved command did not run in the declared directory: %q", narrowed["CommandLine"])
 	}
 }
 
@@ -354,17 +353,17 @@ func TestGateRepeatedAuthorizeIsBoundAndIdempotent(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: root}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	input, _ := json.Marshal(map[string]string{"command": "printf A > a.txt"})
-	first := broker.authorize(context.Background(), gateRequest{CallID: "call-replay", Name: "run_shell_command", Input: input})
-	second := broker.authorize(context.Background(), gateRequest{CallID: "call-replay", Name: "run_shell_command", Input: input})
+	input, _ := json.Marshal(map[string]string{"CommandLine": "printf A > a.txt"})
+	first := broker.authorize(context.Background(), gateRequest{CallID: "call-replay", Name: "run_command", Input: input})
+	second := broker.authorize(context.Background(), gateRequest{CallID: "call-replay", Name: "run_command", Input: input})
 	if !first.Allow || !second.Allow {
 		t.Fatalf("a repeated identical authorize changed the decision: %+v %+v", first, second)
 	}
 	if callbacks.Load() != 1 {
 		t.Fatalf("host callbacks=%d, want 1 (a replay must not consume twice)", callbacks.Load())
 	}
-	other, _ := json.Marshal(map[string]string{"command": "printf B > b.txt"})
-	third := broker.authorize(context.Background(), gateRequest{CallID: "call-replay", Name: "run_shell_command", Input: other})
+	other, _ := json.Marshal(map[string]string{"CommandLine": "printf B > b.txt"})
+	third := broker.authorize(context.Background(), gateRequest{CallID: "call-replay", Name: "run_command", Input: other})
 	if third.Allow {
 		t.Fatal("different arguments under one call id were allowed")
 	}
@@ -392,8 +391,8 @@ func TestGateFinalizeAndConcurrentWrites(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: target}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	first, _ := json.Marshal(map[string]any{"file_path": target, "content": "FIRST"})
-	second, _ := json.Marshal(map[string]any{"file_path": target, "content": "SECOND"})
+	first, _ := json.Marshal(map[string]any{"Path": target, "Content": "FIRST"})
+	second, _ := json.Marshal(map[string]any{"Path": target, "Content": "SECOND"})
 	var wg sync.WaitGroup
 	results := make([]gateDecision, 2)
 	for i, input := range [][]byte{first, second} {
@@ -424,7 +423,7 @@ func TestGateFinalizeAndConcurrentWrites(t *testing.T) {
 			if err := json.Unmarshal(decision.Input, &narrowed); err != nil {
 				t.Fatal(err)
 			}
-			staged, _ := narrowed["file_path"].(string)
+			staged, _ := narrowed["Path"].(string)
 			if err := os.WriteFile(staged, []byte("COMMITTED"), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -466,7 +465,7 @@ func TestGateReadApprovalNeverCommits(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: outside}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	input, _ := json.Marshal(map[string]any{"file_path": outside})
+	input, _ := json.Marshal(map[string]any{"Path": outside})
 	decision := broker.authorize(context.Background(), gateRequest{
 		CallID: "call-read-commit", Name: "read_file", Input: input,
 	})
@@ -477,10 +476,10 @@ func TestGateReadApprovalNeverCommits(t *testing.T) {
 	if err := json.Unmarshal(decision.Input, &narrowed); err != nil {
 		t.Fatal(err)
 	}
-	if narrowed["file_path"] == outside {
+	if narrowed["Path"] == outside {
 		t.Fatal("the outside read was not served through the staged copy")
 	}
-	if err := os.WriteFile(narrowed["file_path"], []byte("TAMPERED"), 0600); err != nil {
+	if err := os.WriteFile(narrowed["Path"], []byte("TAMPERED"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := broker.finalize("call-read-commit", false); err != nil {
@@ -510,7 +509,7 @@ func TestGateApprovedOutsideWriteCommitsAfterResult(t *testing.T) {
 		return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce, ResourceScope: outside}, nil
 	})
 	broker, _, _, _ := gateTestBroker(t, request)
-	input, _ := json.Marshal(map[string]string{"file_path": outside, "content": "NEW"})
+	input, _ := json.Marshal(map[string]string{"Path": outside, "Content": "NEW"})
 	decision := broker.authorize(context.Background(), gateRequest{
 		CallID: "call-write", Name: "write_file", Input: input,
 	})
@@ -521,10 +520,10 @@ func TestGateApprovedOutsideWriteCommitsAfterResult(t *testing.T) {
 	if err := json.Unmarshal(decision.Input, &narrowed); err != nil {
 		t.Fatal(err)
 	}
-	if narrowed["file_path"] == outside {
+	if narrowed["Path"] == outside {
 		t.Fatal("the outside write was not staged")
 	}
-	if err := os.WriteFile(narrowed["file_path"], []byte("NEW"), 0600); err != nil {
+	if err := os.WriteFile(narrowed["Path"], []byte("NEW"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(outside); string(data) != "ORIGINAL" {
@@ -540,7 +539,7 @@ func TestGateApprovedOutsideWriteCommitsAfterResult(t *testing.T) {
 		CallID: "call-write-2", Name: "write_file", Input: input,
 	})
 	_ = json.Unmarshal(decision.Input, &narrowed)
-	if err := os.WriteFile(narrowed["file_path"], []byte("BROKEN"), 0600); err != nil {
+	if err := os.WriteFile(narrowed["Path"], []byte("BROKEN"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := broker.finalize("call-write-2", true); err != nil {
@@ -556,7 +555,7 @@ func TestGateApprovedOutsideWriteCommitsAfterResult(t *testing.T) {
 func TestGateMissingCallbackFailsClosed(t *testing.T) {
 	root := t.TempDir()
 	request := testRequest()
-	request.Executor = "gemini"
+	request.Executor = "agy"
 	request.ExecutionMode = "workspace_autonomous"
 	request.WorkspaceRoot = root
 	gate, err := newBridge(t.Context(), nil, func(context.Context, string, json.RawMessage) (string, error) {
@@ -567,25 +566,11 @@ func TestGateMissingCallbackFailsClosed(t *testing.T) {
 	}
 	defer gate.close()
 	live := newLiveness(t.Context(), func() {}, discardObserve, 0, 0, "warn")
-	approver := newNativeApprover(gate, live, request, "gemini", nil)
-	input, _ := json.Marshal(map[string]string{"command": "printf X > x.txt"})
-	authorization, err := approver.authorize(context.Background(), "call-nil", "run_shell_command", input, "")
+	approver := newNativeApprover(gate, live, request, "agy", nil)
+	input, _ := json.Marshal(map[string]string{"CommandLine": "printf X > x.txt"})
+	authorization, err := approver.authorize(context.Background(), "call-nil", "run_command", input, "")
 	if err == nil || authorization.Allow {
 		t.Fatalf("a missing host callback was treated as an allow: allow=%v err=%v", authorization.Allow, err)
-	}
-}
-
-// The hook script must print a denial, never nothing, when the broker is down.
-func TestGeminiHookScriptFailsClosed(t *testing.T) {
-	dir := t.TempDir()
-	hook := filepath.Join(dir, "gate.sh")
-	if err := os.WriteFile(hook, []byte(geminiHookScript("http://127.0.0.1:1", "token")), 0700); err != nil {
-		t.Fatal(err)
-	}
-	payload := `{"hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"printf X"}}`
-	out, _ := execShellWithInput("/bin/sh "+shellQuote(hook), payload)
-	if !strings.Contains(out, `"deny"`) {
-		t.Fatalf("an unreachable broker did not produce a denial: %q", out)
 	}
 }
 

@@ -47,9 +47,6 @@ func TestNativeToolsDeriveOnlyFromExistingGrants(t *testing.T) {
 	if got := NativeTools("codex", all, "given_sources"); len(got) != 0 {
 		t.Fatalf("given sources enabled Codex web: %v", got)
 	}
-	if got := NativeTools("gemini", all, "auto"); len(got) != 0 {
-		t.Fatalf("Gemini native web has no faithful result path: %v", got)
-	}
 }
 
 func TestNativeToolsAreSanitizedAgainstTheAdapterWhitelist(t *testing.T) {
@@ -60,9 +57,6 @@ func TestNativeToolsAreSanitizedAgainstTheAdapterWhitelist(t *testing.T) {
 	files, _ = sanitizeNativeTools("claude", []string{"Read"}, "")
 	if len(files) != 0 {
 		t.Fatalf("native file tool survived without a root: %v", files)
-	}
-	if files, web := sanitizeNativeTools("gemini", []string{"web_search", "Read"}, "/workspace"); len(files) != 0 || len(web) != 0 {
-		t.Fatalf("Gemini native tools were accepted: %v %v", files, web)
 	}
 }
 

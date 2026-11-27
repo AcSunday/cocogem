@@ -27,7 +27,7 @@ const (
 	processAuthFrame   = `{"type":"error","error":{"type":"authentication_error","message":"invalid key"}}`
 )
 
-func TestManagedGeminiWaitsBeforeRefreshingAnActiveSession(t *testing.T) {
+func TestManagedCodexWaitsBeforeRefreshingAnActiveSession(t *testing.T) {
 	root := t.TempDir()
 	lock, err := lockSessionDirectory(t.Context(), root)
 	if err != nil {
@@ -35,7 +35,7 @@ func TestManagedGeminiWaitsBeforeRefreshingAnActiveSession(t *testing.T) {
 	}
 	t.Cleanup(func() { lock.Close() })
 	request := testRequest()
-	request.Executor, request.Model = "gemini", "fixture-model"
+	request.Executor, request.Model = "codex", "fixture-model"
 	request.SessionStorageRoot, request.SessionMode, request.SessionID = root, "resume", fakeSession
 	request.ExecutionMode = "full_access"
 	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
@@ -54,7 +54,7 @@ func TestManagedGeminiWaitsBeforeRefreshingAnActiveSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("GEMINI_CLI_HOME", "")
+	t.Setenv("CODEX_HOME", t.TempDir())
 	if err := fakeProvider("notice").run(t.Context(), request, execute, discardObserve, runOptions{skipCheck: true}); err != nil {
 		t.Fatalf("resume after release: %v", err)
 	}

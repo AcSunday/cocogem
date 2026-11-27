@@ -15,9 +15,8 @@ import "strings"
 // reads ids only through these helpers, and the CLI's own id is recoverable
 // without trimming guesses.
 const (
-	nativeIDGemini = "gemini:"
-	nativeIDPi     = "pi:"
-	nativeIDAgy    = "agy:"
+	nativeIDPi  = "pi:"
+	nativeIDAgy = "agy:"
 )
 
 // nativeToolID returns the canonical host identity for one CLI tool call.
@@ -28,8 +27,6 @@ func nativeToolID(adapter, cliID string) string {
 	}
 	prefix := nativeIDPi
 	switch adapter {
-	case "gemini":
-		prefix = nativeIDGemini
 	case "agy":
 		prefix = nativeIDAgy
 	}
@@ -40,7 +37,7 @@ func nativeToolID(adapter, cliID string) string {
 }
 
 func trimNativeIDPrefix(id string) string {
-	for _, prefix := range []string{nativeIDGemini, nativeIDPi, nativeIDAgy} {
+	for _, prefix := range []string{nativeIDPi, nativeIDAgy} {
 		if strings.HasPrefix(id, prefix) {
 			return strings.TrimPrefix(id, prefix)
 		}

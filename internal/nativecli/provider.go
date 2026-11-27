@@ -76,8 +76,8 @@ func (p Provider) CheckConnection(ctx context.Context, executor, model string) e
 
 // Discover probes version and isolation flags; connection still needs an explicit call.
 func Discover(ctx context.Context) []ExecutorInfo {
-	result := make([]ExecutorInfo, 0, 6)
-	for _, id := range []string{"claude", "codex", "agy", "gemini", "pi", "opencode"} {
+	result := make([]ExecutorInfo, 0, 5)
+	for _, id := range []string{"claude", "codex", "agy", "pi", "opencode"} {
 		info, _ := Inspect(ctx, id)
 		result = append(result, ExecutorInfo{ID: info.ID, Installed: info.Installed, Version: info.Version, Supported: info.Supported, Reason: info.Reason, Adapter: info.Adapter, Isolation: info.Isolation, Program: info.Program, Identity: info.Identity, Capabilities: info.Capabilities})
 	}
@@ -150,8 +150,6 @@ type runOptions struct {
 	codexProbe       bool
 	codexArgs        []string
 	codexEnv         map[string]string
-	geminiEnv        map[string]string
-	geminiUnset      []string
 	agyProbeURL      string
 	agySettings      map[string]any
 	agyEnv           map[string]string
@@ -173,10 +171,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	}
 	effectiveProxy := p.effectiveProxy(request, options.skipCheck)
 	if (request.ExecutionMode == "workspace_autonomous" || request.ReadOnly) && request.AuthorizeNative != nil {
-		switch request.Executor {
-		case "gemini":
-			return p.RunGeminiNative(ctx, request, execute, observe)
-		case "pi":
+		if request.Executor == "pi" {
 			if request.ExpectedConnection.Identity != "" {
 				if _, ok := cachedPlan("pi", request.ExpectedConnection.Identity); !ok {
 					info, err := p.InspectExecutionConnection(ctx, "pi", request.Model, request.ThinkingLevel)
@@ -238,13 +233,13 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	gate.sessionMode, gate.sessionID = request.SessionMode, request.SessionID
 	gate.managedSession = managedNativeSession(request)
 	gate.readOnly = request.ReadOnly
-	// Claude, Gemini and Antigravity print every tool request in their stream
-	// before running it, and their parsers note each one.
-	gate.reportsEveryTool = request.Executor == "claude" || request.Executor == "gemini" || request.Executor == "agy"
+	// Claude and Antigravity print every tool request in their stream before
+	// running it, and their parsers note each one.
+	gate.reportsEveryTool = request.Executor == "claude" || request.Executor == "agy"
 	managed := managedNativeSession(request)
 	if request.SessionStorageRoot != "" && !request.EphemeralSession {
 		switch request.Executor {
-		case "claude", "codex", "agy", "gemini", "pi", "opencode":
+		case "claude", "codex", "agy", "pi", "opencode":
 		default:
 			return fmt.Errorf("executor %q does not support managed sessions", request.Executor)
 		}
@@ -585,8 +580,6 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			options.agyEnv = mergeEnv(options.agyEnv, map[string]string{"HOME": agyHome})
 		case "codex":
 			options.codexEnv = mergeEnv(options.codexEnv, map[string]string{"CODEX_HOME": workdir})
-		case "gemini":
-			options.geminiEnv = mergeEnv(options.geminiEnv, map[string]string{"GEMINI_CONFIG_DIR": workdir, "GEMINI_CLI_HOME": workdir})
 		}
 	}
 	// Launch from the connection resolved for this attempt; re-reading the
@@ -601,12 +594,6 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 				options.claudeSettings = plan.claudeSettings
 			case "agy":
 				options.agySettings = plan.agySettings
-			case "gemini":
-				if plan.geminiModel != "" && plan.geminiModel != "cli-default" {
-					request.Model = plan.geminiModel
-				}
-				options.geminiEnv = plan.geminiEnv
-				options.geminiUnset = plan.geminiUnset
 			}
 		}
 	}
@@ -731,9 +718,6 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 			args = append(args, options.codexArgs...)
 			env = mergeEnv(env, options.codexEnv)
 		}
-	case "gemini":
-		args, env, err = prepareGemini(request, workdir, gate, launch)
-		env = mergeEnv(env, options.geminiEnv)
 	case "pi":
 		args, env, err = preparePi(request, configDir, gate, options.piProbeURL, launch)
 	case "opencode":
@@ -768,7 +752,7 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	if codexAppServer {
 		cmd.Dir = request.WorkspaceRoot
 	}
-	if gate.trustedNative && request.WorkspaceRoot == "" && request.WorkingDirectory != "" && request.Executor != "gemini" {
+	if gate.trustedNative && request.WorkspaceRoot == "" && request.WorkingDirectory != "" {
 		cmd.Dir = request.WorkingDirectory
 	}
 	// Export orthogonal IO exchange directory variables so native CLIs read
@@ -794,24 +778,11 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 		}
 		cmd.Env = overrideEnv(cmd.Env, env)
 	}
-	if len(options.geminiUnset) != 0 {
-		// A frozen absence must not be filled in by a variable exported after
-		// the connection was recorded.
-		if cmd.Env == nil {
-			cmd.Env = os.Environ()
-		}
-		cmd.Env = removeEnv(cmd.Env, options.geminiUnset)
-	}
 	if options.skipCheck && effectiveProxy == "" {
 		if cmd.Env == nil {
 			cmd.Env = os.Environ()
 		}
 		cmd.Env = removeEnv(cmd.Env, []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"})
-	}
-	if request.Executor == "gemini" {
-		if err := configureGeminiSSE(cmd, workdir); err != nil {
-			return err
-		}
 	}
 	instruction := "Only use the tool set explicitly supplied for this step. Complete the assigned step, then finish."
 	if gate.trustedNative {

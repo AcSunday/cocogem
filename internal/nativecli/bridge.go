@@ -39,7 +39,6 @@ type bridge struct {
 	observeFailed       bool
 	stop                context.CancelFunc
 	closed              bool
-	nativePrefix        string
 	usageKnown          bool
 	inputTokens         int
 	outputTokens        int
@@ -384,7 +383,7 @@ func (b *bridge) recordUsage(usage tokenUsage) error {
 		return newFailure(FailureProtocol, "native CLI returned invalid token usage")
 	}
 	// Normalize providers whose input_tokens includes cached prompt tokens
-	// (Codex, Gemini) to disjoint uncached input + cache_read so total tokens
+	// (e.g. Codex) to disjoint uncached input + cache_read so total tokens
 	// and cache hit ratios never double-count.
 	inputVal := usage.Input
 	if usage.InputIncludesCache && inputVal != nil && cacheRead != nil {
