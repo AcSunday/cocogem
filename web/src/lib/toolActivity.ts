@@ -61,6 +61,33 @@ export type ToolActivity = {
   unknownReason?: ToolActivityUnknownReason;
 };
 
+export type ProcessStep =
+  | {
+      kind: "thinking";
+      key: string;
+      seq: number;
+      attemptID: string;
+      blockID: string;
+      text: string;
+      truncated: boolean;
+      /** True when only native_activity(reasoning) arrived without raw text. */
+      placeholder?: boolean;
+      running: boolean;
+    }
+  | {
+      kind: "narration";
+      key: string;
+      seq: number;
+      attemptID: string;
+      text: string;
+    }
+  | {
+      kind: "tool";
+      key: string;
+      seq: number;
+      activity: ToolActivity;
+    };
+
 export type ToolActivityGroup = {
   /** Step identity inside a run; the expand preference is keyed on it. */
   key: string;
@@ -68,6 +95,10 @@ export type ToolActivityGroup = {
   stepID: string;
   memberID: string;
   activities: ToolActivity[];
+  /** Chronological execution steps: thinking blocks, pre-tool narration, and tool calls. */
+  steps: ProcessStep[];
+  /** Cumulative text prefix emitted before the latest tool call in this step. */
+  preToolTextPrefix?: string;
   /** Compact collapsed label, e.g. "读取 3 个文件" or "等待授权". */
   summary: string;
 };
@@ -712,29 +743,278 @@ export function projectToolActivity(
 
   const groups: ToolActivityGroup[] = [];
   const byKey = new Map<string, ToolActivityGroup>();
-  for (const item of items) {
-    const key = [item.runID, item.stepID || item.memberID || "run"].join(
-      "\u0000",
-    );
+  const ensureGroup = (
+    runID: string,
+    stepID: string,
+    memberID: string,
+  ): ToolActivityGroup => {
+    const key = [runID, stepID || memberID || "run"].join("\u0000");
     let group = byKey.get(key);
     if (!group) {
       group = {
         key,
-        runID: item.runID,
-        stepID: item.stepID,
-        memberID: item.memberID,
+        runID,
+        stepID,
+        memberID,
         activities: [],
+        steps: [],
         summary: "",
       };
       byKey.set(key, group);
       groups.push(group);
     }
+    if (!group.memberID && memberID) group.memberID = memberID;
+    return group;
+  };
+  for (const item of items) {
+    const group = ensureGroup(item.runID, item.stepID, item.memberID);
     group.activities.push(item);
-    if (!group.memberID && item.memberID) group.memberID = item.memberID;
   }
-  for (const group of groups)
-    group.summary = summarizeActivities(group.activities);
+
+  // Project chronological thinking blocks and pre-tool narration alongside
+  // paired tool calls so each member reply displays its execution trace in
+  // exact sequence (seq order).
+  type ThinkingEntry = Extract<ProcessStep, { kind: "thinking" }>;
+  type NarrationEntry = Extract<ProcessStep, { kind: "narration" }>;
+  const thinkingByGroup = new Map<string, ThinkingEntry[]>();
+  const openThinking = new Map<string, ThinkingEntry>();
+  const narrationByGroup = new Map<string, NarrationEntry[]>();
+  const latestSnapshot = new Map<
+    string,
+    { attemptID: string; text: string; seq: number; committedLen: number }
+  >();
+  const preToolPrefixByGroup = new Map<string, string>();
+
+  for (const event of ordered) {
+    const stepID = stepKey(event);
+    const memberID = event.agent_id || "";
+    const groupKey = [event.run_id, stepID || memberID || "run"].join("\u0000");
+    const attemptID =
+      attemptAt.get(`${event.run_id}:${event.seq}`) || "";
+    const info = data(event);
+
+    if (event.type === "thinking_delta") {
+      const chunk = typeof info.text === "string" ? info.text : "";
+      const truncated = info.truncated === true;
+      if (!chunk && !truncated) continue;
+      const blockID = text(info.block_id);
+      if (!chunk && truncated) {
+        const list = thinkingByGroup.get(groupKey);
+        const target = openThinking.get(groupKey) ?? list?.at(-1);
+        if (target) target.truncated = true;
+        continue;
+      }
+      const group = ensureGroup(event.run_id, stepID, memberID);
+      const list = thinkingByGroup.get(group.key) ?? [];
+      thinkingByGroup.set(group.key, list);
+      const current = openThinking.get(group.key);
+      if (
+        current &&
+        current.attemptID === attemptID &&
+        (current.placeholder ||
+          !blockID ||
+          !current.blockID ||
+          current.blockID === blockID)
+      ) {
+        current.text += chunk;
+        current.placeholder = false;
+        if (blockID && !current.blockID) current.blockID = blockID;
+        if (truncated) current.truncated = true;
+      } else {
+        if (current) current.running = false;
+        const created: ThinkingEntry = {
+          kind: "thinking",
+          key: [group.key, "thinking", attemptID, blockID, event.seq].join(
+            "\u0000",
+          ),
+          seq: event.seq,
+          attemptID,
+          blockID,
+          text: chunk,
+          truncated,
+          running: true,
+        };
+        list.push(created);
+        openThinking.set(group.key, created);
+      }
+      continue;
+    }
+
+    if (event.type === "native_activity" && info.kind === "reasoning") {
+      const group = ensureGroup(event.run_id, stepID, memberID);
+      const current = openThinking.get(group.key);
+      if (!current || current.attemptID !== attemptID) {
+        if (current) current.running = false;
+        const list = thinkingByGroup.get(group.key) ?? [];
+        thinkingByGroup.set(group.key, list);
+        const placeholder: ThinkingEntry = {
+          kind: "thinking",
+          key: [group.key, "thinking-placeholder", attemptID, event.seq].join(
+            "\u0000",
+          ),
+          seq: event.seq,
+          attemptID,
+          blockID: "",
+          text: "",
+          truncated: false,
+          placeholder: true,
+          running: true,
+        };
+        list.push(placeholder);
+        openThinking.set(group.key, placeholder);
+      }
+      continue;
+    }
+
+    if (event.type === "message_delta") {
+      const snapshot =
+        info.mode === "snapshot" && info.message && typeof info.message === "object"
+          ? (info.message as { content?: unknown })
+          : undefined;
+      const content =
+        typeof snapshot?.content === "string" ? snapshot.content : "";
+      if (content) {
+        const current = openThinking.get(groupKey);
+        if (current) {
+          current.running = false;
+          openThinking.delete(groupKey);
+        }
+        const prev = latestSnapshot.get(groupKey);
+        if (!prev || prev.attemptID !== attemptID) {
+          latestSnapshot.set(groupKey, {
+            attemptID,
+            text: content,
+            seq: event.seq,
+            committedLen: 0,
+          });
+        } else if (content.length >= prev.text.length) {
+          prev.text = content;
+          prev.seq = event.seq;
+        }
+      }
+      continue;
+    }
+
+    if (event.type === "tool_started") {
+      const current = openThinking.get(groupKey);
+      if (current) {
+        current.running = false;
+        openThinking.delete(groupKey);
+      }
+      const snap = latestSnapshot.get(groupKey);
+      if (
+        snap &&
+        snap.attemptID === attemptID &&
+        snap.text.length > snap.committedLen
+      ) {
+        const piece = snap.text.slice(snap.committedLen).trim();
+        if (piece) {
+          const narrations = narrationByGroup.get(groupKey) ?? [];
+          narrationByGroup.set(groupKey, narrations);
+          narrations.push({
+            kind: "narration",
+            key: [groupKey, "narration", attemptID, snap.seq].join("\u0000"),
+            seq: snap.seq,
+            attemptID,
+            text: piece,
+          });
+        }
+        snap.committedLen = snap.text.length;
+        preToolPrefixByGroup.set(groupKey, snap.text);
+      }
+      continue;
+    }
+
+    if (
+      event.type === "attempt_finished" ||
+      event.type === "step_finished" ||
+      event.type === "message_finished" ||
+      event.type === "run_finished"
+    ) {
+      if (event.type === "run_finished") {
+        for (const entry of openThinking.values()) entry.running = false;
+        openThinking.clear();
+      } else {
+        const current = openThinking.get(groupKey);
+        if (current) {
+          current.running = false;
+          openThinking.delete(groupKey);
+        }
+      }
+    }
+  }
+
+  for (const group of groups) {
+    const thinking = thinkingByGroup.get(group.key) ?? [];
+    for (const entry of thinking) {
+      if (
+        runTerminal ||
+        endedAttempts.has(
+          attemptKey(group.runID, group.stepID, entry.attemptID),
+        )
+      ) {
+        entry.running = false;
+      }
+    }
+    const narrations = narrationByGroup.get(group.key) ?? [];
+    const toolSteps: ProcessStep[] = group.activities.map((activity) => ({
+      kind: "tool",
+      key: activity.key,
+      seq: activity.seq,
+      activity,
+    }));
+    group.steps = [...thinking, ...narrations, ...toolSteps].sort(
+      (left, right) => left.seq - right.seq,
+    );
+    const prefix = preToolPrefixByGroup.get(group.key);
+    if (prefix) group.preToolTextPrefix = prefix;
+
+    const toolSummary = summarizeActivities(group.activities);
+    const hasPendingPermission =
+      unresolvedPermissionActivities(group.activities).length > 0;
+    const hasThinking = thinking.length > 0;
+    const thinkingRunning = thinking.some((entry) => entry.running);
+    if (hasPendingPermission) {
+      group.summary = toolSummary;
+    } else if (hasThinking && toolSummary) {
+      group.summary = thinkingRunning
+        ? t(`思考中 · ${toolSummary}`, `Thinking · ${toolSummary}`)
+        : t(`已完成思考 · ${toolSummary}`, `Thought · ${toolSummary}`);
+    } else if (hasThinking) {
+      group.summary = thinkingRunning
+        ? t("思考中…", "Thinking…")
+        : t("已完成思考", "Thought");
+    } else {
+      group.summary = toolSummary;
+    }
+  }
   return groups;
+}
+
+/**
+ * Separates pre-tool execution narration from the final answer once post-tool
+ * text exists (or while the member is still executing tools). If the member
+ * finished without post-tool text, the full reply stays visible so no answer is
+ * ever lost.
+ */
+export function splitProcessReply(
+  content: string,
+  contentTruncated: boolean | undefined,
+  generating: boolean,
+  group: ToolActivityGroup | undefined,
+): { visibleContent: string; showNarration: boolean } {
+  const prefix = group?.preToolTextPrefix ?? "";
+  if (!prefix || contentTruncated || !content.startsWith(prefix)) {
+    return { visibleContent: content, showNarration: false };
+  }
+  const remainder = content.slice(prefix.length).replace(/^\s+/, "");
+  if (remainder.length > 0) {
+    return { visibleContent: remainder, showNarration: true };
+  }
+  if (generating) {
+    return { visibleContent: "", showNarration: true };
+  }
+  return { visibleContent: content, showNarration: false };
 }
 
 /** Why a start-only activity is not running any more. */

@@ -1,10 +1,11 @@
 /*
- * In-reply tool activity. Compact and mostly transparent: the collapsed row
- * carries the summary, and only blocked or failed work raises its voice.
- * Kept in its own module so the conversation layout rules stay untouched.
+ * In-reply chronological execution process (chain of thought + tool calls).
+ * During execution the outer process expands to show thinking and collapsed
+ * tool rows in exact sequence; once finished it collapses to a compact bar
+ * above the final answer.
  */
 .activity {
-  margin: 4px 0 8px;
+  margin: 0;
   color: var(--text-2);
   font-size: 12.5px;
   line-height: 1.55;
@@ -68,21 +69,122 @@
 .list {
   display: grid;
   gap: 6px;
-  margin: 2px 0 2px 6px;
-  padding: 0 0 0 12px;
+  margin: 4px 0 2px 6px;
+  padding: 2px 0 2px 12px;
   border-left: 1px solid var(--border);
   list-style: none;
 }
-.item {
+.item,
+.thinkingItem,
+.narrationItem {
   min-width: 0;
 }
-.itemHead {
+
+/* Thinking step inside the chronological execution trace */
+.thinkingBlock {
+  display: grid;
+  gap: 3px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+}
+.thinkingHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.thinkingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex: 0 0 auto;
+}
+.thinkingBlock[data-running="true"] .thinkingDot {
+  background: var(--accent-text);
+  animation: thinkingPulse 1.4s ease-in-out infinite;
+}
+@keyframes thinkingPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.thinkingLabel {
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.thinkingBody {
+  max-height: 260px;
+  overflow: auto;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.narrationBody {
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Individual tool call: collapsed single-line header by default */
+.toolStep {
+  min-width: 0;
+}
+.toolToggle {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 8px;
+  align-items: center;
+  gap: 4px 7px;
+  width: 100%;
+  min-height: 26px;
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
+.toolToggle:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.toolToggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.toolChevron {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--text-3);
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+.toolToggle[aria-expanded="true"] .toolChevron {
+  transform: none;
+}
+.toolDetail {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
+}
+
 .itemName {
+  flex: 1 1 auto;
   min-width: 0;
   color: var(--text);
   overflow-wrap: anywhere;
@@ -146,6 +248,10 @@
     monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.input:first-child,
+.output:first-child {
+  margin-top: 0;
 }
 .input {
   color: var(--text-3);
@@ -213,7 +319,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chevron {
+  .chevron,
+  .toolChevron {
     transition: none;
+  }
+  .thinkingBlock[data-running="true"] .thinkingDot {
+    animation: none;
   }
 }

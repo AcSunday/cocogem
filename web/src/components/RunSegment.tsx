@@ -19,7 +19,11 @@ import {
   deliveredRun,
   missingDeliveryMessages,
 } from "../lib/delivery";
-import { projectToolActivity, type ToolActivity } from "../lib/toolActivity";
+import {
+  projectToolActivity,
+  splitProcessReply,
+  type ToolActivity,
+} from "../lib/toolActivity";
 import { t, useLanguage } from "../lib/i18n";
 import type { RetryRef } from "../lib/retry";
 import {
@@ -603,38 +607,59 @@ export function RunSegment({
   );
   // One block per step: the first rendered reply for that step carries it.
   const shownActivity = new Set<string>();
-  const activityFor = (message: Message) => {
-    if (message.role === "user") return undefined;
-    const group = activityAtStep.get(message.step_id);
-    if (!group || shownActivity.has(group.key)) return undefined;
-    shownActivity.add(group.key);
-    return (
-      <ToolActivityBlock
-        group={group}
-        onHistory={(activity: ToolActivity) =>
-          setHistory({
-            runID: activity.runID,
-            after: Math.max(0, activity.seq - 1),
-          })
-        }
-      />
-    );
-  };
+  const activeStepIDs = new Set(
+    terminal(displayRun.status)
+      ? []
+      : allSteps
+          .filter((step) => step.status === "running")
+          .map((step) => step.id),
+  );
   const card = (message: Message, final = false) => {
     const failure = retryFor(message);
     const author = displayRun.agents?.find(
       (agent) => agent.id === message.agent_id,
     );
+    const step = allSteps.find((item) => item.id === message.step_id);
+    const group =
+      message.role === "user" ? undefined : activityAtStep.get(message.step_id);
+    const attachGroup = group && !shownActivity.has(group.key) ? group : undefined;
+    if (attachGroup) shownActivity.add(attachGroup.key);
+    const isActive =
+      !terminal(displayRun.status) &&
+      (message.status === "processing" || step?.status === "running");
+    const { visibleContent, showNarration } = splitProcessReply(
+      message.content,
+      message.content_truncated,
+      message.status === "processing",
+      attachGroup,
+    );
+    const displayMessage =
+      visibleContent !== message.content
+        ? { ...message, content: visibleContent }
+        : message;
+    const activity = attachGroup ? (
+      <ToolActivityBlock
+        group={attachGroup}
+        active={isActive}
+        showNarration={showNarration}
+        onHistory={(item: ToolActivity) =>
+          setHistory({
+            runID: item.runID,
+            after: Math.max(0, item.seq - 1),
+          })
+        }
+      />
+    ) : undefined;
     return (
       <MessageCard
         key={message.id}
-        message={message}
+        message={displayMessage}
         avatar={author?.avatar}
         executor={author?.executor}
-        role={allSteps.find((step) => step.id === message.step_id)?.role}
+        role={step?.role}
         members={mentionMembers}
         final={final}
-        activity={activityFor(message)}
+        activity={activity}
         retryLabel={failure?.step.agent_name}
         retryDisabled={busy}
         onRetry={
@@ -692,6 +717,7 @@ export function RunSegment({
           <MemberToolActivity
             groups={unattachedActivity}
             agents={mentionMembers}
+            activeStepIDs={activeStepIDs}
             onHistory={(activity) =>
               setHistory({
                 runID: activity.runID,

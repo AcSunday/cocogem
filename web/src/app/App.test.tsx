@@ -3138,3 +3138,283 @@ it("shows an unapplied candidate and applies it only after confirmation", async 
     expect(screen.queryByText("候选变更")).not.toBeInTheDocument(),
   );
 });
+
+it("renders a replying member's chat card, thinking chain, and collapsed tools immediately from SSE", async () => {
+  history.replaceState({}, "", "/w/ws/t/thread");
+  const agent = {
+    id: "orange",
+    workspace_id: "ws",
+    display_name: "橘猫",
+    handle: "orange",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "claude",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  } as Agent;
+  const thread = {
+    id: "thread",
+    workspace_id: "ws",
+    title: "实时流式测试",
+    agent_ids: ["orange"],
+    revision: 1,
+  };
+  const run = {
+    id: "run",
+    workspace_id: "ws",
+    thread_id: "thread",
+    agents: [agent],
+    status: "running",
+    created_at: "2026-10-26T00:00:00Z",
+  } as unknown as Run;
+  const streams: { onmessage?: (event: MessageEvent) => void }[] = [];
+  vi.stubGlobal(
+    "EventSource",
+    class {
+      constructor() {
+        streams.push(this);
+      }
+      onmessage?: (event: MessageEvent) => void;
+      close() {}
+    },
+  );
+  // Thread page never returns the new message over HTTP to prove SSE alone renders it immediately.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "工作区" }] });
+      if (path.endsWith("/agents")) return Response.json({ items: [agent] });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [thread], next_cursor: "" });
+      if (path.startsWith("/api/v1/threads/thread?"))
+        return Response.json({
+          thread,
+          messages: { items: [], next_cursor: "" },
+          runs: [run],
+          sources: [],
+        });
+      if (path === "/api/v1/runs/run")
+        return Response.json({ run, steps: [], attempts: [], cursor: 0 });
+      if (path.startsWith("/api/v1/runs/run/event-history"))
+        return Response.json({ items: [], next_cursor: "" });
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  await screen.findByRole("heading", { name: "实时流式测试" });
+  await waitFor(() => expect(streams).toHaveLength(1));
+
+  act(() => {
+    const emit = (payload: Record<string, unknown>) =>
+      streams[0].onmessage?.({
+        data: JSON.stringify({
+          schema_version: 1,
+          run_id: "run",
+          occurred_at: "2026-10-26T00:00:01Z",
+          ...payload,
+        }),
+      } as MessageEvent);
+    emit({
+      seq: 1,
+      type: "step_started",
+      step_id: "step-1",
+      agent_id: "orange",
+      data: {
+        id: "step-1",
+        run_id: "run",
+        agent_id: "orange",
+        agent_name: "橘猫",
+        role: "responder",
+        status: "running",
+      },
+    });
+    emit({
+      seq: 2,
+      type: "message_started",
+      step_id: "step-1",
+      agent_id: "orange",
+      data: {
+        id: "msg-1",
+        run_id: "run",
+        thread_id: "thread",
+        step_id: "step-1",
+        agent_id: "orange",
+        agent_name: "橘猫",
+        role: "assistant",
+        status: "processing",
+        content: "",
+        created_at: "2026-10-26T00:00:01Z",
+      },
+    });
+    emit({
+      seq: 3,
+      type: "thinking_delta",
+      step_id: "step-1",
+      agent_id: "orange",
+      data: { attempt_id: "att-1", block_id: "b1", text: "正在分析任务依赖" },
+    });
+    emit({
+      seq: 4,
+      type: "tool_started",
+      step_id: "step-1",
+      agent_id: "orange",
+      data: {
+        tool_call_id: "call-1",
+        name: "read_file",
+        input: { path: "README.md" },
+      },
+    });
+  });
+
+  // Chat card + live chronological process appear immediately from SSE.
+  const block = await screen.findByTestId("tool-activity");
+  expect(within(block).getByText("正在分析任务依赖")).toBeVisible();
+  const toolButton = within(block).getByRole("button", {
+    name: /读取文件 · README\.md/,
+  });
+  expect(toolButton).toHaveAttribute("aria-expanded", "false");
+});
+
+it("still applies live SSE message_delta and thinking_delta after event-history fails during seed", async () => {
+  history.replaceState({}, "", "/w/ws/t/thread");
+  const agent = {
+    id: "orange",
+    workspace_id: "ws",
+    display_name: "橘猫",
+    handle: "orange",
+    aliases: [],
+    role_description: "",
+    model: "default",
+    executor: "claude",
+    tools: [],
+    disabled: false,
+    revision: 1,
+  } as Agent;
+  const thread = {
+    id: "thread",
+    workspace_id: "ws",
+    title: "降级重连测试",
+    agent_ids: ["orange"],
+    revision: 1,
+  };
+  const run = {
+    id: "run",
+    workspace_id: "ws",
+    thread_id: "thread",
+    agents: [agent],
+    status: "running",
+    created_at: "2026-10-26T00:00:00Z",
+  } as unknown as Run;
+  const initialMsg = {
+    id: "msg-live",
+    run_id: "run",
+    thread_id: "thread",
+    step_id: "step-1",
+    agent_id: "orange",
+    agent_name: "橘猫",
+    role: "assistant",
+    status: "processing",
+    content: "",
+    created_at: "2026-10-26T00:00:01Z",
+  } as Message;
+  const streams: { url: string; onmessage?: (event: MessageEvent) => void }[] = [];
+  vi.stubGlobal(
+    "EventSource",
+    class {
+      url: string;
+      constructor(url: string) {
+        this.url = url;
+        streams.push(this);
+      }
+      onmessage?: (event: MessageEvent) => void;
+      close() {}
+    },
+  );
+  let threadCalls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => {
+      if (path === "/api/v1/system") return Response.json(system);
+      if (path === "/api/v1/workspaces")
+        return Response.json({ items: [{ id: "ws", name: "工作区" }] });
+      if (path.endsWith("/agents")) return Response.json({ items: [agent] });
+      if (path.startsWith("/api/v1/workspaces/ws/threads"))
+        return Response.json({ items: [thread], next_cursor: "" });
+      if (path.startsWith("/api/v1/threads/thread?")) {
+        threadCalls++;
+        // Block background refreshes after the initial load + seed refresh so
+        // the assertions below prove SSE applied the delta directly without HTTP.
+        if (threadCalls > 2) return new Promise<Response>(() => {});
+        return Response.json({
+          thread,
+          messages: { items: [initialMsg], next_cursor: "" },
+          runs: [run],
+          sources: [],
+        });
+      }
+      if (path === "/api/v1/runs/run")
+        return Response.json({
+          run,
+          steps: [{ id: "step-1", run_id: "run", agent_id: "orange", agent_name: "橘猫", status: "running" }],
+          attempts: [],
+          cursor: 10,
+        });
+      if (path.startsWith("/api/v1/runs/run/event-history"))
+        return new Response(JSON.stringify({ error: { message: "temporary history error" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      return Response.json({ items: [] });
+    }),
+  );
+  render(<App />);
+  await screen.findByRole("heading", { name: "降级重连测试" });
+  await waitFor(() => expect(streams).toHaveLength(1));
+  expect(streams[0].url).toBe("/api/v1/runs/run/events?after=10");
+
+  // Live frames arriving after cursor=10 must NOT be dropped even though event-history failed.
+  act(() => {
+    streams[0].onmessage?.({
+      data: JSON.stringify({
+        schema_version: 1,
+        run_id: "run",
+        seq: 11,
+        type: "thinking_delta",
+        step_id: "step-1",
+        agent_id: "orange",
+        occurred_at: "2026-10-26T00:00:02Z",
+        data: { attempt_id: "a1", block_id: "b1", text: "重连后继续思考" },
+      }),
+    } as MessageEvent);
+    streams[0].onmessage?.({
+      data: JSON.stringify({
+        schema_version: 1,
+        run_id: "run",
+        seq: 12,
+        type: "message_delta",
+        step_id: "step-1",
+        agent_id: "orange",
+        occurred_at: "2026-10-26T00:00:03Z",
+        data: {
+          message_id: "msg-live",
+          mode: "snapshot",
+          activity: true,
+          message: { ...initialMsg, content: "降级后依然实时流式输出。" },
+        },
+      }),
+    } as MessageEvent);
+  });
+
+  const liveArticle = screen
+    .getAllByRole("article")
+    .find((item) => item.textContent?.includes("降级后依然实时流式输出。"));
+  expect(liveArticle).toBeDefined();
+  expect(within(liveArticle!).getByText("重连后继续思考")).toBeVisible();
+  expect(
+    within(liveArticle!).getByText("降级后依然实时流式输出。"),
+  ).toBeVisible();
+});

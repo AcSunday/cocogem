@@ -370,6 +370,8 @@ export function runErrorText(error = "", status = "") {
           "The service stopped before this step finished; it will resume from the checkpoint on restart.",
         "service restarted; checkpoint preserved":
           "The service restarted and preserved this step's checkpoint.",
+        "checkpoint preserved for explicit resume":
+          "A checkpoint was preserved; confirm to resume execution.",
       }
     : {
         "service restarted before execution settled":
@@ -382,6 +384,8 @@ export function runErrorText(error = "", status = "") {
           "服务停止时这一步还没结束；重新启动后会从检查点继续。",
         "service restarted; checkpoint preserved":
           "服务重启，保留了这一步的检查点。",
+        "checkpoint preserved for explicit resume":
+          "检查点已保留，需要确认后继续执行。",
       };
   return knownTable[error] ?? translateBackendMessage(error);
 }
@@ -563,7 +567,17 @@ export const noticeLabel = (kind = "") =>
         "原生文件工具已停用，本步改用平台文件工具",
         "Native file tools disabled; using built-in workspace file tools for this step",
       )
-    : "";
+    : kind === "candidate_isolation_skipped"
+      ? t(
+          "绑定目录非 Git 仓库且文件规模超出隔离复制上限，已改为在绑定目录直接执行",
+          "Bound workspace is not a Git repository and exceeds isolated copy limits; continuing directly in the workspace root",
+        )
+      : kind === "verify_sandbox_skipped"
+        ? t(
+            "绑定目录超出独立复核复制上限，已改为只读模式复核",
+            "Bound workspace exceeds review sandbox copy limits; running review read-only",
+          )
+        : "";
 
 /** Only confirmed host tool work counts as activity; status/usage/heartbeats do not. */
 const progressEvents = new Set([
@@ -609,6 +623,8 @@ function activityEvent(event: Event) {
   if (progressEvents.has(event.type)) return true;
   if (event.type === "native_activity")
     return data.kind === "reasoning" || data.kind === "text_delta";
+  if (event.type === "thinking_delta")
+    return typeof data.text === "string" && data.text.trim() !== "";
   if (event.type !== "message_delta") return false;
   if (data.activity === true) return true;
   if (data.mode === "snapshot") return false;

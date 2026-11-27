@@ -72,10 +72,18 @@ it("starts collapsed and expands to the real tool receipt", async () => {
   await user.click(toggle);
   expect(toggle).toHaveAttribute("aria-expanded", "true");
   const activity = screen.getByTestId("tool-activity");
-  expect(within(activity).getByText(/运行测试 · \.$/)).toBeVisible();
+  const toolToggle = within(activity).getByRole("button", {
+    name: /运行测试 · \./,
+  });
+  // Individual tool use rows stay collapsed by default until clicked.
+  expect(toolToggle).toHaveAttribute("aria-expanded", "false");
   expect(within(activity).getByText("完成")).toBeVisible();
   expect(within(activity).getAllByText("42 ms")[0]).toBeVisible();
   expect(within(activity).getByText("exit 0")).toBeVisible();
+  expect(screen.queryByText(/ok\s+internal\/tools/)).not.toBeInTheDocument();
+
+  await user.click(toolToggle);
+  expect(toolToggle).toHaveAttribute("aria-expanded", "true");
   expect(within(activity).getByText(/ok\s+internal\/tools/)).toBeVisible();
 });
 
@@ -124,6 +132,7 @@ it("keeps the reader's expansion while events stream in and after a remount", as
   expect(
     screen.getByRole("button", { name: /读取 1 个文件/ }),
   ).toHaveAttribute("aria-expanded", "true");
+  await user.click(screen.getByRole("button", { name: /读取文件 · a\.go/ }));
   expect(screen.getByText("package a")).toBeVisible();
 
   first.unmount();
@@ -233,6 +242,7 @@ it("never turns a start-only native call into a success", async () => {
   expect(toggle).toHaveTextContent("结果未知");
   // Unknown work is reported, not silently omitted, once the block is read.
   await user.click(toggle);
+  await user.click(screen.getByRole("button", { name: /读取文件 · a\.go/ }));
   expect(screen.getByText(/未收到完成记录/)).toBeVisible();
   expect(screen.queryByText("完成")).not.toBeInTheDocument();
 });
@@ -311,6 +321,7 @@ it("merges the awaiting update into the one executed activity", async () => {
   expect(screen.getAllByRole("listitem")).toHaveLength(1);
   expect(screen.getByText("完成")).toBeVisible();
   expect(screen.queryByText("等待授权")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: /Bash · npm publish/ }));
   expect(screen.getByText("published")).toBeVisible();
 });
 
@@ -368,4 +379,135 @@ it("renders parallel members as separate activity blocks", () => {
     screen.getByRole("region", { name: "检索成员的工具活动" }),
   ).toHaveTextContent("联网搜索 1 次 · 1 个失败");
   expect(screen.queryByTestId("latest-tool")).not.toBeInTheDocument();
+});
+
+it("expands chronologically while active with collapsed tool calls, then collapses automatically when finished", async () => {
+  const user = userEvent.setup();
+  const events = [
+    event(1, "thinking_delta", {
+      attempt_id: "a1",
+      block_id: "b1",
+      text: "先读取文件确认实现",
+    }),
+    event(2, "tool_started", {
+      tool_call_id: "t1",
+      name: "read_file",
+      input: { path: "scheduler.go" },
+    }),
+    event(3, "tool_finished", {
+      tool_call_id: "t1",
+      name: "read_file",
+      status: "ok",
+      output: "func executeRun() {}",
+      duration_ms: 12,
+    }),
+    event(4, "thinking_delta", {
+      attempt_id: "a1",
+      block_id: "b2",
+      text: "已经定位到问题原因",
+    }),
+  ];
+  const activeGroup = groupOf(events, { runStatus: "running" });
+  const { rerender } = render(
+    <ToolActivityBlock group={activeGroup} active={true} />,
+  );
+
+  // While active, the outer process opens automatically showing thinking + collapsed tools in order.
+  const toggle = screen.getByRole("button", { name: /读取 1 个文件/ });
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  const items = screen.getAllByRole("listitem");
+  expect(items).toHaveLength(3);
+  expect(items[0]).toHaveAttribute("data-process-kind", "thinking");
+  expect(items[0]).toHaveTextContent("先读取文件确认实现");
+  expect(items[1]).toHaveAttribute("data-process-kind", "tool");
+  const toolButton = within(items[1]).getByRole("button", {
+    name: /读取文件 · scheduler\.go/,
+  });
+  expect(toolButton).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByText("func executeRun() {}")).not.toBeInTheDocument();
+  expect(items[2]).toHaveAttribute("data-process-kind", "thinking");
+  expect(items[2]).toHaveTextContent("已经定位到问题原因");
+
+  // Expanding a single tool reveals its output without disturbing other steps.
+  await user.click(toolButton);
+  expect(toolButton).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByText("func executeRun() {}")).toBeVisible();
+
+  // Once the member finishes (active=false), the entire process collapses automatically.
+  const doneGroup = groupOf(events, { runStatus: "succeeded" });
+  rerender(<ToolActivityBlock group={doneGroup} active={false} />);
+  expect(
+    screen.getByRole("button", { name: /已完成思考 · 读取 1 个文件/ }),
+  ).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByText("先读取文件确认实现")).not.toBeInTheDocument();
+});
+
+it("handles pure thinking without tool calls and preserves manual collapse/expand across streaming and completion", async () => {
+  const user = userEvent.setup();
+  const initialEvents = [
+    event(1, "thinking_delta", {
+      attempt_id: "a1",
+      block_id: "b1",
+      text: "纯思维链第一段",
+    }),
+  ];
+  const { rerender } = render(
+    <ToolActivityBlock
+      group={groupOf(initialEvents, { runStatus: "running" })}
+      active={true}
+    />,
+  );
+  // Pure thinking starts open while active and shows its thought text.
+  const liveToggle = screen.getByRole("button", { name: /思考中/ });
+  expect(liveToggle).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByText("纯思维链第一段")).toBeVisible();
+
+  // User manually collapses during execution; later deltas must NOT force it back open.
+  await user.click(liveToggle);
+  expect(liveToggle).toHaveAttribute("aria-expanded", "false");
+  const updatedEvents = [
+    ...initialEvents,
+    event(2, "thinking_delta", {
+      attempt_id: "a1",
+      block_id: "b1",
+      text: " + 第二段增量",
+    }),
+  ];
+  rerender(
+    <ToolActivityBlock
+      group={groupOf(updatedEvents, { runStatus: "running" })}
+      active={true}
+    />,
+  );
+  expect(screen.getByRole("button", { name: /思考中/ })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  expect(screen.queryByText(/纯思维链第一段/)).not.toBeInTheDocument();
+
+  // Completion keeps it collapsed; user manually expands to review and rerender must NOT fold it back.
+  rerender(
+    <ToolActivityBlock
+      group={groupOf(updatedEvents, { runStatus: "succeeded" })}
+      active={false}
+    />,
+  );
+  const doneToggle = screen.getByRole("button", { name: "已完成思考" });
+  expect(doneToggle).toHaveAttribute("aria-expanded", "false");
+  await user.click(doneToggle);
+  expect(doneToggle).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByText("纯思维链第一段 + 第二段增量")).toBeVisible();
+
+  // State refresh rerender preserves manual expansion.
+  rerender(
+    <ToolActivityBlock
+      group={groupOf(updatedEvents, { runStatus: "succeeded" })}
+      active={false}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "已完成思考" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  expect(screen.getByText("纯思维链第一段 + 第二段增量")).toBeVisible();
 });

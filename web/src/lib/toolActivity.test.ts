@@ -6,6 +6,7 @@ import {
   projectToolActivity,
   readActivityDecision,
   saveActivityDecision,
+  splitProcessReply,
   summarizeActivities,
   toolStatusLabel,
   toolTarget,
@@ -801,4 +802,123 @@ it("remembers the reader's expand decision per run and step", () => {
   expect(readActivityDecision(key)).toBe(true);
   saveActivityDecision(key, false);
   expect(readActivityDecision(key)).toBe(false);
+});
+
+it("projects chronological thinking, narration, and tool calls without dropping post-tool answers", () => {
+  const [group] = projectToolActivity(
+    [
+      event(1, "thinking_delta", {
+        attempt_id: "att-1",
+        block_id: "b1",
+        text: "先读文件 ",
+      }),
+      event(2, "thinking_delta", {
+        attempt_id: "att-1",
+        block_id: "b1",
+        text: "定位报错",
+      }),
+      event(3, "message_delta", {
+        mode: "snapshot",
+        message: { content: "我先检查 scheduler.go。" },
+      }),
+      event(4, "tool_started", {
+        tool_call_id: "t1",
+        name: "read_file",
+        input: { path: "scheduler.go" },
+      }),
+      event(5, "tool_finished", {
+        tool_call_id: "t1",
+        name: "read_file",
+        status: "ok",
+        output: "code",
+      }),
+      event(6, "thinking_delta", {
+        attempt_id: "att-1",
+        block_id: "b2",
+        text: "准备输出结论",
+      }),
+    ],
+    { runStatus: "succeeded" },
+  );
+  expect(group.steps.map((s) => s.kind)).toEqual([
+    "thinking",
+    "narration",
+    "tool",
+    "thinking",
+  ]);
+  expect(group.steps[0]).toMatchObject({
+    kind: "thinking",
+    text: "先读文件 定位报错",
+    running: false,
+  });
+  expect(group.steps[1]).toMatchObject({
+    kind: "narration",
+    text: "我先检查 scheduler.go。",
+  });
+  expect(group.summary).toBe("已完成思考 · 读取 1 个文件");
+
+  // Splits narration when a post-tool final answer exists.
+  expect(
+    splitProcessReply(
+      "我先检查 scheduler.go。\n\n已完成修复。",
+      false,
+      false,
+      group,
+    ),
+  ).toEqual({ visibleContent: "已完成修复。", showNarration: true });
+
+  // Keeps the entire reply visible if the member finished without post-tool text.
+  expect(
+    splitProcessReply("我先检查 scheduler.go。", false, false, group),
+  ).toEqual({ visibleContent: "我先检查 scheduler.go。", showNarration: false });
+
+  // While still executing tools, hides duplicate pre-tool commentary in the result body.
+  expect(
+    splitProcessReply("我先检查 scheduler.go。", false, true, group),
+  ).toEqual({ visibleContent: "", showNarration: true });
+});
+
+it("synthesizes a placeholder thinking step when only reasoning activity arrives", () => {
+  const [group] = projectToolActivity(
+    [
+      event(1, "native_activity", { kind: "reasoning" }),
+      event(2, "tool_started", {
+        tool_call_id: "t1",
+        name: "read_file",
+        input: { path: "a.go" },
+      }),
+    ],
+    { runStatus: "running" },
+  );
+  expect(group.steps.map((s) => s.kind)).toEqual(["thinking", "tool"]);
+  expect(group.steps[0]).toMatchObject({
+    kind: "thinking",
+    placeholder: true,
+    running: false,
+  });
+});
+
+it("marks truncation when a trailing empty thinking_delta carries truncated=true", () => {
+  const [group] = projectToolActivity(
+    [
+      event(1, "thinking_delta", {
+        attempt_id: "att-1",
+        block_id: "b1",
+        text: "前段思考内容",
+      }),
+      event(2, "thinking_delta", {
+        attempt_id: "att-1",
+        block_id: "b1",
+        text: "",
+        truncated: true,
+      }),
+    ],
+    { runStatus: "succeeded" },
+  );
+  expect(group.steps).toHaveLength(1);
+  expect(group.steps[0]).toMatchObject({
+    kind: "thinking",
+    text: "前段思考内容",
+    truncated: true,
+  });
 });

@@ -930,8 +930,10 @@ it("does not pair a retried native-1 finish with the original attempt in the bod
   const items = within(block).getAllByRole("listitem");
   expect(items[0]).toHaveTextContent("first.txt");
   expect(items[0]).toHaveTextContent("结果未知");
+  await user.click(within(items[0]).getByRole("button", { name: /first\.txt/ }));
   expect(items[0]).not.toHaveTextContent("second attempt output");
   expect(items[1]).toHaveTextContent("second.txt");
+  await user.click(within(items[1]).getByRole("button", { name: /second\.txt/ }));
   expect(items[1]).toHaveTextContent("second attempt output");
 });
 
@@ -1086,6 +1088,7 @@ it("shows one host invocation from pending through success", async () => {
     within(block).getByRole("button", { name: /执行 1 条命令/ }),
   );
   expect(within(block).getAllByRole("listitem")).toHaveLength(1);
+  await user.click(within(block).getByRole("button", { name: /go test/ }));
   expect(within(block).getByText(/ok\s+internal\/workflow/)).toBeVisible();
 });
 
@@ -1145,6 +1148,7 @@ it("shows one native invocation when approval precedes the start", async () => {
     within(block).getByRole("button", { name: /执行 1 条命令/ }),
   );
   expect(within(block).getAllByRole("listitem")).toHaveLength(1);
+  await user.click(within(block).getByRole("button", { name: /npm publish/ }));
   expect(within(block).getByText("published")).toBeVisible();
 });
 
@@ -1266,5 +1270,176 @@ it("keeps intake and completed upstream steps inside the process drawer while an
   expect(articles("质疑者正在独立复核")[0].closest("details")).toBeNull();
   expect(within(processDrawer).getByText("复核通过")).toBeVisible();
   expect(within(processDrawer).getByText("已收敛跳过")).toBeVisible();
+});
+
+it("shows chronological thinking and collapsed tool calls while replying, then collapses process to show only final result", () => {
+  const events: Event[] = [
+    toolEvent(1, "thinking_delta", {
+      attempt_id: "att-1",
+      block_id: "b1",
+      text: "先查看故障日志",
+    }),
+    toolEvent(2, "message_delta", {
+      message_id: "reply",
+      mode: "snapshot",
+      message: {
+        ...message("reply", "我先检查一下日志。"),
+        status: "processing",
+      },
+    }),
+    toolEvent(3, "tool_started", {
+      tool_call_id: "c1",
+      name: "read_file",
+      input: { path: "server.log" },
+    }),
+    toolEvent(4, "tool_finished", {
+      tool_call_id: "c1",
+      name: "read_file",
+      status: "ok",
+      output: "error details",
+    }),
+    toolEvent(5, "thinking_delta", {
+      attempt_id: "att-1",
+      block_id: "b2",
+      text: "定位到原因，输出最终修复结论",
+    }),
+  ];
+  const { rerender } = render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running" }}
+      steps={[{ ...step, status: "running" }]}
+      messages={[
+        {
+          ...message("reply", "我先检查一下日志。"),
+          status: "processing",
+        },
+      ]}
+      events={events}
+    />,
+  );
+  const liveBlock = screen.getByTestId("tool-activity");
+  expect(
+    within(liveBlock).getByRole("button", { name: /读取 1 个文件/ }),
+  ).toHaveAttribute("aria-expanded", "true");
+  expect(within(liveBlock).getByText("先查看故障日志")).toBeVisible();
+  expect(within(liveBlock).getByText("我先检查一下日志。")).toBeVisible();
+  expect(within(liveBlock).getByText("定位到原因，输出最终修复结论")).toBeVisible();
+  expect(within(liveBlock).queryByText("error details")).not.toBeInTheDocument();
+
+  // Once completed with a final result, the execution process collapses and only the final result stays visible.
+  rerender(
+    <RunSegment
+      {...props}
+      run={{
+        ...baseRun,
+        status: "succeeded",
+        delivery: { message_ids: ["reply"], artifact_refs: [] },
+      }}
+      steps={[{ ...step, status: "succeeded" }]}
+      messages={[
+        {
+          ...message(
+            "reply",
+            "我先检查一下日志。\n\n最终结论：问题已修复。",
+          ),
+          status: "completed",
+        },
+      ]}
+      events={events}
+    />,
+  );
+  const reply = articles("最终结论：问题已修复。")[0];
+  const doneBlock = within(reply).getByTestId("tool-activity");
+  expect(
+    within(doneBlock).getByRole("button", { name: /已完成思考 · 读取 1 个文件/ }),
+  ).toHaveAttribute("aria-expanded", "false");
+  expect(within(reply).getByText("最终结论：问题已修复。")).toBeVisible();
+  expect(within(reply).queryByText("先查看故障日志")).not.toBeInTheDocument();
+  expect(within(reply).queryByText("我先检查一下日志。")).not.toBeInTheDocument();
+});
+
+it("renders orange-cat synthesis inside a chat bubble while streaming and collapses run-process on delivery", () => {
+  const orange = {
+    ...agent,
+    id: "orange",
+    display_name: "橘猫",
+    handle: "orange",
+  };
+  const researchStep = {
+    ...step,
+    id: "step-research",
+    agent_id: "one",
+    agent_name: "布偶猫",
+    role: "researcher",
+    status: "succeeded" as const,
+  };
+  const summaryStep = {
+    ...step,
+    id: "step-summary",
+    agent_id: "orange",
+    agent_name: "橘猫",
+    role: "synthesizer",
+    depends_on: ["step-research"],
+    status: "running" as const,
+  };
+  const { rerender } = render(
+    <RunSegment
+      {...props}
+      run={{ ...baseRun, status: "running", agents: [agent, orange] }}
+      steps={[researchStep, summaryStep]}
+      messages={[
+        {
+          ...message("m-research", "布偶猫的调研结果"),
+          step_id: "step-research",
+        },
+        {
+          ...message("m-orange", ""),
+          step_id: "step-summary",
+          agent_id: "orange",
+          agent_name: "橘猫",
+          status: "processing",
+        },
+      ]}
+    />,
+  );
+  const processDrawer = screen.getByTestId("run-process");
+  expect(processDrawer).toHaveAttribute("open");
+  // While orange-cat is summarizing (even before first text token), its chat card & bubble are immediately visible outside run-process.
+  const liveOrange = articles("正在准备回复…")[0];
+  expect(liveOrange.closest("details")).toBeNull();
+  expect(liveOrange.querySelector('[class*="message-body"]')).not.toBeNull();
+  expect(liveOrange).toHaveTextContent("橘猫");
+
+  // Once delivered, run-process auto-collapses and only orange-cat's summary remains in its chat bubble.
+  rerender(
+    <RunSegment
+      {...props}
+      run={{
+        ...baseRun,
+        status: "succeeded",
+        agents: [agent, orange],
+        delivery: { message_ids: ["m-orange"], artifact_refs: [] },
+      }}
+      steps={[researchStep, { ...summaryStep, status: "succeeded" }]}
+      messages={[
+        {
+          ...message("m-research", "布偶猫的调研结果"),
+          step_id: "step-research",
+        },
+        {
+          ...message("m-orange", "橘猫最终汇总：全部完成。"),
+          step_id: "step-summary",
+          agent_id: "orange",
+          agent_name: "橘猫",
+          status: "completed",
+        },
+      ]}
+    />,
+  );
+  expect(screen.getByTestId("run-process")).not.toHaveAttribute("open");
+  const finalOrange = articles("橘猫最终汇总：全部完成。")[0];
+  expect(finalOrange.closest("details")).toBeNull();
+  expect(finalOrange.querySelector('[class*="message-body"]')).not.toBeNull();
 });
 

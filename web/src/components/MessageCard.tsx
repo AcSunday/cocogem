@@ -205,19 +205,23 @@ export function MessageCard({
             </small>
           )}
         </div>
-        {!user && activity}
         <div className={cx("message-body")}>
-          <Markdown
-            text={
-              shown ||
-              (user
-                ? ""
-                : generating
-                  ? t("正在准备回复…", "Preparing reply…")
-                  : t("本次回复没有正文。", "This reply has no text content."))
-            }
-            members={members}
-          />
+          {!user && activity}
+          {(user || shown || !generating || !activity) && (
+            <div className={cx(!user && activity ? "message-result" : "")}>
+              <Markdown
+                text={
+                  shown ||
+                  (user
+                    ? ""
+                    : generating
+                      ? t("正在准备回复…", "Preparing reply…")
+                      : t("本次回复没有正文。", "This reply has no text content."))
+                }
+                members={members}
+              />
+            </div>
+          )}
         </div>
         {onRetry && (
           <div className={cx("message-retry")}>
