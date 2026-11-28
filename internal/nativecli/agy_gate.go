@@ -174,7 +174,7 @@ func (b *gateBroker) serveAgyAuthorize(w http.ResponseWriter, r *http.Request) {
 		writeAgyHookAllow(w, nil)
 		return
 	}
-	if !b.agyPolicy.allowedNative[toolName] {
+	if !b.agyPolicy.allowedNative[toolName] && !(b.agyPolicy.fullAccess && !b.agyPolicy.readOnly && b.approver != nil) {
 		writeAgyHookDeny(w, fmt.Sprintf("tool %s is outside this step's permissions", safeToken(toolName)))
 		return
 	}

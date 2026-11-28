@@ -146,6 +146,34 @@ func ImageContent(data []byte, sourceID string) (string, error) {
 }
 
 func ViewImage(ctx context.Context, scope Scope, path string) (string, error) {
+	if scope.ExecutionMode == w.ExecutionFullAccess && path != "" {
+		candidate := path
+		if !filepath.IsAbs(candidate) {
+			for _, base := range []string{scope.WorkDir, scope.Root} {
+				if base == "" {
+					continue
+				}
+				joined := filepath.Join(base, candidate)
+				if _, err := os.Stat(joined); err == nil {
+					candidate = joined
+					break
+				}
+			}
+		}
+		if resolved, err := resolveApprovedPath(candidate); err == nil {
+			if data, readErr := ReadBinary(ctx, filepath.Dir(resolved), filepath.Base(resolved), 8<<20); readErr == nil {
+				if _, imgErr := ImageContent(data, ""); imgErr != nil {
+					return "", imgErr
+				}
+				source := w.Source{Kind: "image", Title: filepath.Base(resolved), Path: resolved, MediaType: FileMediaType(resolved, data), SHA256: sha256Hex(data), OriginalDigest: sha256Hex(data), OriginalContent: base64.StdEncoding.EncodeToString(data), Content: "Image pixels provided by view_image; visual interpretation is model-assessed.", CapturedAt: w.Now(), ParseStatus: "available"}
+				source, captureErr := scope.Capture(source)
+				if captureErr != nil {
+					return "", captureErr
+				}
+				return ImageContent(data, source.ID)
+			}
+		}
+	}
 	for _, root := range []string{scope.WorkDir, scope.Root} {
 		if root == "" {
 			continue
@@ -235,15 +263,28 @@ func ExecuteCommand(ctx context.Context, raw json.RawMessage, scope Scope) (stri
 	if in.Timeout < 1 || in.Timeout > 600 {
 		return "", errors.New("command timeout must be between 1 and 600 seconds")
 	}
-	r, local, err := openPath(scope.WorkDir, in.CWD)
-	if err != nil {
-		return "", err
+	dir := scope.WorkDir
+	if dir == "" {
+		dir = scope.Root
 	}
-	r.Close()
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	if cwd := strings.TrimSpace(in.CWD); cwd != "" && cwd != "." {
+		if filepath.IsAbs(cwd) {
+			dir = filepath.Clean(cwd)
+		} else {
+			dir = filepath.Clean(filepath.Join(dir, cwd))
+		}
+	}
+	info, statErr := os.Stat(dir)
+	if statErr != nil || !info.IsDir() {
+		return "", errors.New("command working directory is unavailable")
+	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(in.Timeout)*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, in.Argv[0], in.Argv[1:]...)
-	cmd.Dir = filepath.Join(scope.WorkDir, local)
+	cmd.Dir = dir
 	if err := configureTestProcess(cmd); err != nil {
 		return "", err
 	}

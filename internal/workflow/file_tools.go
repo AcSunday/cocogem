@@ -122,7 +122,7 @@ func (x *stepRuntime) viewImage(ctx context.Context, raw json.RawMessage) (strin
 		if x.run.EffectiveExecutionMode == w.ExecutionFullAccess && slices.Contains(x.allowed, "run_command") {
 			workDir = x.run.TaskDirectory
 		}
-		return tools.ViewImage(ctx, tools.Scope{Root: x.run.ProjectRoot(), WorkDir: workDir, Capture: x.capture}, in.Path)
+		return tools.ViewImage(ctx, tools.Scope{Root: x.run.ProjectRoot(), WorkDir: workDir, ExecutionMode: x.run.EffectiveExecutionMode, Capture: x.capture}, in.Path)
 	}
 	x.mu.Lock()
 	snapshot := slices.Clone(x.sources)

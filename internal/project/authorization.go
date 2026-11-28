@@ -63,6 +63,13 @@ func modeGrant(ws w.Workspace, memberID, mode, source string, previous w.Grant, 
 // the permission epoch the Run started with. Every dispatch and admission
 // re-checks the live epoch, so a later change can only shrink this boundary.
 func (s *Service) EnsureRunAuthorization(tx *store.Tx, run *w.Run, source string) error {
+	if run.TaskID == "" && !run.TaskIntake {
+		return nil
+	}
+	policy, err := s.CurrentPolicy(tx)
+	if err != nil {
+		return err
+	}
 	var revision w.TaskRevision
 	if run.TaskID != "" {
 		task, err := tx.Task(run.TaskID)
@@ -76,17 +83,12 @@ func (s *Service) EnsureRunAuthorization(tx *store.Tx, run *w.Run, source string
 		if err != nil {
 			return err
 		}
+	} else if policy.Mode == w.ExecutionFullAccess && !run.Input.PlanOnly {
+		revision.AllowedActions = TaskActions(policy.Mode, run.Input)
 	} else {
-		if !run.TaskIntake {
-			return nil
-		}
 		revision.AllowedActions = []string{"read", "network", "collaborate", "publish_artifact"}
 	}
 	ws, err := tx.Workspace(run.WorkspaceID)
-	if err != nil {
-		return err
-	}
-	policy, err := s.CurrentPolicy(tx)
 	if err != nil {
 		return err
 	}

@@ -502,8 +502,10 @@ func (s *Service) CheckToolAccess(ctx context.Context, in AccessRequest) (Access
 		}
 		// 1. The concrete target is inside the live mode boundary. A target the
 		// adapter graded as risky is never auto-allowed: the user must accept that
-		// exact operation.
-		if !needsDecision && in.Risk == "" && s.insideProjectBoundary(in.Run, action, in.Name, requestedScope) {
+		// exact operation (except sensitive_path under full_access, which is
+		// explicitly unconstrained).
+		riskBlocked := in.Risk != "" && !(policy.Mode == w.ExecutionFullAccess && in.Risk == "sensitive_path")
+		if !needsDecision && !riskBlocked && s.insideProjectBoundary(in.Run, action, in.Name, requestedScope) {
 			decision.Allowed = true
 			return nil
 		}
@@ -582,6 +584,9 @@ func (s *Service) CheckToolAccess(ctx context.Context, in AccessRequest) (Access
 // symlink, a `..` segment or a sibling prefix cannot be mistaken for the
 // project tree.
 func (s *Service) insideProjectBoundary(run w.Run, action, name, scope string) bool {
+	if run.EffectiveExecutionMode == w.ExecutionFullAccess {
+		return true
+	}
 	root := normalizeRunRoot(run)
 	if root == "" && run.TaskDirectory == "" {
 		// No bound directory: there is no project tree to escape. Reads, network
@@ -595,8 +600,6 @@ func (s *Service) insideProjectBoundary(run w.Run, action, name, scope string) b
 		return false
 	}
 	switch run.EffectiveExecutionMode {
-	case w.ExecutionFullAccess:
-		return true
 	case w.ExecutionWorkspaceAutonomous:
 		switch action {
 		case "collaborate":

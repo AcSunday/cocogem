@@ -213,7 +213,16 @@ func readFileInternal(ctx context.Context, root, path string, start, end int, al
 
 // ListFiles lists one allowed directory without following symbolic links.
 func ListFiles(ctx context.Context, root, path string) ([]map[string]string, bool, error) {
-	r, local, err := openPath(root, path)
+	return listFilesInternal(ctx, root, path, false)
+}
+
+// ListFilesApproved lists a directory under an approved or full-access scope.
+func ListFilesApproved(ctx context.Context, root, path string) ([]map[string]string, bool, error) {
+	return listFilesInternal(ctx, root, path, true)
+}
+
+func listFilesInternal(ctx context.Context, root, path string, allowSensitive bool) ([]map[string]string, bool, error) {
+	r, local, err := openPathWithOptions(root, path, allowSensitive)
 	if err != nil {
 		return nil, false, err
 	}
@@ -236,7 +245,7 @@ func ListFiles(ctx context.Context, root, path string) ([]map[string]string, boo
 		if err := ctx.Err(); err != nil {
 			return nil, false, err
 		}
-		if e.Type()&os.ModeSymlink != 0 || DeniedPath(filepath.Join(local, e.Name())) {
+		if e.Type()&os.ModeSymlink != 0 || (!allowSensitive && DeniedPath(filepath.Join(local, e.Name()))) {
 			continue
 		}
 		kind := "file"
@@ -250,10 +259,19 @@ func ListFiles(ctx context.Context, root, path string) ([]map[string]string, boo
 
 // SearchContent performs literal text search with bounded scan size and results.
 func SearchContent(ctx context.Context, root, path, query string) ([]map[string]any, bool, error) {
+	return searchContentInternal(ctx, root, path, query, false)
+}
+
+// SearchContentApproved searches literal text under an approved or full-access scope.
+func SearchContentApproved(ctx context.Context, root, path, query string) ([]map[string]any, bool, error) {
+	return searchContentInternal(ctx, root, path, query, true)
+}
+
+func searchContentInternal(ctx context.Context, root, path, query string, allowSensitive bool) ([]map[string]any, bool, error) {
 	if query == "" || len(query) > 2000 {
 		return nil, false, errors.New("query must contain 1–2000 bytes")
 	}
-	r, local, err := openPath(root, path)
+	r, local, err := openPathWithOptions(root, path, allowSensitive)
 	if err != nil {
 		return nil, false, err
 	}
@@ -269,7 +287,7 @@ func SearchContent(ctx context.Context, root, path, query string) ([]map[string]
 		if walkErr != nil {
 			return walkErr
 		}
-		if DeniedPath(path) {
+		if !allowSensitive && DeniedPath(path) {
 			if e.IsDir() {
 				return fs.SkipDir
 			}

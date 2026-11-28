@@ -47,18 +47,18 @@ func (x *stepRuntime) nativeAuthorizer() func(context.Context, model.NativePermi
 			return model.NativePermissionDecision{Allow: false, Scope: model.NativeScopeDeny, Reason: "this step's role does not permit that operation"}, nil
 		}
 		scope := x.nativeScope(action, request.Resource, request.Input)
+		run := x.snapshotRun()
 		// The host, not the adapter, grades the target. A sensitive credential
-		// path is never auto-allowed and never gains a conversation grant; it
-		// needs one explicit high-risk approval for that exact call.
+		// path is never auto-allowed in autonomous mode and never gains a
+		// conversation grant; it needs one explicit high-risk approval.
 		risk := request.Risk
-		if risk == "" && tools.SensitivePath(scope) {
+		if risk == "" && run.EffectiveExecutionMode != w.ExecutionFullAccess && tools.SensitivePath(scope) {
 			risk = "sensitive_path"
 		}
 		arguments := request.Input
 		if len(arguments) == 0 {
 			arguments = []byte("null")
 		}
-		run := x.snapshotRun()
 		if x.workRoot != "" && x.workRoot != run.ProjectRoot() {
 			// Reviewer executes inside verify_dir; check boundaries against verify_dir
 			// instead of the author's candidate directory.
