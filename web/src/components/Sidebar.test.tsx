@@ -222,3 +222,42 @@ it("leaves a new empty conversation without a status badge", () => {
   expect(screen.queryByRole("status")).toBeNull();
   expect(screen.getByRole("button", { name: "新建会话" })).toBeInTheDocument();
 });
+
+it("places the new-conversation + control beside the conversation heading", () => {
+  render(sidebar());
+  const add = screen.getByRole("button", { name: "新建会话" });
+  expect(add).toHaveAttribute("title", "新建会话");
+  expect(add).toHaveAttribute("aria-label", "新建会话");
+  const heading = add.parentElement!;
+  expect(heading.className).toMatch(/_section-label_/);
+  expect(heading).toHaveTextContent("会话2");
+  expect(heading.querySelector("svg path")).toHaveAttribute(
+    "d",
+    "M12 5v14M5 12h14",
+  );
+  // The old labelled control is gone from the sidebar control block.
+  expect(add.closest('[class*="sidebar-controls"]')).toBeNull();
+});
+
+it("disables the new-conversation icon without a workspace", () => {
+  render(
+    <Sidebar
+      open
+      close={() => {}}
+      workspaces={[]}
+      workspaceID=""
+      threads={[]}
+      threadID=""
+      onWorkspace={() => {}}
+      onHome={() => {}}
+      onThread={() => {}}
+      onNewThread={() => {}}
+      onEditThread={onEditThread}
+      onRenameThread={onRenameThread}
+      onDeleteThread={onDeleteThread}
+      onCreateWorkspace={() => {}}
+      onEditWorkspace={() => {}}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "新建会话" })).toBeDisabled();
+});

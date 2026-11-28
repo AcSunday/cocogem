@@ -139,14 +139,6 @@ export function Sidebar({
             </option>
           ))}
         </Select>
-        <button
-          className={cx("new-thread")}
-          onClick={startThread}
-          disabled={!workspace}
-        >
-          <Icon name="discussion" size={16} />{" "}
-          {t("新建会话", "New conversation")}
-        </button>
       </div>
       <label className={cx("search")}>
         <Icon name="search" size={14} />
@@ -158,8 +150,20 @@ export function Sidebar({
         />
       </label>
       <div className={cx("section-label")}>
-        <span>{t("会话", "Conversations")}</span>
-        <span>{threads.length}</span>
+        <span className={cx("section-label-title")}>
+          {t("会话", "Conversations")}
+          <span className={cx("section-count")}>{threads.length}</span>
+        </span>
+        <button
+          type="button"
+          className={cx("section-add")}
+          aria-label={t("新建会话", "New conversation")}
+          title={t("新建会话", "New conversation")}
+          onClick={startThread}
+          disabled={!workspace}
+        >
+          <Icon name="plus" size={14} />
+        </button>
       </div>
       <nav
         className={cx("thread-list")}

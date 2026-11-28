@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   api,
@@ -153,6 +153,85 @@ export function TaskBoardPage({
     });
   }, [board]);
 
+  const {
+    questions,
+    tasks,
+    focused,
+    visible,
+    archived,
+    visibleIDs,
+  } = useMemo(() => {
+    const questions: Question[] = board?.needs_attention ?? [];
+    const tasks = board?.tasks ?? [];
+    const query = filters.query.trim().toLowerCase();
+    const filtered = tasks.filter((item) => {
+      if (
+        item.task.parent_id &&
+        !query &&
+        taskFocus(item, questions) !== "attention"
+      )
+        return false;
+      const search = `${taskTitle(item)} ${item.revision.goal}`.toLowerCase();
+      return (
+        (!filters.workspace || item.task.workspace_id === filters.workspace) &&
+        (!filters.owner || item.task.owner_member_id === filters.owner) &&
+        search.includes(query)
+      );
+    });
+    const focused = filtered.map((item) => ({
+      item,
+      meta: taskFocusMeta(item, questions),
+    }));
+    const visible = focused.filter(({ meta }) =>
+      filters.status
+        ? meta.focus === filters.status
+        : !["completed", "canceled"].includes(meta.focus),
+    );
+    const archived = focused.filter(
+      ({ meta }) => meta.focus === "completed" || meta.focus === "canceled",
+    );
+    const shownArchived = !filters.status && drawerOpen ? archived : [];
+    const visibleIDs = [
+      ...visible.map(({ item }) => item.task.id),
+      ...shownArchived.map(({ item }) => item.task.id),
+    ];
+    return { questions, tasks, focused, visible, archived, visibleIDs };
+  }, [board, filters, drawerOpen]);
+
+  const visibleIDSet = useMemo(() => new Set(visibleIDs), [visibleIDs]);
+  const activeSelecting = selecting && visibleIDs.length > 0;
+  const activeSelected = useMemo(
+    () => new Set([...selected].filter((id) => visibleIDSet.has(id))),
+    [selected, visibleIDSet],
+  );
+  const activeConfirming =
+    confirming &&
+    activeSelecting &&
+    activeSelected.size > 0 &&
+    activeSelected.size === selected.size;
+
+  // Keep multi-select consistent when polling, drawer collapse, or filters
+  // remove selected tasks so an empty board never hides the header create CTA.
+  useEffect(() => {
+    if (!board || !selecting) return;
+    if (visibleIDSet.size === 0) {
+      setSelecting(false);
+      setConfirming(false);
+      if (selected.size) setSelected(new Set());
+      return;
+    }
+    if (activeSelected.size !== selected.size) {
+      setSelected(activeSelected);
+      setConfirming(false);
+    }
+  }, [board, selecting, selected, visibleIDSet, activeSelected]);
+
+  useEffect(() => {
+    if (board && drawerOpen && archived.length === 0) {
+      setDrawerOpen(false);
+    }
+  }, [board, drawerOpen, archived.length]);
+
   const update = (patch: Partial<Filters>) => {
     if (selecting) {
       setSelecting(false);
@@ -182,7 +261,7 @@ export function TaskBoardPage({
     });
   };
   const deleteSelected = async () => {
-    const ids = [...selected];
+    const ids = [...activeSelected];
     if (!ids.length) return;
     const result = await api<TaskDeletion>("/api/v1/tasks/delete", "POST", {
       task_ids: ids,
@@ -336,9 +415,6 @@ export function TaskBoardPage({
       </div>
     );
 
-  const questions: Question[] = board.needs_attention ?? [];
-  const tasks = board.tasks ?? [];
-  const query = filters.query.trim().toLowerCase();
   const childCount = (id: string) =>
     tasks.filter((item) => item.task.parent_id === id).length;
   const childrenDone = (id: string) =>
@@ -352,27 +428,8 @@ export function TaskBoardPage({
   const needsAttention = (item: ProjectTaskView) =>
     taskFocus(item, questions) === "attention";
 
-  const filtered = tasks.filter((item) => {
-    if (item.task.parent_id && !query && !needsAttention(item)) return false;
-    const search = `${taskTitle(item)} ${item.revision.goal}`.toLowerCase();
-    return (
-      (!filters.workspace || item.task.workspace_id === filters.workspace) &&
-      (!filters.owner || item.task.owner_member_id === filters.owner) &&
-      search.includes(query)
-    );
-  });
-  const focused = filtered.map((item) => ({
-    item,
-    meta: taskFocusMeta(item, questions),
-  }));
-  const visible = focused.filter(({ meta }) =>
-    filters.status
-      ? meta.focus === filters.status
-      : !["completed", "canceled"].includes(meta.focus),
-  );
-  const visibleIDs = visible.map(({ item }) => item.task.id);
   const allSelected =
-    visibleIDs.length > 0 && visibleIDs.every((id) => selected.has(id));
+    visibleIDs.length > 0 && visibleIDs.every((id) => activeSelected.has(id));
   const groupIDs: TaskFocus[] = filters.status
     ? [filters.status]
     : ["attention", "running", "waiting", "review"];
@@ -404,16 +461,17 @@ export function TaskBoardPage({
     },
     { attention: 0, running: 0, review: 0 },
   );
-  const archivedCount = filtered.filter((item) => {
-    const focus = taskFocus(item, questions);
-    return focus === "completed" || focus === "canceled";
-  }).length;
+  const archivedCount = archived.length;
+  const toggleDrawer = () => setDrawerOpen((current) => !current);
   const filtering = !!(
     filters.query ||
     filters.workspace ||
     filters.owner ||
     filters.status
   );
+  // An unfiltered list can still be empty while archived tasks exist; that is
+  // not "no tasks yet" and must not point at an action the header may hide.
+  const archivedOnly = !filtering && tasks.length > 0 && visible.length === 0;
 
   const boardRows = focused
     .filter(({ meta }) => !filters.status || meta.focus === filters.status)
@@ -445,11 +503,13 @@ export function TaskBoardPage({
           meta.tone === "failed" && "task-focus-row-failed",
           ["waiting", "review", "completed", "canceled"].includes(meta.focus) &&
             "task-focus-row-quiet",
-          selecting && "task-focus-row-selecting",
-          selecting && selected.has(item.task.id) && "task-focus-row-selected",
+          activeSelecting && "task-focus-row-selecting",
+          activeSelecting &&
+            activeSelected.has(item.task.id) &&
+            "task-focus-row-selected",
         )}
         onClick={(event) => {
-          if (selecting) {
+          if (activeSelecting) {
             if ((event.target as Element).closest("input, button")) return;
             toggleSelected(item.task.id);
             return;
@@ -464,11 +524,11 @@ export function TaskBoardPage({
         />
         <div className={cx("task-focus-main")}>
           <div className={cx("task-focus-titleline")}>
-            {selecting && (
+            {activeSelecting && (
               <input
                 type="checkbox"
                 className={cx("task-focus-select")}
-                checked={selected.has(item.task.id)}
+                checked={activeSelected.has(item.task.id)}
                 onChange={() => toggleSelected(item.task.id)}
                 onClick={(event) => event.stopPropagation()}
                 aria-label={t(
@@ -481,7 +541,7 @@ export function TaskBoardPage({
               type="button"
               className={cx("task-focus-title")}
               onClick={(event) => {
-                if (selecting) {
+                if (activeSelecting) {
                   event.stopPropagation();
                   toggleSelected(item.task.id);
                   return;
@@ -728,7 +788,7 @@ export function TaskBoardPage({
           )}
         </div>
         <div className={cx("task-focus-head-actions")}>
-          {selecting ? (
+          {activeSelecting ? (
             <button
               type="button"
               className={cx("ghost", "small", "task-head-control")}
@@ -738,7 +798,7 @@ export function TaskBoardPage({
             </button>
           ) : (
             <>
-              {tasks.length > 0 && filters.view === "list" && (
+              {visibleIDs.length > 0 && filters.view === "list" && (
                 <button
                   type="button"
                   className={cx(
@@ -809,14 +869,14 @@ export function TaskBoardPage({
         />
       </div>
 
-      {selecting && filters.view === "list" && (
+      {activeSelecting && filters.view === "list" && (
         <div
           className={cx("task-select-bar")}
           role="group"
           aria-label={t("任务选择", "Task selection")}
         >
           <span className={cx("task-select-count")}>
-            {t(`已选 ${selected.size} 项`, `${selected.size} selected`)}
+            {t(`已选 ${activeSelected.size} 项`, `${activeSelected.size} selected`)}
           </span>
           <div className={cx("task-select-actions")}>
             <button
@@ -834,7 +894,7 @@ export function TaskBoardPage({
             <button
               type="button"
               className={cx("small", "ghost")}
-              disabled={!selected.size}
+              disabled={!activeSelected.size}
               onClick={() => setSelected(new Set())}
             >
               {t("清除", "Clear")}
@@ -842,7 +902,7 @@ export function TaskBoardPage({
             <button
               type="button"
               className={cx("danger", "small")}
-              disabled={!selected.size}
+              disabled={!activeSelected.size}
               onClick={() => {
                 setNotice("");
                 setConfirming(true);
@@ -908,9 +968,17 @@ export function TaskBoardPage({
                 ? t("还没有已验收的任务。", "No accepted tasks yet.")
                 : filtering
                   ? t("没有匹配的任务。", "No matching tasks.")
-                  : t("还没有任务。", "No tasks yet.")}
+                  : archivedOnly
+                    ? t(
+                        "当前没有待推进的任务，已归档的任务可在下方查看。",
+                        "Nothing in progress right now. Archived tasks are listed below.",
+                      )
+                    : t(
+                        "还没有任务，用右上角的「新建任务」创建第一个任务。",
+                        "No tasks yet. Use New task in the top right to create your first task.",
+                      )}
             </strong>
-            {filtering ? (
+            {filtering && (
               <button
                 type="button"
                 className={cx("small")}
@@ -919,14 +987,6 @@ export function TaskBoardPage({
                 }
               >
                 {t("清除筛选", "Clear filters")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={cx("small", "primary")}
-                onClick={() => setCreating(true)}
-              >
-                {t("新建任务", "New task")}
               </button>
             )}
           </div>
@@ -972,7 +1032,7 @@ export function TaskBoardPage({
             type="button"
             className={cx("small", "ghost")}
             aria-expanded={drawerOpen}
-            onClick={() => setDrawerOpen((current) => !current)}
+            onClick={toggleDrawer}
           >
             {t(
               `已归档 ${archivedCount} 项`,
@@ -985,12 +1045,7 @@ export function TaskBoardPage({
               className={cx("task-focus-drawer")}
               aria-label={t("已归档任务", "Archived tasks")}
             >
-              {focused
-                .filter(
-                  ({ meta }) =>
-                    meta.focus === "completed" || meta.focus === "canceled",
-                )
-                .map(({ item }) => row(item))}
+              {archived.map(({ item }) => row(item))}
             </div>
           )}
         </div>
@@ -1014,7 +1069,7 @@ export function TaskBoardPage({
         </Modal>
       )}
 
-      {confirming && (
+      {activeConfirming && (
         <ConfirmDialog
           title={t("确认永久删除任务", "Confirm Permanent Task Deletion")}
           action={t("永久删除", "Delete permanently")}
@@ -1023,8 +1078,8 @@ export function TaskBoardPage({
         >
           <p>
             {t(
-              `将永久删除选中的 ${selected.size} 个任务及其子任务、关联会话、执行记录和成果。此操作无法恢复。`,
-              `Permanently delete ${selected.size} selected task(s), along with their subtasks, linked conversations, run records, and deliverables? This action cannot be undone.`,
+              `将永久删除选中的 ${activeSelected.size} 个任务及其子任务、关联会话、执行记录和成果。此操作无法恢复。`,
+              `Permanently delete ${activeSelected.size} selected task(s), along with their subtasks, linked conversations, run records, and deliverables? This action cannot be undone.`,
             )}
           </p>
         </ConfirmDialog>

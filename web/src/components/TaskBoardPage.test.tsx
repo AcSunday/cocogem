@@ -528,3 +528,195 @@ it("keeps a long card title complete and available to assistive tech", async () 
   expect(open).toHaveTextContent(title);
   expect(open).toHaveAttribute("title", title);
 });
+
+it("keeps only the header new-task action when the board has no tasks", async () => {
+  request.mockResolvedValue({
+    tasks: [],
+    workspaces: {},
+    needs_attention: [],
+  } satisfies TaskBoard);
+  render(<TaskBoardPage onOpenTask={() => {}} />);
+  await screen.findByRole("heading", { name: "任务清单" });
+  const create = screen.getAllByRole("button", { name: /新建任务/ });
+  expect(create).toHaveLength(1);
+  expect(create[0].className).toMatch(/_task-head-control_/);
+  expect(
+    screen.getByText("还没有任务，用右上角的「新建任务」创建第一个任务。"),
+  ).toBeVisible();
+});
+
+it("offers only filter recovery when a filter matches nothing", async () => {
+  request.mockResolvedValue({
+    tasks: [task("订单幂等", "orders", "active", "running")],
+    workspaces: { orders: "订单系统" },
+    needs_attention: [],
+  } satisfies TaskBoard);
+  const user = userEvent.setup();
+  render(<TaskBoardPage onOpenTask={() => {}} />);
+  await screen.findByRole("heading", { name: "任务清单" });
+  await user.type(screen.getByLabelText("搜索任务"), "不存在的任务");
+  await waitFor(() => expect(screen.getByText("没有匹配的任务。")).toBeVisible());
+  expect(screen.getAllByRole("button", { name: /新建任务/ })).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "清除筛选" })).toBeVisible();
+});
+
+it("describes an archived-only list without pointing at a missing action", async () => {
+  const archived = task("已经验收", "orders", "completed", "succeeded");
+  request.mockResolvedValue({
+    tasks: [archived],
+    workspaces: { orders: "订单系统" },
+    needs_attention: [],
+  } satisfies TaskBoard);
+  const user = userEvent.setup();
+  render(<TaskBoardPage onOpenTask={() => {}} />);
+  await screen.findByRole("heading", { name: "任务清单" });
+
+  const footer = screen.getByRole("button", { name: /已归档 1 项/ });
+  expect(footer).toBeVisible();
+  // One archived task is not an empty board: the copy describes this list and
+  // never points at a control that does not exist here.
+  expect(screen.queryByText(/创建第一个任务/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/用右上角的/)).not.toBeInTheDocument();
+  expect(
+    screen.getByText("当前没有待推进的任务，已归档的任务可在下方查看。"),
+  ).toBeVisible();
+  // Nothing is selectable, so the selection entry must not open a dead mode.
+  expect(screen.queryByRole("button", { name: "选择" })).not.toBeInTheDocument();
+  const create = screen.getAllByRole("button", { name: /新建任务/ });
+  expect(create).toHaveLength(1);
+  expect(create[0].className).toMatch(/_task-head-control_/);
+
+  await user.click(footer);
+  expect(
+    await screen.findByRole("button", { name: /已经验收/ }),
+  ).toBeInTheDocument();
+
+  const selectButton = screen.getByRole("button", { name: "选择" });
+  expect(selectButton).toBeVisible();
+  await user.click(selectButton);
+  await user.click(screen.getByRole("checkbox", { name: "选择任务：已经验收" }));
+  expect(screen.getByText("已选 1 项")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: /已归档 1 项/ }));
+  expect(screen.queryByText("已选 1 项")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "选择" })).not.toBeInTheDocument();
+});
+
+it("exits selection mode and restores new-task action when polling removes the last visible task", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    request.mockResolvedValue({
+      tasks: [task("唯一任务", "orders", "active", "running")],
+      workspaces: { orders: "订单系统" },
+      needs_attention: [],
+    } satisfies TaskBoard);
+    const user = userEvent.setup();
+    render(<TaskBoardPage onOpenTask={() => {}} />);
+    await screen.findByRole("heading", { name: "任务清单" });
+
+    await user.click(screen.getByRole("button", { name: "选择" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择任务：唯一任务" }));
+    expect(screen.getByText("已选 1 项")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "永久删除所选" }));
+    expect(
+      screen.getByRole("heading", { name: "确认永久删除任务" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /新建任务/ }),
+    ).not.toBeInTheDocument();
+
+    request.mockResolvedValue({
+      tasks: [],
+      workspaces: { orders: "订单系统" },
+      needs_attention: [],
+    } satisfies TaskBoard);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("还没有任务，用右上角的「新建任务」创建第一个任务。"),
+      ).toBeVisible(),
+    );
+    expect(screen.queryByText(/已选 \d+ 项/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: "任务选择" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "确认永久删除任务" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "退出选择" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "选择" })).not.toBeInTheDocument();
+    const create = screen.getAllByRole("button", { name: /新建任务/ });
+    expect(create).toHaveLength(1);
+    expect(create[0].className).toMatch(/_task-head-control_/);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("drops disappeared tasks from selection and closes stale confirmation on polling", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const first = task("任务甲", "orders", "active", "running");
+    const second = task("任务乙", "orders", "waiting");
+    request.mockResolvedValue({
+      tasks: [first, second],
+      workspaces: { orders: "订单系统" },
+      needs_attention: [],
+    } satisfies TaskBoard);
+    const user = userEvent.setup();
+    render(<TaskBoardPage onOpenTask={() => {}} />);
+    await screen.findByRole("heading", { name: "任务清单" });
+
+    await user.click(screen.getByRole("button", { name: "选择" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择任务：任务甲" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择任务：任务乙" }));
+    expect(screen.getByText("已选 2 项")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "永久删除所选" }));
+    expect(
+      screen.getByRole("heading", { name: "确认永久删除任务" }),
+    ).toBeVisible();
+
+    request.mockResolvedValue({
+      tasks: [second],
+      workspaces: { orders: "订单系统" },
+      needs_attention: [],
+    } satisfies TaskBoard);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await waitFor(() => expect(screen.getByText("已选 1 项")).toBeVisible());
+    expect(
+      screen.queryByRole("heading", { name: "确认永久删除任务" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "选择任务：任务乙" }),
+    ).toBeChecked();
+
+    request.mockResolvedValue({
+      tasks: [second, task("任务丙", "orders", "waiting")],
+      workspaces: { orders: "订单系统" },
+      needs_attention: [],
+    } satisfies TaskBoard);
+    await vi.advanceTimersByTimeAsync(5000);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("checkbox", { name: "选择任务：任务丙" }),
+      ).toBeVisible(),
+    );
+    expect(screen.getByText("已选 1 项")).toBeVisible();
+
+    request.mockResolvedValue({
+      tasks: [task("任务丙", "orders", "waiting")],
+      workspaces: { orders: "订单系统" },
+      needs_attention: [],
+    } satisfies TaskBoard);
+    await vi.advanceTimersByTimeAsync(5000);
+    await waitFor(() => expect(screen.getByText("已选 0 项")).toBeVisible());
+    expect(screen.getByRole("button", { name: "退出选择" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "永久删除所选" })).toBeDisabled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
