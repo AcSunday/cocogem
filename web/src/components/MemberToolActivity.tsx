@@ -1,5 +1,11 @@
 import { useState, type ReactNode } from "react";
-import type { Agent } from "../api/client";
+import { sourceOriginalImageURL, type Agent, type Source } from "../api/client";
+import {
+  isImageMediaOrPath,
+  parseFileRef,
+  type FileRef,
+  type ImagePreview,
+} from "../lib/fileRefs";
 import { t, useLanguage } from "../lib/i18n";
 import {
   activityDecisionKey,
@@ -144,41 +150,160 @@ function formattedInput(activity: ToolActivity): string {
   }
 }
 
+const EDIT_OR_DIFF_TOOLS = new Set([
+  "write_file",
+  "patch_file",
+  "edit_file",
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "fileChange",
+  "git_inspect",
+]);
+
+function toolActivityFileRef(activity: ToolActivity): FileRef | null {
+  const input =
+    activity.input && typeof activity.input === "object"
+      ? (activity.input as Record<string, unknown>)
+      : undefined;
+  const rawPath =
+    (typeof input?.path === "string" && input.path) ||
+    (typeof input?.file_path === "string" && input.file_path) ||
+    (typeof input?.target_file === "string" && input.target_file) ||
+    activity.target;
+  if (!rawPath) return null;
+  const parsed = parseFileRef(rawPath);
+  if (!parsed) return null;
+  const startLine =
+    typeof input?.start_line === "number" && input.start_line > 0
+      ? input.start_line
+      : parsed.startLine;
+  const endLine =
+    typeof input?.end_line === "number" && input.end_line > 0
+      ? input.end_line
+      : parsed.endLine;
+  return {
+    path: parsed.path,
+    ...(startLine ? { startLine } : {}),
+    ...(endLine ? { endLine } : {}),
+    tab: EDIT_OR_DIFF_TOOLS.has(activity.name) ? "diff" : "file",
+  };
+}
+
+function toolActivityImagePreview(
+  activity: ToolActivity,
+  sources?: Source[],
+): ImagePreview | null {
+  if (
+    activity.name !== "preview_page" &&
+    activity.name !== "view_image" &&
+    activity.name !== "publish_file" &&
+    !isImageMediaOrPath(activity.target)
+  ) {
+    return null;
+  }
+  if (sources?.length) {
+    const matched = [...sources]
+      .reverse()
+      .find((src) => {
+        if (!isImageMediaOrPath(src.media_type || src.path || src.title, src.kind)) {
+          return false;
+        }
+        if (src.capture_step_id && src.capture_step_id === activity.stepID) {
+          return true;
+        }
+        return Boolean(
+          activity.target &&
+            (src.path === activity.target ||
+              src.title === activity.target ||
+              src.url === activity.target),
+        );
+      });
+    if (matched) {
+      const url = sourceOriginalImageURL(matched.id);
+      return {
+        src: url,
+        title: matched.title || matched.path || activity.label,
+        downloadUrl: url,
+        sourceId: matched.id,
+        path: matched.path,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * Individual tool call row inside the chronological execution trace. Collapsed
  * by default so active thinking and step progression stay scannable; clicking
  * reveals full arguments and tool output.
  */
-function ToolStepItem({ activity }: { activity: ToolActivity }) {
+function ToolStepItem({
+  activity,
+  sources,
+  onOpenFile,
+  onOpenImage,
+}: {
+  activity: ToolActivity;
+  sources?: Source[];
+  onOpenFile?: (ref: FileRef) => void;
+  onOpenImage?: (preview: ImagePreview) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const inputText = expanded ? formattedInput(activity) : "";
+  const fileRef = onOpenFile ? toolActivityFileRef(activity) : null;
+  const imagePreview = onOpenImage
+    ? toolActivityImagePreview(activity, sources)
+    : null;
   const hasDetails =
     Boolean(inputText) ||
     Boolean(activity.output) ||
     activity.status === "unknown";
   return (
     <div className={styles.toolStep} data-tool-status={activity.status}>
-      <button
-        type="button"
-        className={styles.toolToggle}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        <span className={styles.toolChevron} aria-hidden="true">
-          <Icon name="chevron" size={11} />
-        </span>
-        <span className={styles.itemName}>
-          {activity.label}
-          {activity.target ? ` · ${activity.target}` : ""}
-        </span>
-        <StatusText status={activity.status} />
-        {activity.durationMs !== undefined && (
-          <span className={styles.duration}>{activity.durationMs} ms</span>
+      <div className={styles.toolRow}>
+        <button
+          type="button"
+          className={styles.toolToggle}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <span className={styles.toolChevron} aria-hidden="true">
+            <Icon name="chevron" size={11} />
+          </span>
+          <span className={styles.itemName}>
+            {activity.label}
+            {activity.target ? ` · ${activity.target}` : ""}
+          </span>
+          <StatusText status={activity.status} />
+          {activity.durationMs !== undefined && (
+            <span className={styles.duration}>{activity.durationMs} ms</span>
+          )}
+          {activity.exitCode !== undefined && (
+            <span className={styles.exit}>exit {activity.exitCode}</span>
+          )}
+        </button>
+        {imagePreview && onOpenImage && (
+          <button
+            type="button"
+            className={styles.toolAction}
+            onClick={() => onOpenImage(imagePreview)}
+          >
+            {t("查看截图", "Image")}
+          </button>
         )}
-        {activity.exitCode !== undefined && (
-          <span className={styles.exit}>exit {activity.exitCode}</span>
+        {fileRef && onOpenFile && (
+          <button
+            type="button"
+            className={styles.toolAction}
+            onClick={() => onOpenFile(fileRef)}
+          >
+            {fileRef.tab === "diff"
+              ? t("Diff", "Diff")
+              : t("查看文件", "Open")}
+          </button>
         )}
-      </button>
+      </div>
       {expanded && (
         <div className={styles.toolDetail}>
           {inputText && (
@@ -265,6 +390,9 @@ export function ToolActivityBlock({
   group,
   active = false,
   showNarration = true,
+  sources,
+  onOpenFile,
+  onOpenImage,
   onHistory,
 }: {
   group: ToolActivityGroup;
@@ -272,6 +400,9 @@ export function ToolActivityBlock({
   active?: boolean;
   /** Include pre-tool narration inside the process timeline when split from the final result. */
   showNarration?: boolean;
+  sources?: Source[];
+  onOpenFile?: (ref: FileRef) => void;
+  onOpenImage?: (preview: ImagePreview) => void;
   onHistory?: (activity: ToolActivity) => void;
 }) {
   useLanguage();
@@ -366,7 +497,12 @@ export function ToolActivityBlock({
               ) : step.kind === "narration" ? (
                 <NarrationStepItem step={step} />
               ) : (
-                <ToolStepItem activity={step.activity} />
+                <ToolStepItem
+                  activity={step.activity}
+                  sources={sources}
+                  onOpenFile={onOpenFile}
+                  onOpenImage={onOpenImage}
+                />
               )}
             </li>
           ))}
@@ -385,12 +521,18 @@ export function MemberToolActivity({
   groups,
   agents = [],
   activeStepIDs,
+  sources,
+  onOpenFile,
+  onOpenImage,
   onHistory,
   showMember = true,
 }: {
   groups: ToolActivityGroup[];
   agents?: Agent[];
   activeStepIDs?: Set<string>;
+  sources?: Source[];
+  onOpenFile?: (ref: FileRef) => void;
+  onOpenImage?: (preview: ImagePreview) => void;
   onHistory?: (activity: ToolActivity) => void;
   showMember?: boolean;
 }) {
@@ -422,6 +564,9 @@ export function MemberToolActivity({
             <ToolActivityBlock
               group={group}
               active={isActive}
+              sources={sources}
+              onOpenFile={onOpenFile}
+              onOpenImage={onOpenImage}
               onHistory={onHistory}
             />
           </section>

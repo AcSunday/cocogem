@@ -287,6 +287,9 @@ func (s *Service) YieldRun(ctx context.Context, runID, predicate, cursor, source
 		if err := tx.SaveStep(currentStep); err != nil {
 			return err
 		}
+		if err := tx.AppendEvent(run.ID, currentStep.ID, currentStep.AgentID, "step_finished", currentStep); err != nil {
+			return err
+		}
 		attempts, err := tx.StepAttempts(currentStep.ID)
 		if err != nil {
 			return err
@@ -301,6 +304,9 @@ func (s *Service) YieldRun(ctx context.Context, runID, predicate, cursor, source
 			if err := tx.SaveAttempt(attempt); err != nil {
 				return err
 			}
+			if err := tx.AppendEvent(run.ID, attempt.StepID, "", "attempt_finished", attempt); err != nil {
+				return err
+			}
 		}
 		messages, err := tx.Messages(run.ThreadID)
 		if err != nil {
@@ -310,6 +316,9 @@ func (s *Service) YieldRun(ctx context.Context, runID, predicate, cursor, source
 			if message.RunID == run.ID && message.Status == "processing" {
 				message.Status = "yielded"
 				if err := tx.SaveMessage(message); err != nil {
+					return err
+				}
+				if err := tx.AppendEvent(run.ID, message.StepID, message.AgentID, "message_finished", message); err != nil {
 					return err
 				}
 			}
@@ -332,6 +341,14 @@ func (s *Service) YieldRun(ctx context.Context, runID, predicate, cursor, source
 		task.WaitingReason = "external"
 		if source == "question" {
 			task.WaitingReason = "question"
+			if q, qErr := tx.Question(eventID); qErr == nil {
+				if err := tx.AppendEvent(run.ID, currentStep.ID, currentStep.AgentID, "question_opened", q); err != nil {
+					return err
+				}
+			}
+		}
+		if err := tx.AppendEvent(run.ID, "", "", "run_finished", run); err != nil {
+			return err
 		}
 		task.CurrentRunID = ""
 		task.UpdatedAt = now

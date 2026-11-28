@@ -4,6 +4,15 @@ import { createPortal } from "react-dom";
 import type { Parent, Root, RootContent, Text } from "mdast";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { Source } from "../api/client";
+import {
+  parseFileRef,
+  resolveMarkdownImageSrc,
+  splitTextFileRefs,
+  type FileRef,
+  type ImagePreview,
+} from "../lib/fileRefs";
+import { t } from "../lib/i18n";
 import { Avatar } from "./Avatar";
 import { scoped } from "../styles/classes";
 import controls from "../styles/controls.module.css";
@@ -21,6 +30,7 @@ export type MentionMember = {
 };
 
 const MENTION_PREFIX = "#cocogem-mention-";
+const FILE_PREFIX = "#cocogem-file-";
 const CARD_GAP = 6;
 const VIEW_MARGIN = 8;
 const SKIP_PARENTS = new Set([
@@ -91,17 +101,44 @@ function splitText(
   return pieces;
 }
 
+function pushTextWithFileRefs(
+  value: string,
+  enableFileLinks: boolean,
+  out: RootContent[],
+) {
+  if (!enableFileLinks) {
+    out.push({ type: "text", value } as Text);
+    return;
+  }
+  for (const segment of splitTextFileRefs(value)) {
+    if (segment.kind === "text") {
+      out.push({ type: "text", value: segment.value } as Text);
+      continue;
+    }
+    out.push({
+      type: "link",
+      url: `${FILE_PREFIX}${encodeURIComponent(segment.value)}`,
+      children: [{ type: "text", value: segment.value }],
+    } as unknown as RootContent);
+  }
+}
+
 function rewrite(
   parent: Parent,
-  matcher: RegExp,
+  matcher: RegExp | null,
   byName: Map<string, Entry>,
+  enableFileLinks: boolean,
 ) {
   const children: RootContent[] = [];
   for (const child of parent.children as RootContent[]) {
     if (child.type === "text") {
+      if (!matcher) {
+        pushTextWithFileRefs(child.value, enableFileLinks, children);
+        continue;
+      }
       for (const piece of splitText(child.value, matcher, byName)) {
         if ("text" in piece) {
-          children.push({ type: "text", value: piece.text } as Text);
+          pushTextWithFileRefs(piece.text, enableFileLinks, children);
           continue;
         }
         const id = encodeURIComponent(piece.mention.agent.id);
@@ -114,7 +151,7 @@ function rewrite(
       continue;
     }
     if (!SKIP_PARENTS.has(child.type) && "children" in child)
-      rewrite(child as Parent, matcher, byName);
+      rewrite(child as Parent, matcher, byName, enableFileLinks);
     children.push(child);
   }
   parent.children = children as Parent["children"];
@@ -216,9 +253,17 @@ function Mention({
 export function Markdown({
   text,
   members = [],
+  threadID,
+  sources,
+  onOpenFile,
+  onOpenImage,
 }: {
   text: string;
   members?: MentionMember[];
+  threadID?: string;
+  sources?: Source[];
+  onOpenFile?: (ref: FileRef) => void;
+  onOpenImage?: (preview: ImagePreview) => void;
 }) {
   const entries = useMemo(() => entriesFor(members), [members]);
   const matcher = useMemo(() => matcherFor(entries), [entries]);
@@ -230,12 +275,13 @@ export function Markdown({
     () => new Map(members.map((member) => [member.id, member])),
     [members],
   );
+  const enableFileLinks = Boolean(onOpenFile);
   const plugin = useMemo(
     () => () => (tree: Root) => {
-      if (!matcher) return;
-      rewrite(tree, matcher, byName);
+      if (!matcher && !enableFileLinks) return;
+      rewrite(tree, matcher ?? null, byName, enableFileLinks);
     },
-    [matcher, byName],
+    [matcher, byName, enableFileLinks],
   );
   const components: Components = {
     a: ({ href, title, children }) => {
@@ -251,6 +297,48 @@ export function Markdown({
         const agent = byId.get(id);
         if (agent) return <Mention agent={agent}>{children}</Mention>;
       }
+      if (href?.startsWith(FILE_PREFIX) && onOpenFile) {
+        let raw: string;
+        try {
+          raw = decodeURIComponent(href.slice(FILE_PREFIX.length));
+        } catch {
+          raw = href.slice(FILE_PREFIX.length);
+        }
+        const ref = parseFileRef(raw);
+        if (ref) {
+          return (
+            <button
+              type="button"
+              className={cx("inline-file-link")}
+              title={t("点击查看文件、指定行或 Diff", "Inspect file, lines or diff")}
+              onClick={() => onOpenFile(ref)}
+            >
+              {children}
+            </button>
+          );
+        }
+      }
+      if (href && onOpenFile) {
+        const ref = parseFileRef(
+          href,
+          typeof children === "string" ? children : undefined,
+        );
+        if (ref) {
+          return (
+            <a
+              href={href}
+              title={title || t("点击查看文件、指定行或 Diff", "Inspect file, lines or diff")}
+              className={cx("inline-file-link")}
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenFile(ref);
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
+      }
       return (
         <a
           href={href}
@@ -262,12 +350,69 @@ export function Markdown({
         </a>
       );
     },
+    code: ({ className, children }) => {
+      const textValue = typeof children === "string" ? children : "";
+      const isBlock = Boolean(className) || textValue.includes("\n");
+      if (!isBlock && textValue && onOpenFile) {
+        const ref = parseFileRef(textValue);
+        if (ref) {
+          return (
+            <button
+              type="button"
+              className={cx("inline-file-link", "inline-file-code")}
+              title={t("点击查看文件、指定行或 Diff", "Inspect file, lines or diff")}
+              onClick={() => onOpenFile(ref)}
+            >
+              <code>{children}</code>
+            </button>
+          );
+        }
+      }
+      return <code className={className}>{children}</code>;
+    },
+    img: ({ src, alt, title }) => {
+      const resolved = resolveMarkdownImageSrc(src, threadID, sources);
+      if (!resolved) {
+        return <span>{alt || ""}</span>;
+      }
+      const preview: ImagePreview = {
+        src: resolved.src,
+        title: alt || title || resolved.cleanPath || t("图片预览", "Image preview"),
+        downloadUrl: resolved.src,
+        sourceId: resolved.matchedSource?.id,
+        path: resolved.cleanPath,
+      };
+      if (onOpenImage) {
+        return (
+          <button
+            type="button"
+            className={cx("md-image-thumb")}
+            title={t("点击查看大图", "Click to view full image")}
+            onClick={() => onOpenImage(preview)}
+          >
+            <img src={resolved.src} alt={alt || ""} loading="lazy" />
+          </button>
+        );
+      }
+      return (
+        <img
+          src={resolved.src}
+          alt={alt || ""}
+          title={title}
+          className={cx("md-image-inline")}
+          loading="lazy"
+        />
+      );
+    },
     pre: (props) => <pre tabIndex={0}>{props.children}</pre>,
   };
   return (
     <div className={cx("markdown")}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, plugin]}
+        urlTransform={(url) =>
+          /^(?:javascript|vbscript):/i.test(url.trim()) ? "" : url
+        }
         components={components}
       >
         {text}

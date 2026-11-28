@@ -20,6 +20,7 @@ export type System = components["schemas"]["SystemInfo"];
 export type ModelOptions = components["schemas"]["ModelOptions"];
 export type Routing = components["schemas"]["Routing"];
 export type ThreadView = components["schemas"]["ThreadView"];
+export type ThreadFileView = components["schemas"]["ThreadFileView"];
 export type RunView = components["schemas"]["RunView"];
 export type MessageContentPage = components["schemas"]["MessageContentPage"];
 export type EventPage = components["schemas"]["EventPage"];
@@ -430,7 +431,9 @@ export async function api<T>(
   return result as T;
 }
 export const terminal = (status: string) =>
-  ["succeeded", "failed", "canceled", "interrupted"].includes(status);
+  ["succeeded", "failed", "canceled", "interrupted", "yielded"].includes(
+    status,
+  );
 const statusTextZh: Record<string, string> = {
   queued: "排队中",
   running: "执行中",
@@ -439,6 +442,7 @@ const statusTextZh: Record<string, string> = {
   failed: "失败",
   canceled: "已停止",
   interrupted: "运行已中断",
+  yielded: "等待确认",
   completed: "已完成",
   processing: "生成中",
   pending: "等待上游",
@@ -458,6 +462,7 @@ const statusTextEn: Record<string, string> = {
   failed: "Failed",
   canceled: "Stopped",
   interrupted: "Interrupted",
+  yielded: "Awaiting confirmation",
   completed: "Completed",
   processing: "Generating",
   pending: "Waiting for upstream",
@@ -687,4 +692,30 @@ export function workspaceStudio(workspaceID: string): Promise<StudioSnapshot> {
   return api<StudioSnapshot>(
     `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/studio`,
   );
+}
+
+/** Reads a file, highlighted line range, or unified diff in one thread. */
+export function threadFile(
+  threadID: string,
+  path: string,
+  startLine?: number,
+  endLine?: number,
+): Promise<ThreadFileView> {
+  const query = new URLSearchParams({ path });
+  if (startLine && startLine > 0) query.set("start_line", String(startLine));
+  if (endLine && endLine > 0) query.set("end_line", String(endLine));
+  return api<ThreadFileView>(
+    `/api/v1/threads/${encodeURIComponent(threadID)}/file?${query}`,
+  );
+}
+
+/** URL for streaming an image or raw asset attached to a thread path. */
+export function threadFileRawURL(threadID: string, path: string): string {
+  const query = new URLSearchParams({ path });
+  return `/api/v1/threads/${encodeURIComponent(threadID)}/file/raw?${query}`;
+}
+
+/** URL for inline rendering of a captured image source. */
+export function sourceOriginalImageURL(sourceID: string): string {
+  return `/api/v1/sources/${encodeURIComponent(sourceID)}/original?inline=1`;
 }

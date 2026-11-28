@@ -24,6 +24,11 @@ import {
   splitProcessReply,
   type ToolActivity,
 } from "../lib/toolActivity";
+import {
+  isImageMediaOrPath,
+  type FileRef,
+  type ImagePreview,
+} from "../lib/fileRefs";
 import { t, useLanguage } from "../lib/i18n";
 import type { RetryRef } from "../lib/retry";
 import {
@@ -373,6 +378,8 @@ export function RunSegment({
   onRefresh,
   onSource,
   onArtifact,
+  onOpenFile,
+  onOpenImage,
   permissionSlot,
 }: {
   run: Run;
@@ -396,6 +403,8 @@ export function RunSegment({
   onRefresh?: () => void;
   onSource?: (id: string) => void;
   onArtifact?: (artifact: Artifact) => void;
+  onOpenFile?: (ref: FileRef) => void;
+  onOpenImage?: (preview: ImagePreview) => void;
   /** Approval actions for a pending tool request; decisions stay server-owned. */
   permissionSlot?: PermissionSlot;
 }) {
@@ -642,6 +651,9 @@ export function RunSegment({
         group={attachGroup}
         active={isActive}
         showNarration={showNarration}
+        sources={sources}
+        onOpenFile={onOpenFile}
+        onOpenImage={onOpenImage}
         onHistory={(item: ToolActivity) =>
           setHistory({
             runID: item.runID,
@@ -650,6 +662,15 @@ export function RunSegment({
         }
       />
     ) : undefined;
+    const stepVisualSources = sources.filter((src) => {
+      if (!isImageMediaOrPath(src.media_type || src.path || src.title, src.kind)) {
+        return false;
+      }
+      if (src.capture_step_id && message.step_id) {
+        return src.capture_step_id === message.step_id;
+      }
+      return final && src.run_id === displayRun.id;
+    });
     return (
       <MessageCard
         key={message.id}
@@ -658,6 +679,11 @@ export function RunSegment({
         executor={author?.executor}
         role={step?.role}
         members={mentionMembers}
+        threadID={run.thread_id}
+        sources={sources}
+        visualSources={stepVisualSources}
+        onOpenFile={onOpenFile}
+        onOpenImage={onOpenImage}
         final={final}
         activity={activity}
         retryLabel={failure?.step.agent_name}
@@ -718,6 +744,9 @@ export function RunSegment({
             groups={unattachedActivity}
             agents={mentionMembers}
             activeStepIDs={activeStepIDs}
+            sources={sources}
+            onOpenFile={onOpenFile}
+            onOpenImage={onOpenImage}
             onHistory={(activity) =>
               setHistory({
                 runID: activity.runID,

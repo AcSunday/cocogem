@@ -13995,6 +13995,71 @@
         ],
         "type": "object"
       },
+      "ThreadFileView": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "diff_source_id": {
+            "type": "string"
+          },
+          "display_path": {
+            "type": "string"
+          },
+          "end_line": {
+            "type": "integer"
+          },
+          "highlight_end": {
+            "type": "integer"
+          },
+          "highlight_start": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "raw_url": {
+            "type": "string"
+          },
+          "root_kind": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer"
+          },
+          "total_lines": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "path",
+          "display_path",
+          "root_kind",
+          "content",
+          "start_line",
+          "end_line",
+          "total_lines",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "ThreadInput": {
         "additionalProperties": false,
         "properties": {
@@ -14226,6 +14291,70 @@
               "next_cursor"
             ],
             "type": "object"
+          },
+          "open_questions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "answer": {
+                  "type": "string"
+                },
+                "answer_ref": {
+                  "type": "string"
+                },
+                "blocking_scope": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "options": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "recommended": {
+                  "type": "string"
+                },
+                "resolved_at": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "task_id": {
+                  "type": "string"
+                },
+                "task_revision": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "task_id",
+                "task_revision",
+                "blocking_scope",
+                "body",
+                "options",
+                "status",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "runs": {
             "items": {
@@ -19984,6 +20113,43 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CandidateBranchReply"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Structured error"
+          }
+        }
+      }
+    },
+    "/api/v1/threads/{id}/file": {
+      "get": {
+        "operationId": "threadFile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadFileView"
                 }
               }
             },

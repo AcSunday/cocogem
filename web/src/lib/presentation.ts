@@ -779,6 +779,8 @@ export function statusIconName(status: string) {
       return "stop" as const;
     case "interrupted":
       return "refresh" as const;
+    case "yielded":
+      return "info" as const;
   }
   return undefined;
 }

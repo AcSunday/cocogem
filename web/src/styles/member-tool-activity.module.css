@@ -261,6 +261,31 @@
   outline-offset: 1px;
 }
 
+.toolRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolRow .toolToggle {
+  flex: 1;
+  min-width: 0;
+}
+.toolAction {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.toolAction:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* The pending layer is rendered outside every run/process disclosure. */
 .pendingLayer {
   display: grid;

@@ -1348,3 +1348,60 @@
   color: var(--text-3);
   overflow-wrap: anywhere;
 }
+
+.visual-evidence-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.visual-evidence-thumb {
+  display: grid;
+  gap: 4px;
+  width: 148px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  text-align: left;
+  cursor: zoom-in;
+}
+.visual-evidence-thumb:hover {
+  border-color: var(--accent);
+}
+.visual-evidence-thumb img {
+  display: block;
+  width: 100%;
+  height: 92px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.visual-evidence-caption {
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversation-questions {
+  display: grid;
+  gap: 8px;
+  width: min(100%, var(--conversation-width));
+  margin: 0 auto 8px;
+  max-height: 36dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.conversation-question-card {
+  padding: 12px 14px;
+}
+.conversation-question-body {
+  margin-top: 6px;
+}
+.conversation-question-body .markdown p:last-child {
+  margin-bottom: 0;
+}

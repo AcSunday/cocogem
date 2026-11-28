@@ -58,8 +58,12 @@ func (s *Server) artifactFile(rw http.ResponseWriter, r *http.Request) {
 		respond(rw, r, nil, store.ErrNotFound)
 		return
 	}
+	disposition := "attachment"
+	if r.URL.Query().Get("inline") == "1" && strings.HasPrefix(file.MediaType, "image/") {
+		disposition = "inline"
+	}
 	rw.Header().Set("Content-Type", file.MediaType)
-	rw.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Name}))
+	rw.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": file.Name}))
 	rw.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	rw.Header().Set("X-Content-Type-Options", "nosniff")
 	rw.Header().Set("Cache-Control", "private, no-store")

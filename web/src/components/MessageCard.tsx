@@ -7,10 +7,13 @@ import {
 } from "react";
 import {
   messageContent,
+  sourceOriginalImageURL,
   statusText,
   type Message,
   type MessageContentPage,
+  type Source,
 } from "../api/client";
+import type { FileRef, ImagePreview } from "../lib/fileRefs";
 import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -82,6 +85,11 @@ export function MessageCard({
   avatar,
   executor,
   members = [],
+  threadID,
+  sources,
+  visualSources = [],
+  onOpenFile,
+  onOpenImage,
   final = false,
   activity,
   retryLabel,
@@ -93,6 +101,11 @@ export function MessageCard({
   avatar?: string;
   executor?: string;
   members?: MentionMember[];
+  threadID?: string;
+  sources?: Source[];
+  visualSources?: Source[];
+  onOpenFile?: (ref: FileRef) => void;
+  onOpenImage?: (preview: ImagePreview) => void;
   /** Delivered results fill the member column so the run footer can align. */
   final?: boolean;
   /** This member step's tool activity, shown above its reply. */
@@ -219,7 +232,46 @@ export function MessageCard({
                       : t("本次回复没有正文。", "This reply has no text content."))
                 }
                 members={members}
+                threadID={threadID}
+                sources={sources}
+                onOpenFile={onOpenFile}
+                onOpenImage={onOpenImage}
               />
+            </div>
+          )}
+          {!user && visualSources.length > 0 && (
+            <div
+              className={cx("visual-evidence-strip")}
+              data-testid="visual-evidence-strip"
+              aria-label={t("视觉验收截图", "Visual evidence")}
+            >
+              {visualSources.map((srcItem) => {
+                const imgURL = sourceOriginalImageURL(srcItem.id);
+                const imgTitle =
+                  srcItem.title || srcItem.path || t("验收截图", "Visual evidence");
+                return (
+                  <button
+                    key={srcItem.id}
+                    type="button"
+                    className={cx("visual-evidence-thumb")}
+                    title={t(`点击放大查看：${imgTitle}`, `Inspect image: ${imgTitle}`)}
+                    onClick={() =>
+                      onOpenImage?.({
+                        src: imgURL,
+                        title: imgTitle,
+                        downloadUrl: imgURL,
+                        sourceId: srcItem.id,
+                        path: srcItem.path,
+                      })
+                    }
+                  >
+                    <img src={imgURL} alt={imgTitle} loading="lazy" />
+                    <span className={cx("visual-evidence-caption")}>
+                      {imgTitle}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

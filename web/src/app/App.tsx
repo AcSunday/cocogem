@@ -44,6 +44,7 @@ import { CandidateBar } from "../components/CandidateBar";
 import { Composer, type ComposerAttachment } from "../components/Composer";
 import { ContextPanel, type PanelTab } from "../components/ContextPanel";
 import { Icon } from "../components/Icon";
+import { QuestionPromptCard } from "../components/QuestionPromptCard";
 import { RunSegment } from "../components/RunSegment";
 import { ProjectHome } from "../components/ProjectHome";
 import { ProjectRail, type ProjectView } from "../components/ProjectRail";
@@ -1779,7 +1780,7 @@ function WorkspaceApp({
                 )}
                 <div className={cx("timeline-inner")}>
                   {view?.thread && <div className={cx("conversation-task-bar")}>
-                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} refreshKey={`${runs.map((run) => `${run.id}:${run.status}`).join("|")}|p:${permissions.pending.length}`} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>{t("转为任务", "Convert to task")}</button>}
+                    {view.thread.task_id ? <ConversationTask taskID={view.thread.task_id} refreshKey={`${runs.map((run) => `${run.id}:${run.status}`).join("|")}|p:${permissions.pending.length}|q:${view.open_questions?.length ?? 0}`} hasOpenQuestions={Boolean(view.open_questions?.length)} onQuestionSync={() => void refreshThread(view.thread.id)} onOpen={() => navigate(workspaceID, "", true, view.thread.task_id)} /> : <button className={cx("ghost small")} disabled={runs.some((run) => !terminal(run.status))} onClick={() => setTaskConversion(true)}>{t("转为任务", "Convert to task")}</button>}
                   </div>}
                   {view && (messageCursor || view.messages.next_cursor) && (
                     <div
@@ -1870,6 +1871,24 @@ function WorkspaceApp({
                           setArtifact(selected);
                           setModal({ kind: "artifact" });
                         }}
+                        onOpenFile={(ref) =>
+                          setModal({
+                            kind: "file-viewer",
+                            threadID: turn.root.thread_id || threadID,
+                            path: ref.path,
+                            startLine: ref.startLine,
+                            endLine: ref.endLine,
+                            initialTab: ref.tab,
+                          })
+                        }
+                        onOpenImage={(preview) =>
+                          setModal({
+                            kind: "image-lightbox",
+                            src: preview.src,
+                            title: preview.title,
+                            downloadUrl: preview.downloadUrl,
+                          })
+                        }
                         permissionSlot={(prompt) => (
                           <PermissionDecision
                             key={prompt.requestID || prompt.activityKey}
@@ -1911,6 +1930,38 @@ function WorkspaceApp({
                     if (permissions.visible) permissions.dismiss(permissions.visible.id);
                   }}
                   onRestore={permissions.restore}
+                />
+              )}
+            {!taskID &&
+              threadID &&
+              (view?.open_questions?.length ?? 0) > 0 && (
+                <QuestionPromptCard
+                  questions={view?.open_questions ?? []}
+                  threadID={threadID}
+                  onOpenFile={(ref) =>
+                    setModal({
+                      kind: "file-viewer",
+                      threadID,
+                      path: ref.path,
+                      startLine: ref.startLine,
+                      endLine: ref.endLine,
+                      initialTab: ref.tab,
+                    })
+                  }
+                  onOpenImage={(preview) =>
+                    setModal({
+                      kind: "image-lightbox",
+                      src: preview.src,
+                      title: preview.title,
+                      downloadUrl: preview.downloadUrl,
+                    })
+                  }
+                  onAnswered={async () => {
+                    await Promise.all([
+                      refreshThread(threadID),
+                      loadThreads(workspaceID),
+                    ]);
+                  }}
                 />
               )}
             {!taskID && threadID && (
@@ -2032,6 +2083,24 @@ function WorkspaceApp({
             sourceID={sourceID}
             sourceLoading={sourceLoading}
             onSource={openSource}
+            onOpenFile={(ref) =>
+              setModal({
+                kind: "file-viewer",
+                threadID,
+                path: ref.path,
+                startLine: ref.startLine,
+                endLine: ref.endLine,
+                initialTab: ref.tab,
+              })
+            }
+            onOpenImage={(preview) =>
+              setModal({
+                kind: "image-lightbox",
+                src: preview.src,
+                title: preview.title,
+                downloadUrl: preview.downloadUrl,
+              })
+            }
             artifacts={artifacts}
             onArtifact={(item) => {
               setArtifact(item);
@@ -2087,18 +2156,27 @@ function WorkspaceApp({
  * conversation's SSE run state changes, and keeps a slow fallback so a change
  * made in another window still lands without a manual reload.
  */
-function ConversationTask({ taskID, refreshKey = "", onOpen }: { taskID: string; refreshKey?: string; onOpen: () => void }) {
+function ConversationTask({ taskID, refreshKey = "", hasOpenQuestions = false, onQuestionSync, onOpen }: { taskID: string; refreshKey?: string; hasOpenQuestions?: boolean; onQuestionSync?: () => void; onOpen: () => void }) {
   useLanguage();
   const [task, setTask] = useState<ProjectTaskView>();
   const [error, setError] = useState("");
   const [popoverOpen, setPopoverOpen] = useState(false);
   useEffect(() => {
     let canceled = false;
-    const load = () => { void api<ProjectTaskView>(`/api/v1/tasks/${taskID}`).then((value) => { if (!canceled) { setTask(value); setError(""); } }).catch((failure) => { if (!canceled) setError(errorText(failure)); }); };
+    const load = () => {
+      void api<ProjectTaskView>(`/api/v1/tasks/${taskID}`).then((value) => {
+        if (canceled) return;
+        setTask(value);
+        setError("");
+        if (value.task.waiting_reason === "question" && !hasOpenQuestions) {
+          onQuestionSync?.();
+        }
+      }).catch((failure) => { if (!canceled) setError(errorText(failure)); });
+    };
     load();
     const timer = window.setInterval(load, 30000);
     return () => { canceled = true; window.clearInterval(timer); };
-  }, [taskID, refreshKey]);
+  }, [taskID, refreshKey, hasOpenQuestions, onQuestionSync]);
   if (error) {
     return (
       <span className={cx("notice")} role="status">

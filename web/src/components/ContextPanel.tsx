@@ -1,4 +1,13 @@
-import type { Artifact, Source } from "../api/client";
+import {
+  sourceOriginalImageURL,
+  type Artifact,
+  type Source,
+} from "../api/client";
+import {
+  isImageMediaOrPath,
+  type FileRef,
+  type ImagePreview,
+} from "../lib/fileRefs";
 import { t, useLanguage } from "../lib/i18n";
 import { scoped } from "../styles/classes";
 import base from "../styles/base.module.css";
@@ -33,6 +42,8 @@ export function ContextPanel({
   sourceID,
   sourceLoading,
   onSource,
+  onOpenFile,
+  onOpenImage,
   artifacts,
   onArtifact,
 }: {
@@ -45,6 +56,8 @@ export function ContextPanel({
   sourceID?: string;
   sourceLoading?: boolean;
   onSource: (source: Source | string) => void;
+  onOpenFile?: (ref: FileRef) => void;
+  onOpenImage?: (preview: ImagePreview) => void;
   artifacts: Artifact[];
   onArtifact: (artifact: Artifact) => void;
 }) {
@@ -180,9 +193,58 @@ export function ContextPanel({
                         : (source.exit_code ?? 0)
                     }`}
                 </small>
-                <pre className={cx("pre")} tabIndex={0}>
-                  {source.content}
-                </pre>
+                {(source.path || (isImageMediaOrPath(source.media_type || source.path || source.title, source.kind) && onOpenImage)) && (
+                  <div className={cx("source-actions")}>
+                    {source.path && onOpenFile && (
+                      <button
+                        type="button"
+                        className={cx("ghost", "compact")}
+                        onClick={() =>
+                          onOpenFile({
+                            path: source.path,
+                            startLine: source.start_line > 0 ? source.start_line : undefined,
+                            endLine: source.end_line > 0 ? source.end_line : undefined,
+                            tab: source.kind === "diff" ? "diff" : "file",
+                          })
+                        }
+                      >
+                        {source.kind === "diff"
+                          ? t("打开完整 Diff", "Open full diff")
+                          : t("打开完整文件", "Open file")}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {isImageMediaOrPath(
+                  source.media_type || source.path || source.title,
+                  source.kind,
+                ) ? (
+                  <button
+                    type="button"
+                    className={cx("source-image-preview")}
+                    onClick={() => {
+                      const imgURL = sourceOriginalImageURL(source.id);
+                      const imgTitle =
+                        source.title || source.path || t("视觉证据", "Visual evidence");
+                      onOpenImage?.({
+                        src: imgURL,
+                        title: imgTitle,
+                        downloadUrl: imgURL,
+                        sourceId: source.id,
+                        path: source.path,
+                      });
+                    }}
+                  >
+                    <img
+                      src={sourceOriginalImageURL(source.id)}
+                      alt={source.title || source.path || "preview"}
+                    />
+                  </button>
+                ) : (
+                  <pre className={cx("pre")} tabIndex={0}>
+                    {source.content}
+                  </pre>
+                )}
                 {source.truncated && (
                   <p className={cx("muted")}>
                     {t("内容已截断。", "Content truncated.")}

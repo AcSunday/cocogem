@@ -54,10 +54,11 @@ type Page[T any] struct {
 
 // ThreadView is a consistent conversation snapshot, with separately paged messages.
 type ThreadView struct {
-	Thread   w.Thread        `json:"thread"`
-	Messages Page[w.Message] `json:"messages"`
-	Runs     []w.Run         `json:"runs"`
-	Sources  []w.Source      `json:"sources"`
+	Thread        w.Thread        `json:"thread"`
+	Messages      Page[w.Message] `json:"messages"`
+	Runs          []w.Run         `json:"runs"`
+	Sources       []w.Source      `json:"sources"`
+	OpenQuestions []w.Question    `json:"open_questions,omitempty"`
 }
 
 // MessageContentPage is one bounded slice of a message body.
