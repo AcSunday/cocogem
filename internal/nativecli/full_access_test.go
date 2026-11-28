@@ -12,6 +12,7 @@ import (
 )
 
 func TestAgyFullAccessAdmitsUnlistedToolsAndRestrictsReadOnly(t *testing.T) {
+	root := t.TempDir()
 	req := model.Request{
 		Executor:         "agy",
 		ExecutionMode:    "full_access",
@@ -21,7 +22,12 @@ func TestAgyFullAccessAdmitsUnlistedToolsAndRestrictsReadOnly(t *testing.T) {
 			return model.NativePermissionDecision{Allow: true, Scope: model.NativeScopeOnce}, nil
 		},
 	}
-	broker, _, _, root := gateTestBroker(t, req)
+	approver := newNativeApprover(nil, nil, req, "agy", nil)
+	broker, err := newGateBroker(approver, nil, t.TempDir(), root, "agy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer broker.close()
 	broker.fullAccess = true
 	broker.agyPolicy = newAgyGatePolicy(nil, nil, []string{root}, "", false, true)
 
@@ -29,7 +35,8 @@ func TestAgyFullAccessAdmitsUnlistedToolsAndRestrictsReadOnly(t *testing.T) {
 		t.Helper()
 		payload := []byte(`{"hookEventName":"before_tool","conversationId":"c-1","cwd":"` + root + `","toolCall":{"id":"call-1","name":"run_command","args":{"CommandLine":"echo ok"}}}`)
 		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "http://"+broker.listener.Addr().String()+"/agy/authorize", bytes.NewReader(payload))
+		httpReq := httptest.NewRequest(http.MethodPost, broker.url()+"/gate/agy/authorize", bytes.NewReader(payload))
+		httpReq.Host = broker.listener.Addr().String()
 		httpReq.Header.Set("Authorization", "Bearer "+broker.token)
 		broker.serveAgyAuthorize(rec, httpReq)
 		if rec.Code != http.StatusOK {
