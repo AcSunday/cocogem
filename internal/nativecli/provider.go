@@ -493,12 +493,16 @@ func (p Provider) run(ctx context.Context, request model.Request, execute agent.
 	}
 	if request.Executor == "claude" || request.Executor == "agy" {
 		cwdDir = filepath.Join(workdir, "cwd")
-		if len(files) != 0 {
+		baseRoot := request.WorkspaceRoot
+		if baseRoot == "" && gate.trustedNative {
+			baseRoot = request.WorkingDirectory
+		}
+		if len(files) != 0 && baseRoot != "" {
 			// Deny rules are enforced relative to the working directory, not
 			// for --add-dir roots. Running from the workspace root makes the
 			// sensitive-path denials effective; the settings directory stays
 			// outside it and project memory is disabled below.
-			absolute, err := filepath.Abs(request.WorkspaceRoot)
+			absolute, err := filepath.Abs(baseRoot)
 			if err != nil {
 				return errors.New("workspace root is unavailable for native file tools")
 			}

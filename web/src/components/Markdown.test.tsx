@@ -145,3 +145,60 @@ it("mentions render once inside nested bold and list items", () => {
     "@布偶猫",
   );
 });
+
+it("parses file links, inline code paths, and local markdown images without breaking URLs or times", () => {
+  const openedFiles: Array<{ path: string; startLine?: number; endLine?: number }> = [];
+  const openedImages: Array<{ src: string; title: string }> = [];
+  render(
+    <Markdown
+      threadID="th-1"
+      sources={[
+        {
+          id: "src-img-1",
+          workspace_id: "ws-1",
+          thread_id: "th-1",
+          run_id: "run-1",
+          kind: "image",
+          title: "home.png",
+          url: "",
+          path: "captures/home.png",
+          start_line: 0,
+          end_line: 0,
+          sha256: "",
+          content: "",
+          truncated: false,
+          captured_at: "2026-11-28T00:00:00Z",
+          media_type: "image/png",
+        },
+      ]}
+      onOpenFile={(ref) => openedFiles.push(ref)}
+      onOpenImage={(img) => openedImages.push(img)}
+      text={
+        "请看 `internal/httpapi/thread_files.go:10-20` 和 [第5行](file:///repo/README.md#L5) 以及 src/app.tsx:42。\n\n" +
+        "时间 10:30 访问 https://example.com/a.ts:12 保持原样。\n\n" +
+        "![验收截图](captures/home.png)"
+      }
+    />,
+  );
+
+  fireEvent.click(screen.getByText("internal/httpapi/thread_files.go:10-20"));
+  fireEvent.click(screen.getByRole("link", { name: "第5行" }));
+  fireEvent.click(screen.getByRole("button", { name: "src/app.tsx:42" }));
+  expect(openedFiles).toEqual([
+    { path: "internal/httpapi/thread_files.go", startLine: 10, endLine: 20 },
+    { path: "/repo/README.md", startLine: 5, label: "第5行" },
+    { path: "src/app.tsx", startLine: 42 },
+  ]);
+
+  // Web URL stays a normal external link, not intercepted by onOpenFile.
+  const webLink = screen.getByRole("link", { name: "https://example.com/a.ts:12" });
+  expect(webLink).toHaveAttribute("target", "_blank");
+  expect(screen.queryByRole("button", { name: "10:30" })).toBeNull();
+
+  // Markdown image referencing a captured image source uses inline source URL & opens lightbox.
+  const img = screen.getByAltText("验收截图");
+  expect(img).toHaveAttribute("src", "/api/v1/sources/src-img-1/original?inline=1");
+  fireEvent.click(img.closest("button")!);
+  expect(openedImages).toHaveLength(1);
+  expect(openedImages[0]?.title).toBe("验收截图");
+});

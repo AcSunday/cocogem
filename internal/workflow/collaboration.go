@@ -413,6 +413,7 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 				RequestID:     in.RequestID,
 				ContextRefs:   slices.Clone(in.ContextRefs),
 				Depth:         sender.Depth,
+				ReadOnly:      current.Input.PlanOnly,
 			}
 			for _, s := range steps {
 				if s.Status != "pending" {
@@ -456,10 +457,10 @@ func (e *Engine) submitHandoff(ctx context.Context, run w.Run, sender w.Step, ra
 				}
 			}
 		}
-		child = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: target.ID, AgentName: target.DisplayName, Role: in.Role, Instruction: in.Task, DependsOn: []string{sender.ID}, Status: "pending", Kind: "handoff", FromStepID: sender.ID, FromAgentID: sender.AgentID, FromAttemptID: currentAttempt, RequestID: in.RequestID, ContextRefs: slices.Clone(in.ContextRefs), Depth: sender.Depth + 1}
+		child = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: target.ID, AgentName: target.DisplayName, Role: in.Role, Instruction: in.Task, DependsOn: []string{sender.ID}, Status: "pending", Kind: "handoff", FromStepID: sender.ID, FromAgentID: sender.AgentID, FromAttemptID: currentAttempt, RequestID: in.RequestID, ContextRefs: slices.Clone(in.ContextRefs), Depth: sender.Depth + 1, ReadOnly: current.Input.PlanOnly}
 		handoffContinuationPrompt := "根据返回的任务结果继续完成用户原始目标。如实处理失败和分歧；只有确实需要时才从当前名册选择后续复核者，否则交付结果。不要重复已完成的委派，也不要为确认收到而创建新任务。"
 		if continuation.ID == "" {
-			continuation = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: sender.AgentID, AgentName: sender.AgentName, Role: sender.Role, Instruction: handoffContinuationPrompt, DependsOn: []string{sender.ID}, Status: "pending", Kind: "continuation", FromStepID: sender.ID, FromAgentID: sender.AgentID, Depth: sender.Depth}
+			continuation = w.Step{ID: w.NewID(), RunID: run.ID, AgentID: sender.AgentID, AgentName: sender.AgentName, Role: sender.Role, Instruction: handoffContinuationPrompt, DependsOn: []string{sender.ID}, Status: "pending", Kind: "continuation", FromStepID: sender.ID, FromAgentID: sender.AgentID, Depth: sender.Depth, ReadOnly: current.Input.PlanOnly}
 			// Pending consumers must wait for the delegated task's final continuation.
 			for _, s := range steps {
 				if s.Status != "pending" {

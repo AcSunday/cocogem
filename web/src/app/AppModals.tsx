@@ -12,6 +12,8 @@ import type {
 } from "../api/client";
 import { ArtifactReader } from "../components/ArtifactReader";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FileViewerModal } from "../components/FileViewerModal";
+import { ImageLightboxModal } from "../components/ImageLightboxModal";
 import { SettingsDialog, SnapshotDialog } from "../components/SettingsDialog";
 import { ThreadForm } from "../components/forms/ThreadForm";
 import { ThreadRenameForm } from "../components/forms/ThreadRenameForm";
@@ -29,6 +31,20 @@ export type ModalState =
   | { kind: "edit-thread"; thread?: Thread }
   | { kind: "snapshot"; run: Run }
   | { kind: "artifact" }
+  | {
+      kind: "file-viewer";
+      threadID: string;
+      path: string;
+      startLine?: number;
+      endLine?: number;
+      initialTab?: "file" | "diff";
+    }
+  | {
+      kind: "image-lightbox";
+      src: string;
+      title: string;
+      downloadUrl?: string;
+    }
   | { kind: "rename-thread"; thread: Thread }
   | { kind: "delete-workspace"; workspace: Workspace };
 
@@ -278,6 +294,32 @@ export function AppModals({
             openSource(id);
           }}
           onError={(error) => setError(errorText(error))}
+        />
+      )}
+      {modal?.kind === "file-viewer" && (
+        <FileViewerModal
+          threadID={modal.threadID}
+          path={modal.path}
+          startLine={modal.startLine}
+          endLine={modal.endLine}
+          initialTab={modal.initialTab}
+          onOpenImage={(preview) =>
+            setModal({
+              kind: "image-lightbox",
+              src: preview.src,
+              title: preview.title,
+              downloadUrl: preview.downloadUrl,
+            })
+          }
+          close={close}
+        />
+      )}
+      {modal?.kind === "image-lightbox" && (
+        <ImageLightboxModal
+          src={modal.src}
+          title={modal.title}
+          downloadUrl={modal.downloadUrl}
+          close={close}
         />
       )}
       {modal?.kind === "rename-thread" && (

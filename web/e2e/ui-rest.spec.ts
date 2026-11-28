@@ -145,27 +145,45 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   const border = await themeColor(page, "--border");
   const transparent = "rgba(0, 0, 0, 0)";
 
-  // The three top controls stay quiet until hover or keyboard focus; the new
-  // conversation action shows a chat icon and the switch label stays visual-free.
+  // The project switch and search stay quiet until hover or keyboard focus;
+  // the switch label stays visual-free.
   await expect(workspaceSwitch).toBeEnabled();
   await expect(newThread).toBeEnabled();
   await page.mouse.move(1, 1);
   await expect.poll(placeholderOpacity).toBe("1");
-  for (const control of [workspaceSwitch, newThread, searchField]) {
+  for (const control of [workspaceSwitch, searchField]) {
     await expect(control).toHaveCSS("background-color", transparent);
     await expect(control).toHaveCSS("border-top-color", transparent);
   }
   await expect(sidebar.getByText("切换工作空间", { exact: true })).toHaveCount(
     0,
   );
-  await expect(newThread.locator('svg path[d^="M21 12a8 8"]')).toHaveCount(1);
+
+  // The new-conversation control is a compact + icon beside the "会话" heading,
+  // not a labelled button in the sidebar control block above it.
+  await expect(newThread).toHaveAttribute("title", "新建会话");
+  const conversationHeading = newThread.locator("xpath=..");
+  await expect(conversationHeading).toHaveAttribute("class", /_section-label_/);
+  await expect(conversationHeading).toContainText("会话");
+  await expect(conversationHeading.locator('[class*="section-count"]')).toHaveText(
+    /^\d+$/,
+  );
+  await expect(newThread.locator("svg path")).toHaveAttribute(
+    "d",
+    "M12 5v14M5 12h14",
+  );
+  await expect(newThread).toHaveCSS("background-color", transparent);
+  await expect(newThread).toHaveCSS("border-top-color", transparent);
   await page.screenshot({ path: `${SHOTS}/final-sidebar-desktop.png` });
 
-  for (const control of [workspaceSwitch, newThread, searchField]) {
+  for (const control of [workspaceSwitch, searchField]) {
     await control.hover();
     await expect(control).toHaveCSS("background-color", surface2);
     await expect(control).toHaveCSS("border-top-color", border);
   }
+  await newThread.hover();
+  await expect(newThread).toHaveCSS("background-color", surface2);
+  await expect(newThread).toHaveCSS("border-top-color", border);
 
   // Keyboard focus must show the same feedback with the pointer far away.
   await page.mouse.move(1, 1);
@@ -175,14 +193,15 @@ test("run status, stop control, mentions, trash lifecycle and settings screensho
   await expect(workspaceSwitch).toHaveCSS("background-color", surface2);
   await expect(workspaceSwitch).toHaveCSS("border-top-color", border);
   await page.keyboard.press("Tab");
-  await expect(newThread).toBeFocused();
-  await expect(newThread).toHaveCSS("background-color", surface2);
-  await expect(newThread).toHaveCSS("border-top-color", border);
-  await page.keyboard.press("Tab");
   await expect(search).toBeFocused();
   await expect(searchField).toHaveCSS("background-color", surface2);
   await expect(searchField).toHaveCSS("border-top-color", border);
   await expect.poll(placeholderOpacity).toBe("0");
+  await page.keyboard.press("Tab");
+  await expect(newThread).toBeFocused();
+  await expect(newThread).toHaveCSS("background-color", surface2);
+  await expect(newThread).toHaveCSS("border-top-color", border);
+  await expect.poll(placeholderOpacity).toBe("1");
   await search.fill("不存在的会话标题");
   await expect(sidebar.getByText("没有匹配的会话。")).toBeVisible();
   await search.clear();

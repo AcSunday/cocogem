@@ -852,6 +852,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/threads/{id}/file": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["threadFile"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/threads/{id}/permanent": {
     parameters: {
       query?: never;
@@ -4444,6 +4460,24 @@ export interface components {
       updated_at: string;
       workspace_id: string;
     };
+    ThreadFileView: {
+      content: string;
+      diff?: string;
+      diff_source_id?: string;
+      display_path: string;
+      end_line: number;
+      highlight_end?: number;
+      highlight_start?: number;
+      kind: string;
+      media_type?: string;
+      path: string;
+      raw_url?: string;
+      root_kind: string;
+      source_id?: string;
+      start_line: number;
+      total_lines: number;
+      truncated: boolean;
+    };
     ThreadInput: {
       active_run_id?: string;
       active_run_status?: string;
@@ -4504,6 +4538,22 @@ export interface components {
         }[];
         next_cursor: string;
       };
+      open_questions?:
+        | {
+            answer?: string;
+            answer_ref?: string;
+            blocking_scope: string;
+            body: string;
+            created_at: string;
+            id: string;
+            options: string[] | null;
+            recommended?: string;
+            resolved_at?: string;
+            status: string;
+            task_id: string;
+            task_revision: number;
+          }[]
+        | null;
       runs: {
         agents:
           | {
@@ -7387,6 +7437,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["CandidateBranchReply"];
+        };
+      };
+      /** @description Structured error */
+      default: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  threadFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ThreadFileView"];
         };
       };
       /** @description Structured error */

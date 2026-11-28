@@ -335,7 +335,7 @@ func (e *Engine) buildRequest(ctx context.Context, run w.Run, step w.Step, a w.A
 		fmt.Fprintf(&contextText, "\nCurrent date and time: %s (host UTC).\nPersistent file exchange directory: %s (read-only inputs/ and writable outputs/; COCOGEM_IO_INPUTS and COCOGEM_IO_OUTPUTS name the same absolute paths)\nBound input project directory: %s\nCode edits and commands run in the step working root, which is the candidate worktree for an author and the verification copy for a reviewer, never the file exchange directory. Uploaded originals are under inputs/ with source-ID-prefixed filenames; inspect that absolute directory when attachments are supplied. Keep originals intact. Save final deliverable files under outputs/; keep scripts and intermediates elsewhere. The host captures outputs/ on successful final delivery, so this directory is reserved for files intended for the user. Other members of this Run share the exchange directory. Never place exported documents in the code tree: a generated file there would pollute the candidate diff and is not a delivery. Prefer publish_file for explicit final delivery. Never change factual values, dates or citations merely because they look unusual; preserve unverified facts and identify the verification gap.\n", w.Now(), run.TaskDirectory, run.ProjectRoot())
 	}
 	native := nativecli.NativeExecutionTools(a.Executor, allowed, in.ResearchScope, run.EffectiveExecutionMode, step.ReadOnly)
-	if run.TaskIntake && run.TaskID == "" {
+	if run.TaskIntake && run.TaskID == "" && (run.EffectiveExecutionMode != w.ExecutionFullAccess || step.ReadOnly) {
 		native = nil
 	}
 	if run.TaskID != "" {

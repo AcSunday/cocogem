@@ -362,9 +362,12 @@ func (x *stepRuntime) executeAuthorizedTool(callCtx context.Context, callID stri
 		// exchange area and never the command root for code work.
 		workDir := ""
 		if slices.Contains(x.allowed, "run_command") {
-			// Both tiers start the command in the step root; the OS boundary
-			// decides what it may reach.
+			// Both tiers start the command in the step root; when no project root
+			// is bound, fall back to the task exchange directory.
 			workDir = x.stepRoot()
+			if workDir == "" {
+				workDir = x.run.TaskDirectory
+			}
 		}
 		scope := tools.Scope{Root: x.stepRoot(), WorkDir: workDir, ExecutionMode: x.run.EffectiveExecutionMode, Web: x.engine.Web, Capture: x.capture, ReadOnly: x.step.ReadOnly,
 			// The exchange area is explicit and separate from the code root.

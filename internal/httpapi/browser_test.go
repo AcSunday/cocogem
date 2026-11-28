@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
@@ -45,6 +47,37 @@ func TestBrowserServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Browser test fixture\n\nStable identity is separate from display names and model settings.\nWorkflows have finite dependencies and capture sources.\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gitDemo := filepath.Join(root, "git-demo")
+	if err := os.MkdirAll(filepath.Join(gitDemo, "src"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	origDemo := "package demo\n\nfunc Banner() string {\n\treturn \"before\"\n}\n\nfunc Footer() string {\n\treturn \"end\"\n}\n"
+	if err := os.WriteFile(filepath.Join(gitDemo, "src", "demo.go"), []byte(origDemo), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "e2e@example.com"},
+		{"config", "user.name", "E2E"},
+		{"add", "src/demo.go"},
+		{"commit", "-m", "init demo"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", gitDemo}, args...)...)
+		if out, gitErr := cmd.CombinedOutput(); gitErr != nil {
+			t.Fatalf("git %v: %v\n%s", args, gitErr, out)
+		}
+	}
+	dirtyDemo := "package demo\n\nfunc Banner() string {\n\t// highlighted line 4\n\treturn \"after-dirty\"\n}\n\nfunc Footer() string {\n\treturn \"end\"\n}\n"
+	if err := os.WriteFile(filepath.Join(gitDemo, "src", "demo.go"), []byte(dirtyDemo), 0600); err != nil {
+		t.Fatal(err)
+	}
+	pngBytes, decErr := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if decErr != nil {
+		t.Fatal(decErr)
+	}
+	if err := os.WriteFile(filepath.Join(gitDemo, "evidence.png"), pngBytes, 0600); err != nil {
 		t.Fatal(err)
 	}
 	// A real file outside the bound fixture root. The permission E2E asks a member
@@ -304,7 +337,85 @@ func (m browserModel) Complete(ctx context.Context, request model.Request, emit 
 	if browserOriginalTaskHasPrefix(request, "Original user task:\n动态协作验收：") {
 		return browserCollaboration(request, emit)
 	}
+	if resp, handled, err := browserP0Fixtures(request, emit); handled {
+		return resp, err
+	}
 	return m.Model.Complete(ctx, request, emit)
+}
+
+func browserP0Fixtures(request model.Request, emit func(string) error) (model.Response, bool, error) {
+	if len(request.Messages) == 0 || len(request.Messages[0].Content) == 0 {
+		return model.Response{}, false, nil
+	}
+	input := request.Messages[0].Content[0].Text
+	used := map[string]bool{}
+	var lastResult *model.Block
+	for _, msg := range request.Messages {
+		for i := range msg.Content {
+			block := msg.Content[i]
+			if block.Type == "tool_use" {
+				used[block.Name] = true
+			}
+			if block.Type == "tool_result" {
+				lastResult = &block
+			}
+		}
+	}
+	hasTool := func(name string) bool {
+		return slices.ContainsFunc(request.Tools, func(t model.Tool) bool { return t.Name == name })
+	}
+	call := func(name string, payload any) (model.Response, bool, error) {
+		raw, err := json.Marshal(payload)
+		return model.Response{StopReason: "tool_use", Blocks: []model.Block{{Type: "tool_use", ID: w.NewID(), Name: name, Input: raw}}}, true, err
+	}
+	answer := func(text string) (model.Response, bool, error) {
+		if err := emit(text); err != nil {
+			return model.Response{}, true, err
+		}
+		return model.Response{StopReason: "end_turn", Blocks: []model.Block{{Type: "text", Text: text}}}, true, nil
+	}
+
+	switch {
+	case strings.Contains(input, "COCOGEM_P0_FILE_IMAGE_E2E"):
+		if !used["read_file"] {
+			return call("read_file", map[string]any{"path": "src/demo.go", "start_line": 3, "end_line": 5})
+		}
+		if !used["view_image"] {
+			return call("view_image", map[string]any{"path": "evidence.png"})
+		}
+		return answer("已核查 `src/demo.go:3-5` 与 [第4行](src/demo.go#L4)，请查看视觉验收截图：\n\n![验收截图](evidence.png)")
+	case strings.Contains(input, "COCOGEM_P0_FULL_ACCESS_CMD"):
+		if !hasTool("run_command") {
+			return answer("ERROR: run_command missing in full_access ordinary chat")
+		}
+		if !used["run_command"] {
+			return call("run_command", map[string]any{"argv": []string{"echo", "FULL_ACCESS_COMMAND_OK"}})
+		}
+		if lastResult == nil || lastResult.IsError || !strings.Contains(lastResult.Content, "FULL_ACCESS_COMMAND_OK") {
+			return answer("ERROR: run_command failed in full_access: " + fmt.Sprint(lastResult))
+		}
+		return answer("普通对话命令执行成功：FULL_ACCESS_COMMAND_OK")
+	case strings.Contains(input, "COCOGEM_P0_PLAN_ONLY_CMD"):
+		if hasTool("run_command") || hasTool("write_file") {
+			return answer("ERROR: write/command tool leaked into PlanOnly")
+		}
+		return answer("PLAN_ONLY_VERIFIED: 只读模式已限制命令与写入")
+	case strings.Contains(input, "COCOGEM_ASK_QUESTION_E2E"):
+		if strings.Contains(input, "确认继续：交由狸花猫修复") || strings.Contains(input, "confirmation:") || strings.Contains(input, "question_answer:") || strings.Contains(input, "已有用户回答") {
+			return answer("QUESTION_RESUMED_DONE: 已按你的确认继续执行并完成")
+		}
+		if used["ask_question"] {
+			return answer("已登记待确认事项，等待你确认。")
+		}
+		return call("ask_question", map[string]any{
+			"blocking_scope": "task",
+			"body":           "退回前需要核对收件人：是否将修复任务交给本轮名册中的「狸花猫」？",
+			"options":        []string{"确认继续：交由狸花猫修复", "暂不派发，仅保留结论"},
+			"recommended":    "确认继续：交由狸花猫修复",
+		})
+	default:
+		return model.Response{}, false, nil
+	}
 }
 
 type browserTask struct {

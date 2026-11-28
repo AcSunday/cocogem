@@ -211,15 +211,20 @@ func (s *Server) sourceOriginal(rw http.ResponseWriter, r *http.Request) {
 	}
 	switch mediaType {
 	case "text/csv", "text/tab-separated-values", "application/pdf",
+		"image/png", "image/jpeg", "image/gif", "image/webp",
 		tools.DocxMediaType, tools.XlsxMediaType, tools.PptxMediaType,
 		"application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint",
 		"application/rtf", "application/vnd.oasis.opendocument.text", "application/xml", "application/webarchive":
 	default:
 		mediaType = "application/octet-stream"
 	}
+	disposition := "attachment"
+	if r.URL.Query().Get("inline") == "1" && strings.HasPrefix(mediaType, "image/") {
+		disposition = "inline"
+	}
 	rw.Header().Set("Content-Type", mediaType)
 	rw.Header().Set("Content-Length", strconv.Itoa(len(content)))
-	rw.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	rw.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": name}))
 	rw.Header().Set("X-Content-Type-Options", "nosniff")
 	rw.Header().Set("Cache-Control", "private, no-store")
 	rw.WriteHeader(200)

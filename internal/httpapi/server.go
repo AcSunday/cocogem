@@ -159,6 +159,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs/{id}/event-history", s.eventHistory)
 	mux.HandleFunc("GET /api/v1/runs/{id}/messages/{messageID}/content", s.messageContent)
 	mux.HandleFunc("GET /api/v1/sources/{id}", s.source)
+	mux.HandleFunc("GET /api/v1/threads/{id}/file", s.threadFile)
+	mux.HandleFunc("GET /api/v1/threads/{id}/file/raw", s.threadFileRaw)
 	mux.HandleFunc("GET /api/v1/threads/{id}/candidates", s.threadCandidates)
 	mux.HandleFunc("GET /api/v1/threads/{id}/candidates/{executionID}/diff", s.candidateDiff)
 	mux.HandleFunc("POST /api/v1/threads/{id}/candidates/{executionID}/export-branch", s.exportCandidateBranch)

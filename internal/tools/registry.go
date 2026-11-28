@@ -148,10 +148,14 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 	if len(scope.ApprovedRoots) > 0 && rebindApprovedTarget(name, &raw, &scope) {
 		// The scope now points at exactly the approved location.
 	} else if name == "read_file" || name == "list_files" || name == "search_content" {
+		if scope.ExecutionMode == w.ExecutionFullAccess {
+			scope.AllowSensitive = true
+		}
 		var args map[string]json.RawMessage
 		if json.Unmarshal(raw, &args) == nil {
 			var path string
 			_ = json.Unmarshal(args["path"], &path)
+			bound := false
 			for _, root := range []string{scope.Root, scope.WorkDir} {
 				if root == "" {
 					continue
@@ -172,7 +176,32 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 				scope.Root = root
 				args["path"], _ = json.Marshal(local)
 				raw, _ = json.Marshal(args)
+				bound = true
 				break
+			}
+			if !bound && scope.ExecutionMode == w.ExecutionFullAccess && path != "" {
+				candidate := path
+				if !filepath.IsAbs(candidate) {
+					base := scope.Root
+					if base == "" {
+						base = scope.WorkDir
+					}
+					if base != "" {
+						candidate = filepath.Join(base, candidate)
+					}
+				}
+				if resolved, err := resolveApprovedPath(candidate); err == nil {
+					if info, statErr := os.Lstat(resolved); statErr == nil {
+						if info.IsDir() {
+							scope.Root = resolved
+							args["path"], _ = json.Marshal(".")
+						} else {
+							scope.Root = filepath.Dir(resolved)
+							args["path"], _ = json.Marshal(filepath.Base(resolved))
+						}
+						raw, _ = json.Marshal(args)
+					}
+				}
 			}
 		}
 	}
@@ -306,7 +335,14 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 		if err := Decode(raw, &in); err != nil {
 			return "", err
 		}
-		entries, truncated, err := ListFiles(ctx, scope.Root, in.Path)
+		var entries []map[string]string
+		var truncated bool
+		var err error
+		if scope.AllowSensitive {
+			entries, truncated, err = ListFilesApproved(ctx, scope.Root, in.Path)
+		} else {
+			entries, truncated, err = ListFiles(ctx, scope.Root, in.Path)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -346,7 +382,14 @@ func Execute(ctx context.Context, name string, raw json.RawMessage, scope Scope)
 		if err := Decode(raw, &in); err != nil {
 			return "", err
 		}
-		hits, truncated, err := SearchContent(ctx, scope.Root, in.Path, in.Query)
+		var hits []map[string]any
+		var truncated bool
+		var err error
+		if scope.AllowSensitive {
+			hits, truncated, err = SearchContentApproved(ctx, scope.Root, in.Path, in.Query)
+		} else {
+			hits, truncated, err = SearchContent(ctx, scope.Root, in.Path, in.Query)
+		}
 		if err != nil {
 			return "", err
 		}

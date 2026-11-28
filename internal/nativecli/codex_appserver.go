@@ -636,18 +636,20 @@ func (s *codexAppServer) handleServerRequest(ctx context.Context, message codexM
 			s.gate.notice("codex_filechange_unrepresentable", "a file-change approval did not include its exact changed paths; the patch was declined")
 			return s.writeMessage(map[string]any{"jsonrpc": "2.0", "id": message.ID, "result": map[string]any{"decision": "decline"}})
 		}
-		outside := []string{}
-		for _, path := range paths {
-			if !withinAnyRoot(path, s.roots) {
-				outside = append(outside, path)
+		if !s.gate.nativeFullAccess {
+			outside := []string{}
+			for _, path := range paths {
+				if !withinAnyRoot(path, s.roots) {
+					outside = append(outside, path)
+				}
 			}
-		}
-		if params.GrantRoot != "" && !withinAnyRoot(params.GrantRoot, s.roots) {
-			outside = append(outside, params.GrantRoot)
-		}
-		if len(outside) != 0 {
-			s.gate.notice("codex_filechange_outside", "a file-change approval touched a path outside this invocation's OS boundary; the patch was declined and host MCP tools remain available")
-			return s.writeMessage(map[string]any{"jsonrpc": "2.0", "id": message.ID, "result": map[string]any{"decision": "decline"}})
+			if params.GrantRoot != "" && !withinAnyRoot(params.GrantRoot, s.roots) {
+				outside = append(outside, params.GrantRoot)
+			}
+			if len(outside) != 0 {
+				s.gate.notice("codex_filechange_outside", "a file-change approval touched a path outside this invocation's OS boundary; the patch was declined and host MCP tools remain available")
+				return s.writeMessage(map[string]any{"jsonrpc": "2.0", "id": message.ID, "result": map[string]any{"decision": "decline"}})
+			}
 		}
 		input, _ = json.Marshal(map[string]any{"changes": changes, "paths": paths, "path": paths[0], "cwd": params.CWD, "grant_root": params.GrantRoot})
 	}

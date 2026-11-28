@@ -157,15 +157,15 @@ func (x *stepRuntime) decideHostAccess(ctx context.Context, callID, name string,
 		return nil, "", false, nil
 	}
 	scope := x.toolScope(name, input)
-	// A host tool that names a credential path is graded here, not by the
-	// adapter, so a sensitive target never auto-runs and never gains a lasting
-	// conversation grant — across read, write AND execute.
-	risk := ""
-	if (action == "read" || action == "write" || action == "execute") && tools.SensitivePath(scope) {
-		risk = "sensitive_path"
-	}
 	service := project.New(x.engine.Store)
 	run := x.snapshotRun()
+	// A host tool that names a credential path is graded here, not by the
+	// adapter, so a sensitive target never auto-runs and never gains a lasting
+	// conversation grant in autonomous mode.
+	risk := ""
+	if run.EffectiveExecutionMode != w.ExecutionFullAccess && (action == "read" || action == "write" || action == "execute") && tools.SensitivePath(scope) {
+		risk = "sensitive_path"
+	}
 	if x.workRoot != "" && x.workRoot != run.ProjectRoot() {
 		// Independent review executes inside verify_dir; check boundaries against
 		// the step's actual workRoot instead of the author's candidate directory.

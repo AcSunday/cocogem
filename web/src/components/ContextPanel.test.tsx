@@ -197,3 +197,58 @@ it("keeps sources openable and the artifacts tab usable", async () => {
   await user.click(screen.getByRole("button", { name: /最终纪要/ }));
   expect(onArtifact).toHaveBeenCalledWith(artifact);
 });
+
+it("renders image sources inline and offers open-file and zoom actions", async () => {
+  const user = userEvent.setup();
+  const onOpenFile = vi.fn();
+  const onOpenImage = vi.fn();
+  const imgSource: Source = {
+    id: "src-image-panel",
+    workspace_id: "ws-1",
+    thread_id: "th-1",
+    run_id: "run-1",
+    kind: "image",
+    title: "preview_home.png",
+    url: "",
+    path: "captures/preview_home.png",
+    start_line: 0,
+    end_line: 0,
+    sha256: "",
+    content: "AAAA_BASE64_SHOULD_NOT_SHOW",
+    truncated: false,
+    captured_at: "2026-11-28T10:00:00Z",
+    media_type: "image/png",
+  };
+  render(
+    <ContextPanel
+      open
+      close={() => {}}
+      tab="sources"
+      setTab={() => {}}
+      sources={[imgSource]}
+      source={imgSource}
+      sourceID={imgSource.id}
+      onSource={() => {}}
+      onOpenFile={onOpenFile}
+      onOpenImage={onOpenImage}
+      artifacts={[]}
+      onArtifact={() => {}}
+    />,
+  );
+  expect(screen.queryByText("AAAA_BASE64_SHOULD_NOT_SHOW")).toBeNull();
+  const img = screen.getByAltText("preview_home.png");
+  expect(img).toHaveAttribute(
+    "src",
+    "/api/v1/sources/src-image-panel/original?inline=1",
+  );
+  await user.click(img.closest("button")!);
+  expect(onOpenImage).toHaveBeenCalledTimes(1);
+
+  await user.click(screen.getByRole("button", { name: "打开完整文件" }));
+  expect(onOpenFile).toHaveBeenCalledWith({
+    path: "captures/preview_home.png",
+    startLine: undefined,
+    endLine: undefined,
+    tab: "file",
+  });
+});

@@ -181,6 +181,10 @@ func (s *Server) thread(rw http.ResponseWriter, r *http.Request) {
 		}
 		backfillMessageModels(view.Messages.Items, view.Runs)
 		view.Sources, err = tx.SourceMetadata(view.Thread.ID)
+		if err != nil {
+			return err
+		}
+		view.OpenQuestions, err = collectThreadOpenQuestions(tx, view.Thread)
 		return err
 	})
 	if errors.Is(err, store.ErrInvalidCursor) {
@@ -188,4 +192,48 @@ func (s *Server) thread(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(rw, r, view, err)
+}
+
+func collectThreadOpenQuestions(tx *store.Tx, th w.Thread) ([]w.Question, error) {
+	tasks, err := tx.Tasks(th.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	targetTaskIDs := []string{}
+	seenTask := map[string]bool{}
+	addTask := func(id string) {
+		if id == "" || seenTask[id] {
+			return
+		}
+		seenTask[id] = true
+		targetTaskIDs = append(targetTaskIDs, id)
+	}
+	addTask(th.TaskID)
+	for _, task := range tasks {
+		if task.ThreadID == th.ID || (th.TaskID != "" && (task.RootTaskID == th.TaskID || task.ParentID == th.TaskID || task.ID == th.TaskID)) {
+			addTask(task.ID)
+		}
+	}
+	if len(targetTaskIDs) == 0 {
+		return nil, nil
+	}
+	seenQ := map[string]bool{}
+	out := []w.Question{}
+	for _, taskID := range targetTaskIDs {
+		questions, err := tx.OpenQuestionsForTask(taskID)
+		if err != nil {
+			return nil, err
+		}
+		for _, q := range questions {
+			if seenQ[q.ID] {
+				continue
+			}
+			seenQ[q.ID] = true
+			out = append(out, q)
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }

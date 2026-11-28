@@ -99,6 +99,35 @@ test("tasks create conversations, chat promotes in place and navigation stays co
   await expect(
     page.getByRole("button", { name: /验证原生执行/ }),
   ).toHaveCount(0);
+  // Only the accepted task is left. With the project filter cleared, the list
+  // must describe the archive instead of claiming the board is new or pointing
+  // at an action the header hides.
+  await page.getByRole("combobox", { name: "筛选项目" }).click();
+  await page.getByRole("option", { name: "全部项目" }).click();
+  await expect(
+    page.getByText("当前没有待推进的任务，已归档的任务可在下方查看。"),
+  ).toBeVisible();
+  await expect(page.getByText(/创建第一个任务/)).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /已归档 1 项/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "选择", exact: true }),
+  ).toHaveCount(0);
+  await mkdir("/tmp/cocogem-task-redesign", { recursive: true });
+  await page.screenshot({
+    path: "/tmp/cocogem-task-redesign/task-archived-only.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: /已归档 1 项/ }).click();
+  await expect(page.getByRole("button", { name: /改造任务工作区/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "选择", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "选择", exact: true }).click();
+  await page.getByRole("checkbox", { name: "选择任务：改造任务工作区" }).check();
+  await expect(page.getByText("已选 1 项")).toBeVisible();
+  await page.getByRole("button", { name: /已归档 1 项/ }).click();
+  await expect(page.getByText("已选 1 项")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "选择", exact: true })).toHaveCount(0);
   await page.goto(threadURL);
   await expect(rail.getByRole("button", { name: "项目首页" })).toHaveAttribute("aria-current", "page");
   const members = await (await page.request.get(`${baseURL}/api/v1/workspaces/${workspace.id}/agents`)).json();
